@@ -177,32 +177,31 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   RedisModule_ReplyWithStringBuffer(ctx, addr.c_str(), addr.length());
 
   RedisModule_ReplyWithStringBuffer(ctx, "num_docs", std::strlen("num_docs"));
-  RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
+  const auto len = static_cast<long long>(rtree_.size());
+  RedisModule_ReplyWithLongLong(ctx, len);
 
   RedisModule_ReplyWithStringBuffer(ctx, "docs", std::strlen("docs"));
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
-  RedisModule_ReplySetArrayLength(
-    ctx, std::transform_reduce(std::execution::unseq, rtree_.begin(), rtree_.end(), 0l, std::plus{},
-    [&](doc_type const& doc) {
-      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+  RedisModule_ReplyWithArray(ctx, len);
 
-      RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
-      RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
+  std::ranges::for_each(rtree_, [&](doc_type const& doc) {
+    const auto geom = lookup(doc);
+    // boost::optional does not have an `and_then` monad
+    RedisModule_ReplyWithArray(ctx, 4 + geom.map([](geom_type const&){ return 2; }).value_or(0));
 
-      RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
-      const auto str = doc_to_string<cs>(doc);
+    RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
+    RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
+
+    geom.map([ctx](geom_type const& geom) {
+      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
+      const auto str = geometry_to_string<cs>(geom);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-      
-      RedisModule_ReplySetArrayLength(ctx, 4 + lookup(doc).map([ctx](geom_type const& geom) {
-        RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
-        const auto str = geometry_to_string<cs>(geom);
-        RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-        return 2l;
-      }).value_or(0l));
+      return 0;
+    });
 
-      return 1l;
-    })
-  );
+    RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
+    const auto str = doc_to_string<cs>(doc);
+    RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
+  });
 }
 
 template <typename cs>
