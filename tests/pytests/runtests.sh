@@ -157,7 +157,7 @@ setup_rltest() {
 	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
 
 	TEST_TIMEOUT=${TEST_TIMEOUT:-300}
-	RLTEST_ARGS+=" --test-timeout $TEST_TIMEOUT --no-progress"
+	RLTEST_ARGS+=" --test-timeout $TEST_TIMEOUT"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"

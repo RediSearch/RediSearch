@@ -207,6 +207,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
+    def testWorkersPoolDrain(self):
         # test stats and drain
         conn = self.env.getConnection()
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
