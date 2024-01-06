@@ -281,18 +281,19 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   printf("Thread created\n");
 }
 
-static void MRClust_FreeRequest(MRCluster *cl);
+static void MRCluster_FreeRequest(MRCluster *cl);
 void MR_Destroy() {
   // Remove all jobs from the queue
   if (rq_g) {
     RQ_Empty(rq_g);
   }
   if (cluster_g) {
-    MRClust_FreeRequest(cluster_g);
+    MRCluster_FreeRequest(cluster_g);
     RQ_Free(rq_g, true);
     RedisModule_Log(NULL, "debug", "MR_Destroy: done cluster and RQ resources cleanup");
 
     cluster_g = NULL;
+    rq_g = NULL;
   }
 }
 
@@ -769,12 +770,12 @@ static void uvFreeClusterCb(struct MRRequestCtx *mc) {
   RedisModule_Log(NULL, "debug", "uvFreeClusterCb: done free request");
 }
 
-static void MRClust_FreeRequest(MRCluster *cl) {
+static void MRCluster_FreeRequest(MRCluster *cl) {
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
 
   rc->ctx = cl;
   rc->cb = uvFreeClusterCb;
 
   RQ_Push(rq_g, requestCb, rc, NULL);
-  RedisModule_Log(NULL, "debug", "MRClust_FreeRequest: pushed free request to the queue");
+  RedisModule_Log(NULL, "debug", "MRCluster_FreeRequest: pushed free request to the queue");
 }

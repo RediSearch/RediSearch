@@ -10,6 +10,7 @@
 #include <uv.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "rq.h"
 #include "rmalloc.h"
@@ -149,7 +150,7 @@ void RQ_uvClose(MRWorkQueue *q) {
   RedisModule_Assert(q->sz == 0);
   uv_close((uv_handle_t *)&q->async, RQ_Deactivate);
 }
-#include <unistd.h>
+
 void RQ_Free(MRWorkQueue *q, bool wait_for_uv_close) {
   if (wait_for_uv_close) {
     RedisModule_Log(NULL, "debug", "RQ_FREE: waiting for uv closure");
