@@ -516,7 +516,7 @@ OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
 
-[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+# [[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 #---------------------------------------------------------------------------------- Tests scope
 
