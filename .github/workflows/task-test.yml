@@ -95,6 +95,8 @@ jobs:
             echo "decision=false" >> $GITHUB_OUTPUT
           fi
       - name: Set Artifact Names
+        # Artifact names have to be unique, so we base them on the environment.
+        # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
@@ -139,17 +141,19 @@ jobs:
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      # We also always attempt to upload the artifacts because of that
       - name: Upload Sanitizer Artifacts
         id: upload-sanitizer-artifacts
-        if: ${{ always() && steps.node20.outputs.supported == 'true' && inputs.san }}
+        if: ${{ steps.node20.outputs.supported == 'true' && inputs.san }}
         uses: actions/upload-artifact@v4
         with:
           name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log.*
           if-no-files-found: ignore
       - name: Upload Artifacts
-        if: ${{ always() && steps.node20.outputs.supported == 'true' }}
+        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'true' &&
+          (steps.upload-sanitizer-artifacts.outputs.artifact-id || failure())
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -177,5 +181,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: ${{ steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure' }}
+        if: >
+          steps.upload-sanitizer-artifacts.outputs.artifact-id ||
+          ${{ steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure' }}
         run: exit 1

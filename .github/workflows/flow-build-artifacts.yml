@@ -50,7 +50,7 @@ jobs:
       - id: get-redis
         shell: bash -e pipefail {0}
         run: |
-          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -r '.tag_name') && \
+          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
       - name: Validate Reference
         shell: python
