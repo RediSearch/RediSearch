@@ -352,12 +352,14 @@ int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
   pthread_mutex_lock(&thpool_p->thcount_lock);
+  pthread_mutex_lock(&thpool_p->jobqueue.jobqueues_rwmutex);
   thpool_stats res = {.total_jobs_done = thpool_p->total_jobs_done,
                       .high_priority_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len,
                       .low_priority_pending_jobs = thpool_p->jobqueue.low_priority_jobqueue.len,
                       .total_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len+thpool_p->jobqueue.low_priority_jobqueue.len
   };
   pthread_mutex_unlock(&thpool_p->thcount_lock);
+  pthread_mutex_unlock(&thpool_p->jobqueue.jobqueues_rwmutex);
   return res;
 }
 

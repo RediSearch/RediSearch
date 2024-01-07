@@ -1035,7 +1035,7 @@ DEBUG_COMMAND(VecsimInfo) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
-#define MT_BUILD
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]

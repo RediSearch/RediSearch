@@ -223,8 +223,12 @@ def numeric_tree_summary(env, idx, numeric_field):
     return tree_summary
 
 
-def getWorkersThpoolStats(conn):
-    return to_dict(conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+def getWorkersThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
+
+
+def getWorkersThpoolStatsFromShard(shard_conn):
+    return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -284,8 +288,8 @@ def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
 
 
-def get_vecsim_debug_dict(conn, index_name, vector_field):
-    return to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
+def get_vecsim_debug_dict(env, index_name, vector_field):
+    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
 
 def forceInvokeGC(env, idx = 'idx', timeout = None):

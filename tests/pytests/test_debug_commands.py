@@ -2,11 +2,11 @@ from RLTest import Env
 from includes import *
 from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed
 
-
 class TestDebugCommands(object):
 
     def __init__(self):
-        self.env = Env(testName="testing debug commands", moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 2')
+        module_args = 'MT_MODE MT_MODE_FULL WORKER_THREADS 2' if MT_BUILD else ''
+        self.env = Env(testName="testing debug commands", moduleArgs=module_args)
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
@@ -195,7 +195,10 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
+
     def testStopAndResumeWorkersPool(self):
+        if not MT_BUILD:
+            self.env.skip()
         self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains("wrong number of arguments for"
                                                                               " 'FT.DEBUG' command")
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
@@ -208,6 +211,8 @@ class TestDebugCommands(object):
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
     def testWorkersPoolDrain(self):
+        if not MT_BUILD:
+            self.env.skip()
         # test stats and drain
         conn = self.env.getConnection()
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
