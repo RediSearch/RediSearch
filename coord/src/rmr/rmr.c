@@ -542,7 +542,9 @@ void MRIterator_Free(MRIterator *it);
 
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;
+  RedisModule_Log(NULL, "warning", "[Entrance] (mrIteratorRedisCB): ctx: %p, ctx->ic: %p, ctx->ic->cb: %p, pending: %d, inProcess: %d", ctx, ctx->ic, ctx->ic->cb, ctx->ic->pending, ctx->ic->inProcess);
   if (!r) {
+    RS_LOG_ASSERT(false, "(rmIteratorRedisCB) NULL reply from shard");
     MRIteratorCallback_Done(ctx, 1);
     // ctx->numErrored++;
     // TODO: report error
@@ -559,6 +561,7 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
+  RedisModule_Log(NULL, "warning", "(MRIteratorCallback_ProcessDone) inProcess: %d", ctx->ic->inProcess);
   unsigned inProcess =  __atomic_sub_fetch(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) RQ_Done(rq_g);
 }
@@ -585,9 +588,11 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
+  RedisModule_Log(NULL, "warning", "[Entrance] (MRIteratorCallback_Done): Pending: %d, inProcess: %d", ctx->ic->pending, ctx->ic->inProcess);
   int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
   MRIteratorCallback_ProcessDone(ctx);
   if (pending <= 0) {
+    RS_LOG_ASSERT(pending >= 0, "Pending should not get to a negative value");
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
     MRChannel_Close(ctx->ic->chan);
     return 0;
@@ -702,22 +707,29 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {
+  RedisModule_Log(NULL, "warning", "(MRIterator_Next) Popping from channel");
   void *p = MRChannel_Pop(it->ctx.chan);
   // fprintf(stderr, "POP: %s\n", p == MRCHANNEL_CLOSED ? "CLOSED" : "ITER");
   if (p == MRCHANNEL_CLOSED) {
+    RedisModule_Log(NULL, "warning", "(MRIterator_Next) Channel closed.");
     return MRITERATOR_DONE;
   }
   return p;
 }
 
 void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
+  RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) mayBeIdle: %d", mayBeIdle);
   if (mayBeIdle) {
     // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
     while (MRIteratorCallback_GetNumInProcess(it)) {
+      RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) Waiting for inProcess to be 0");
       usleep(1000);
     }
     // If we have no pending shards, we are done.
-    if (!it->ctx.pending) return;
+    if (!it->ctx.pending) {
+      RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) No pending shards, returning");
+      return;
+    }
     // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
     it->ctx.inProcess = it->ctx.pending;
     // Change the root command to DEL for each pending shard

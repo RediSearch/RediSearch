@@ -52,11 +52,14 @@ MRChannel *MR_NewChannel(size_t max) {
 
 /* Safely wait until the channel is closed */
 void MRChannel_WaitClose(MRChannel *chan) {
+  RedisModule_Log(NULL, "warning", "(MRChannel_WaitClose)");
   pthread_mutex_lock(&chan->lock);
   while (chan->open) {
+    RedisModule_Log(NULL, "warning", "(MRChannel_WaitClose) Waiting for channel to close");
     pthread_cond_wait(&chan->closeCond, &chan->lock);
   }
   pthread_mutex_unlock(&chan->lock);
+  RedisModule_Log(NULL, "warning", "(MRChannel_WaitClose) Done waiting for channel to close");
 }
 
 void MRChannel_Free(MRChannel *chan) {

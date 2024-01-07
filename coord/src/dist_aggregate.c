@@ -82,6 +82,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
     }
     // Discard the response, and return REDIS_OK
+    RedisModule_Log(NULL, "warning", "Root command was a DEL command, discarding response");
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
     return REDIS_OK;
@@ -89,6 +90,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    RedisModule_Log(NULL, "warning", "Error returned from shard, propagating to channel.");
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
@@ -144,6 +146,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   {
     MRReply *results = MRReply_ArrayElement(rep, 0);
     if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+      RedisModule_Log(NULL, "warning", "Valid reply received from shard, propagating to channel.");
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
       // User code now owns the reply, so we can't free it here ourselves!
       rep = NULL;
@@ -153,10 +156,13 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   if (done) {
+    RedisModule_Log(NULL, "warning", "Done! Calling MRIteratorCallback_Done.");
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
+    RedisModule_Log(NULL, "warning", "(netCursorCallback) Decreasing inProcess");
     MRIteratorCallback_ProcessDone(ctx);
   } else {
+    RedisModule_Log(NULL, "warning", "(netCursorCallback) Resending command (not for cursor)");
     // resend command
     if (MRIteratorCallback_ResendCommand(ctx, cmd) == REDIS_ERR) {
       MRIteratorCallback_Done(ctx, 1);
@@ -248,6 +254,7 @@ typedef struct {
 } RPNet;
 
 static int getNextReply(RPNet *nc) {
+  RedisModule_Log(NULL, "warning", "(getNextReply) Getting next reply, forCursor: %d", nc->cmd.forCursor);
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
@@ -345,6 +352,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       }
 
       if (nc->curIdx == len) {
+        RedisModule_Log(NULL, "warning", "(rpnetNext) Reached end of shard reply");
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
         bool timed_out = false;
 
@@ -370,6 +378,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         nc->current.root = nc->current.rows = root = rows = NULL;
 
         if (timed_out) {
+          RedisModule_Log(NULL, "warning", "(rpnetNext) Timed out [UPPER], returning RS_RESULT_TIMEDOUT");
           return RS_RESULT_TIMEDOUT;
         }
       }
@@ -380,6 +389,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
     if(TimedOut(&self->parent->sctx->timeout)) {
+      RedisModule_Log(NULL, "warning", "(rpnetNext) Timed out [LOWER], returning RS_RESULT_TIMEDOUT");
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -392,6 +402,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
 
     if (!getNextReply(nc)) {
+      RedisModule_Log(NULL, "warning", "(rpnetNext) No more replies, returning RS_RESULT_EOF");
       return RS_RESULT_EOF;
     }
 
@@ -401,6 +412,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        RedisModule_Log(NULL, "warning", "(rpnetNext) Error returned from shard, returning RS_RESULT_ERROR, error: %s", strErr);
         QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
       }
@@ -459,6 +471,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
     }
   }
+  RedisModule_Log(NULL, "warning", "(rpnetNext) Returning RS_RESULT_OK)");
   return RS_RESULT_OK;
 }
 
@@ -476,10 +489,12 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
+  RedisModule_Log(NULL, "warning", "[Entrance] (rpnetFree) Freeing rpnet");
 
   // the iterator might not be done - some producers might still be sending data, let's wait for
   // them...
   if (nc->it) {
+    RedisModule_Log(NULL, "warning", "(rpnetFree) Waiting for MRIterator to finish (if needed)");
     MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
 
