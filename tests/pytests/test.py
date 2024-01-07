@@ -3813,7 +3813,7 @@ def test_timeout_non_strict_policy(env):
 
     # Create an index, and populate it
     n = 25000
-    populate_db(env, n)
+    populate_db(env, text=True, n_per_shard=n)
 
     # Query the index with a small timeout, and verify that we get partial results
     num_docs = n * env.shardsCount
@@ -3824,7 +3824,7 @@ def test_timeout_non_strict_policy(env):
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
         )
     env.assertTrue(len(res) < num_docs + 1)
 
@@ -3838,7 +3838,7 @@ def test_timeout_strict_policy():
 
     # Create an index, and populate it
     n = 25000
-    populate_db(env, n)
+    populate_db(env, text=True, n_per_shard=n)
 
     # Query the index with a small timeout, and verify that we get an error
     num_docs = n * env.shardsCount
@@ -3848,7 +3848,7 @@ def test_timeout_strict_policy():
 
     # Same for `FT.AGGREGATE`
     env.expect(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
 
 
@@ -3898,7 +3898,7 @@ def test_timeoutCoordSearch_NonStrict(env):
     # Create and populate an index
     n_docs_pershard = 1100
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
@@ -3926,7 +3926,7 @@ def test_timeoutCoordSearch_Strict():
     # Create and populate an index
     n_docs_pershard = 50000
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
