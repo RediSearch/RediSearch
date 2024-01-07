@@ -516,7 +516,7 @@ OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
 
-# RLTest uses `fork` which is not safe on macOS
+# RLTest uses `fork` which might fail on macOS with the following variable set
 [[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 #---------------------------------------------------------------------------------- Tests scope
