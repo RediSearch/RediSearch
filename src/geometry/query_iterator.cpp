@@ -35,8 +35,9 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
     return INDEXREAD_EOF;
   }
 
-  const auto it = std::ranges::lower_bound(iter_.cbegin() + index_, iter_.cend(), docId);
-  index_ = std::ranges::distance(iter_.cbegin(), it + 1);
+  const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
+                                           std::ranges::end(iter_), docId);
+  index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
   if (!has_next()) {
     abort();
   }

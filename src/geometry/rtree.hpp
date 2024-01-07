@@ -76,10 +76,7 @@ class RTree {
   void insert(geom_type const& geom, t_docId id);
 
   template <typename Predicate, typename Filter>
-  [[nodiscard]] auto apply_predicate(Predicate&& p, Filter&& f) const -> query_results;
-  [[nodiscard]] auto contains(doc_type const& query_doc, geom_type const& query_geom) const
-      -> query_results;
-  [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const
+  [[nodiscard]] auto query_begin(Predicate const& predicate, Filter const& filter) const
       -> query_results;
   [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
                                         geom_type const& query_geom) const -> query_results;
