@@ -33,7 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: max_unsorted, union_iterator_heap, raw_docid, dialect_2,
+		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -691,11 +691,6 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-
-		if [[ -z $CONFIG || $CONFIG == union_iterator_heap ]]; then
-			{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
-				run_tests "with Union iterator heap"); (( E |= $? )); } || true
-		fi
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			if [[ $COV != 1 ]]; then
