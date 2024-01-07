@@ -35,15 +35,10 @@ jobs:
   test-macos:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
-    strategy:
-      matrix:
-        mode: [standalone, coordinator]
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      standalone:  ${{ matrix.mode == 'standalone'  }}
-      coordinator: ${{ matrix.mode == 'coordinator' }}
 
   coverage:
     needs: docs-only
