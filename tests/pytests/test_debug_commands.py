@@ -222,7 +222,7 @@ class TestDebugCommands(object):
                         'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
 
         # Expect 1 pending ingest job.
-        stats = getWorkersThpoolStats(conn)
+        stats = getWorkersThpoolStats(self.env)
         self.env.assertEqual(stats, {'totalJobsDone': 0,
                                      'totalPendingJobs': 1,
                                      'highPriorityPendingJobs': 0,
@@ -231,7 +231,7 @@ class TestDebugCommands(object):
         # After resuming, expect that the job is done.
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
-        stats = getWorkersThpoolStats(conn)
+        stats = getWorkersThpoolStats(self.env)
         self.env.assertEqual(stats, {'totalJobsDone': 1,
                                      'totalPendingJobs': 0,
                                      'highPriorityPendingJobs': 0,
