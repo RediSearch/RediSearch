@@ -989,18 +989,18 @@ def aggregate_test(protocol=2):
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
 
-    populate_db(env)
+    populate_db(env, numeric=True)
 
     env.expect(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
-        '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@numeric1', '@__key', 'APPLY',
+        '@numeric1 ^ @numeric1', 'AS', 't1exp', 'groupby', '2', '@numeric1', '@t1exp', 'REDUCE',
         'tolist', '1', '@__key', 'AS', 'keys', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
     # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
     # should return a timeout (rather than results)
     env.expect(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@numeric1', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
 def test_aggregate_timeout_resp2():
