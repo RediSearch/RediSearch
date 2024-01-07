@@ -52,7 +52,7 @@ class RTree {
   using LUT_type = boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>,
                                              std::equal_to<t_docId>, lookup_alloc>;
 
-  using query_results = std::vector<doc_type, Allocator::TrackingAllocator<doc_type>>;
+  using query_results = rtree_type::const_query_iterator;
 
  private:
   mutable std::size_t allocated_;
