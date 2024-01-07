@@ -91,14 +91,13 @@ template <typename cs>
 constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
   using point_type = typename RTree<cs>::point_type;
   if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-    return 0ul;
+    return 0;
   } else {
     const auto& inners = geom.inners();
     const auto outer_size = geom.outer().get_allocator().report();
-    return std::transform_reduce(
-      std::execution::unseq, std::begin(inners), std::end(inners), outer_size, std::plus{},
-      [](auto const& hole) -> std::size_t { return hole.get_allocator().report();
-    });
+    return std::transform_reduce(std::execution::unseq, std::begin(inners), std::end(inners),
+                                 outer_size, std::plus{},
+                                 [](auto const& hole) { return hole.get_allocator().report(); });
   }
 };
 
@@ -126,7 +125,7 @@ auto RTree<cs>::lookup(t_docId id) const -> boost::optional<geom_type const&> {
   if (auto it = docLookup_.find(id); it != docLookup_.end()) {
     return it->second;
   }
-  return {};
+  return boost::none;
 }
 template <typename cs>
 auto RTree<cs>::lookup(doc_type const& doc) const -> boost::optional<geom_type const&> {
@@ -183,10 +182,10 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
   RedisModule_ReplyWithStringBuffer(ctx, "docs", std::strlen("docs"));
   RedisModule_ReplyWithArray(ctx, len);
 
-  std::ranges::for_each(rtree_, [&](doc_type const& doc) {
+  for (doc_type const& doc : rtree_) {
     const auto geom = lookup(doc);
-    // boost::optional does not have an `and_then` monad
-    RedisModule_ReplyWithArray(ctx, 4 + geom.map([](geom_type const&){ return 2; }).value_or(0));
+    // boost::optional does not have an `and` monad
+    RedisModule_ReplyWithArray(ctx, 4 + geom.map([](geom_type const&) { return 2; }).value_or(0));
 
     RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
@@ -201,7 +200,7 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
     RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
     const auto str = doc_to_string<cs>(doc);
     RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-  });
+  }
 }
 
 template <typename cs>
@@ -213,10 +212,10 @@ template <typename cs>
 template <typename Predicate, typename Filter>
 auto RTree<cs>::apply_predicate(Predicate const& predicate, Filter const& filter) const
     -> query_results {
-  return query_results{rtree_.qbegin(predicate && bgi::satisfies(
-    [&](auto const& doc) -> bool {
-      return lookup(doc).map(filter).value_or(false);
-    })), rtree_.qend(), Allocator::TrackingAllocator<doc_type>{allocated_}};
+  // cannot capture filter by ref. must be copied in to prevent dangling.
+  return rtree_.qbegin(predicate && bgi::satisfies([this, filter](auto const& doc) -> bool {
+                         return lookup(doc).map(filter).value_or(false);
+                       }));
 }
 
 template <typename cs>
@@ -243,11 +242,13 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
   try {
     using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
     auto alloc = alloc_type{allocated_};
-    const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
     const auto query_geom = from_wkt<cs>(wkt);
     const auto results = generate_predicate(query_type, query_geom);
+    const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
     std::allocator_traits<alloc_type>::construct(
-        alloc, qi, results | std::views::transform(get_id<cs>), allocated_);
+        alloc, qi,
+        std::ranges::subrange{results, rtree_.qend()} | std::views::transform(get_id<cs>),
+        allocated_);
     return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {

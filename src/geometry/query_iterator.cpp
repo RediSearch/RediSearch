@@ -82,7 +82,7 @@ int QIter_HasNext(void *ctx) {
 }
 void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  const auto qi = static_cast<QueryIterator * const>(self->ctx);
+  const auto qi = static_cast<QueryIterator *const>(self->ctx);
   auto alloc = alloc_type{qi->iter_.get_allocator()};
   IndexResult_Free(self->current);
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
@@ -101,19 +101,19 @@ void QIter_Rewind(void *ctx) {
 
 IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
-    .isValid = 1,
-    .ctx = ctx,
-    .current = NewVirtualResult(0),
-    .type = ID_LIST_ITERATOR,
-    .NumEstimated = QIter_Len,
-    .Read = QIter_Read,
-    .SkipTo = QIter_SkipTo,
-    .LastDocId = QIter_LastDocId,
-    .HasNext = QIter_HasNext,
-    .Free = QIter_Free,
-    .Len = QIter_Len,
-    .Abort = QIter_Abort,
-    .Rewind = QIter_Rewind,
+      .isValid = 1,
+      .ctx = ctx,
+      .current = NewVirtualResult(0),
+      .type = ID_LIST_ITERATOR,
+      .NumEstimated = QIter_Len,
+      .Read = QIter_Read,
+      .SkipTo = QIter_SkipTo,
+      .LastDocId = QIter_LastDocId,
+      .HasNext = QIter_HasNext,
+      .Free = QIter_Free,
+      .Len = QIter_Len,
+      .Abort = QIter_Abort,
+      .Rewind = QIter_Rewind,
   };
 }
 }  // namespace GeoShape
