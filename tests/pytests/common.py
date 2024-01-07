@@ -506,21 +506,53 @@ def number_to_ordinal(n: int) -> str:
         suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
     return str(n) + suffix
 
-def populate_db(env, n=10000):
-    """Creates a simple index called `idx`, and populates the database with
+def populate_db(env: Env, idx_name: str = 'idx', text: bool = False, numeric: bool = False, tag: bool = False, n_per_shard=10000):
+    """
+    Creates a simple index called `idx`, and populates the database with
     `n * n_shards` matching documents.
+    The names of the fields will be 'text1', 'numeric1', 'tag1' corresponding to
+    the field type.
 
     Parameters:
-        n (int): Number of documents to create per shard
+    -----------
+        env (Env): Environment to populate.
+        idx_name: The name of the index to create.
+        text (bool): Whether to create a text field in the index.
+        numeric (bool): Whether to create a numeric field in the index.
+        tag (bool): Whether to create a tag field in the index.
+        n_per_shard (int): Number of documents to create per shard.
+
     Returns:
+    -----------
         None
     """
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
-    num_docs = n * env.shardsCount
+    text_f = 'text1 TEXT' if text else ''
+    numeric_f = 'numeric1 NUMERIC' if numeric else ''
+    tag_f = 'tag1 TAG' if tag else ''
+
+    index_creation = f'FT.CREATE {idx_name} SCHEMA'
+    if text:
+        index_creation += f' {text_f}'
+    if numeric:
+        index_creation += f' {numeric_f}'
+    if tag:
+        index_creation += f' {tag_f}'
+
+    conn.execute_command(*index_creation.split(' '))
+
+    num_docs = n_per_shard * env.shardsCount
     pipeline = conn.pipeline(transaction=False)
-    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset(i, 't1', str(t1))
+    for i in range(num_docs):
+        population_command = f'HMSET doc:{i}'
+        if text:
+            population_command += f' text1 lala:{i}'
+        if numeric:
+            population_command += f' numeric1 {i}'
+        if tag:
+            population_command += f' tag1 MOVIE'
+
+        pipeline.execute_command(*population_command.split(' '))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
