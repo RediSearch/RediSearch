@@ -14,6 +14,7 @@
 using namespace RediSearch::GeoShape;
 using namespace RediSearch::Allocator;
 
+// using boost::allocate_unique in order to make_unique explicitly using the Redis Allocator
 template <typename cs>
 using rtree_ptr = std::unique_ptr<RTree<cs>, boost::alloc_deleter<RTree<cs>, Allocator<RTree<cs>>>>;
 

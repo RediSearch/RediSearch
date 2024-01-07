@@ -97,6 +97,8 @@ constexpr auto geometry_reporter = [](auto const& geom) -> std::size_t {
   } else {
     const auto& inners = geom.inners();
     const auto outer_size = geom.outer().get_allocator().report();
+    // reduce allows for out-of-order execution of associative and commutative operation (std::plus)
+    // transform to associative and commutative using a unary predicate (hole -> size_t)
     return std::transform_reduce(std::execution::unseq, std::begin(inners), std::end(inners),
                                  outer_size, std::plus{},
                                  [](auto const& hole) { return hole.get_allocator().report(); });
@@ -189,8 +191,7 @@ void RTree<cs>::dump(RedisModuleCtx* ctx) const {
 
   for (doc_type const& doc : rtree_) {
     const auto geom = lookup(doc);
-    // boost::optional does not have an `and` monad
-    RedisModule_ReplyWithArray(ctx, 4 + geom.map([](geom_type const&) { return 2; }).value_or(0));
+    RedisModule_ReplyWithArray(ctx, 4 + (geom ? 2 : 0));
 
     RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
@@ -215,11 +216,12 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(Predicate const& predicate, Filter const& filter) const
+auto RTree<cs>::query_begin(Predicate const& predicate, Filter const& filter) const
     -> query_results {
-  // cannot capture filter by ref. must be copied in to prevent dangling.
-  return rtree_.qbegin(predicate && bgi::satisfies([this, filter](auto const& doc) -> bool {
-                         return lookup(doc).map(filter).value_or(false);
+  // cannot capture filter by ref. must be moved in to prevent dangling.
+  return rtree_.qbegin(predicate &&
+                       bgi::satisfies([this, f = std::move(filter)](auto const& doc) -> bool {
+                         return lookup(doc).map(f).value_or(false);
                        }));
 }
 
@@ -229,19 +231,19 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
   const auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
     case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
-      return apply_predicate(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+      return query_begin(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, query_geom, geom);
       });
     case QueryType::WITHIN:
-      return apply_predicate(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+      return query_begin(bgi::within(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, geom, query_geom);
       });
     case QueryType::DISJOINT:  // disjoint(g1, g2) == !intersects(g1, g2)
-      return apply_predicate(bgi::disjoint(query_mbr), [&](auto const& geom) -> bool {
+      return query_begin(bgi::disjoint(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(std::not_fn(intersects_filter<cs>), geom, query_geom);
       });
     case QueryType::INTERSECTS:
-      return apply_predicate(bgi::intersects(query_mbr), [&](auto const& geom) -> bool {
+      return query_begin(bgi::intersects(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(intersects_filter<cs>, geom, query_geom);
       });
     default:
@@ -255,14 +257,15 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
   try {
     using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
     auto alloc = alloc_type{allocated_};
-    const auto query_geom = from_wkt<cs>(wkt);
+    const auto query_geom = from_wkt<cs>(wkt); // lifetime begins here
     const auto results = generate_predicate(query_type, query_geom);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
     std::allocator_traits<alloc_type>::construct(
         alloc, qi,
         std::ranges::subrange{results, rtree_.qend()} | std::views::transform(get_id<cs>),
-        allocated_);
+        allocated_); // query_geom used here. is not dangling
     return qi->base();
+    // query_geom lifetime ends here.
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
