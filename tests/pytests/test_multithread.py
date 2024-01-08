@@ -293,7 +293,7 @@ def test_async_updates_sanity():
     conns = env.getOSSMasterNodesConnectionList()
     total_jobs_done = 0
     for con in conns:
-        env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+        env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'DRAIN'))
         env.assertEqual(getWorkersThpoolStatsFromShard(con)['totalPendingJobs'], 0)
         total_jobs_done += getWorkersThpoolStatsFromShard(con)['totalJobsDone']
 

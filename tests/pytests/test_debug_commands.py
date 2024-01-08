@@ -29,8 +29,9 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO',
-                     'WORKER_THREADS']
+                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+        if MT_BUILD:
+            help_list.append('WORKER_THREADS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:

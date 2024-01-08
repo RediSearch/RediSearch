@@ -61,7 +61,8 @@ typedef struct jobqueue {
 typedef struct priority_queue {
   jobqueue high_priority_jobqueue;    /* job queue for high priority tasks */
   jobqueue low_priority_jobqueue;     /* job queue for low priority tasks */
-  pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
+  pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access, when locking thcount_lock as
+                                       * well, we should first acquire this lock to prevent deadlocks */
   bsem* has_jobs;                     /* flag as binary semaphore  */
   unsigned char pulls;                /* number of pulls from queue */
   unsigned char n_privileged_threads; /* number of threads that always run high priority tasks */
@@ -76,16 +77,17 @@ typedef struct thread {
 
 /* Threadpool */
 typedef struct redisearch_thpool_t {
-  thread** threads;                 /* pointer to threads        */
+  thread** threads;                    /* pointer to threads        */
   size_t total_threads_count;
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
-  volatile int keepalive;           /* keep pool alive           */
-  volatile int terminate_when_empty; /* terminate thread when there are no more pending jobs */
-  pthread_mutex_t thcount_lock;     /* used for thread count etc */
-  pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
-  priority_queue jobqueue;          /* job queue                 */
-  LogFunc log;                      /* log callback              */
+  volatile int keepalive;              /* keep pool alive           */
+  volatile int terminate_when_empty;   /* terminate thread when there are no more pending jobs */
+  pthread_mutex_t thcount_lock;        /* used for thread count etc, when locking jobqueues_rwmutex as
+                                        * well, we should first acquire this lock to prevent deadlocks */
+  pthread_cond_t threads_all_idle;     /* signal to thpool_wait     */
+  priority_queue jobqueue;             /* job queue                 */
+  LogFunc log;                         /* log callback              */
   volatile unsigned long total_jobs_done;  /* statistics for observability, guarded by thcount_lock */
 } redisearch_thpool_t;
 
@@ -351,6 +353,7 @@ int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
 }
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
+  // Locking must be done in the following order to prevent deadlocks.
   pthread_mutex_lock(&thpool_p->thcount_lock);
   pthread_mutex_lock(&thpool_p->jobqueue.jobqueues_rwmutex);
   thpool_stats res = {.total_jobs_done = thpool_p->total_jobs_done,
