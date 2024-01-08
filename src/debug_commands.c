@@ -1055,12 +1055,16 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
                                         " or is already running");
     }
-    // todo: cover drain and stats with tests in debug_command
   } else if (!strcasecmp(op, "drain")) {
     if (!workerThreadPool_running()) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
     }
     workersThreadPool_Drain(RSDummyContext, 0);
+    // After we drained the thread pool and there are no more jobs in the queue, we wait until all
+    // threads are idle, so we can be sure that all jobs were executed.
+    while (workersThreadPool_WorkingThreadCount() > 0) {
+      usleep(100);
+    }
   } else if (!strcasecmp(op, "stats")) {
     thpool_stats stats = workersThreadPool_getStats();
     START_POSTPONED_LEN_ARRAY(num_stats_fields);
