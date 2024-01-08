@@ -81,7 +81,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
       RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
     }
-    // Discard the response, and return REDIS_OK (cmd->depleted is already set to true)
+    // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
     return REDIS_OK;
@@ -89,7 +89,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-    cmd->depleted = true;
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
@@ -115,10 +114,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   if (bail_out) {
     RedisModule_Log(NULL, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
-
-    // Avoid sending a cursor.del command to the shard by marking it as depleted
-    cmd->depleted = true;
-
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
   }
@@ -158,10 +153,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   if (done) {
-    // Make sure we don't send a cursor.del command to the shard (since we're
-    // decreasing `isPending`)
-    cmd->depleted = true;
-
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
