@@ -17,8 +17,6 @@
 #include "module.h"
 #include "suffix.h"
 
-#include <unistd.h>
-
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
