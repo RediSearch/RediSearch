@@ -561,7 +561,7 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  RedisModule_Log(NULL, "warning", "(MRIteratorCallback_ProcessDone) inProcess: %d-->", ctx->ic->inProcess, ctx->ic->inProcess - 1);
+  RedisModule_Log(NULL, "warning", "(MRIteratorCallback_ProcessDone) inProcess: %d-->%d", ctx->ic->inProcess, ctx->ic->inProcess - 1);
   unsigned inProcess =  __atomic_sub_fetch(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) RQ_Done(rq_g);
 }
@@ -631,6 +631,8 @@ void iterManualNextCb(void *p) {
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
       RedisModule_Log(NULL, "warning", "(iterManualNextCb) Sending command to shard %d", i);
+      RedisModule_Log(NULL, "warning", "(iterManualNextCb) it->cbxs: %p, it->cbxs[i]: %p, it->cbxs[i].cmd: %p, it->cbxs[i].cmd.strs: %p, it->cbxs[i].cmd.strs[0]: %s, it->cbxs[i].cmd.strs[1]: %s", it->cbxs, &it->cbxs[i], &it->cbxs[i].cmd, it->cbxs[i].cmd.strs, it->cbxs[i].cmd.strs[0], it->cbxs[i].cmd.strs[1]);
+
       if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         // fprintf(stderr, "Could not send command!\n");
@@ -726,7 +728,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
   if (mayBeIdle) {
     // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
     while (MRIteratorCallback_GetNumInProcess(it)) {
-      RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) Waiting for inProcess to be 0");
+      RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) inProcess: %d, waiting for inProcess to be 0", it->ctx.inProcess);
       usleep(1000);
     }
     // If we have no pending shards, we are done.

@@ -22,6 +22,7 @@
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
 static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
+  RedisModule_Log(NULL, "warning", "[Entrance] (getCursorCommand) Getting cursor command");
   long long cursorId;
   if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
     // Invalid format?!
