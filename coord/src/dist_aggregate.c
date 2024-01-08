@@ -477,6 +477,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
+  RedisModule_Log(NULL, "warning", "[Entrance] (rpnetNext_Start)");
   MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
@@ -688,6 +689,12 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
+  RedisModule_Log(ctx, "warning", "Input command: ");
+  for (uint i = 0; i < argc; i++) {
+    RedisModule_Log(ctx, "warning", "%s ", RedisModule_StringPtrLen(argv[i], NULL));
+  }
+  RedisModule_Log(ctx, "warning", "End of input command");
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
 

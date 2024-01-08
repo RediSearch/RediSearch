@@ -617,6 +617,7 @@ int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 void iterStartCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
+    RedisModule_Log(NULL, "warning", "(iterStartCb) Sending command to shard %d", i);
     if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       // fprintf(stderr, "Could not send command!\n");
@@ -629,6 +630,7 @@ void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
+      RedisModule_Log(NULL, "warning", "(iterManualNextCb) Sending command to shard %d", i);
       if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         // fprintf(stderr, "Could not send command!\n");
@@ -697,6 +699,7 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
   }
   ret->ctx.pending = ret->len;
   ret->ctx.inProcess = ret->len; // Initially all commands are in process
+  RedisModule_Log(NULL, "warning", "(MR_Iterate) Setting pending: %d, inProcess: %d", ret->ctx.pending, ret->ctx.inProcess);
 
   RQ_Push(rq_g, iterStartCb, ret, NULL);
   return ret;
@@ -718,7 +721,7 @@ MRReply *MRIterator_Next(MRIterator *it) {
 }
 
 void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
-  RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) mayBeIdle: %d", mayBeIdle);
+  RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) mayBeIdle: %d, inProcess: %d, pending: %d", mayBeIdle, it->ctx.inProcess, it->ctx.pending);
   if (mayBeIdle) {
     // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
     while (MRIteratorCallback_GetNumInProcess(it)) {
@@ -731,6 +734,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
       return;
     }
     // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
+    RedisModule_Log(NULL, "warning", "(MRIterator_WaitDone) pending: %d, inProcess: %d, setting inProcess to %d and triggering CURSOR.DEL commands", it->ctx.pending, it->ctx.inProcess, it->ctx.pending);
     it->ctx.inProcess = it->ctx.pending;
     // Change the root command to DEL for each pending shard
     for (size_t i = 0; i < it->len; i++) {

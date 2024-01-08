@@ -77,7 +77,7 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 }
 
 void RQ_Done(MRWorkQueue *q) {
-  RedisModule_Log(NULL, "warning", "(RQ_Done) (q->pending: %d)", q->pending);
+  RedisModule_Log(NULL, "warning", "(RQ_Done) q->pending: %d-->%d", q->pending, q->pending - 1);
   uv_mutex_lock(&q->lock);
   --q->pending;
   // fprintf(stderr, "Concurrent requests: %d/%d\n", q->pending, q->maxPending);
