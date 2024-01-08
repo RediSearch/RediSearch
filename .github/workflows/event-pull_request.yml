@@ -44,7 +44,12 @@ jobs:
       flow-config: QUICK=1
 
   pr-validation:
-    needs: [basic-test, coverage, sanitize]
+    needs:
+      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
+      - get-latest-redis-tag
+      - basic-test
+      - coverage
+      - sanitize
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
