@@ -90,7 +90,13 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-    MRIteratorCallback_ProcessDone(ctx);
+
+    // Avoid decreasing 'isPending' in a non-depleted shard if on non-client-cursor cases
+    if (cmd->forCursor) {
+      MRIteratorCallback_ProcessDone(ctx);
+    } else {
+      MRIteratorCallback_Done(ctx, 1);
+    }
     return REDIS_ERR;
   }
 
