@@ -27,8 +27,10 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
     // Invalid format?!
     return false;
   }
+  RedisModule_Log(NULL, "warning", "[Entrance] (getCursorCommand) Cursor id is %lld.", cursorId);
 
   if (cursorId == 0) {
+    RedisModule_Log(NULL, "warning", "(getCursorCommand) Cursor id is 0, setting depleted=True and folding.");
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
     return false;
@@ -47,6 +49,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   // If we timed out and not in cursor mode, we want to send the shard a DEL
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
+    RedisModule_Log(NULL, "warning", "(getCursorCommand) Timed out and not for cursor, sending DEL command");
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
     newCmd.depleted = true;
     // Mark that the last command was a DEL command
@@ -57,6 +60,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   }
 
   if(timedout && cmd->forCursor) {
+    RedisModule_Log(NULL, "warning", "(getCursorCommand) Timed out and not cursor, Resetting timedOut");
     // Reset the `timedOut` value in case it was set (for next iterations, as
     // we're in cursor mode)
     MRIteratorCallback_ResetTimedOut(ctx);
@@ -74,12 +78,15 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
 
 static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    RedisModule_Log(NULL, "warning", "Error returned from shard: %s", MRReply_String(rep, NULL));
+  }
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
+      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard: %s", MRReply_String(rep, NULL));
     }
     // Discard the response, and return REDIS_OK
     RedisModule_Log(NULL, "warning", "Root command was a DEL command, discarding response");
