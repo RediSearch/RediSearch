@@ -561,7 +561,7 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  RedisModule_Log(NULL, "warning", "(MRIteratorCallback_ProcessDone) inProcess: %d-->%d", ctx->ic->inProcess, ctx->ic->inProcess - 1);
+  RedisModule_Log(NULL, "warning", "(MRIteratorCallback_ProcessDone) inProcess: %d-->%d", ctx->ic->inProcess, (ctx->ic->inProcess - 1));
   unsigned inProcess =  __atomic_sub_fetch(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) RQ_Done(rq_g);
 }
