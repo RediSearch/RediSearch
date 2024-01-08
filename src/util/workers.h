@@ -56,4 +56,6 @@ int workersThreadPool_resume();
 
 thpool_stats workersThreadPool_getStats();
 
+void workersThreadPool_wait();
+
 #endif // MT_BUILD

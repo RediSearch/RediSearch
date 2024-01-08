@@ -2347,8 +2347,8 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
-    # Wait for GC to remove the deleted vectors.
-    time.sleep(2) # TODO: add a way to know when all swap jobs are ready (from vecsim or by analyzing the worker's jobs)
+    # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
     env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
 
     debug_info = get_debug_info()

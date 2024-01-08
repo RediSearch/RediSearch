@@ -18,8 +18,6 @@
 #include "suffix.h"
 #include "util/workers.h"
 
-#include <unistd.h>
-
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -1064,9 +1062,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     workersThreadPool_Drain(RSDummyContext, 0);
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.
-    while (workersThreadPool_WorkingThreadCount() > 0) {
-      usleep(100);
-    }
+    workersThreadPool_wait();
   } else if (!strcasecmp(op, "stats")) {
     thpool_stats stats = workersThreadPool_getStats();
     START_POSTPONED_LEN_ARRAY(num_stats_fields);

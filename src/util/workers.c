@@ -159,4 +159,11 @@ thpool_stats workersThreadPool_getStats() {
   return redisearch_thpool_get_stats(_workers_thpool);
 }
 
+void workersThreadPool_wait() {
+  if (!_workers_thpool || !redisearch_thpool_running(_workers_thpool)) {
+    return;
+  }
+  redisearch_thpool_wait(_workers_thpool);
+}
+
 #endif // MT_BUILD
