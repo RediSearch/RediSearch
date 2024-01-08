@@ -749,6 +749,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");
         cmd->lens[1] = 3;
+        // cmd->depleted = true;
       }
     }
     // Send the DEL commands, and wait for them to be done
