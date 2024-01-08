@@ -94,6 +94,23 @@ jobs:
           else
             echo "decision=false" >> $GITHUB_OUTPUT
           fi
+      - name: Set Artifact Names
+        # Artifact names have to be unique, so we base them on the environment.
+        # We also remove invalid characters from the name.
+        id: artifact-names
+        run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
+          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        run: |
+          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
@@ -123,28 +140,48 @@ jobs:
         continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
-      - name: Upload Artifacts
-        # skip if all tests passed
-        if: failure()
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test Logs
-          path: |
-            tests/logs
-            tests/pytests/logs/*.log
-          if-no-files-found: ignore
+      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Sanitizer Artifacts
-        if: ${{ inputs.san }}
+        id: upload-sanitizer-artifacts
+        if: ${{ steps.node20.outputs.supported == 'true' && inputs.san }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log.*
+          if-no-files-found: ignore
+      - name: Upload Artifacts
+        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'true' &&
+          (steps.upload-sanitizer-artifacts.outputs.artifact-id || failure())
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log
+          if-no-files-found: ignore
+      # If node20 is not supported, we can only use version 3.
+      # Here we only upload the artifacts if the tests had failed, since it is very slow
+      - name: Upload Sanitizer Artifacts (node20 not supported)
+        id: upload-sanitizer-artifacts-v3
+        if: ${{ steps.node20.outputs.supported == 'false' && inputs.san }}
         uses: actions/upload-artifact@v3
         with:
-          name: Sanitizer Logs
-          path: tests/pytests/logs/*.log.*
+          name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log.*
+          if-no-files-found: ignore
+      - name: Upload Artifacts (node20 not supported)
+        # Upload artifacts only if tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'false' &&
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+        uses: actions/upload-artifact@v3
+        with:
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: ${{ steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure' }}
+        if: >
+          steps.upload-sanitizer-artifacts.outputs.artifact-id ||
+          steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure'
         run: exit 1
-      - name: Fail flow if sanitizer failed
-        if: ${{ inputs.san }}
-        run: |
-          [[ -z $(ls tests/pytests/logs/*.log.* 2>/dev/null) ]] # Set exit code to 0 if no sanitizer logs were found, otherwise 1

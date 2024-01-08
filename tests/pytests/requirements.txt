@@ -2,4 +2,4 @@ packaging >= 20.8
 gevent
 deepdiff
 conan
-RLTest >= 0.7.3
+RLTest >= 0.7.9
