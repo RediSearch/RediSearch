@@ -31,7 +31,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   RedisModule_Log(NULL, "warning", "[Entrance] (getCursorCommand) Cursor id is %lld.", cursorId);
 
   if (cursorId == 0) {
-    RedisModule_Log(NULL, "warning", "(getCursorCommand) Cursor id is 0, setting depleted=True and folding.");
+    RedisModule_Log(NULL, "warning", "(getCursorCommand) Cursor id is 0, setting depleted=True and folding. cmd: %p", cmd);
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
     return false;
@@ -130,6 +130,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;
+  RedisModule_Log(NULL, "warning", "(netCursorCallback) Getting cursor command. cmd: %p", cmd);
   bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
 
   // Push the reply down the chain

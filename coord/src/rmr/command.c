@@ -191,7 +191,7 @@ MRCommand MR_NewCommandArgv(int argc, const char **argv) {
 
 /* Create a deep copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd) {
-  RedisModule_Log(NULL, "warning", "[Entrance] (MRCommand_Copy)");
+  // RedisModule_Log(NULL, "warning", "[Entrance] (MRCommand_Copy)");
   MRCommand ret;
   MRCommand_Init(&ret, cmd->num);
 
