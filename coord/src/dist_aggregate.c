@@ -99,8 +99,9 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
     RedisModule_Log(NULL, "warning", "Error returned from shard, propagating to channel.");
+    cmd->depleted = true;
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-    MRIteratorCallback_ProcessDone(ctx);
+    MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
   }
 
