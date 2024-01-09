@@ -580,9 +580,9 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertNotEqual(cursor, 0)
-        if SANITIZER or CODE_COVERAGE:
-            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
-            self.env.cmd('ft.cursor', 'del', 'games', cursor)
+        # if SANITIZER or CODE_COVERAGE:
+        #     # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
+        #     self.env.cmd('ft.cursor', 'del', 'games', cursor)
 
 
 def grouper(iterable, n, fillvalue=None):

@@ -1109,10 +1109,10 @@ void RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
-  GC_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  ConcurrentSearch_ThreadPoolDestroy();
+  // GC_ThreadPoolDestroy();
+  // CleanPool_ThreadPoolDestroy();
+  // ReindexPool_ThreadPoolDestroy();
+  // ConcurrentSearch_ThreadPoolDestroy();
 
   // free global structures
   Extensions_Free();
