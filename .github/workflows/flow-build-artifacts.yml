@@ -49,7 +49,7 @@ jobs:
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - id: get-redis
-        shell: bash -e pipefail {0}
+        shell: bash -l -eo pipefail {0}
         run: |
           TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT
