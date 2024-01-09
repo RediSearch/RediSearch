@@ -579,7 +579,7 @@ def testTimedOutWarningCoord(env):
   TimedOutWarningtestCoord(env)
 
 # This test is currently skipped due to flaky behavior of some of the machines'
-# timers.
+# timers. MOD-6436
 @skip()
 def testNonZeroTimers(env):
   """Tests that the timers' values of the `FT.PROFILE` response are populated
