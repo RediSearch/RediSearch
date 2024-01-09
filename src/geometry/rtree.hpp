@@ -76,10 +76,10 @@ class RTree {
   void insert(geom_type const& geom, t_docId id);
 
   template <typename Predicate, typename Filter>
-  [[nodiscard]] auto query_begin(Predicate const& predicate, Filter const& filter) const
+  [[nodiscard]] auto apply_predicate(Predicate&& predicate, Filter&& filter) const
       -> query_results;
-  [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
-                                        geom_type const& query_geom) const -> query_results;
+  [[nodiscard]] auto query_begin(QueryType query_type, geom_type const& query_geom) const
+      -> query_results;
 };
 
 }  // namespace GeoShape

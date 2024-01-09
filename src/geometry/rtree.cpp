@@ -97,9 +97,12 @@ constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
     const auto outer_size = geom.outer().get_allocator().report();
     // reduce allows for out-of-order execution of associative and commutative operation (std::plus)
     // transform to associative and commutative using a unary predicate (hole -> size_t)
-    return std::transform_reduce(std::execution::unseq, std::begin(inners), std::end(inners),
-                                 outer_size, std::plus{},
-                                 [](auto const& hole) { return hole.get_allocator().report(); });
+    return std::transform_reduce(
+#ifndef __APPLE__  // apple clang does not implement `std::execution` despite being a C++17 feature
+        std::execution::unseq,
+#endif
+        std::begin(inners), std::end(inners), outer_size, std::plus{},
+        [](auto const& hole) { return hole.get_allocator().report(); });
   }
 };
 
@@ -211,26 +214,24 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::query_begin(Predicate const& predicate, Filter const& filter) const
-    -> query_results {
-  // cannot capture filter by ref. must be moved in to prevent dangling.
-  return rtree_.qbegin(predicate &&
+auto RTree<cs>::apply_predicate(Predicate&& predicate, Filter&& filter) const -> query_results {
+  return rtree_.qbegin(std::forward<Predicate>(predicate) &&
                        bgi::satisfies([this, f = std::move(filter)](auto const& doc) -> bool {
                          return lookup(doc).map(f).value_or(false);
                        }));
 }
 
 template <typename cs>
-auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_geom) const
+auto RTree<cs>::query_begin(QueryType query_type, geom_type const& query_geom) const
     -> query_results {
   const auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
     case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
-      return query_begin(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+      return apply_predicate(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, query_geom, geom);
       });
     case QueryType::WITHIN:
-      return query_begin(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+      return apply_predicate(bgi::within(query_mbr), [&](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, geom, query_geom);
       });
     default:
@@ -245,11 +246,11 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
     using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
     auto alloc = alloc_type{allocated_};
     const auto query_geom = from_wkt<cs>(wkt); // lifetime begins here
-    const auto results = generate_predicate(query_type, query_geom);
+    const auto qbegin = query_begin(query_type, query_geom);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
     std::allocator_traits<alloc_type>::construct(
         alloc, qi,
-        std::ranges::subrange{results, rtree_.qend()} | std::views::transform(get_id<cs>),
+        std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>),
         allocated_); // query_geom used here. is not dangling
     return qi->base();
     // query_geom lifetime ends here.
