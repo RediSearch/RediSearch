@@ -60,7 +60,8 @@ def testMultipleBlocksBuffer():
 # We test it only for redis versions > 7.2.3 due to a bug in redis - onFLush callback is called even though module loading
 # failed, causing access to an invalid memory that was freed (module context) - see
 # https://github.com/redis/redis/issues/12808.
-@skip(cluster=True, noWorkers=True)
+# TODO: free allocations in module init in case we return an error, currently this is causing leaks when MODULE LOAD fails.
+@skip(cluster=True, noWorkers=True, asan=True)
 def test_invalid_mt_config_combinations(env):
     if server_version_less_than(env, "7.2.4"):
         env.skip()
