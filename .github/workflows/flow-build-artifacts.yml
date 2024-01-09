@@ -28,12 +28,6 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
-      reference:
-        type: string
-        description: 'Optional: Reference (branch, tag, SHA) to build against. Defaults to the base branch'
-      redis-reference:
-        type: string
-        description: 'Optional: Redis reference (branch, tag, SHA) to build against. Defaults to the latest release'
   workflow_call:
     inputs:
       platform:
@@ -42,91 +36,33 @@ on:
       architecture:
         type: string
         default: all
-      reference:
-        type: string
-      redis-reference:
-        type: string
-
-env:
-  # This will be used as a file name to store the SHA of the last successful build, and as a cache key for this file.
-  # key-name ($SHA_CACHE_NAME) -> path to file (name $SHA_CACHE_NAME) -> content (SHA)
-  SHA_CACHE_NAME: ${{ inputs.reference || github.ref_name }}-${{ github.event_name }}-last-sha
 
 jobs:
   setup:
-    # Sets SHA and Validates the `reference` Input
+    # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      skip: ${{ steps.on-dispatch.outputs.skip || steps.skip.outputs.decision || 'false' }}
-      store: ${{ steps.on-dispatch.outputs.store || 'true' }}
-      redis-ref: ${{ steps.get-redis.outputs.tag || inputs.redis-reference }}
+      redis-ref: ${{ steps.get-redis.outputs.tag }}
     steps:
-      - name: Validate reference
-        uses: actions/checkout@v3
-        with:
-          # Use the input reference if provided, otherwise use the default behavior of the action
-          ref: ${{ inputs.reference }}
+      - uses: actions/checkout@v4
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-
-      - id: on-dispatch
-        # Don't skip and don't record if the workflow was manually triggered
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          echo "skip=false" >> $GITHUB_OUTPUT
-          echo "store=false" >> $GITHUB_OUTPUT
-
-      - uses: actions/cache/restore@v3
-        if: ${{ github.event_name != 'workflow_dispatch' }}
-        id: restore
-        with:
-          path: ${{ env.SHA_CACHE_NAME }}
-          key: ${{ env.SHA_CACHE_NAME }}
-
-      - id: skip
-        if: ${{ github.event_name != 'workflow_dispatch' && steps.restore.outputs.cache-hit }}
-        run: |
-          LAST_SHA=$(cat ${{ env.SHA_CACHE_NAME }})
-          CURRENT_SHA=${{ steps.set-sha.outputs.sha }}
-          echo "current sha: $CURRENT_SHA"
-          echo "   last sha: $LAST_SHA"
-          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
-            echo "decision=true" >> $GITHUB_OUTPUT
-          fi
-
       - id: get-redis
-        if: ${{ !inputs.redis-reference }}
-        run: echo "tag=$(curl -s https://api.github.com/repos/redis/redis/releases |
-             jq -r jq -r '.[].tag_name | select(startswith("6")' |
-             sort -V | tail -1)" >> $GITHUB_OUTPUT
-
-  cache-sha:
-    # Caches the SHA of the last successful build
-    runs-on: ubuntu-latest
-    needs: [setup, build-linux-x86, build-linux-arm, build-macos]
-    if: ${{ !cancelled() && needs.setup.outputs.store == 'true' && needs.setup.outputs.skip == 'false' }}
-    steps:
-      - if: ${{ !contains(needs.*.result, 'failure') }}
-        id: update-sha
+        shell: bash -l -eo pipefail {0}
         run: |
-          echo "${{ needs.setup.outputs.sha }}" > ${{ env.SHA_CACHE_NAME }}
-          echo "updated=true" >> $GITHUB_OUTPUT
-      - name: Clear cache
-        # `actions/cache/save` can't overwrite an existing cache, so we need to delete it first
-        # enspired by https://github.com/actions/cache/issues/342 conversation
-        if: ${{ fromJson(steps.update-sha.outputs.updated) }}
-        continue-on-error: true # Don't fail if the cache doesn't exist
-        env:
-          GH_TOKEN: ${{ github.token }}
+          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+      - name: Validate Reference
+        shell: python
         run: |
-          gh extension install actions/gh-actions-cache
-          gh actions-cache delete ${{ env.SHA_CACHE_NAME }} --confirm -R ${{ github.repository }}
-      - uses: actions/cache/save@v3
-        if: ${{ fromJson(steps.update-sha.outputs.updated) }}
-        with:
-          path: ${{ env.SHA_CACHE_NAME }}
-          key: ${{ env.SHA_CACHE_NAME }}
+          from re import fullmatch
+          ref = '${{ github.ref_name }}'
+          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
+              print("::error title=Invalid Request::"
+                    "You can only build all configurations for master or a release branch")
+              exit(1)
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
@@ -157,7 +93,7 @@ jobs:
 
   build-linux-x86:
     needs: [decide-linux, setup]
-    if: ${{ contains(fromJson('["x86_64", "all"]'), inputs.architecture) && !fromJson(needs.setup.outputs.skip) }}
+    if: contains(fromJson('["x86_64", "all"]'), inputs.architecture)
     strategy:
       fail-fast: false
       matrix:
@@ -168,13 +104,12 @@ jobs:
     with:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
 
   build-linux-arm:
     needs: [decide-linux, setup]
-    if: ${{ contains(fromJson('["aarch64", "all"]'), inputs.architecture) && !fromJson(needs.setup.outputs.skip) }}
+    if: contains(fromJson('["aarch64", "all"]'), inputs.architecture)
     strategy:
       fail-fast: false
       matrix:
@@ -186,13 +121,12 @@ jobs:
       build: true
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       get-redis: ${{ needs.setup.outputs.redis-ref }}
 
   build-macos:
     needs: [decide-macos, setup]
-    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) && !fromJson(needs.setup.outputs.skip) }}
+    if: contains(fromJson('["macos", "all"]'), inputs.platform)
     strategy:
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
@@ -200,6 +134,5 @@ jobs:
     secrets: inherit
     with:
       env: ${{ matrix.OS }}
-      ref: ${{ inputs.reference }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
