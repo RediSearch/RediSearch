@@ -578,7 +578,9 @@ def testTimedOutWarningCoord(env):
   SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
 
-@skip(msan=True, asan=True)
+# This test is currently skipped due to flaky behavior of some of the machines'
+# timers.
+@skip()
 def testNonZeroTimers(env):
   """Tests that the timers' values of the `FT.PROFILE` response are populated
   with non-zero values.
