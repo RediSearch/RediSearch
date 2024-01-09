@@ -472,8 +472,16 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
+    const redisContextFuncs *old_callbacks = c->c.funcs;
     if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
-      CONN_LOG(conn, "Error on tls auth");
+      const char *err = c->c.err ? c->c.errstr : "Unknown error";
+
+      // This is a temporary fix to the bug describe on https://github.com/redis/hiredis/issues/1233.
+      // In case of SSL initialization failure. We need to reset the callbacks value, as the `redisInitiateSSL`
+      // function will not do it for us.
+      ((struct redisAsyncContext*)c)->c.funcs = old_callbacks;
+
+      CONN_LOG(conn, "Error on tls auth, %s.", err);
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);
