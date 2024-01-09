@@ -1156,8 +1156,6 @@ void RediSearch_CleanupModule(void) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 #endif
-  CursorList_Destroy(&g_CursorsList);
-  CursorList_Destroy(&g_CursorsListCoord);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
@@ -1166,10 +1164,10 @@ void RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
-  GC_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  ConcurrentSearch_ThreadPoolDestroy();
+  // GC_ThreadPoolDestroy();
+  // CleanPool_ThreadPoolDestroy();
+  // ReindexPool_ThreadPoolDestroy();
+  // ConcurrentSearch_ThreadPoolDestroy();
 
   // free global structures
   Extensions_Free();
