@@ -689,8 +689,9 @@ def test_memory_info():
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
-def test_hybrid_query_batches_mode_with_text(env):
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+def test_hybrid_query_batches_mode_with_text():
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -768,7 +769,8 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1163,7 +1165,8 @@ def test_wrong_vector_size():
 
 
 def test_hybrid_query_cosine():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     dim = 4
     index_size = 6000 * env.shardsCount
@@ -1279,7 +1282,8 @@ def test_fail_on_v1_dialect():
 
 
 def test_hybrid_query_with_global_filters():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 1000
