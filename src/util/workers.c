@@ -41,12 +41,6 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
-void workersThreadPool_InitPool() {
-  assert(_workers_thpool != NULL);
-
-  redisearch_thpool_init(_workers_thpool);
-}
-
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
   assert(_workers_thpool != NULL);
@@ -87,12 +81,13 @@ void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
 }
 
-void workersThreadPool_InitIfRequired() {
-  if(USE_BURST_THREADS()) {
-    // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
+void workersThreadPool_Activate() {
+  if (USE_BURST_THREADS()) { /* Configure here anything that needs to know it can use the thread pool */
+    // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
     VecSim_SetWriteMode(VecSim_WriteAsync);
-    workersThreadPool_InitPool();
-    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu",
+
+    // Finally, log that we've enabled the thread pool.
+    RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu",
                     RSGlobalConfig.numWorkerThreads);
   }
 }

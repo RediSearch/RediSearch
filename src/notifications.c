@@ -296,7 +296,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
 #ifdef MT_BUILD
-      workersThreadPool_InitIfRequired();
+      workersThreadPool_Activate();
 #endif
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:

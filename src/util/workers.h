@@ -19,9 +19,6 @@
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
 
-// Initialize an existing worker thread pool.
-void workersThreadPool_InitPool();
-
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
 
@@ -38,7 +35,7 @@ void workersThreadPool_Terminate(void);
 void workersThreadPool_Destroy(void);
 
 // Initialize the worker thread pool based on the model configuration.
-void workersThreadPool_InitIfRequired(void);
+void workersThreadPool_Activate(void);
 
 // Actively wait and terminates the running workers pool after all pending jobs are done.
 void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
