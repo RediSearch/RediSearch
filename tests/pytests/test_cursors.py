@@ -159,9 +159,11 @@ def testErrors(env):
         .contains('Index `idx` does not have cursors enabled')
 '''
 def testLeaked(env):
-    # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
-    loadDocs(env)
-    env.expect('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1 MAXIDLE 1')
+    # Ensure that sanitizer doesn't report memory leak for idle cursors.
+    n_docs = env.shardsCount * 2000
+    loadDocs(env, count = n_docs)
+    res, cursor = env.cmd('FT.AGGREGATE idx * LOAD 1 @f1 WITHCURSOR COUNT 1')
+    env.assertNotEqual(cursor, 0, message=f"result = {res}")
 
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
