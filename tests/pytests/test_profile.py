@@ -577,3 +577,61 @@ def TimedOutWarningtestCoord(env):
 def testTimedOutWarningCoord(env):
   SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
+
+# This test is currently skipped due to flaky behavior of some of the machines'
+# timers. MOD-6436
+@skip()
+def testNonZeroTimers(env):
+  """Tests that the timers' values of the `FT.PROFILE` response are populated
+  with non-zero values.
+  On cluster mode, we test only the cluster's timer, and on standalone mode we
+  test the timers of the shard"""
+
+  # Heavy test
+  if VALGRIND:
+    env.skip()
+
+  # Populate the db (with index and docs)
+  n_docs = 60000 if not env.isCluster() else 5000
+  populate_db(env, text=True, tag=True, numeric=True, n_per_shard=n_docs)
+
+  query = "@text1:lala*"
+  search_command = "FT.PROFILE idx SEARCH QUERY".split(' ')
+  search_command += [query, 'LIMIT', '0', str(n_docs), 'DIALECT', '2']
+  aggregate_command = "FT.PROFILE idx AGGREGATE QUERY".split(' ')
+  aggregate_command += [query, 'LOAD', '1', 'text1', 'DIALECT', '2']
+
+  def test_timers(res):
+    """Tests that the timers of the profile response of a shard are non-zero."""
+    # Query iterators
+    env.assertGreater(int(res[1][0][1]), 0)
+    iterators_profile = res[1][4]
+    union_qi = iterators_profile[1]
+    env.assertGreater(int(union_qi[5]), 0)
+    term_qi = union_qi[9]
+    env.assertGreater(int(term_qi[5]), 0)
+
+    # Result processors
+    rps_profile = res[1][5][1:]
+    for i in range(len(rps_profile)):
+      rp_profile = rps_profile[i]
+      env.assertGreater(int(rp_profile[3]), 0)
+
+  def test_cluster_timer(env):
+    res = env.cmd(*search_command)
+    # Check that the total time is larger than 0
+    env.assertGreater(float(res[-1][-1][1]), 0)
+
+    res = env.cmd(*aggregate_command)
+    # Check that the total time is larger than 0
+    env.assertGreater(float(res[-1][-1]), 0)
+
+  def test_shard_timers(env):
+    for cmd in [search_command, aggregate_command]:
+      res = env.cmd(*cmd)
+      test_timers(res)
+
+  if env.isCluster():
+    test_cluster_timer(env)
+  else:
+    test_shard_timers(env)

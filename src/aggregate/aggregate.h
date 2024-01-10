@@ -16,7 +16,6 @@
 #include "reply.h"
 
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -168,10 +167,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  hires_clock_t initClock;  // Time of start. Reset for each cursor call
-  double totalTime;          // Total time. Used to accumulate cursors times
-  double parseTime;          // Time for parsing the query
-  double pipelineBuildTime;  // Time for creating the pipeline
+  clock_t initClock;         // Time of start. Reset for each cursor call
+  clock_t totalTime;         // Total time. Used to accumulate cursors times
+  clock_t parseTime;         // Time for parsing the query
+  clock_t pipelineBuildTime; // Time for creating the pipeline
 
   const char** requiredFields;
 

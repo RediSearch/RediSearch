@@ -206,14 +206,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       return REDISMODULE_ERR;
     }
     if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
-      // Initialize the threads if the module configuration states that worker threads
-      // should always be active.
-      workersThreadPool_InitPool();
+      // If the module configuration states that worker threads should always be active,
+      // we log about the threadpool creation.
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
       DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
              " when possible", RSGlobalConfig.privilegedThreadsNum);
     } else {
-      // Otherwise, threads are not active, and we're performing inplace writes.
+      // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
       // VSS lib is async by default.
       VecSim_SetWriteMode(VecSim_WriteInPlace);
     }

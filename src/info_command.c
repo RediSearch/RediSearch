@@ -14,6 +14,8 @@
 #include "redismodule.h"
 #include "reply_macros.h"
 
+#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
+
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \
@@ -237,7 +239,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
-  REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
+  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
