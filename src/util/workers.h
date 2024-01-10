@@ -45,7 +45,7 @@ void workersThreadPool_SetTerminationWhenEmpty();
 
 /********************************************* for debugging **********************************/
 
-int workerThreadPool_running();
+int workerThreadPool_isPaused();
 
 int workersThreadPool_pause();
 

@@ -58,7 +58,7 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until job queue contains no more than <threshold> pending jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
-  if (!_workers_thpool || !redisearch_thpool_running(_workers_thpool)) {
+  if (!_workers_thpool) {
     return;
   }
   if (RedisModule_Yield) {
@@ -74,7 +74,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
 }
 
 void workersThreadPool_Terminate(void) {
-  redisearch_thpool_terminate_threads(_workers_thpool);
+  redisearch_thpool_terminate_reset_threads(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
@@ -124,25 +124,23 @@ void workersThreadPool_SetTerminationWhenEmpty() {
 
 /********************************************* for debugging **********************************/
 
-int workerThreadPool_running() {
-  return redisearch_thpool_running(_workers_thpool);
+int workerThreadPool_isPaused() {
+  return redisearch_thpool_paused(_workers_thpool);
 }
 
 int workersThreadPool_pause() {
-  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
-      !redisearch_thpool_running(_workers_thpool)) {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 || workerThreadPool_isPaused()) {
     return REDISMODULE_ERR;
   }
-  workersThreadPool_Terminate();
+  redisearch_thpool_terminate_pause_threads(_workers_thpool);
   return REDISMODULE_OK;
 }
 
 int workersThreadPool_resume() {
-  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
-      redisearch_thpool_running(_workers_thpool)) {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 || !workerThreadPool_isPaused()) {
     return REDISMODULE_ERR;
   }
-  workersThreadPool_InitPool();
+  redisearch_thpool_resume_threads(_workers_thpool);
   return REDISMODULE_OK;
 }
 
@@ -155,7 +153,7 @@ thpool_stats workersThreadPool_getStats() {
 }
 
 void workersThreadPool_wait() {
-  if (!_workers_thpool || !redisearch_thpool_running(_workers_thpool)) {
+  if (!_workers_thpool || workerThreadPool_isPaused()) {
     return;
   }
   redisearch_thpool_wait(_workers_thpool);
