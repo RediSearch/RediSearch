@@ -64,7 +64,7 @@ int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
 
 // Wait until job queue contains no more than <threshold> pending jobs.
 void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
-  if (!_workers_thpool) {
+  if (!_workers_thpool || !redisearch_thpool_running(_workers_thpool)) {
     return;
   }
   if (RedisModule_Yield) {
@@ -125,6 +125,45 @@ void workersThreadPool_SetTerminationWhenEmpty() {
                     " pending jobs are done",
                     RSGlobalConfig.numWorkerThreads);
   }
+}
+
+/********************************************* for debugging **********************************/
+
+int workerThreadPool_running() {
+  return redisearch_thpool_running(_workers_thpool);
+}
+
+int workersThreadPool_pause() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
+      !redisearch_thpool_running(_workers_thpool)) {
+    return REDISMODULE_ERR;
+  }
+  workersThreadPool_Terminate();
+  return REDISMODULE_OK;
+}
+
+int workersThreadPool_resume() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 ||
+      redisearch_thpool_running(_workers_thpool)) {
+    return REDISMODULE_ERR;
+  }
+  workersThreadPool_InitPool();
+  return REDISMODULE_OK;
+}
+
+thpool_stats workersThreadPool_getStats() {
+  thpool_stats stats = {0};
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {
+    return stats;
+  }
+  return redisearch_thpool_get_stats(_workers_thpool);
+}
+
+void workersThreadPool_wait() {
+  if (!_workers_thpool || !redisearch_thpool_running(_workers_thpool)) {
+    return;
+  }
+  redisearch_thpool_wait(_workers_thpool);
 }
 
 #endif // MT_BUILD
