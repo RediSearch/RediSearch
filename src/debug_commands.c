@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -16,6 +16,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "util/workers.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -1035,6 +1036,49 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+#ifdef MT_BUILD
+/**
+ * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
+ */
+DEBUG_COMMAND(WorkerThreadsSwitch) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (workersThreadPool_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (workersThreadPool_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else if (!strcasecmp(op, "drain")) {
+    if (!workerThreadPool_running()) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
+    }
+    workersThreadPool_Drain(RSDummyContext, 0);
+    // After we drained the thread pool and there are no more jobs in the queue, we wait until all
+    // threads are idle, so we can be sure that all jobs were executed.
+    workersThreadPool_wait();
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = workersThreadPool_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("highPriorityPendingJobs", stats.high_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("lowPriorityPendingJobs", stats.low_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithCString(ctx, "OK");
+}
+#endif
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1064,6 +1108,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"VECSIM_INFO", VecsimInfo},
+#ifdef MT_BUILD
+                               {"WORKER_THREADS", WorkerThreadsSwitch},
+#endif
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

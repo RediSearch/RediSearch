@@ -722,23 +722,23 @@ def test_profile_child_itrerators_array():
       'profile': {
         'Iterators profile': [
           { 'Child iterators': [
-              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': 0.0, 'Type': 'TEXT'},
-              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': 0.0, 'Type': 'TEXT'}
+              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
             ],
             'Counter': 0,
-            'Time': 0.0,
+            'Time': ANY,
             'Type': 'INTERSECT'
           }
         ],
-        'Parsing time': 0.0,
-        'Pipeline creation time': 0.0,
+        'Parsing time': ANY,
+        'Pipeline creation time': ANY,
         'Warning': 'None',
         'Result processors profile': [
-          { 'Counter': 0, 'Time': 0.0, 'Type': 'Index'},
-          { 'Counter': 0, 'Time': 0.0, 'Type': 'Scorer'},
-          {'Counter': 0, 'Time': 0.0, 'Type': 'Sorter'}
+          { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},
+          { 'Counter': 0, 'Time': ANY, 'Type': 'Scorer'},
+          {'Counter': 0, 'Time': ANY, 'Type': 'Sorter'}
         ],
-        'Total profile time': 0.0
+        'Total profile time': ANY
       },
       'results': [],
       'total_results': 0,

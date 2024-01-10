@@ -222,6 +222,14 @@ def numeric_tree_summary(env, idx, numeric_field):
     tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return tree_summary
 
+
+def getWorkersThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
+
+
+def getWorkersThpoolStatsFromShard(shard_conn):
+    return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
@@ -273,12 +281,15 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-def ftDebugCmdName(env):
-    return '_ft.debug' if env.isCluster() else 'ft.debug'
+def debug_cmd():
+    return '_ft.debug' if COORD else 'ft.debug'
+
+def config_cmd():
+    return '_ft.config' if COORD else 'ft.config'
 
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
-    return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
+    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
 
 def forceInvokeGC(env, idx = 'idx', timeout = None):
@@ -286,9 +297,9 @@ def forceInvokeGC(env, idx = 'idx', timeout = None):
     if timeout is not None:
         if timeout == 0:
             env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -459,9 +470,9 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
-    np.random.seed(10)
+    np.random.seed(seed)
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
