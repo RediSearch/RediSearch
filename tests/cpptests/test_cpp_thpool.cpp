@@ -127,29 +127,21 @@ TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
         ts[i].index = i;
     }
 
-    std::atomic_bool done(false);
-    auto wait_for_done = [](void *arg) {
-        std::atomic_bool *done = (std::atomic_bool *)arg;
-        while (!*done) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    };
+    // Pause the thread pool before adding tasks, to validate that jobs won't get executed before
+    // all other jobs are inserted into the queue.
+    redisearch_thpool_terminate_pause_threads(this->pool);
 
-    // Add a task that will keep the job queue's thread busy until all other tasks are added to the queue
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))wait_for_done, &done, THPOOL_PRIORITY_HIGH);          // Prefers HIGH
+    // Fill the job queue with tasks.
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);  // Prefers HIGH
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH); // Prefers LOW
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH); // Prefers HIGH
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH); // Prefers LOW
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);  // Prefers HIGH
 
-    // Fill the job queue with tasks. We assume that jobs won't get executed before all
-    // other jobs are inserted into the queue.
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_HIGH); // Prefers LOW
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_LOW);  // Prefers HIGH
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_LOW);  // Prefers LOW
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_LOW);  // Prefers HIGH
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_HIGH); // Prefers LOW
-
-    done = true; // Allow the job queue's thread to start executing tasks
+    redisearch_thpool_resume_threads(this->pool);
     redisearch_thpool_wait(this->pool);
 
-    // Expect alternate high-low order: wait->1->0->2->4->3
+    // Expect alternate high-low order: 1->0->2->4->3
     ASSERT_LT(arr[1], arr[0]);
     ASSERT_LT(arr[0], arr[2]);
     ASSERT_LT(arr[2], arr[4]);
