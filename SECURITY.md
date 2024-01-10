@@ -11,10 +11,10 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 7.2.x   | :white_check_mark: |
-| 7.0.x   | :white_check_mark: |
-| 6.2.x   | :white_check_mark: |
-| < 6.2   | :x:                |
+| 2.8.x   | :white_check_mark: |
+| 2.6.x   | :white_check_mark: |
+| 2.4.x   | :white_check_mark: |
+| < 2.4   | :x:                |
 
 ## Reporting a Vulnerability
 
