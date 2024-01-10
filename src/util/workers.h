@@ -43,4 +43,16 @@ void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
 // Set a signal for the running threads to terminate once all pending jobs are done.
 void workersThreadPool_SetTerminationWhenEmpty();
 
+/********************************************* for debugging **********************************/
+
+int workerThreadPool_running();
+
+int workersThreadPool_pause();
+
+int workersThreadPool_resume();
+
+thpool_stats workersThreadPool_getStats();
+
+void workersThreadPool_wait();
+
 #endif // MT_BUILD

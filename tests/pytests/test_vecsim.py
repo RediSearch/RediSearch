@@ -689,8 +689,9 @@ def test_memory_info():
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
-def test_hybrid_query_batches_mode_with_text(env):
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+def test_hybrid_query_batches_mode_with_text():
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -768,7 +769,8 @@ def test_hybrid_query_batches_mode_with_text(env):
 
 
 def test_hybrid_query_batches_mode_with_tags():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1163,7 +1165,8 @@ def test_wrong_vector_size():
 
 
 def test_hybrid_query_cosine():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     dim = 4
     index_size = 6000 * env.shardsCount
@@ -1279,7 +1282,8 @@ def test_fail_on_v1_dialect():
 
 
 def test_hybrid_query_with_global_filters():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 1000
@@ -1676,63 +1680,77 @@ def test_rdb_memory_limit():
         # reset env (for clean RLTest run with env reuse)
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(msan=True, asan=True)
-def test_timeout_reached():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
-    conn = getConnectionByEnv(env)
-    nshards = env.shardsCount
-    timeout_expected = 'Timeout limit was reached'
+class TestTimeoutReached(object):
+    def __init__(self):
+        if SANITIZER:
+            raise SkipTest()
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+        n_shards = self.env.shardsCount
+        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards}
+        self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
+        self.dim = 10
 
-    vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
-    hybrid_modes = ['BATCHES', 'ADHOC_BF']
-    dim = 10
+    def run_long_queries(self, n_vec, query_vec):
+        # STANDARD KNN
+        # run query with no timeout. should succeed.
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 0)
+        self.env.assertEqual(res[0], n_vec)
+        # run query with 1 millisecond timeout. should fail.
+        self.env.expect(
+            'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
+            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
+        ).error().contains('Timeout limit was reached')
 
-    for algo, n_vec in vecsim_algorithms_and_sizes:
-        for data_type in VECSIM_DATA_TYPES:
-            # succeed to create indexes with no limits
-            query_vec = load_vectors_to_redis(env, n_vec, 0, dim, data_type)
-            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, '8', 'TYPE', data_type,
-                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
-            waitForIndex(env, 'idx')
+        # RANGE QUERY
+        # run query with no timeout. should succeed.
+        res = self.env.cmd('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 2,  'vec_param', query_vec.tobytes(),
+                                   'TIMEOUT', 0)
+        self.env.assertEqual(res[0], n_vec)
+        # run query with 1 millisecond timeout. should fail.
+        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                   'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
-            # STANDARD KNN
-            # run query with no timeout. should succeed.
-            res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                       'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
-                                       'TIMEOUT', 0)
-            env.assertEqual(res[0], n_vec)
-            # run query with 1 millisecond timeout. should fail.
-            env.expect(
-                'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
+        # HYBRID MODES
+        for mode in self.hybrid_modes:
+            res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
+                               query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 0)
+            self.env.assertEqual(res[0], n_vec)
+
+            self.env.expect(
+                'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
+                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
             ).error().contains('Timeout limit was reached')
 
-            # RANGE QUERY
-            # run query with no timeout. should succeed.
-            res = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                       'PARAMS', 2,  'vec_param', query_vec.tobytes(),
-                                       'TIMEOUT', 0)
-            env.assertEqual(res[0], n_vec)
-            # run query with 1 millisecond timeout. should fail.
-            env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                       'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                       'TIMEOUT', 1).error().contains('Timeout limit was reached')
+    def test_flat(self):
+        for data_type in VECSIM_DATA_TYPES:
+            # Create index and load vectors.
+            n_vec = self.index_sizes['FLAT']
+            query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, data_type)
+            self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
+                       'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
+            waitForIndex(self.env, 'idx')
 
-            # HYBRID MODES
-            for mode in hybrid_modes:
-                res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                           'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                           'TIMEOUT', 0)
-                env.assertEqual(res[0], n_vec)
+            self.run_long_queries(n_vec, query_vec)
+            self.env.flush()
 
-                env.expect(
-                    'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                    'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                    'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
-                ).error().contains('Timeout limit was reached')
+    def test_hnsw(self):
+        for data_type in VECSIM_DATA_TYPES:
+            # Create index and load vectors.
+            n_vec = self.index_sizes['HNSW']
+            query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, data_type)
+            self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
+                            'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
+            waitForIndex(self.env, 'idx')
 
-            conn.flushall()
+            self.run_long_queries(n_vec, query_vec)
+            self.env.flush()
 
 
 def test_create_multi_value_json():
@@ -2364,8 +2382,8 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
-    # Wait for GC to remove the deleted vectors.
-    time.sleep(2) # TODO: add a way to know when all swap jobs are ready (from vecsim or by analyzing the worker's jobs)
+    # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
     env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
 
     debug_info = get_debug_info()
