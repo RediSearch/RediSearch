@@ -585,9 +585,12 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
+  // Mark the command of the context as depleted (so we won't send another command to the shard)
+  ctx->cmd.depleted = true;
   int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
   MRIteratorCallback_ProcessDone(ctx);
   if (pending <= 0) {
+    RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
     MRChannel_Close(ctx->ic->chan);
     return 0;
