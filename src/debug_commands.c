@@ -1056,7 +1056,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
                                         " or is already running");
     }
   } else if (!strcasecmp(op, "drain")) {
-    if (!workerThreadPool_running()) {
+    if (workerThreadPool_isPaused()) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
     }
     workersThreadPool_Drain(RSDummyContext, 0);

@@ -46,24 +46,6 @@ typedef void (*LogFunc)(const char *, const char *, ...);
 redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log);
 
 /**
- * @brief  Initialize an existing threadpool
- *
- * Initializes a threadpool. This function will not return until all
- * threads have initialized successfully.
- *
- * @example
- *
- *    ..
- *    threadpool thpool;                       //First we declare a threadpool
- *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
- *    thpool_init(&thpool);                  //Then we initialize the threads
- *    ..
- *
- * @param threadpool    threadpool to initialize
- */
-void redisearch_thpool_init(redisearch_threadpool);
-
-/**
  * @brief Add work to the job queue
  *
  * Takes an action and its argument and adds it to the threadpool's job queue.
@@ -202,7 +184,19 @@ void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yiel
 /**
  * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
  */
-void redisearch_thpool_terminate_threads(redisearch_threadpool);
+void redisearch_thpool_terminate_reset_threads(redisearch_threadpool);
+
+/**
+ * @brief Same as redisearch_thpool_terminate_reset_threads, but for debugging purposes.
+ *        The threads won't be restarted until redisearch_thpool_resume_threads is called,
+ *        even if new jobs are added to the queue.
+ */
+void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
+
+/**
+ * @brief Resume the working threads after they were paused by redisearch_thpool_terminate_pause_threads.
+ */
+void redisearch_thpool_resume_threads(redisearch_threadpool);
 
 /**
  * @brief Set the terminate_when_empty flag, so that all threads are terminated when there are
@@ -252,7 +246,7 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
 
-int redisearch_thpool_running(redisearch_threadpool);
+int redisearch_thpool_paused(redisearch_threadpool);
 
 thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
 
