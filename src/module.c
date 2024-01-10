@@ -29,7 +29,7 @@
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
