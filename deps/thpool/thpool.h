@@ -24,6 +24,13 @@ typedef enum {
   THPOOL_PRIORITY_LOW,
 } thpool_priority;
 
+typedef struct {
+  unsigned long total_jobs_done;
+  unsigned long total_pending_jobs;
+  unsigned long high_priority_pending_jobs;
+  unsigned long low_priority_pending_jobs;
+} thpool_stats;
+
 // A callback to call redis log.
 typedef void (*LogFunc)(const char *, const char *, ...);
 
@@ -282,6 +289,10 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @return integer       number of threads working
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
+
+int redisearch_thpool_running(redisearch_threadpool);
+
+thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
 
 #ifdef __cplusplus
 }
