@@ -227,7 +227,7 @@ setup_clang_sanitizer() {
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
 		#export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:verbosity=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0"
 		# :use_tls=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
