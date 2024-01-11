@@ -574,8 +574,8 @@ jobs:
       - run:
           name: Upload artifacts to S3
           command: |
-            if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1 STAGING=1
+            if [[ "<<parameters.upload>>" == "yes" ]]; then
+                make upload-artifacts SHOW=1
             fi
       - persist-artifacts
 
@@ -1127,10 +1127,10 @@ on-integ-and-version-tags: &on-integ-and-version-tags
 
 workflows:
   version: 2
-#  default-flow:
-#    when:
-#      << pipeline.parameters.run_default_flow >>
-#    jobs:
+  default-flow:
+    when:
+      << pipeline.parameters.run_default_flow >>
+    jobs:
       # - build-linux-debian:
       #     <<: *not-on-integ-branch
       # - build-linux-arm-ubuntu:
@@ -1155,14 +1155,14 @@ workflows:
       # - build-macos-x64-coordinator:
       #     <<: *on-version-tags
       #     context: common
-      # - build-macos-m1-search:
-      #     context: common
-      #     <<: *on-version-tags
-      #     # Avoid persist conflict with build-macos-m1-coordinator
-      #     upload: "no"
-      # - build-macos-m1-coordinator:
-      #     context: common
-      #     <<: *on-version-tags
+       - build-macos-m1-search:
+           context: common
+           <<: *on-integ-branch
+           # Avoid persist conflict with build-macos-m1-coordinator
+           upload: "no"
+       - build-macos-m1-coordinator:
+           context: common
+           <<: *on-integ-branch
       # - coverage:
       #     <<: *always
       # - sanitize:

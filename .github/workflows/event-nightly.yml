@@ -9,26 +9,13 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
-  deploy-snapshot:
-    strategy:
-      fail-fast: false
-      matrix:
-        branch: [ "master", "2.6", "2.8", "2.10" ]
-        include:
-          - branch: "2.6"
-            redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
-    secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
-    with:
-      reference: ${{ matrix.branch }}
-      redis-reference: ${{ matrix.redis-ref }}
-
   test-linux:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       redis-ref: unstable
       test-config: QUICK=1
+      fail-fast: false
 
   test-macos:
     uses: ./.github/workflows/flow-macos.yml

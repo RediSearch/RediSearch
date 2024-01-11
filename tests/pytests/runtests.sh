@@ -33,7 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: max_unsorted, union_iterator_heap, raw_docid, dialect_2,
+		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -165,7 +165,7 @@ setup_rltest() {
 	if [[ $RLTEST_DEBUG == 1 ]]; then
 		RLTEST_ARGS+=" --debug-print"
 	fi
-	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
+	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 && -z $RLTEST_PARALLEL_ARG ]]; then
 		RLTEST_ARGS+=" -s"
 	fi
 	if [[ $RLTEST_CONSOLE == 1 ]]; then
@@ -516,6 +516,9 @@ OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
 
+# RLTest uses `fork` which might fail on macOS with the following variable set
+[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
 #---------------------------------------------------------------------------------- Tests scope
 
 [[ $COORD == 1 ]] && COORD=oss
@@ -576,9 +579,6 @@ STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 #---------------------------------------------------------------------------------- Parallelism
 
 PARALLEL=${PARALLEL:-1}
-
-# due to Python "Can't pickle local object" problem in RLTest
-[[ $OS == macos ]] && PARALLEL=0
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
 
@@ -691,15 +691,6 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
-			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
-				run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
-		fi
-
-		if [[ -z $CONFIG || $CONFIG == union_iterator_heap ]]; then
-			{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
-				run_tests "with Union iterator heap"); (( E |= $? )); } || true
-		fi
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			if [[ $COV != 1 ]]; then

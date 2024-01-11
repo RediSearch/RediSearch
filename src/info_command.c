@@ -12,15 +12,9 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "reply_macros.h"
 
-#define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
-#define REPLY_KVINT(k, v) RedisModule_ReplyKV_LongLong(reply, (k), (v))
-#define REPLY_KVSTR(k, v) RedisModule_ReplyKV_SimpleString(reply, (k), (v))
-#define REPLY_KVMAP(k)    RedisModule_ReplyKV_Map(reply, (k))
-#define REPLY_KVARRAY(k)  RedisModule_ReplyKV_Array(reply, (k))
-
-#define REPLY_MAP_END     RedisModule_Reply_MapEnd(reply)
-#define REPLY_ARRAY_END   RedisModule_Reply_ArrayEnd(reply)
+#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -157,6 +151,30 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       geom_idx_sz += api->report(idx);
     }
 
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      VecSimParams vec_params = fs->vectorOpts.vecSimParams;
+      VecSimAlgo field_algo = vec_params.algo;
+      AlgoParams algo_params = vec_params.algoParams;
+
+      if (field_algo == VecSimAlgo_TIERED) {
+        VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+        if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+          REPLY_KVSTR("data_type", VecSimType_ToString(hnsw_params.type));
+          REPLY_KVINT("dim", hnsw_params.dim);
+          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
+          REPLY_KVINT("M", hnsw_params.M);
+          REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+        }
+      } else if (field_algo == VecSimAlgo_BF) {
+        REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
+        REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.bfParams.type));
+        REPLY_KVINT("dim", algo_params.bfParams.dim);
+        REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
+      }
+    }
+
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }
@@ -186,7 +204,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Reply_MapEnd(reply); // >>field
   }
 
-  RedisModule_Reply_ArrayEnd(reply); // >attrbutes
+  RedisModule_Reply_ArrayEnd(reply); // >attributes
+
 
   REPLY_KVNUM("num_docs", sp->stats.numDocuments);
   REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
@@ -217,8 +236,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM("hash_indexing_failures", sp->stats.indexingFailures);
-  REPLY_KVNUM("total_indexing_time", sp->stats.totalIndexTime / 1000.0);
+  // TODO: remove this once "hash_indexing_failures" is deprecated
+  // Legacy for not breaking changes
+  REPLY_KVNUM("hash_indexing_failures", sp->stats.indexError.error_count);
+  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
   REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
@@ -249,6 +270,19 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     rm_free(dialect_i);
   }
   REPLY_MAP_END;
+
+  // Global index error stats
+  bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
+  RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+  IndexError_Reply(&sp->stats.indexError, reply, with_times);
+
+  REPLY_KVARRAY("field statistics"); // Field statistics
+  for (int i = 0; i < sp->numFields; i++) {
+    const FieldSpec *fs = &sp->fields[i];
+    FieldSpecInfo info = FieldSpec_GetInfo(fs);
+    FieldSpecInfo_Reply(&info, reply, with_times);
+  }
+  REPLY_ARRAY_END; // >Field statistics
 
   RedisModule_Reply_MapEnd(reply); // top
   RedisModule_EndReply(reply);

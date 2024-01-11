@@ -3751,6 +3751,41 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
+
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    def cluster_set_ipv4():
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+    for _ in range(200):
+        cluster_set_ipv4()
+    initial = get_memory(env) - 1024 * 1024 # to account for some variance in memory
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        cluster_set_ipv4()
+        mem = get_memory(env)
+        env.assertLessEqual(initial, mem)
+
+
+
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.is_cluster():
@@ -3778,7 +3813,7 @@ def test_timeout_non_strict_policy(env):
 
     # Create an index, and populate it
     n = 25000
-    populate_db(env, n)
+    populate_db(env, text=True, n_per_shard=n)
 
     # Query the index with a small timeout, and verify that we get partial results
     num_docs = n * env.shardsCount
@@ -3789,7 +3824,7 @@ def test_timeout_non_strict_policy(env):
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
         )
     env.assertTrue(len(res) < num_docs + 1)
 
@@ -3803,7 +3838,7 @@ def test_timeout_strict_policy():
 
     # Create an index, and populate it
     n = 25000
-    populate_db(env, n)
+    populate_db(env, text=True, n_per_shard=n)
 
     # Query the index with a small timeout, and verify that we get an error
     num_docs = n * env.shardsCount
@@ -3813,7 +3848,7 @@ def test_timeout_strict_policy():
 
     # Same for `FT.AGGREGATE`
     env.expect(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
 
 
@@ -3863,7 +3898,7 @@ def test_timeoutCoordSearch_NonStrict(env):
     # Create and populate an index
     n_docs_pershard = 1100
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
@@ -3891,7 +3926,7 @@ def test_timeoutCoordSearch_Strict():
     # Create and populate an index
     n_docs_pershard = 50000
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, n_docs_pershard)
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
 
     # test erroneous params
     env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
@@ -3905,3 +3940,36 @@ def test_timeoutCoordSearch_Strict():
     env.assertEqual(res[0], n_docs)
 
     env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
+
+    if VALGRIND:
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')
+
+    # Populate the index
+    num_docs = 15000
+    for i in range(int(num_docs / 2)):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}', 'n', i)
+
+    # Populate with other tag value in a separate loop so doc-ids will be incremental.
+    for i in range(int(num_docs / 2), num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'drama', 'title', f'title:{i}', 'n', i)
+
+    # Send a query that will skip all the docs with the first tag value (fantasy),
+    # such that the timeout will be checked in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')

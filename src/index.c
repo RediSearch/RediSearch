@@ -1146,6 +1146,7 @@ typedef struct {
   t_docId maxDocId;
   size_t len;
   double weight;
+  TimeoutCtx timeoutCtx;
 } NotIterator, NotContext;
 
 static void NI_Abort(void *ctx) {
@@ -1306,7 +1307,14 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
     if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
       break;
     }
+
+    // Check for timeout with low granularity (MOD-5512)
+    if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
+      IITER_SET_EOF(&nc->base);
+      return INDEXREAD_TIMEOUT;
+    }
   }
+  nc->timeoutCtx.counter = 0;
 
 ok:
   // make sure we did not overflow
@@ -1343,7 +1351,7 @@ static t_docId NI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout) {
   NotContext *nc = rm_malloc(sizeof(*nc));
   nc->base.current = NewVirtualResult(weight);
   nc->base.current->fieldMask = RS_FIELDMASK_ALL;
@@ -1355,6 +1363,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   nc->len = 0;
   nc->weight = weight;
   nc->base.isValid = 1;
+  nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
 
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
@@ -1790,31 +1799,29 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   size_t counter;
-  double cpuTime;
+  clock_t cpuTime;
   int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t begin = clock();
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += hires_clock_since_msec(&t0);
+  pi->cpuTime += clock() - begin;
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t begin = clock();
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += hires_clock_since_msec(&t0);
+  pi->cpuTime += clock() - begin;
   return ret;
 }
 
@@ -2040,8 +2047,8 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, pi->counter - pi->eof, \
-                       (double)pi->cpuTime, depth, limited, config);
+  printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
+    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,

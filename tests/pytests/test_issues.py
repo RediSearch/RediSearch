@@ -801,6 +801,22 @@ def test_mod5252(env):
   env.assertEqual(res, [1, ['key_name', 'doc']])
 
 
+@skip(cluster=True)
+def test_mod_6276(env):
+  # Setting the gc threshold to 0 so the gc won't skip its periodic run
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  # Create an index and add a document + garbage
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc', 't', 'Hello').equal(1)
+  # Actual Test
+  env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
+  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
+  env.expect('MULTI').ok()                                 # Start an atomic transaction:
+  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
+  env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
+  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
+
 def test_mod5791(env):
     con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'L2',
@@ -822,105 +838,62 @@ def test_mod5791(env):
     env.assertEqual(res[:2], [1, 'doc1'])
 
 
-@skip(asan=True, cluster=False, redis_less_than="7")
+@skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster(env):
-    # cluster shards command is not supported for redis < 7
     mod5778_add_new_shard_to_cluster(env)
 
 
-@skip(asan=True, cluster=False, redis_less_than="7")
+@skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster_TLS():
-    # cluster shards command is not supported for redis < 7
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True, tlsCertFile=cert_file, tlsKeyFile=key_file, tlsCaCertFile=ca_cert_file, tlsPassphrase=passphrase)
     mod5778_add_new_shard_to_cluster(env)
 
 def mod5778_add_new_shard_to_cluster(env: Env):
-    conn = getConnectionByEnv(env)
-    env.assertEqual(len(conn.cluster_nodes()), len(env.envRunner.shards))
-    wait_time = 20
-    iteration_wait_time = 0.05
+    conn = env.getConnection()
+    initial_shards_count = env.shardsCount
+    # The first two fields in the cluster info reply are the number of partition in thr cluster.
+    env.assertEqual(conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
 
-    # Create a new redis instance with redisearch loaded.
-    # TODO: add appropriate APIs to RLTest to avoid this abstraction breaking.
-    new_instance_port = env.envRunner.shards[-1].port + 2  # use a fresh port
-    cmd_args = [Defaults.binary, '--cluster-enabled', 'yes']
-    cmd_args += ['--loadmodule', env.envRunner.modulePath[0]]
-    if env.envRunner.password:
-        cmd_args += ['--requirepass', env.envRunner.password]
-    if env.envRunner.isTLS():
-        cmd_args += ['--port', str(0), '--tls-port', str(new_instance_port), '--tls-cluster', 'yes']
-        cmd_args += ['--tls-cert-file', env.envRunner.shards[0].getTLSCertFile()]
-        cmd_args += ['--tls-key-file', env.envRunner.shards[0].getTLSKeyFile()]
-        cmd_args += ['--tls-ca-cert-file', env.envRunner.shards[0].getTLSCACertFile()]
-        if env.envRunner.tlsPassphrase:
-            cmd_args += ['--tls-key-file-pass', env.envRunner.tlsPassphrase]
-    else:
-        cmd_args += ['--port', str(new_instance_port)]
-    new_instance = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # Add a new shard to the cluster. Internally we call CLUSTER MEET to connect the new shard
+    # to the cluster. Also, we internally wait for the cluster to be ready and call "search.CLUSTERREFRESH"
+    # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
+    env.addShardToClusterIfExists()
+    new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
+    # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
+    # considered part of the partition yet as it does not contain any slots.
+    env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
+    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
 
-    # Connect the new instance to the cluster (making sure the new instance didn't crash)
-    env.assertTrue(conn.cluster_meet('127.0.0.1', new_instance_port))
+    # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
+    new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
+    source_shard_id = conn.execute_command('CLUSTER MYID')
+    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
+    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
+    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
+    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
 
-    def wait_for_expected(command, expected, message='waiting for expected result'):
-        with TimeLimit(wait_time, message=message):
-            while expected != command():
-                time.sleep(iteration_wait_time)
-
-    # Return the shard details based on the port to which it listens.
-    def get_node_by_port(shard_conn, port):
-        # cluster nodes response is for example:
-        # {'127.0.0.1:6381':
-        #   {'node_id': 'df328f12ac68e61df53b87458b769bf61a885470', ... , 'slots': [['5462', '10923']], ... },
-        #  '127.0.0.1:6379': {'node_id': '088aad6d26e1913867283d74b1a86d47e7e651b8', ... }
-        # }
-        return [v for k, v in shard_conn.cluster_nodes().items() if int(k.split(":")[1]) == port][0]
-
-    # Validate that the new shard has been recognized by the cluster and has no slots.
-    wait_for_expected(lambda: len(conn.cluster_nodes()), len(env.envRunner.shards) + 1,
-                      'waiting for cluster shards to update')
-    env.assertEqual(get_node_by_port(conn, new_instance_port)['slots'], [])
-
-    kwargs = {'host': '127.0.0.1', 'port': new_instance_port, 'decode_responses': True, 'password': env.envRunner.password}
-    if env.envRunner.isTLS():
-      kwargs.update({'ssl': True,
-                     'ssl_keyfile': env.envRunner.shards[0].getTLSKeyFile(),
-                     'ssl_certfile': env.envRunner.shards[0].getTLSCertFile(),
-                     'ssl_cert_reqs': None,
-                     'ssl_ca_certs': env.envRunner.shards[0].getTLSCACertFile(),
-                     'ssl_password': env.envRunner.tlsPassphrase})
-
-    with TimeLimit(wait_time, 'waiting for new shard to acknowledge the topology change'):
+    # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
+    # for the cluster refresh to occur and acknowledged by all shards)
+    with TimeLimit(40, "fail to acknowledge topology"):
         while True:
-            time.sleep(iteration_wait_time)
-            try:
-                new_instance_conn = RedisCluster(**kwargs)
+            time.sleep(0.5)
+            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
                 break
-            except (exceptions.RedisClusterException, IndexError):
-                pass  # these two exceptions indicate that the new shard still waking up
-    env.assertTrue(new_instance_conn.ping()) # make sure the new instance is alive
+    # search.clusterinfo response format is the following:
+    # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
+    # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
+    # [1, 5461, ['60cdcb85a8f73f87ac6cc831ee799b75752aace3', '127.0.0.1', 6379, 'master ']],
+    # [5462, 10923, ['6b2af643a4d6f1723ff2b18b45216d1e0dc7befa', '127.0.0.1', 6381, 'master ']],
+    # [10924, 16383, ['4e51033405651441a4be6ddfb46cd85d0c54af6f', '127.0.0.1', 6383, 'master ']]]
+    unique_shards = set(shard[2][0] for shard in cluster_info[9:])
+    env.assertEqual(len(unique_shards), initial_shards_count+1, message=f"cluster info is {cluster_info}")
 
-    # Move a slot (number 0) from the shard in which it resides to the new shard.
-    node_with_slot_0_port = None
-    for k, v in conn.cluster_nodes().items():
-        if len(v['slots']) > 0 and v['slots'][0][0] == '0':
-            node_with_slot_0_port = int(k.split(":")[1])
-            break
-
-    env.assertIsNotNone(node_with_slot_0_port)
-    new_shard_id = new_instance_conn.cluster_myid(cluster.ClusterNode('127.0.0.1', new_instance_port))
-    conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', node_with_slot_0_port), new_shard_id, 0, 'NODE')
-    new_instance_conn.cluster_setslot(cluster.ClusterNode('127.0.0.1', new_instance_port), new_shard_id, 0, 'NODE')
-
-    # Validate the updated state in old and new shards.
-    wait_for_expected(lambda: get_node_by_port(conn, new_instance_port)['slots'], [['0']],
-                      'waiting for cluster slots to update')
-    wait_for_expected(lambda: get_node_by_port(new_instance_conn, new_instance_port)['slots'], [['0']],
-                      'waiting for cluster slots to update')
-
-    # cleanup
-    new_instance.kill()
-    os.remove('nodes.conf')
+    # Verify that slot 0 moved to the new shard,
+    shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
+    env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
+    env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
 
 @skip(cluster=True)
@@ -980,3 +953,36 @@ def test_mod5880(env):
     env.cmd("DEL", "doc4")
     env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
     env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
+
+@skip()
+def test_mod_4374(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', 'val')
+
+  conn.execute_command('HSET', 10, 't', 'unique')
+
+  # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
+  print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
+
+@skip()
+def test_mod_4375(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+
+  for i in range(10):
+    if i%2==0:
+      conn.execute_command('HSET', i, 't', 'even', 'n', i)
+    else:
+      conn.execute_command('HSET', i, 't', 'odd', 'n', i)
+
+  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+
+  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+  conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))

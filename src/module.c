@@ -660,7 +660,6 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  FieldsGlobalStats_UpdateStats(sp->fields + (sp->numFields - 1), 1);
   RedisSearchCtx_UnlockSpec(&sctx);
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);

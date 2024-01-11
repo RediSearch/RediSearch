@@ -11,7 +11,6 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 #include "util/arr.h"
 
@@ -837,8 +836,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SearchResult resToBuffer = {0};
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
-  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
-
+  while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+    // Decrease the result limit after getting a result from the upstream
+    rp->parent->resultLimit--;
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
@@ -950,17 +950,16 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 typedef struct {
   ResultProcessor base;
-  double profileTime;
+  clock_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t rpStartTime = clock();
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += hires_clock_since_msec(&t0);
+  self->profileTime += clock() - rpStartTime;
   self->profileCount++;
   return rc;
 }
@@ -983,7 +982,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-double RPProfile_GetDurationMSec(ResultProcessor *rp) {
+clock_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
