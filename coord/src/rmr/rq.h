@@ -10,21 +10,13 @@
 #include <stdlib.h>
 
 typedef void (*MRQueueCallback)(void *);
-typedef void (*MRQueueCleanUpCallback)(void *);
 
 #ifndef RQ_C__
 typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(size_t cap, int maxPending);
 
-void RQ_Free(MRWorkQueue *q);
-
 void RQ_Done(MRWorkQueue *q);
 
-/* if free_cb is not NULL it will be called in RQ_Free, which is invoked during a shutdown event.
-Ideally, there shouldn't be **execution** requests remaining in the queue at the end of the test.
-However, periodic requests might still be in the queue when we receive the shutdown event. In such cases, the
-sanitizer will throw an error for direct and indirect (if the request point to additional allocated memory) leaks.
-We only need a free_cb for requests that might still be in the queue during shutdown, to prevent errors in the sanitizer. */
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, MRQueueCleanUpCallback free_cb);
+void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
 #endif // RQ_C__
