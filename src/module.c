@@ -1099,9 +1099,6 @@ void RediSearch_CleanupModule(void) {
   dictRelease(specDict_g);
   specDict_g = NULL;
 
-  CursorList_Destroy(&RSCursors);
-  CursorList_Destroy(&RSCursorsCoord);
-
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
