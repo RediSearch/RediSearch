@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Redis is generally backwards compatible with very few exceptions, so we
+RediSearch is generally backwards compatible with very few exceptions, so we
 recommend users to always use the latest version to experience stability,
 performance and security.
 
@@ -11,10 +11,9 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.8.x   | :white_check_mark: |
-| 2.6.x   | :white_check_mark: |
-| 2.4.x   | :white_check_mark: |
-| < 2.4   | :x:                |
+| 2.8     | :white_check_mark: |
+| 2.6     | :white_check_mark: |
+| < 2.6   | :x:                |
 
 ## Reporting a Vulnerability
 
