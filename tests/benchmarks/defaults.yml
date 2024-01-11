@@ -1,4 +1,10 @@
 version: 0.2
+
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+ - spot_instance: oss-redisearch-m5-spot-instances
+
 exporter:
   redistimeseries:
     break_by:

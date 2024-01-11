@@ -60,10 +60,9 @@ def testCursorsBG():
     testCursors(env)
 
 
-@skip(noWorkers=True)
+@skip(cluster=True, noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    env.skipOnCluster()
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -99,10 +98,8 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'hello'], last1)
     env.assertEqual(['f1', 'goodbye'], last2)
 
+@skip(cluster=True)
 def testCapacities(env):
-    if env.isCluster():
-        env.skip()
-
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10]
@@ -137,10 +134,10 @@ def testCapacities(env):
     c = env.cmd( * q1)
     env.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
 
+@skip(cluster=True)
 def testTimeout(env):
     # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
     # with the same timeout
-    env.skipOnCluster()
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
@@ -191,45 +188,57 @@ def testNumericCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
+@skip(cluster=False)
+def testCursorDifferentConnections(env: Env):
+    if env.shardsCount < 2:
+        raise SkipTest('This test requires at least 2 shards')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA n numeric').ok()
 
-def testIndexDropWhileIdle(env):
+    num_docs = 6
+    for i in range(num_docs):
+        conn.execute_command('HSET', i, 'n', i)
+
+    con2 = env.getConnection(2) # assume we have at least 2 shards
+    _, cursor = con2.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 3)
+    # env is connected to shard 1, con2 is connected to shard 2
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Cursor not found')
+
+def testIndexDropWhileIdle(env: Env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
 
-    num_docs = 3
-    for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+    # Add documents to the index until we have more than one document on each shard
+    num_docs = 0
+    while not np.all([env.getConnection(i).execute_command('DBSIZE') > 1 for i in range(env.shardsCount)]):
+        conn.execute_command('HSET', num_docs, 't', num_docs)
+        num_docs += 1
+    env.debugPrint(f'Added {num_docs} documents')
 
-    count = 1
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
+    count = num_docs - 1 # make sure we will have at least one result from each shard
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', count)
 
     # Results length should equal the requested count + additional field for the number of results
-    # (which is meaningless is ft.aggregate)
-    env.assertEqual(len(res), count + 1)
+    # (which is meaningless with ft.aggregate)
+    env.assertEqual(res[1:], [[]] * count, message=f'res == {res}')
 
-    # drop the index while the cursor is idle/ running in bg
-    conn.execute_command('ft.drop', 'idx')
+    # drop the index while the cursor is idle/running in bg
+    env.expect('FT.DROPINDEX', 'idx').ok()
 
     # Try to read from the cursor
-
     if env.isCluster():
-        res, cursor = env.cmd(f'FT.CURSOR READ idx {str(cursor)}')
-
-        # Return the next results. count should equal the count at the first cursor's call.
-        env.assertEqual(len(res), count + 1)
-
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
+        env.assertEqual(res[1:], [[]] , message=f'res == {res}')
     else:
-        env.expect(f'FT.CURSOR READ idx {str(cursor)}').error().contains('The index was dropped while the cursor was idle')
+        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
 @skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     testIndexDropWhileIdle(env)
 
-def testExceedCursorCapacity(env):
-    env.skipOnCluster()
-
+def exceedCursorCapacity(env):
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
     env.cmd('HSET', 'doc1' ,'t', 1)
 
@@ -242,29 +251,41 @@ def testExceedCursorCapacity(env):
     # Trying to create another cursor should fail
     env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
 
-@skip(noWorkers=True)
+@skip(cluster=True)
+def testExceedCursorCapacity(env):
+    exceedCursorCapacity(env)
+
+@skip(cluster=True, noWorkers=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testExceedCursorCapacity(env)
+    exceedCursorCapacity(env)
+
+@skip(noWorkers=True, cluster=False)
+def testCursorOnCoordinatorBG():
+    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    CursorOnCoordinator(env)
+
+@skip(cluster=False)
+def testCursorOnCoordinator(env):
+    CursorOnCoordinator(env)
 
 # TODO: improve the test and add a case of timeout:
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
-def testCursorOnCoordinator(env):
-    SkipOnNonCluster(env)
+def CursorOnCoordinator(env: Env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
     # Verify that empty reply from some shard doesn't break the cursor
     conn.execute_command('HSET', 0 ,'n', 0)
-    res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
     env.assertEqual(res, [1, ['n', '0']])
     env.expect(f'FT.CURSOR READ idx {cursor}').equal([[0], 0]) # empty reply from shard - 0 results and depleted cursor
 
-    err = env.cmd('FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)[0][1]
-    env.assertEqual(type(err[0]), ResponseError)
-    env.assertContains('non-existing: no such index', str(err[0]))
+    env.expect(
+        'FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1
+    ).error().contains('non-existing: no such index')
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.
@@ -272,6 +293,9 @@ def testCursorOnCoordinator(env):
     n_docs *= 1000            # number of results per shard per cursor
     n_docs *= env.shardsCount # number of results per cursor
     n_docs = int(n_docs)
+
+    count = 100
+    expected_reads = n_docs // count
 
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
@@ -287,21 +311,28 @@ def testCursorOnCoordinator(env):
                 env.assertNotContains(cur_res, result_set)
                 result_set.add(cur_res)
 
-        with conn.monitor() as monitor:
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+        # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
+        # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
+        # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
+        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
+
+        with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
             # This function skips them and returns the actual next command we want to observe.
             def next_command():
-                try:
-                    while True:
+                while True:
+                    try:
                         command = monitor.next_command()['command']
-                        # Filter out the periodic cluster commands
-                        if command.startswith('_FT.') or command.startswith('FT.'):
-                            return command
-                except ValueError:
-                    return next_command() # recursively retry
+                    except ValueError:
+                        continue
+                    # Filter out the periodic cluster commands
+                    if command.startswith('_FT.') or command.startswith('FT.'):
+                        return command
 
             # Generate the cursor and read all the results
-            res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 100, 'TIMEOUT', 5000)
+            res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
             add_results(res)
             while cursor:
                 res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -321,23 +352,65 @@ def testCursorOnCoordinator(env):
             for _ in range((env.shardsCount - threshold) * 10):
                 cmd = next_command()
                 env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
-            # we expect to observe the next `_FT.CURSOR READ` in the next 11 commands (most likely the next command)
+            # we expect to observe the next "_FT.CURSOR READ" in the next `expected_reads` "FT.CURSOR READ"
+            # commands (most likely the next command).
             found = False
-            for i in range(1, 12):
+            for i in range(1, expected_reads + 1 + 1):
                 cmd = next_command()
                 if not cmd.startswith('FT.CURSOR'):
                     exp = '_FT.CURSOR READ'
                     env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
                     found = True
                     break
-            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within 11 commands')
-            env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
+            env.assertTrue(found, message=f'`_FT.CURSOR READ` was not observed within {expected_reads + 1} commands')
+            if found:
+                env.debugPrint(f'Found `_FT.CURSOR READ` in the {number_to_ordinal(i)} try')
 
             env.assertEqual(len(result_set), n_docs)
             for i in range(n_docs):
                 env.assertContains(i, result_set)
 
-@skip(noWorkers=True)
-def testCursorOnCoordinatorBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
-    testCursorOnCoordinator(env)
+def testCursorDepletionNonStrictTimeoutPolicy(env):
+    """Tests that the cursor id is returned in case the timeout policy is
+    non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
+
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
+
+    # Populate the index
+    num_docs = 1500 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
+
+    # Create a cursor with a small `timeout` and large `count`, and read from
+    # it until depleted
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
+    n_recieved = len(res) - 1
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        n_recieved += len(res) - 1
+
+    env.assertEqual(n_recieved, num_docs)
+
+def testCursorDepletionStrictTimeoutPolicy():
+    """Tests that the cursor returns a timeout error in case of a timeout, when
+    the timeout policy is `ON_TIMEOUT FAIL`"""
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Populate the index
+    num_docs = 10000 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+    # Create a cursor with a small timeout and a large count (so it will time
+    # out during pipeline execution)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')

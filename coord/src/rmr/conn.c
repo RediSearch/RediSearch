@@ -328,18 +328,18 @@ activate_timer:
 
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
+  redisReply *rep = r;
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
-    return;
+    goto cleanup;
   }
 
   if (c->err || !r) {
     detachFromConn(conn, !!r);
     MRConn_SwitchState(conn, MRConn_Connecting);
-    return;
+    goto cleanup;
   }
 
-  redisReply *rep = r;
   /* AUTH error */
   if (MRReply_Type(rep) == REDIS_REPLY_ERROR) {
     size_t len;
@@ -347,12 +347,16 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     CONN_LOG(conn, "Error authenticating: %.*s", (int)len, s);
     MRConn_SwitchState(conn, MRConn_ReAuth);
     /*we don't try to reconnect to failed connections */
-    return;
+    goto cleanup;
   }
 
   /* Success! we are now connected! */
   // fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
   MRConn_SwitchState(conn, MRConn_Connected);
+
+cleanup:
+  // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves
+  MRReply_Free(rep);
 }
 
 static int MRConn_SendAuth(MRConn *conn) {
@@ -475,8 +479,16 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
+    const redisContextFuncs *old_callbacks = c->c.funcs;
     if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
-      CONN_LOG(conn, "Error on tls auth");
+      const char *err = c->c.err ? c->c.errstr : "Unknown error";
+
+      // This is a temporary fix to the bug describe on https://github.com/redis/hiredis/issues/1233.
+      // In case of SSL initialization failure. We need to reset the callbacks value, as the `redisInitiateSSL`
+      // function will not do it for us.
+      ((struct redisAsyncContext*)c)->c.funcs = old_callbacks;
+
+      CONN_LOG(conn, "Error on tls auth, %s.", err);
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);

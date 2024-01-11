@@ -110,26 +110,25 @@ def testTFIDFScorerExplanation(env):
     res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
+                                  [['(Weight 1.00 * total children TFIDF 20.00)',
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                        ['(Weight 1.00 * total children TFIDF 20.00)',
-                                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                            '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]])
+                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
+                                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
-                [['(Weight 1.00 * total children TFIDF 40.00)',
-                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                        ['(Weight 1.00 * total children TFIDF 30.00)',
-                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                ['(Weight 1.00 * total children TFIDF 20.00)',
-                                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]]]
+            [['(Weight 1.00 * total children TFIDF 40.00)',
+              [['(Weight 1.00 * total children TFIDF 30.00)',
+                [['(Weight 1.00 * total children TFIDF 20.00)',
+                  ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
+                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
     res2 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
-                [['(Weight 1.00 * total children TFIDF 40.00)',
-                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                        ['(Weight 1.00 * total children TFIDF 30.00)',
-                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                             '(Weight 1.00 * total children TFIDF 20.00)']]]]]]
-
+            [['(Weight 1.00 * total children TFIDF 40.00)',
+              [['(Weight 1.00 * total children TFIDF 30.00)',
+                ['(Weight 1.00 * total children TFIDF 20.00)',
+                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
 
     actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     # on older versions we trim the reply to remain under the 7-layer limitation.
@@ -286,8 +285,8 @@ def testScoreDecimal(env):
     res = env.cmd('ft.search idx hello withscores nocontent')
     env.assertLess(float(res[2]), 1)
 
+@skip(cluster=True)
 def testScoreError(env):
-    env.skipOnCluster()
     env.expect('ft.create idx ON HASH schema title text').ok()
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()

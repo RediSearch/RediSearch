@@ -251,7 +251,7 @@ def testMSet(env):
 
 @no_msan
 def testMerge(env):
-    # JSON.MERGE 
+    # JSON.MERGE
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
     env.cmd('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
@@ -998,7 +998,7 @@ def testVector_empty_array(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"vec":[]}'))
-    assertInfoField(env, 'idx', 'hash_indexing_failures', '1')
+    assertInfoField(env, 'idx', 'hash_indexing_failures', 1)
 
 @no_msan
 def testVector_correct_eval(env):
@@ -1044,8 +1044,8 @@ def testVector_bad_values(env):
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[1,2,3,4,5,6]}'))
 
-    assertInfoField(env, 'idx', 'hash_indexing_failures', '5')
-    assertInfoField(env, 'idx', 'num_docs', '0')
+    assertInfoField(env, 'idx', 'hash_indexing_failures', 5)
+    assertInfoField(env, 'idx', 'num_docs', 0)
 
 @no_msan
 def testVector_delete(env):
@@ -1080,10 +1080,8 @@ def testVector_delete(env):
         env.expect(*q).equal([1, 'j2'])
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-@no_msan
+@skip(cluster=True, msan=True)
 def testRedisCommands(env):
-    env.skipOnCluster()
-
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
@@ -1153,5 +1151,8 @@ def test_mod5608(env):
 
         env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
         waitForIndex(env, 'idx')
-        res = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
-        cursor_id = res[1]
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+
+        if SANITIZER or CODE_COVERAGE:
+            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
+            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)

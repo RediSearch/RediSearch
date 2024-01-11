@@ -34,6 +34,10 @@ struct RedisModuleString : public std::string {
   void incref() {
     refcount++;
   }
+
+  void trim() {
+    this->shrink_to_fit();
+  }
 };
 
 class Value {

@@ -5,7 +5,7 @@ import redis
 from hotels import hotels
 import random
 import time
-
+import unittest
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -1167,11 +1167,8 @@ def testTagErrors(env):
     env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
     env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
 
+@skip(cluster=True)
 def testGeoDeletion(env):
-    if env.isCluster():
-        # Can't properly test if deleted on cluster
-        env.skip()
-
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
@@ -1518,8 +1515,8 @@ def testPayload(env):
         for i in range(1, 30, 3):
             env.assertEqual(res[i + 1], 'payload %s' % res[i])
 
+@skip(cluster=True)
 def testGarbageCollector(env):
-    env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         env.skip()
@@ -1868,10 +1865,8 @@ def testBinaryKeys(env):
         for r in res:
             env.assertContains(r, exp)
 
+@skip(cluster=True)
 def testNonDefaultDb(env):
-    if env.isCluster():
-        env.skip()
-
     # Should be ok
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
     try:
@@ -1917,29 +1912,6 @@ def testSortbyMissingFieldSparse(env):
                    "firstName", "ASC", "limit", 0, 100)
     # commented because we don't filter out exclusive sortby fields
     # env.assertEqual([1, 'doc1', None, ['lastName', 'mark']], res)
-
-def testLuaAndMulti(env):
-    env.skip() # addhash isn't supported
-    if env.isCluster():
-        env.skip()
-    # Ensure we can work in Lua and Multi environments without crashing
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
-    env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
-    env.cmd('HMSET', 'hashDoc2', 'f1', 'v1', 'n1', 5)
-
-    r = env.getConnection()
-
-    r.eval("return redis.call('ft.add', 'idx', 'doc1', 1.0, 'fields', 'f1', 'bar')", "0")
-    r.eval("return redis.call('ft.addhash', 'idx', 'hashDoc', 1.0)", 0)
-
-    # Try in a pipeline:
-    with r.pipeline(transaction=True) as pl:
-        pl.execute_command('ft.add', 'idx', 'doc2',
-                           1.0, 'fields', 'f1', 'v3')
-        pl.execute_command('ft.add', 'idx', 'doc3',
-                           1.0, 'fields', 'f1', 'v4')
-        pl.execute_command('ft.addhash', 'idx', 'hashdoc2', 1.0)
-    pl.execute()
 
 def testLanguageField(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'language', 'TEXT')
@@ -2157,13 +2129,14 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
+@skip(cluster=True)
 def testTimeout(env):
-    env.skipOnCluster()
     if VALGRIND:
         env.skip()
 
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
+    # TODO: Remove `TIMEOUT 1` arguments (see commands) once MOD-6286 is merged.
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -2173,29 +2146,30 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
-       error().contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
+       .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 10000)
     env.assertEqual(res[0], num_range)
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', '1')    \
         .error().contains('Timeout limit was reached')
 
-    # test erroneous params
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT').error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', -1).error()
+    env.expect('ft.aggregate', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 'STR').error()
 
     # check no time w/o sorter/grouper
-    res = env.cmd('FT.AGGREGATE', 'myIdx', '*',
-                'LOAD', 1, 'geo',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
-                'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
-                'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5')
-    env.assertLess(len(res[1:]), num_range)
+    env.expect(
+        'FT.AGGREGATE', 'myIdx', '*',
+        'LOAD', 1, 'geo',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance1',
+        'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance2',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance3',
+        'APPLY', 'geodistance(@geo, "0.11,-0.11")', 'AS', 'geodistance4',
+        'APPLY', 'geodistance(@geo, "0.1,-0.1")', 'AS', 'geodistance5',
+        'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
     # test grouper
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
@@ -2203,8 +2177,9 @@ def testTimeout(env):
                'GROUPBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .error().contains('Timeout limit was reached')
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
+       .contains('Timeout limit was reached')
 
     # test sorter
     env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
@@ -2212,8 +2187,9 @@ def testTimeout(env):
                'SORTBY', 1, '@t',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
                'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
-               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
-       .error().contains('Timeout limit was reached')
+               'APPLY', 'contains(@t, "a1")', 'AS', 'contain3',
+               'TIMEOUT', '1') \
+       .contains('Timeout limit was reached')
 
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
@@ -2224,14 +2200,10 @@ def testTimeout(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
-    env.assertEqual(l, 1000)
+    env.assertEqual(l, num_range)
 
-    # restore old configuration
-    env.cmd('ft.config', 'set', 'timeout', '500')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
-
+@skip(cluster=True)
 def testTimeoutOnSorter(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('ft.config', 'set', 'timeout', '1')
     pl = conn.pipeline()
@@ -2440,9 +2412,8 @@ def testIssue621(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
-@unstable
+@skip(cluster=True)
 def testPrefixDeletedExpansions(env):
-    env.skipOnCluster()
 
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
@@ -2485,34 +2456,6 @@ def testOptionalFilter(env):
     # print(r)
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
-
-
-def testIssue736(env):
-    #for new RS 2.0 ft.add does not return certian errors
-    env.skip()
-    # 1. create the schema, we need a tag field
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
-    # 2. create a single document to initialize at least one RSAddDocumentCtx
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
-    # 3. create a second document with many filler fields to force a realloc:
-    extra_fields = []
-    for x in range(20):
-        extra_fields += ['nidx_fld{}'.format(x), 'val{}'.format(x)]
-    extra_fields += ['n2', 'not-a-number', 't2', 'random, junk']
-    with env.assertResponseError():
-        env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
-
-def testCriteriaTesterDeactivated():
-    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
-    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
-    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-
-    expected_res = py2sorted([2, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
-    actual_res = py2sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
-    env.assertEqual(list(expected_res), list(actual_res))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
@@ -2649,8 +2592,9 @@ def testWrongResultsReturnedBySkipOptimization(env):
 def testErrorWithApply(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()')[1]
-    env.assertEqual(str(err[0]), 'Invalid number of arguments for split')
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()'
+    ).error().contains('Invalid number of arguments for split')
 
 def testSummerizeWithAggregateRaiseError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
@@ -2802,15 +2746,17 @@ def testWithSortKeysOnNoneSortableValue(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1, 'doc1', '$foo', ['test', 'foo']])
 
+@skip(cluster=True)
 def testWithWithRawIds(env):
-    env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1, 'doc1', 1, ['test', 'foo']])
 
+# todo: unskip once fix on coordinator
+#       the coordinator do not return erro on unexisting index.
+@skip(cluster=True)
 def testUnkownIndex(env):
-    env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('ft.aggregate').error()
     env.expect('ft.aggregate', 'idx', '*').error()
     env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
@@ -2830,24 +2776,26 @@ def testGroupByWithApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
     waitForIndex(env, 'idx')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1][0]
-    assertEqualIgnoreCluster(env, 'Invalid number of arguments for split', str(err))
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count'
+    ).error().contains('Invalid number of arguments for split')
 
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
 
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a', 'APPLY', 'substr(@a,0,4)')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a', 'APPLY', 'substr(@a,0,4)'
+    ).error()
 
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
-    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a')
-    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a')
-    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a')
-    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a')
-    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.assertTrue(env.isUp())
 
 def testToUpperLower(env):
@@ -2858,19 +2806,22 @@ def testToUpperLower(env):
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(@test)', 'as', 'a').equal([1, ['test', 'foo', 'a', 'FOO']])
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper("foo")', 'as', 'a').equal([1, ['test', 'foo', 'a', 'FOO']])
 
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper()', 'as', 'a'
+    ).error()
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower()', 'as', 'a'
+    ).error()
 
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'a').equal([1, ['test', 'foo', 'a', None]])
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1)', 'as', 'a').equal([1, ['test', 'foo', 'a', None]])
 
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1,2)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1,2)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1,2)', 'as', 'a'
+    ).error()
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1,2)', 'as', 'a'
+    ).error()
 
 def testMatchedTerms(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -2884,20 +2835,25 @@ def testMatchedTerms(env):
 def testStrFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
-    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format()', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%s")', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%s")', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%", "test")', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%", "test")', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%b", "test")', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%b", "test")', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format(5)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format(5)', 'as', 'a'
+    ).error()
 
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'b', 'APPLY', 'format("%s", @b)', 'as', 'a').equal([1, ['test', 'foo', 'b', None, 'a', '(null)']])
 
@@ -2909,8 +2865,9 @@ def testTimeFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt()', 'as', 'a'
+    ).error()
 
     if not env.isCluster(): # todo: remove once fix on coordinator
         env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test1)', 'as', 'a').error()
@@ -2919,8 +2876,9 @@ def testTimeFormatError(env):
 
     env.assertTrue(env.isUp())
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, 4)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, 4)', 'as', 'a'
+    ).error()
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt("awfawf")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
@@ -2944,11 +2902,13 @@ def testMonthOfYear(env):
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test)', 'as', 'a').equal([1, ['test', '12234556', 'a', '4']])
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test, 112)', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test, 112)', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear()', 'as', 'a'
+    ).error()
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
@@ -2958,14 +2918,17 @@ def testParseTime(env):
     conn.execute_command('HSET', 'doc1', 'test', '20210401')
 
     # check for errors
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1][0]
-    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a'
+    ).error().contains("Invalid arguments for function 'parsetime'")
 
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1][0]
-    env.assertEqual("Invalid arguments for function 'parsetime'", str(err))
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a'
+    ).error().contains("Invalid arguments for function 'parsetime'")
 
-    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1][0]
-    env.assertEqual("Invalid type (1) for argument 0 in function 'parsetime'. VALIDATE_ARG__STRING(v, 0) was false.", str(err))
+    env.expect(
+        'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a'
+    ).error().contains("Invalid type (1) for argument 0 in function 'parsetime'. VALIDATE_ARG__STRING(v, 0) was false.")
 
     # valid test
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a')
@@ -2982,20 +2945,25 @@ def testErrorOnOpperation(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '1 + split()', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '1 + split()', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split() + 1', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split() + 1', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '"bad" + "bad"', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '"bad" + "bad"', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split("bad" + "bad")', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split("bad" + "bad")', 'as', 'a'
+    ).error()
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    env.expect(
+        'ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a'
+    ).error()
 
     if not env.isCluster():
         env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded nor in pipeline')
@@ -3029,8 +2997,8 @@ def testIssue1074(env):
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
     env.assertEqual([1, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
 
+@skip(cluster=True)
 def testIssue1085(env):
-    env.skipOnCluster()
     env.cmd('FT.CREATE issue1085 ON HASH SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
@@ -3073,8 +3041,8 @@ def testHindiStemmer(env):
     res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
 
+@skip(cluster=True)
 def testMOD507(env):
-    env.skipOnCluster()
     env.expect('ft.create idx ON HASH SCHEMA t1 TEXT').ok()
 
     for i in range(50):
@@ -3088,8 +3056,8 @@ def testMOD507(env):
     # from redisearch 2.0, docs are removed from index when `DEL` is called
     env.assertEqual(len(res), 1)
 
+@skip(cluster=True)
 def testUnseportedSortableTypeErrorOnTags(env):
-    env.skipOnCluster()
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
@@ -3129,8 +3097,8 @@ def testIssue1169(env):
 
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1, ['txt1', 'foo', 'test', None]])
 
+@skip(cluster=True)
 def testIssue1184(env):
-    env.skipOnCluster()
 
     field_types = ['TEXT', 'NUMERIC', 'TAG']
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
@@ -3140,7 +3108,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
 
         value = '42'
@@ -3151,7 +3119,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '1')
+        env.assertEqual(d['num_records'], 1)
 
         env.assertEqual(env.cmd('FT.DEL idx doc0'), 1)
 
@@ -3160,7 +3128,7 @@ def testIssue1184(env):
         res = env.cmd('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['num_records'], 0)
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
@@ -3191,10 +3159,10 @@ def testIssue1208(env):
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
     # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
+@skip(cluster=True)
 def testFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
@@ -3255,10 +3223,10 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
+@skip(cluster=True)
 def testSortedFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
@@ -3378,10 +3346,9 @@ def testRED47209(env):
         res = [1, 'doc1', None, ['t', 'foo']]
     env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
 
+@skip(cluster=True)
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
-
-    env.skipOnCluster()
 
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
     env.expect('HSET doc1 t foo').equal(1)
@@ -3568,8 +3535,8 @@ def test_empty_field_name(env):
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
 
+@skip(cluster=True)
 def test_free_resources_on_thread(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
     results = []
@@ -3659,13 +3626,13 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
+@skip(cluster=True)
 def test_RED_86036(env):
-    env.skipOnCluster()
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][3][1][7] # get the list iterator profile
+    res = res[1][4][1][7] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
@@ -3677,9 +3644,10 @@ def test_MOD_4290(env):
     env.cmd('FT.PROFILE', 'idx', 'aggregate', 'query', '*', 'LIMIT', '0', '1')
     env.expect('ping').equal(True) # make sure environment is still up */
 
+@skip(cluster=True)
 def test_missing_schema(env):
     # MOD-4388: assert on sp->indexer
-    env.skipOnCluster()
+
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')
@@ -3740,6 +3708,41 @@ def test_cluster_set(env):
             ).equal('OK')
     verify_address('::1')
 
+
+def test_cluster_set_server_memory_tracking(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    def get_memory(env):
+        res = env.cmd('INFO', "MEMORY")
+        return res['used_memory']
+
+    def cluster_set_ipv4():
+        env.cmd('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               'password@127.0.0.1:22000',
+               'MASTER'
+            )
+    for _ in range(200):
+        cluster_set_ipv4()
+    initial = get_memory(env) - 1024 * 1024 # to account for some variance in memory
+    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
+        cluster_set_ipv4()
+        mem = get_memory(env)
+        env.assertLessEqual(initial, mem)
+
+
+
 def test_internal_commands(env):
     ''' Test that internal cluster commands cannot run from a script '''
     if not env.isCluster():
@@ -3757,3 +3760,172 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+
+def test_timeout_non_strict_policy(env):
+    """Tests that we get the wanted behavior for the non-strict timeout policy.
+    `ON_TIMEOUT RETURN` - return partial results.
+    """
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, text=True, n_per_shard=n)
+
+    # Query the index with a small timeout, and verify that we get partial results
+    num_docs = n * env.shardsCount
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs * 2 + 1)
+
+    # Same for `FT.AGGREGATE`
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
+        )
+    env.assertTrue(len(res) < num_docs + 1)
+
+def test_timeout_strict_policy():
+    """Tests that we get the wanted behavior for the strict timeout policy.
+    `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
+    partial results.
+    """
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    # Create an index, and populate it
+    n = 25000
+    populate_db(env, text=True, n_per_shard=n)
+
+    # Query the index with a small timeout, and verify that we get an error
+    num_docs = n * env.shardsCount
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+    # Same for `FT.AGGREGATE`
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
+
+def common_with_auth(env: Env):
+    conn = getConnectionByEnv(env)
+    n_docs = 100
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    if env.isCluster():
+        # Mimic periodic cluster refresh
+        env.expect('SEARCH.CLUSTERREFRESH').ok()
+
+    expected_res = [n_docs]
+    for i in range(10):
+        expected_res.extend([f'doc{i}', ['n', str(i)]])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
+
+def test_with_password():
+    mypass = '42MySecretPassword$'
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
+    env = Env(moduleArgs=args, password=mypass)
+    common_with_auth(env)
+
+def test_with_tls():
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase)
+
+    common_with_auth(env)
+
+@skip(asan=True)
+def test_timeoutCoordSearch_NonStrict(env):
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path"""
+
+    if VALGRIND:
+        unittest.SkipTest()
+
+    SkipOnNonCluster(env)
+
+    # Create and populate an index
+    n_docs_pershard = 1100
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
+
+    # test erroneous params
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
+    env.assertLessEqual(res[0], n_docs)
+
+@skip(asan=True)
+def test_timeoutCoordSearch_Strict():
+    """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
+    `FT.SEARCH` path, when the timeout policy is strict"""
+
+    if VALGRIND:
+        unittest.SkipTest()
+
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    SkipOnNonCluster(env)
+
+    # Create and populate an index
+    n_docs_pershard = 50000
+    n_docs = n_docs_pershard * env.shardsCount
+    populate_db(env, text=True, n_per_shard=n_docs_pershard)
+
+    # test erroneous params
+    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+
+    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
+    env.assertEqual(res[0], n_docs)
+
+    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_notIterTimeout(env):
+    """Tests that we fail fast from the NOT iterator in the edge case similar to
+    MOD-5512
+    * Skipped on cluster since the it would only test error propagation from the
+    shard to the coordinator, which is tested elsewhere.
+    """
+
+    if VALGRIND:
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+
+    # Create an index
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')
+
+    # Populate the index
+    num_docs = 15000
+    for i in range(int(num_docs / 2)):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'fantasy', 'title', f'title:{i}', 'n', i)
+
+    # Populate with other tag value in a separate loop so doc-ids will be incremental.
+    for i in range(int(num_docs / 2), num_docs):
+        env.cmd('HSET', f'doc:{i}', 'tag1', 'drama', 'title', f'title:{i}', 'n', i)
+
+    # Send a query that will skip all the docs with the first tag value (fantasy),
+    # such that the timeout will be checked in the NOT iterator loop (coverage).
+    env.expect(
+        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')

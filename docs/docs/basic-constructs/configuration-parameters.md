@@ -528,7 +528,7 @@ $ redis-server --loadmodule ./redisearch.so DEFAULT_DIALECT 2
 
 {{% alert title="Notes" color="info" %}}
 
-* Vector similarity search, added in v2.4.3, requires `DIALECT 2` or greater.
+* Vector search, added in v2.4.3, requires `DIALECT 2` or greater.
 * Returning multiple values from `FT.SEARCH` and `FT.AGGREGATE` requires `DIALECT 3` or greater.
 
 {{% /alert %}}

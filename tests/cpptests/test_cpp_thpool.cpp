@@ -12,7 +12,6 @@ class PriorityThpoolTestBasic : public ::testing::Test {
             // Thread pool with a single thread which is also a "privileged thread" that
             // runs high priority tasks before low priority tasks.
             this->pool = redisearch_thpool_create(1, 1, nullptr);
-            redisearch_thpool_init(this->pool);
         }
 
         virtual void TearDown() {
@@ -26,7 +25,7 @@ struct test_struct {
 };
 
 /* The purpose of the function is to sleep for 100ms and then set the timestamp
- * in the test_struct. 
+ * in the test_struct.
 */
 void sleep_and_set(test_struct *ts) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -34,7 +33,7 @@ void sleep_and_set(test_struct *ts) {
 }
 
 
-/* The purpose of the test is to check that tasks with the same priority are handled 
+/* The purpose of the test is to check that tasks with the same priority are handled
  * in FIFO manner. The test adds 10 tasks with low priority and checks that the
  * tasks are handled in the order they were added.
  */
@@ -50,10 +49,10 @@ TEST_F(PriorityThpoolTestBasic, AllLowPriority) {
     redisearch_thpool_wait(this->pool);
     for (int i = 0; i < array_len-1; i++) {
         ASSERT_LT(arr[i],  arr[i+1]);
-    }  
+    }
 }
 
-/* The purpose of the test is to check that tasks with the same priority are handled 
+/* The purpose of the test is to check that tasks with the same priority are handled
  * in FIFO manner. The test adds 10 tasks with HIGH priority and checks that the
  * tasks are handled in the order they were added.
  */
@@ -69,10 +68,10 @@ TEST_F(PriorityThpoolTestBasic, AllHighPriority) {
     redisearch_thpool_wait(this->pool);
     for (int i = 0; i < array_len-1; i++) {
         ASSERT_LT(arr[i],  arr[i+1]);
-    } 
+    }
 }
 
-/* The purpose of the test is to check that tasks with different priorities are handled 
+/* The purpose of the test is to check that tasks with different priorities are handled
  * in FIFO manner. The test adds 2 tasks with high priority and 1 task with low priority between them
  * and checks that the high priority tasks are handled before the low priority task, since the
  * single thread in the pool is a privileged thread that is handling high priority tasks before low
@@ -98,7 +97,7 @@ TEST_F(PriorityThpoolTestBasic, HighLowHighTest) {
     redisearch_thpool_wait(this->pool);
     for (int i = 0; i < high_priority_tasks; i++) {
         ASSERT_LT(arr[i],  low_priority_timestamp);
-    } 
+    }
 }
 
 
@@ -128,15 +127,18 @@ TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
         ts[i].index = i;
     }
 
-    // Fill the job queue with tasks in advanced before initialization, to validate that jobs won't
-    // get executed before all other jobs are inserted into the queue.
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH);
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);
+    // Pause the thread pool before adding tasks, to validate that jobs won't get executed before
+    // all other jobs are inserted into the queue.
+    redisearch_thpool_terminate_pause_threads(this->pool);
 
-    redisearch_thpool_init(this->pool);
+    // Fill the job queue with tasks.
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);  // Prefers HIGH
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[1], THPOOL_PRIORITY_HIGH); // Prefers LOW
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[2], THPOOL_PRIORITY_HIGH); // Prefers HIGH
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[3], THPOOL_PRIORITY_HIGH); // Prefers LOW
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[4], THPOOL_PRIORITY_LOW);  // Prefers HIGH
+
+    redisearch_thpool_resume_threads(this->pool);
     redisearch_thpool_wait(this->pool);
 
     // Expect alternate high-low order: 1->0->2->4->3

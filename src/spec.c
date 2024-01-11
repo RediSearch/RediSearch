@@ -30,7 +30,6 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
-#include "rmutil/cxx/chrono-clock.h"
 #include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -225,43 +224,10 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 //---------------------------------------------------------------------------------------------
 
-// called on master shard for temporary indexes and deletes all documents by defaults
-static void IndexSpec_FreeTask(char *specName) {
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", specName);
-#endif
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
-
-  // pass FT.DROPINDEX with "DD" flag to slef.
-  RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", specName, "DD");
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-
-  rm_free(specName);
-}
-
 void IndexSpec_LegacyFree(void *spec) {
   // free legacy index do nothing, it will be called only
   // when the index key will be deleted and we keep the legacy
   // index pointer in the legacySpecDict so we will free it when needed
-}
-
-static void IndexSpec_TimedOut_Free(IndexSpec *spec) {
-  if (RS_IsMock) {
-    IndexSpec_Free(spec);
-    return;
-  }
-  if (spec->isTimerSet) {
-    WeakRef old_timer_ref;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-      WeakRef_Release(old_timer_ref);
-    }
-    spec->isTimerSet = false;
-  }
-  redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeTask, rm_strdup(spec->name), THPOOL_PRIORITY_HIGH);
 }
 
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
@@ -277,19 +243,22 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     // the spec was already deleted, nothing to do here
     return;
   }
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
-#endif
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", sp->name);
 
   sp->isTimerSet = false;
-  // This function will perform an index drop, and we will still have to return our references
-  IndexSpec_TimedOut_Free(sp);
+  if (RS_IsMock) {
+    IndexSpec_Free(sp);
+  } else {
+    // called on master shard for temporary indexes and deletes all documents by defaults
+    // pass FT.DROPINDEX with "DD" flag to self.
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", sp->name, "DD");
+    if (rep) {
+      RedisModule_FreeCallReply(rep);
+    }
+  }
 
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer: done", sp->name);
   StrongRef_Release(spec_ref);
-
-#ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
-#endif
 }
 
 // Assuming the GIL is held.
@@ -1063,6 +1032,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
+  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
+  }
+
   return 1;
 
 reset:
@@ -1181,10 +1154,6 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     SchemaRule_FilterFields(spec);
   }
 
-  for (int i = 0; i < spec->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(spec->fields + i, 1);
-  }
-
   return spec_ref;
 
 failure:  // on failure free the spec fields array and return an error
@@ -1268,7 +1237,6 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
     cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -1379,20 +1347,21 @@ void IndexSpec_Free(IndexSpec *spec) {
   // next time it will try to acquire the spec.
 
   // For temporary index
-  if (spec->isTimerSet) {
-    WeakRef old_timer_ref;
-    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-      WeakRef_Release(old_timer_ref);
-    }
-    spec->isTimerSet = false;
-  }
+  // This function might be called from any thread, and we cannot deal with timers without the GIL.
+  // At this point we should have already stopped the timer.
+  assert(!spec->isTimerSet);
   // Stop and destroy indexer
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
   // Stop and destroy garbage collector
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
+  // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
+  // deal with without the GIL.
+  // It will free itself when it discovers that the index was freed.
+  // On the worst case, it just finishes the current run and will schedule another run soon.
+  // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
+  if (RS_IsMock && spec->gc) {
+    GCContext_StopMock(spec->gc);
   }
 
   // Free stopwords list (might use global pointer to default list)
@@ -1400,12 +1369,9 @@ void IndexSpec_Free(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
-  // Reset fields stats
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
-    }
-  }
+
+  IndexError_Clear(spec->stats.indexError);
+
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
@@ -1435,6 +1401,23 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
+  // For temporary index
+  // We are dropping the index from the mainthread, but the freeing process might happen later from
+  // another thread. We cannot deal with timers from other threads, so we need to stop the timer
+  // now. We don't need it anymore anyway.
+  if (spec->isTimerSet) {
+    WeakRef old_timer_ref;
+    if (RedisModule_StopTimer(RSDummyContext, spec->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
+      WeakRef_Release(old_timer_ref);
+    }
+    spec->isTimerSet = false;
+  }
+
+  // Remove spec's fields from global statistics
+  for (size_t i = 0; i < spec->numFields; i++) {
+    FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+  }
+
   // Mark there are pending index drops.
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
@@ -1453,9 +1436,13 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(ScemaPrefixes_g);
   SchemaPrefixes_Create();
 
+  // Mark all Coordinator cursors as expired.
+  // We cannot free them from the main thread (as we are now) because they might attempt to
+  // delete their related cursors at the shards and wait for the response, and we will get
+  // into a deadlock with the shard we are in.
+  CursorList_Expire(&g_CursorsListCoord);
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
-  CursorList_Empty(&g_CursorsListCoord);
 
   arrayof(StrongRef) specs = array_new(StrongRef, dictSize(d));
   dictIterator *iter = dictGetIterator(d);
@@ -1514,12 +1501,6 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
   IndexSpec_IncreasCounter(sp);
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
-    if (sp->isTimerSet) {
-      WeakRef old_timer_ref;
-      if (RedisModule_StopTimer(RSDummyContext, sp->timerId, (void **)&old_timer_ref) == REDISMODULE_OK) {
-        WeakRef_Release(old_timer_ref);
-      }
-    }
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
 
@@ -1615,6 +1596,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
+  sp->stats.indexError = IndexError_Init();
 
   int res = 0;
   pthread_rwlockattr_t attr;
@@ -1654,6 +1636,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
+  fs->indexError = IndexError_Init();
   return fs;
 }
 
@@ -1693,6 +1676,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
+    RedisModule_Log(ctx, "debug", "Starting GC %p for index %s", sp->gc, sp->name);
   }
 }
 
@@ -1770,6 +1754,9 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          // CHECKED: Not related to new data types - legacy code
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
+
+
+  f->indexError = IndexError_Init();
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -1869,6 +1856,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
+  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2082,7 +2070,6 @@ end:
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2298,6 +2285,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
+    // Init the index error
+    sp->stats.indexError = IndexError_Init();
 
     // put the new index in the specDict_g with weak and strong references
     dictAdd(specDict_g, sp->name, spec_ref.rm);
@@ -2308,7 +2297,6 @@ void Indexes_UpgradeLegacyIndexes() {
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2418,6 +2406,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
+
+  // `indexError` must be initialized before attempting to free the spec
+  sp->stats.indexError = IndexError_Init();
 
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
@@ -2678,7 +2669,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef MT_BUILD
-    workersThreadPool_InitIfRequired();
+    workersThreadPool_Activate();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -2744,8 +2735,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
-
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
@@ -2754,9 +2743,9 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t startDocTime = clock();
 
+  QueryError status = {0};
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2764,10 +2753,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
@@ -2775,25 +2764,25 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   if (rv != REDISMODULE_OK) {
     // we already unlocked the spec but we can increase this value atomically
-    __atomic_add_fetch(&spec->stats.indexingFailures, 1, __ATOMIC_RELAXED);
+    IndexError_AddError(&spec->stats.indexError, status.detail, doc.docKey);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     IndexSpec_DeleteDoc(spec, ctx, key);
+    QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
 
-  QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+  aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
 
-  spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
+  spec->stats.totalIndexTime += clock() - startDocTime;
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }

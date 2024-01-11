@@ -273,7 +273,7 @@ commands:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH ]]; then
-                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1
+                make upload-artifacts OSNICK=<<parameters.platform>> SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -470,7 +470,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -509,7 +509,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -545,7 +545,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -581,7 +581,7 @@ jobs:
           name: Upload artifacts to S3
           command: |
             if [[ -n $CIRCLE_BRANCH && "<<parameters.upload>>" == "yes" ]]; then
-                make upload-artifacts SHOW=1
+                make upload-artifacts SHOW=1 STAGING=1
             fi
       - persist-artifacts
 
@@ -965,7 +965,7 @@ jobs:
     parameters:
       staging-lab:
         type: string
-        default: "0"
+        default: "1" # While we have github actions, we don't need to upload artifacts to the same place
     docker:
       - image: redisfab/rmbuilder:6.2.7-x64-bullseye
     steps:
@@ -1066,250 +1066,249 @@ on-integ-and-version-tags: &on-integ-and-version-tags
 
 workflows:
   version: 2
-  default-flow:
-    when:
-      << pipeline.parameters.run_default_flow >>
-    jobs:
-      - build-linux-debian:
-          <<: *not-on-integ-branch
-      - build-linux-arm-ubuntu:
-          <<: *never
-      - build-platforms:
-          <<: *on-integ-and-version-tags
-          context: common
-          matrix:
-            parameters:
-              platform: [jammy, focal, bionic, centos7, rocky8, rocky9, bullseye, amzn2]
-      - build-arm-platforms:
-          #<<: *on-integ-and-version-tags
-          <<: *always
-          context: common
-          matrix:
-            parameters:
-              platform: [jammy] #, focal, bionic]
-      - build-macos-x64-search:
-          <<: *on-version-tags
-          context: common
-          # Avoid persist conflict with build-macos-x64-coordinator
-          upload: "no"
-      - build-macos-x64-coordinator:
-          <<: *on-version-tags
-          context: common
-      - build-macos-m1-search:
-          context: common
-          <<: *on-version-tags
-          # Avoid persist conflict with build-macos-m1-coordinator
-          upload: "no"
-      - build-macos-m1-coordinator:
-          context: common
-          <<: *on-version-tags
-      - coverage:
-          <<: *always
-      - sanitize:
-          name: sanitize-<< matrix.san-type >>
-          <<: *always
-          test_params: QUICK=1
-          matrix:
-            parameters:
-              san-type: [address]
-      - valgrind-memcheck:
-          <<: *never
-      - benchmark-search-oss-standalone-g1:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-g2:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-g3:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-g1:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-g2:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g1:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g2:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g3:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g4:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g5:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g6:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g7:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g8:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g9:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g10:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-profiler-g1:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-profiler-g2:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-standalone-profiler-g3:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-profiler-g1:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-profiler-g2:
-          context: common
-          <<: *on-integ-and-version-tags
-      - upload-artifacts:
-          name: upload-artifacts-to-staging-lab
-          staging-lab: "1"
-          context: common
-          <<: *on-integ-branch
-          requires:
-            - build-platforms
-            - build-arm-platforms
-            # - build-macos-x64
-            # - build-macos-m1
-      - upload-artifacts:
-          name: upload-release-artifacts
-          context: common
-          <<: *on-version-tags
-          requires:
-            - build-platforms
-            - build-arm-platforms
-            - build-macos-x64-search
-            - build-macos-x64-coordinator
-            - build-macos-m1-search
-            - build-macos-m1-coordinator
-      - build-linux-debian:
-          name: full-with-redis-<<matrix.redis_version>>
-          <<: *never
-          test_params: ""
-          matrix:
-            parameters:
-              redis_version: ["7.2"]
-      - sanitize:
-          name: full-sanitize-<< matrix.san-type >>
-          <<: *never
-          test_params: ""
-          matrix:
-            parameters:
-              san-type: [address]
+#  default-flow:
+#    when:
+#      << pipeline.parameters.run_default_flow >>
+#    jobs:
+      # - build-linux-debian:
+      #     <<: *not-on-integ-branch
+      # - build-linux-arm-ubuntu:
+      #     <<: *never
+#      - build-platforms:
+#          <<: *on-integ-and-version-tags
+#          context: common
+#          matrix:
+#            parameters:
+#              platform: [jammy, focal, bionic, centos7, rocky8, rocky9, bullseye, amzn2]
+#      - build-arm-platforms:
+#          <<: *on-integ-and-version-tags
+#          context: common
+#          matrix:
+#            parameters:
+#              platform: [jammy, focal, bionic]
+      # - build-macos-x64-search:
+      #     <<: *on-version-tags
+      #     context: common
+      #     # Avoid persist conflict with build-macos-x64-coordinator
+      #     upload: "no"
+      # - build-macos-x64-coordinator:
+      #     <<: *on-version-tags
+      #     context: common
+      # - build-macos-m1-search:
+      #     context: common
+      #     <<: *on-version-tags
+      #     # Avoid persist conflict with build-macos-m1-coordinator
+      #     upload: "no"
+      # - build-macos-m1-coordinator:
+      #     context: common
+      #     <<: *on-version-tags
+      # - coverage:
+      #     <<: *always
+      # - sanitize:
+      #     name: sanitize-<< matrix.san-type >>
+      #     <<: *always
+      #     test_params: QUICK=1
+      #     matrix:
+      #       parameters:
+      #         san-type: [address]
+      # - valgrind-memcheck:
+      #     <<: *never
+      # - benchmark-search-oss-standalone-g1:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-standalone-g2:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-standalone-g3:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-vecsim-oss-standalone-g1:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-vecsim-oss-standalone-g2:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g1:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g2:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g3:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g4:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g5:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g6:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g7:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g8:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g9:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-cluster-g10:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-standalone-profiler-g1:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-standalone-profiler-g2:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-search-oss-standalone-profiler-g3:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-vecsim-oss-standalone-profiler-g1:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+      # - benchmark-vecsim-oss-standalone-profiler-g2:
+      #     context: common
+      #     <<: *on-integ-and-version-tags
+#      - upload-artifacts:
+#          name: upload-artifacts-to-staging-lab
+#          staging-lab: "1"
+#          context: common
+#          <<: *on-integ-branch
+#          requires:
+#            - build-platforms
+#            - build-arm-platforms
+#            # - build-macos-x64
+#            # - build-macos-m1
+      # - upload-artifacts:
+      #     name: upload-release-artifacts
+      #     context: common
+      #     <<: *on-version-tags
+      #     requires:
+      #       - build-platforms
+      #       - build-arm-platforms
+      #       - build-macos-x64-search
+      #       - build-macos-x64-coordinator
+      #       - build-macos-m1-search
+      #       - build-macos-m1-coordinator
+      # - build-linux-debian:
+      #     name: full-with-redis-<<matrix.redis_version>>
+      #     <<: *never
+      #     test_params: ""
+      #     matrix:
+      #       parameters:
+      #         redis_version: ["7.2"]
+      # - sanitize:
+      #     name: full-sanitize-<< matrix.san-type >>
+      #     <<: *never
+      #     test_params: ""
+      #     matrix:
+      #       parameters:
+      #         san-type: [address]
 
-  benchmark_flow_label:
-    when:
-      << pipeline.parameters.run_benchmark_flow_label >>
-    jobs:
-      - benchmark-search-oss-standalone-g1:
-          context: common
-          <<: *always
-      - benchmark-search-oss-standalone-g2:
-          context: common
-          <<: *always
-      - benchmark-search-oss-standalone-g3:
-          context: common
-          <<: *always
-      - benchmark-vecsim-oss-standalone-g1:
-          context: common
-          <<: *always
-      - benchmark-vecsim-oss-standalone-g2:
-          context: common
-          <<: *always
-      - benchmark-vecsim-oss-standalone-profiler-g1:
-          context: common
-          <<: *always
-      - benchmark-vecsim-oss-standalone-profiler-g2:
-          context: common
-          <<: *always
-      - benchmark-search-oss-standalone-profiler-g1:
-          context: common
-          <<: *always
-      - benchmark-search-oss-standalone-profiler-g2:
-          context: common
-          <<: *always
-      - benchmark-search-oss-standalone-profiler-g3:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g1:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g2:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g3:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g4:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g5:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g6:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g7:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g8:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g9:
-          context: common
-          <<: *always
-      - benchmark-search-oss-cluster-g10:
-          context: common
-          <<: *always
+  # benchmark_flow_label:
+  #   when:
+  #     << pipeline.parameters.run_benchmark_flow_label >>
+  #   jobs:
+  #     - benchmark-search-oss-standalone-g1:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-standalone-g2:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-standalone-g3:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-vecsim-oss-standalone-g1:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-vecsim-oss-standalone-g2:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-vecsim-oss-standalone-profiler-g1:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-vecsim-oss-standalone-profiler-g2:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-standalone-profiler-g1:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-standalone-profiler-g2:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-standalone-profiler-g3:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g1:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g2:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g3:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g4:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g5:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g6:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g7:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g8:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g9:
+  #         context: common
+  #         <<: *always
+  #     - benchmark-search-oss-cluster-g10:
+  #         context: common
+  #         <<: *always
 
-  nightly:
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
-    jobs:
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          test_params: ""
-          matrix:
-            parameters:
-              redis_version: ["7.2", "unstable"]
-      - sanitize:
-          name: nightly-sanitize-<< matrix.san-type >>
-          test_params: ""
-          matrix:
-            parameters:
-              san-type: [address]
+  # nightly:
+  #   triggers:
+  #     - schedule:
+  #         cron: "20 17 * * 0,3"
+  #         <<: *on-integ-branch-cron
+  #   jobs:
+  #     - build-linux-debian:
+  #         name: build-with-redis-<<matrix.redis_version>>
+  #         test_params: ""
+  #         matrix:
+  #           parameters:
+  #             redis_version: ["7.2", "unstable"]
+  #     - sanitize:
+  #         name: nightly-sanitize-<< matrix.san-type >>
+  #         test_params: ""
+  #         matrix:
+  #           parameters:
+  #             san-type: [address]
 
-  nightly-by-param:
-    when:
-      << pipeline.parameters.run_nightly_flow_label >>
-    jobs:
-      - build-linux-debian:
-          name: build-with-redis-<<matrix.redis_version>>
-          test_params: ""
-          matrix:
-            parameters:
-              redis_version: ["7.2", "unstable"]
-      - sanitize:
-          name: nightly-sanitize-<< matrix.san-type >>
-          test_params: ""
-          matrix:
-            parameters:
-              san-type: [address]
+  # nightly-by-param:
+  #   when:
+  #     << pipeline.parameters.run_nightly_flow_label >>
+  #   jobs:
+  #     - build-linux-debian:
+  #         name: build-with-redis-<<matrix.redis_version>>
+  #         test_params: ""
+  #         matrix:
+  #           parameters:
+  #             redis_version: ["7.2", "unstable"]
+  #     - sanitize:
+  #         name: nightly-sanitize-<< matrix.san-type >>
+  #         test_params: ""
+  #         matrix:
+  #           parameters:
+  #             san-type: [address]
 
   nightly-twice-a-week:
     triggers:
@@ -1317,15 +1316,15 @@ workflows:
           cron: "20 17 * * 0,3"
           <<: *on-integ-branch-cron
     jobs:
-      - build-macos-x64-search:
-          context: common
-          # Avoid persist conflict with build-macos-x64-coordinator
-          upload: "no"
-          test_params: ""
-      - build-macos-x64-coordinator:
-          context: common
-          # upload: "no"
-          test_params: ""
+      # - build-macos-x64-search:
+      #     context: common
+      #     # Avoid persist conflict with build-macos-x64-coordinator
+      #     upload: "no"
+      #     test_params: ""
+      # - build-macos-x64-coordinator:
+      #     context: common
+      #     # upload: "no"
+      #     test_params: ""
       - build-macos-m1-search:
           context: common
           # Avoid persist conflict with build-macos-m1-coordinator
@@ -1336,86 +1335,86 @@ workflows:
           # upload: "no"
           test_params: ""
 
-  nightly-twice-a-week-by-param:
-    when:
-      << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
-    jobs:
-      - build-macos-x64-search:
-          context: common
-          # Avoid persist conflict with build-macos-x64-coordinator
-          upload: "no"
-          test_params: ""
-      - build-macos-x64-coordinator:
-          context: common
-          # upload: "no"
-          test_params: ""
-      - build-macos-m1-search:
-          context: common
-          # Avoid persist conflict with build-macos-m1-coordinator
-          upload: "no"
-          test_params: ""
-      - build-macos-m1-coordinator:
-          context: common
-          # upload: "no"
-          test_params: ""
+  # nightly-twice-a-week-by-param:
+  #   when:
+  #     << pipeline.parameters.run_nightly_twice_a_week_flow_label >>
+  #   jobs:
+  #     - build-macos-x64-search:
+  #         context: common
+  #         # Avoid persist conflict with build-macos-x64-coordinator
+  #         upload: "no"
+  #         test_params: ""
+  #     - build-macos-x64-coordinator:
+  #         context: common
+  #         # upload: "no"
+  #         test_params: ""
+  #     - build-macos-m1-search:
+  #         context: common
+  #         # Avoid persist conflict with build-macos-m1-coordinator
+  #         upload: "no"
+  #         test_params: ""
+  #     - build-macos-m1-coordinator:
+  #         context: common
+  #         # upload: "no"
+  #         test_params: ""
 
-  nightly-benchmarks:
-    triggers:
-      - schedule:
-          cron: "0 7 * * 1"
-          filters:
-            branches:
-              only: master
-    jobs:
-      - benchmark-search-oss-standalone-g1:
-          context: common
-      - benchmark-search-oss-standalone-g2:
-          context: common
-      - benchmark-search-oss-standalone-g3:
-          context: common
-      - benchmark-search-oss-cluster-g1:
-          context: common
-      - benchmark-search-oss-cluster-g2:
-          context: common
-      - benchmark-search-oss-cluster-g3:
-          context: common
-      - benchmark-search-oss-cluster-g4:
-          context: common
-      # We only run g11 and g12 of oss cluster
-      # (oss-cluster-20-primaries, and oss-cluster-24-primaries) once a week
-      - benchmark-search-oss-cluster-g5:
-          context: common
-      - benchmark-search-oss-cluster-g6:
-          context: common
-      - benchmark-search-oss-cluster-g7:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g8:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g9:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g10:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g11:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-search-oss-cluster-g12:
-          context: common
-          <<: *on-integ-and-version-tags
-      - benchmark-vecsim-oss-standalone-g1:
-          context: common
-      - benchmark-vecsim-oss-standalone-g2:
-          context: common
-      - benchmark-vecsim-oss-standalone-profiler-g1:
-          context: common
-      - benchmark-vecsim-oss-standalone-profiler-g2:
-          context: common
-      - benchmark-search-oss-standalone-profiler-g1:
-          context: common
-      - benchmark-search-oss-standalone-profiler-g2:
-          context: common
-      - benchmark-search-oss-standalone-profiler-g3:
-          context: common
+  # nightly-benchmarks:
+  #   triggers:
+  #     - schedule:
+  #         cron: "0 7 * * 1"
+  #         filters:
+  #           branches:
+  #             only: master
+  #   jobs:
+  #     - benchmark-search-oss-standalone-g1:
+  #         context: common
+  #     - benchmark-search-oss-standalone-g2:
+  #         context: common
+  #     - benchmark-search-oss-standalone-g3:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g1:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g2:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g3:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g4:
+  #         context: common
+  #     # We only run g11 and g12 of oss cluster
+  #     # (oss-cluster-20-primaries, and oss-cluster-24-primaries) once a week
+  #     - benchmark-search-oss-cluster-g5:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g6:
+  #         context: common
+  #     - benchmark-search-oss-cluster-g7:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-search-oss-cluster-g8:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-search-oss-cluster-g9:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-search-oss-cluster-g10:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-search-oss-cluster-g11:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-search-oss-cluster-g12:
+  #         context: common
+  #         <<: *on-integ-and-version-tags
+  #     - benchmark-vecsim-oss-standalone-g1:
+  #         context: common
+  #     - benchmark-vecsim-oss-standalone-g2:
+  #         context: common
+  #     - benchmark-vecsim-oss-standalone-profiler-g1:
+  #         context: common
+  #     - benchmark-vecsim-oss-standalone-profiler-g2:
+  #         context: common
+  #     - benchmark-search-oss-standalone-profiler-g1:
+  #         context: common
+  #     - benchmark-search-oss-standalone-profiler-g2:
+  #         context: common
+  #     - benchmark-search-oss-standalone-profiler-g3:
+  #         context: common

@@ -77,7 +77,6 @@ include(${root}/build/hiredis/hiredis.cmake)
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:rmr>)
 
 if (APPLE)

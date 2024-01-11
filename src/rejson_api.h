@@ -115,9 +115,15 @@ typedef struct RedisJSONAPI {
   // Free the iterator
   void (*freeKeyValuesIter)(JSONKeyValuesIterator iter);
 
+  ////////////////
+  // V5 entries //
+  ////////////////
+
+  RedisJSON (*openKeyWithFlags)(RedisModuleCtx *ctx, RedisModuleString *key_name, int flags);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 4
+#define RedisJSONAPI_LATEST_API_VER 5
 #ifdef __cplusplus
 }
 #endif

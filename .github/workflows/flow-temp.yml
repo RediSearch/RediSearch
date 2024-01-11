@@ -1,0 +1,17 @@
+name: temporary testing
+
+# This file is useful for triggering actions when you implement them.
+# When the `branches-ignore` line is commented out, this workflow will run on every push.
+# It is better to use this file for testing your new flows than creating a new one, to avoid cluttering the repo
+# action tab with unused workflows.
+# Don't worry about conflicts with other PRs - there is no "right" content of this file.
+# Make sure the `branches-ignore` line is not commented out when you merge your PR.
+
+on:
+  push:
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+
+jobs:
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
+    secrets: inherit

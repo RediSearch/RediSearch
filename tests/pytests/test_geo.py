@@ -33,8 +33,8 @@ def testGeoLong(env):
   env.expect('FT.SEARCH', 'idx', '*').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 2 km]').equal([1, 'geo', ['g', '1.2345678901234567890,4.5678901234567890']])
 
+@skip(cluster=True)
 def testGeoDistanceSimple(env):
-  env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()
   env.expect('HSET', 'geo1', 'location', '1.22,4.56', 'hq', '1.25,4.5').equal(2)
   env.expect('HSET', 'geo2', 'location', '1.24,4.56', 'hq', '1.25,4.5').equal(2)
@@ -43,10 +43,10 @@ def testGeoDistanceSimple(env):
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4, 'geo1', 'geo2', 'geo3', 'geo4'])
 
   # documents with values out of range fail to index
-  assertInfoField(env, 'idx', 'hash_indexing_failures', '0')
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
   env.expect('HSET', 'geo5', 'location', '181,4.56', 'hq', '1.25,4.5').equal(2)
   env.expect('HSET', 'geo6', 'location', '1.23,86', 'hq', '1.25,4.5').equal(2)
-  assertInfoField(env, 'idx', 'hash_indexing_failures', '2')
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 2)
 
   # querying for invalid value fails with a message
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 -10 km]').error().contains('Invalid GeoFilter radius')
@@ -57,7 +57,7 @@ def testGeoDistanceSimple(env):
   res = ['Iterators profile', ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]]
 
   act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
-  env.assertEqual(act_res[1][3], res)
+  env.assertEqual(act_res[1][4], res)
 
   res = [4, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 

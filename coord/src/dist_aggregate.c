@@ -82,8 +82,8 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
     }
     // Discard the response, and return REDIS_OK
-    MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
+    MRReply_Free(rep);
     return REDIS_OK;
   }
 
@@ -178,7 +178,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
-      char *s = MRReply_String(r, &l);
+      const char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
       // v = RS_StringValT(s, l, RSString_Volatile);
       break;
@@ -321,7 +321,10 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
+  // Or
+  // Simple error
 
+  // If root isn't a simple error:
   // rows:
   // RESP2: [ num_results, [ field, value, ... ], ... ]
   // RESP3: { ..., "results": [ { field: value, ... }, ... ], ... }
@@ -343,14 +346,32 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
       if (nc->curIdx == len) {
         long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
+        bool timed_out = false;
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
           nc->shardsProfile[nc->shardsProfileIdx++] = root;
         } else {
+          // Check for a warning (resp3 only)
+          MRReply *warning = MRReply_MapElement(rows, "warning");
+          if (resp3 && MRReply_Length(warning) > 0) {
+            warning = MRReply_ArrayElement(warning, 0);
+            // Set an error to be later picked up and sent as a warning
+            // Note: Once we support more than only the timeout warning - extend this
+            // behavior to return `RS_RESULT_NONFATAL_ERROR` for which we return
+            // a warning only (instead of a simple error).
+            if (!strcmp(MRReply_String(warning, NULL), QueryError_Strerror(QUERY_ETIMEDOUT))) {
+              timed_out = true;
+            }
+          }
+
           MRReply_Free(root);
         }
         nc->current.root = nc->current.rows = root = rows = NULL;
+
+        if (timed_out) {
+          return RS_RESULT_TIMEDOUT;
+        }
       }
   }
 
@@ -358,7 +379,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
-    // if(TimedOut(&self->parent->sctx->timeout)) {
     if(TimedOut(&self->parent->sctx->timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -376,10 +396,14 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
 
     // If an error was returned, propagate it
-    if(MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
-      QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC,
-        MRReply_String(nc->current.root, NULL));
-      return RS_RESULT_ERROR;
+    if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+      const char *strErr = MRReply_String(nc->current.root, NULL);
+      if (!strErr
+          || strcmp(strErr, "Timeout limit was reached")
+          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
+        return RS_RESULT_ERROR;
+      }
     }
 
     root = nc->current.root;
@@ -440,7 +464,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback, NULL);
+  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -456,7 +480,7 @@ static void rpnetFree(ResultProcessor *rp) {
   // the iterator might not be done - some producers might still be sending data, let's wait for
   // them...
   if (nc->it) {
-    MRIterator_WaitDone(nc->it, nc->areq->reqflags & QEXEC_F_IS_CURSOR);
+    MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
 
   nc->cg.Free(nc->cg.ctx);
@@ -470,9 +494,7 @@ static void rpnetFree(ResultProcessor *rp) {
     rm_free(nc->shardsProfile);
   }
 
-  if (nc->current.root) {
-    MRReply_Free(nc->current.root);
-  }
+  MRReply_Free(nc->current.root);
 
   if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);
@@ -598,37 +620,36 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
   }
 }
 
-size_t PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch);
-size_t PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies);
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req) {
+void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   clock_t finishTime = clock();
 
-  RedisModule_Reply_Map(reply); // root
+  RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
 
-    // profileRP replace netRP as end PR
-    RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  // profileRP replace netRP as end PR
+  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
 
-    // Print shards profile
-    if (reply->resp3) {
-      PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile);
-    } else {
-      PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, 0);
-    }
+  // Print shards profile
+  if (reply->resp3) {
+    PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+  } else {
+    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+  }
 
-    // Print coordinator profile
+  RedisModule_Reply_MapEnd(reply); // Shards
+  // Print coordinator profile
 
-    RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
+  RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
-      RedisModule_ReplyKV_Map(reply, "Result processors profile");
-      Profile_Print(reply, req);
-      RedisModule_Reply_MapEnd(reply);
+  RedisModule_ReplyKV_Map(reply, "Result processors profile");
+  Profile_Print(reply, req, timedout);
+  RedisModule_Reply_MapEnd(reply);
 
-      RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
 
-    RedisModule_Reply_MapEnd(reply); // >coordinator
-
-  RedisModule_Reply_MapEnd(reply); // root
+  RedisModule_Reply_MapEnd(reply); // >coordinator
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
@@ -667,6 +688,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (profileArgs == -1) goto err;
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
+  r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
   if(dialect >= 2) {
@@ -729,16 +751,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    if (reply->resp3 || IsProfile(r)) {
-      RedisModule_Reply_Map(reply);
-    }
     sendChunk(r, reply, -1);
-    if (IsProfile(r)) {
-      printAggProfile(reply, r);
-    }
-    if (reply->resp3 || IsProfile(r)) {
-      RedisModule_Reply_MapEnd(reply);
-    }
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);

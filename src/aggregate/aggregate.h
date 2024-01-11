@@ -16,7 +16,6 @@
 #include "reply.h"
 
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,12 +91,16 @@ typedef enum {
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+// Get the index search context from the result processor
+#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
 #define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
+
+typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
 
 typedef enum {
   /* Received EOF from iterator */
@@ -164,10 +167,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  hires_clock_t initClock;  // Time of start. Reset for each cursor call
-  double totalTime;          // Total time. Used to accimulate cursors times
-  double parseTime;          // Time for parsing the query
-  double pipelineBuildTime;  // Time for creating the pipeline
+  clock_t initClock;         // Time of start. Reset for each cursor call
+  clock_t totalTime;         // Total time. Used to accumulate cursors times
+  clock_t parseTime;         // Time for parsing the query
+  clock_t pipelineBuildTime; // Time for creating the pipeline
 
   const char** requiredFields;
 
@@ -177,6 +180,12 @@ typedef struct AREQ {
   // FT.AGGREGATE execution.
   size_t maxSearchResults;
   size_t maxAggregateResults;
+
+  // Cursor id, if this is a cursor
+  uint64_t cursor_id;
+
+  // Profiling function
+  profiler_func profile;
 
 } AREQ;
 
@@ -322,6 +331,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
 
 
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
+int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
