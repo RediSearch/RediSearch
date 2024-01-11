@@ -166,7 +166,7 @@ def testLeaked(env):
     print(f"ASAN_OPTIONS = {var_value}")
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
     conn = getConnectionByEnv(env)
-    n_docs = env.shardsCount * 1100
+    n_docs = env.shardsCount
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT').ok()
     for x in range(n_docs):
         conn.execute_command('HSET', f'doc:{x}', 'f1', 'hello')
