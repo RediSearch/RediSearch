@@ -165,7 +165,7 @@ setup_rltest() {
 	if [[ $RLTEST_DEBUG == 1 ]]; then
 		RLTEST_ARGS+=" --debug-print"
 	fi
-	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
+	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 && -z $RLTEST_PARALLEL_ARG ]]; then
 		RLTEST_ARGS+=" -s"
 	fi
 	if [[ $RLTEST_CONSOLE == 1 ]]; then
@@ -226,7 +226,7 @@ setup_clang_sanitizer() {
 
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp print_suppressions=0"
 		# :use_tls=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
@@ -516,6 +516,9 @@ OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
 
+# RLTest uses `fork` which might fail on macOS with the following variable set
+[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
 #---------------------------------------------------------------------------------- Tests scope
 
 [[ $COORD == 1 ]] && COORD=oss
@@ -576,9 +579,6 @@ STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 #---------------------------------------------------------------------------------- Parallelism
 
 PARALLEL=${PARALLEL:-1}
-
-# due to Python "Can't pickle local object" problem in RLTest
-[[ $OS == macos ]] && PARALLEL=0
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
 

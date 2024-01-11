@@ -26,5 +26,6 @@ jobs:
           files: |
             **.md
             docs/**
+            coord/docs/**
             licenses/**
             LICENSE.txt

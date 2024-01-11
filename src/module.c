@@ -29,7 +29,7 @@
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
@@ -1155,8 +1155,6 @@ void RediSearch_CleanupModule(void) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 #endif
-  CursorList_Destroy(&g_CursorsList);
-  CursorList_Destroy(&g_CursorsListCoord);
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
