@@ -581,14 +581,8 @@ def get_TLS_args():
     with_pass = server_version_is_at_least('6.2')
 
     # If any of the files are missing, generate them
-    def exists(path):
-        return os.path.exists(path) and os.path.isfile(path)
-    if not exists(cert_file)    or \
-       not exists(key_file)     or \
-       not exists(ca_cert_file) or \
-       (with_pass and not exists(passphrase_file)):
-        import subprocess
-        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
+    import subprocess
+    subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
 
     def get_passphrase():
         with open(passphrase_file, 'r') as f:
