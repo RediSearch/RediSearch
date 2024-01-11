@@ -9,9 +9,12 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+  test-macos-M1:
+    uses: ./.github/workflows/task-test.yml
+    with:
+      env: macos-13-xlarge
+      test-config: QUICK=1
     secrets: inherit
