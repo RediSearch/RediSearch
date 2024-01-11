@@ -57,7 +57,7 @@ sanitizer_check() {
 }
 
 sanitizer_summary() {
-	local logdir="$ROOT/tests/$DIR/logs"
+	local logdir="$ROOT/tests/$DIR"
 	if ! TYPE="leaks" sanitizer_check "Direct leak"; then
 		TYPE="leaks" sanitizer_check "detected memory leaks"
 	fi
