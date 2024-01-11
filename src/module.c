@@ -948,7 +948,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     rm_free(err);
     return REDISMODULE_ERR;
   }
-
+  int *memory_leak = rm_malloc(sizeof(int));
   GetRedisVersion();
 
   char ver[64];
