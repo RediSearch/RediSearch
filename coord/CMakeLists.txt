@@ -102,7 +102,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${MODULE_NAME_SUFFIX})
 
-    add_library(${_moduleName} SHARED 
+    add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
 		src/build-info/info-${MODULE_NAME_SUFFIX}.c)
 

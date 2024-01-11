@@ -30,7 +30,6 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize);
 
 void SearchCluster_Release(SearchCluster *sc);
-void GlobalSearchCluster_Release();
 /* A command generator that multiplexes a command across multiple partitions by tagging it */
 typedef struct {
   MRCommand *cmd;

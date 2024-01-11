@@ -31,8 +31,6 @@ void MR_SetCoordinationStrategy(struct MRCtx *ctx, MRCoordinationStrategy strate
 
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS);
-/* Cleanup used resources at exit */
-void MR_Destroy();
 
 /* Set a new topology for the cluster */
 int MR_UpdateTopology(MRClusterTopology *newTopology);

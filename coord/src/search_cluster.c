@@ -41,9 +41,6 @@ void SearchCluster_Release(SearchCluster *sc) {
   rm_free(sc->shardsStartSlots);
   sc->shardsStartSlots = NULL;
 }
-void GlobalSearchCluster_Release() {
-  SearchCluster_Release(&__searchCluster);
-}
 
 inline int SearchCluster_Ready(SearchCluster *sc) {
   return sc != NULL && sc->size != 0 && sc->part.table != NULL;
