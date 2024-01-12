@@ -145,6 +145,62 @@ Dialect version 4 will improve performance in four different scenarios:
 1. **Partial range** - applied when there is a `SORTBY` on a numeric field, either with no filter or with a filter by the same numeric field. Such queries will iterate on a range large enough to satisfy the `LIMIT` of requested results.
 1. **Hybrid** - applied when there is a `SORTBY` on a numeric field in addition to another non-numeric filter. It could be the case that some results will get filtered, leaving too small a range to satisfy any specified `LIMIT`. In such cases, the iterator then is re-wound and additional iterations occur to collect result up to the requested `LIMIT`.
 1. **No optimization** - If there is a sort by score or by a non-numeric field, there is no other option but to retrieve all results and compare their values to the search parameters.
+## Use `FT.EXPLAINCLI` to compare dialects
+	
+The [`FT.EXPLAINCLI`](https://redis.io/commands/ft.explaincli/) is a powerful tool that provides a window into the inner workings of your queries. It's like a roadmap that details your query's journey from start to finish.
+
+When you run `FT.EXPLAINCLI`, it returns an array representing the execution plan of a complex query. This plan is a step-by-step guide of how Redis interprets your query and how it plans to fetch results. It's a behind-the-scenes look at the process, giving you insights into how the search engine works.
+
+The `FT.EXPLAINCLI` accepts a `DIALECT` argument, allowing you to execute the query using different dialect versions, allowing you to compare the resulting query plans.
+
+To use `FT.EXPLAINCLI`, you need to provide an index and a query predicate. The index is the name of the index you created using `FT.CREATE`, and the query predicate is the same as if you were sending it to `FT.SEARCH` or `FT.AGGREGATE`.
+
+Here's an example of how to use `FT.EXPLAINCLI` to understand differences in dialect versions 1 and 2.
+
+Negation of the intersection between tokens `hello` and `world`:
+
+```FT.EXPLAINCLI idx:dialects "-hello world" DIALECT 1
+1) NOT {
+2)   INTERSECT {
+3)     hello
+4)     world
+5)   }
+6) }
+7)
+```
+
+Intersection of the negation of the token `hello` together with token `world`:
+
+```
+FT.EXPLAINCLI idx:dialects "-hello world" DIALECT 2
+ 1) INTERSECT {
+ 2)   NOT {
+ 3)     hello
+ 4)   }
+ 5)   UNION {
+ 6)     world
+ 7)     +world(expanded)
+ 8)   }
+ 9) }
+10) 
+```
+
+Same result as `DIALECT 1`:
+
+```
+FT.EXPLAINCLI idx:dialects "-(hello world)" DIALECT 2
+1) NOT {
+2)   INTERSECT {
+3)     hello
+4)     world
+5)   }
+6) }
+7) 
+```
+
+{{% alert title=Note %}}
+`FT.EXPLAIN` doesn't execute the query. It only explains the plan. It's a way to understand how your query is interpreted by the query engine, which can be invaluable when you're trying to optimize your searches.
+{{% /alert %}}
 
 ## Change the default dialect
 
