@@ -7,6 +7,7 @@ description: >
 ---
 
 Redis Stack currently supports four query dialects for use with the `FT.SEARCH`, `FT.AGGREGATE`, and other search and query commands.
+Dialects provide for enhancing the query API incrementally, introducing innovative behaviors and new features that support new use cases in a way that does not break the API for existing applications.```
 
 ## `DIALECT 1`
 
@@ -16,7 +17,7 @@ This dialect is also the default dialect. See below for information about changi
 ## `DIALECT 2`
 
 Dialect version 2 was introduced in the [2.4](https://github.com/RediSearch/RediSearch/releases/tag/v2.4.3) release to address query parser inconsistencies found in previous versions of Redis Stack. Dialect version 1 remains the default dialect. To use dialect version 2, append `DIALECT 2` to your query command.
-
+Support for vector search also was introduced in the 2.4 release and requires `DIALECT 2`. See [here](https://redis.io/docs/interact/search-and-query/query/vector-search/) for more details.
 `FT.SEARCH ... DIALECT 2`
 
 It was determined that under certain conditions some query parsing rules did not behave as originally intended.
@@ -68,7 +69,9 @@ With `DIALECT 2` you can use un-escaped spaces in tag queries, even with stopwor
 
 ## `DIALECT 3`
 
-Dialect version 3 was introduced in the [2.6](https://github.com/RediSearch/RediSearch/releases/tag/v2.6.3) release. The primary change is that, with version 3, JSON is returned rather than scalars for multi-value attributes. Apart from specifying `DIALECT 3` at the end of a `FT.SEARCH` command, there are no other syntactic changes. Dialect version 1 remains the default dialect. To use dialect version 3, append `DIALECT 3` to your query command.
+Dialect version 3 was introduced in the [2.6](https://github.com/RediSearch/RediSearch/releases/tag/v2.6.3) release. This version introduced support for multi-value indexing and querying of attributes for any attribute type ( [TEXT](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-text), [TAG](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-tag), [NUMERIC](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-numeric), [GEO](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-geo) and [VECTOR](https://redis.io/docs/stack/search/indexing_json/#index-json-arrays-as-vector)) defined by a [JSONPath](https://redis.io/docs/stack/json/path/) leading to an array or multiple scalar values. Support for [GEOSHAPE](https://redis.io/docs/interact/search-and-query/query/geo-spatial/) queries was also introduced in this dialect.
+
+The primary difference between dialects version 2 and version 3 is that JSON is returned rather than scalars for multi-value attributes. Apart from specifying `DIALECT 3` at the end of a `FT.SEARCH` command, there are no other syntactic changes. Dialect version 1 remains the default dialect. To use dialect version 3, append `DIALECT 3` to your query command.
 
 `FT.SEARCH ... DIALECT 3`
 
@@ -112,7 +115,7 @@ Now search, with and without `DIALECT 3`.
          2) "AAPL UW"
     ```
     
-    Only one of the expected two elements is returned.
+    Only the first element of the expected two elements is returned.
 
 - With dialect 3:
 
@@ -138,10 +141,10 @@ Dialect version 4 was introduced in the [2.8](https://github.com/RediSearch/Redi
 
 Dialect version 4 will improve performance in four different scenarios:
 
-1. Skip sorter - applied when there is no sorting to be done. The query can return once it reaches the `LIMIT` of requested results.
-1. Partial range - applied when there is a `SORTBY` on a numeric field, either with no filter or with a filter by the same numeric field. Such queries will iterate on a range large enough to satisfy the `LIMIT` of requested results.
-1. Hybrid - applied when there is a `SORTBY` on a numeric field in addition to another non-numeric filter. It could be the case that some results will get filtered, leaving too small a range to satisfy any specified `LIMIT`. In such cases, the iterator then is re-wound and additional iterations occur to collect result up to the requested `LIMIT`.
-1. No optimization - If there is a sort by score or by a non-numeric field, there is no other option but to retrieve all results and compare their values to the search parameters.
+1. **Skip sorter** - applied when there is no sorting to be done. The query can return once it reaches the `LIMIT` of requested results.
+1. **Partial range** - applied when there is a `SORTBY` on a numeric field, either with no filter or with a filter by the same numeric field. Such queries will iterate on a range large enough to satisfy the `LIMIT` of requested results.
+1. **Hybrid** - applied when there is a `SORTBY` on a numeric field in addition to another non-numeric filter. It could be the case that some results will get filtered, leaving too small a range to satisfy any specified `LIMIT`. In such cases, the iterator then is re-wound and additional iterations occur to collect result up to the requested `LIMIT`.
+1. **No optimization** - If there is a sort by score or by a non-numeric field, there is no other option but to retrieve all results and compare their values to the search parameters.
 
 ## Change the default dialect
 
