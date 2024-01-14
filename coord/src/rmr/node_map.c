@@ -4,107 +4,81 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
-#include "node.h"
-#include "triemap/triemap.h"
-#include "triemap/triemap.h"
-
 #include <stdlib.h>
+#include <stdio.h>
+
+#include "node_map.h"
+
+#define ADDRESS_LENGTH 256
+
+struct MRNodeMap {
+  dict *nodes;
+  dict *hosts;
+};
 
 void MRNodeMapIterator_Free(MRNodeMapIterator *it) {
-  TrieMapIterator_Free(it->iter);
+  dictReleaseIterator(it->iter);
 }
 
-MRClusterNode *_nmi_allNext(MRNodeMapIterator *it) {
-  char *str;
-  tm_len_t len;
-  void *p;
-  if (!TrieMapIterator_Next(it->iter, &str, &len, &p)) {
-    return NULL;
-  }
-  return p;
+static MRClusterNode *_nmi_allNext(MRNodeMapIterator *it) {
+  dictEntry *de = dictNext(it->iter);
+  return de ? dictGetVal(de) : NULL;
 }
 
-MRClusterNode *_nmi_randomNext(MRNodeMapIterator *it) {
-  char *host;
-  tm_len_t len;
-  void *p;
-  if (!TrieMapIterator_Next(it->iter, &host, &len, &p)) {
-    return NULL;
-  }
-  int retries = 0;
-  MRClusterNode *n = NULL;
-  while (retries < 3) {
-    n = TrieMap_RandomValueByPrefix(it->m->nodes, host, len);
-    if (!n) break;
-    // do not select the same node as excluded
-    if (n->flags & MRNode_Self) {
-      retries++;
-      continue;
-    }
-    break;
-  }
-  return n;
-}
 MRNodeMapIterator MRNodeMap_IterateAll(MRNodeMap *m) {
-  return (MRNodeMapIterator){
-      .Next = _nmi_allNext, .m = m, .excluded = NULL, .iter = TrieMap_Iterate(m->nodes, "", 0)};
-}
-
-MRNodeMapIterator MRNodeMap_IterateHost(MRNodeMap *m, const char *host) {
   return (MRNodeMapIterator){.Next = _nmi_allNext,
                              .m = m,
                              .excluded = NULL,
-                             .iter = TrieMap_Iterate(m->nodes, host, strlen(host))};
+                             .iter = dictGetIterator(m->nodes),
+                             .host = NULL};
 }
-MRNodeMapIterator MRNodeMap_IterateRandomNodePerhost(MRNodeMap *m, MRClusterNode *excludeNode) {
-  return (MRNodeMapIterator){.Next = _nmi_randomNext,
+
+/* Return 1 if this is the host of the node's endpoint */
+static int IsNodeHost(const MRClusterNode *node, const char *host) {
+  return !strcasecmp(node->endpoint.host, host);
+}
+
+static MRClusterNode *_nmi_hostNext(MRNodeMapIterator *it) {
+  dictEntry *de;
+  while ((de = dictNext(it->iter)) && !IsNodeHost(dictGetVal(de), it->host)) {
+  }
+  return de ? dictGetVal(de) : NULL;
+}
+
+MRNodeMapIterator MRNodeMap_IterateHost(MRNodeMap *m, const char *host) {
+  return (MRNodeMapIterator){.Next = _nmi_hostNext,
                              .m = m,
-                             .excluded = excludeNode,
-                             .iter = TrieMap_Iterate(m->hosts, "", 0)};
-}
-
-void *_node_replace(void *oldval, void *newval) {
-  return newval;
-}
-
-void _nodemap_free(void *ptr) {
-  // do not delete anything - the object is allocated elsewhere
+                             .excluded = NULL,
+                             .iter = dictGetIterator(m->nodes),
+                             .host = host};
 }
 
 void MRNodeMap_Free(MRNodeMap *m) {
-  TrieMap_Free(m->hosts, NULL);
-  TrieMap_Free(m->nodes, _nodemap_free);
+  dictRelease(m->hosts);
+  dictRelease(m->nodes);
   rm_free(m);
 }
 
-/* Return 1 both nodes have the same host */
-int MRNode_IsSameHost(MRClusterNode *n, MRClusterNode *other) {
-  if (!n || !other) return 0;
-  return strcasecmp(n->endpoint.host, other->endpoint.host) == 0;
-}
-
 size_t MRNodeMap_NumHosts(MRNodeMap *m) {
-  return m->hosts->cardinality;
+  return dictSize(m->hosts);
 }
 
 size_t MRNodeMap_NumNodes(MRNodeMap *m) {
-  return m->nodes->cardinality;
+  return dictSize(m->nodes);
 }
 
 MRNodeMap *MR_NewNodeMap() {
   MRNodeMap *m = rm_malloc(sizeof(*m));
-  m->hosts = NewTrieMap();
-  m->nodes = NewTrieMap();
+  m->hosts = dictCreate(&dictTypeHeapStrings, NULL);
+  m->nodes = dictCreate(&dictTypeHeapStrings, NULL);
   return m;
 }
 
 void MRNodeMap_Add(MRNodeMap *m, MRClusterNode *n) {
 
-  TrieMap_Add(m->hosts, n->endpoint.host, strlen(n->endpoint.host), NULL, NULL);
+  dictAdd(m->hosts, n->endpoint.host, NULL);
 
-  char *addr;
-  __ignore__(rm_asprintf(&addr, "%s:%d", n->endpoint.host, n->endpoint.port));
-  TrieMap_Add(m->nodes, addr, strlen(addr), n, _node_replace);
-  rm_free(addr);
+  char addr[ADDRESS_LENGTH];
+  snprintf(addr, ADDRESS_LENGTH, "%s:%d", n->endpoint.host, n->endpoint.port);
+  dictReplace(m->nodes, addr, n);
 }
