@@ -693,6 +693,65 @@ DEBUG_COMMAND(ttl) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(ttlPause) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  if (!sp->isTimerSet) {
+    return RedisModule_ReplyWithError(ctx, "Index does not have a timer");
+  }
+
+  WeakRef timer_ref;
+  // The timed-out callback is called from the main thread and removes the index from the global
+  // dictionary, so at this point we know that the timer exists.
+  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
+  WeakRef_Release(timer_ref);
+  sp->timerId = 0;
+  sp->isTimerSet = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(ttlExpire) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  long long timeout = sp->timeout;
+  sp->timeout = 1; // Expire in 1ms
+  lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
+  // We validated that the index exists and is temporary, so we know that
+  // calling this function will set or reset a timer.
+  IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  sp->timeout = timeout; // Restore the original timeout
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(GitSha) {
 #ifdef GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
@@ -982,6 +1041,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
+                               {"TTL_PAUSE", ttlPause},
+                               {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {NULL, NULL}};
 
