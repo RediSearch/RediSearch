@@ -2623,6 +2623,7 @@ def testLimitBadArgument(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '1', '0').error().equal('The offset of the LIMIT cannot be greater than 0 when the limit is 0')
 
 def testOnTimeoutBadArgument(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')

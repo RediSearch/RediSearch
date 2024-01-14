@@ -259,6 +259,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
 
+    if (arng->limit == 0 && arng->offset != 0) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The offset of the LIMIT cannot be greater than 0 when the limit is 0");
+      return ARG_ERROR;
+    }
+
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
