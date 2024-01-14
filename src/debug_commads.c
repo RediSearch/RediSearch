@@ -697,7 +697,8 @@ DEBUG_COMMAND(ttlPause) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
   IndexSpec *sp = StrongRef_Get(ref);
