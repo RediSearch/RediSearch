@@ -10,11 +10,13 @@ PHRASE=${2:-MySecretPassPhrase42}
 mkdir -p $ROOT/bin/tls
 cd $ROOT/bin/tls
 
-openssl genrsa -out ca.key 4096
+[[ -f .generated && $(cat .generated) == $WITH_PASSPHRASE ]] && exit 0
+
+openssl genrsa -out ca.key 2048
 openssl req \
     -x509 -new -nodes -sha256 \
     -key ca.key \
-    -days 3650 \
+    -days 365 \
     -subj '/O=Redis Test/CN=Certificate Authority' \
     -out ca.crt
 
@@ -40,4 +42,5 @@ openssl x509 \
     -CAcreateserial \
     -days 365 \
     -out redis.crt 2>/dev/null
-openssl dhparam -out redis.dh 2048 2>/dev/null
+
+echo -n $WITH_PASSPHRASE > .generated
