@@ -33,19 +33,16 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
     with TimeLimit(time_out):
       res = slaveConn.execute_command(*command)
       while res != expected_result:
+        time.sleep(0.1)
         res = slaveConn.execute_command(*command)
   except TimeoutException:
     env.assertTrue(False, message='Failed waiting for command to be executed on slave')
   except Exception as e:
     env.assertTrue(False, message=e.message)
 
-def initEnv(skip=True):
+def initEnv():
+  skip(cluster=True)(lambda: None)() # skip on cluster before creating the env
   env = Env(useSlaves=True, forceTcp=True)
-
-  if(skip):
-    env.skip() # flaky; TODO: remove when #3525 is resolved
-
-  env.skipOnCluster()
 
   ## on existing env we can not get a slave connection
   ## so we can no test it
@@ -61,7 +58,6 @@ def initEnv(skip=True):
 
   return env
 
-@skip(cluster=True)
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -97,7 +93,6 @@ def testDelReplicate():
     env.assertEqual(None,
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
-@skip(cluster=True)
 def testDropReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -150,7 +145,6 @@ def testDropReplicate():
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
 
-@skip(cluster=True)
 def testDropTempReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -179,8 +173,7 @@ def testDropTempReplicate():
   env.assertEqual(len(master_keys), len(slave_keys))
   env.assertEqual(master_keys, slave_keys)
 
-  time.sleep(1)
-  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=5)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=6)
 
   # check that index and doc were deleted by master and slave
   env.assertEqual(master.execute_command('FT._LIST'), [])
@@ -189,7 +182,6 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('KEYS', '*'), [])
   env.assertEqual(slave.execute_command('KEYS', '*'), [])
 
-@skip(cluster=True)
 def testDropWith__FORCEKEEPDOCS():
   env = initEnv()
   master = env.getConnection()
@@ -219,7 +211,6 @@ def testDropWith__FORCEKEEPDOCS():
     env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
-@skip(cluster=True)
 def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -
               # Without sortby -
@@ -231,7 +222,6 @@ def testExpireDocs():
               # lowest possible score upon sorting, so doc1 is returned last.
               [2, 'doc2', ['t', 'foo'], 'doc1', []])
 
-@skip(cluster=True)
 def testExpireDocsSortable():
     '''
     Same as test `testExpireDocs` only with SORTABLE
@@ -251,7 +241,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     When isSortable is True the index is created with `SORTABLE` arg
     '''
 
-    env = initEnv(skip=False)
+    env = initEnv()
     master = env.getConnection()
     slave = env.getSlaveConnection()
 
