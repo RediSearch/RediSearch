@@ -1,10 +1,6 @@
-import subprocess
 import signal
-import os
-import os.path
 from RLTest import Env
 import time
-import random
 from includes import *
 from common import *
 
@@ -28,11 +24,11 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise TimeoutException()
 
-def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
+def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5, mapping=lambda x: x):
   try:
     with TimeLimit(time_out):
       res = slaveConn.execute_command(*command)
-      while res != expected_result:
+      while mapping(res) != expected_result:
         time.sleep(0.1)
         res = slaveConn.execute_command(*command)
   except TimeoutException:
@@ -105,15 +101,22 @@ def testDropReplicate():
 
   The text checks consistency between master and slave.
   '''
-  for j in range(100):
-    geo = '1.23456,' + str(float(j) / 100)
-    master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
+  def load_master():
+    for j in range(100):
+      geo = '1.23456,' + str(float(j) / 100)
+      master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
+    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  def master_command(*cmd):
+    master.execute_command(*cmd)
+    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  load_master()
 
   # test for FT.DROPINDEX
-  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
-  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  master.execute_command('FT.DROPINDEX', 'idx', 'DD')
-  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+  master_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  # No matter how many documents were indexed, we expect that the master and slave will be in sync
+  master_command('FT.DROPINDEX', 'idx', 'DD')
 
   # check that same docs were deleted by master and slave
   master_keys = sorted(master.execute_command('KEYS', '*'))
@@ -127,13 +130,15 @@ def testDropReplicate():
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
 
+  # Make sure there are still documents to index and drop
+  load_master()
+
   # test for FT.DROP
-  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  time.sleep(0.001)
-  master.execute_command('FT.DROP', 'idx')
+  master_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  # No matter how many documents were indexed, we expect that the master and slave will be in sync
+  master_command('FT.DROP', 'idx')
 
   # check that same docs were deleted by master and slave
-  time.sleep(0.01)
   master_keys = sorted(master.execute_command('KEYS', '*'))
   slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
