@@ -16,38 +16,55 @@
 namespace RediSearch {
 namespace GeoShape {
 
+// anonymous namespace is the C++ equivalent of C's static, but also applies to typedefs.
 namespace {
+// these types can not escape this TU
+template <typename cs>
+using point_type = RTree<cs>::point_type;
+template <typename cs>
+using poly_type = RTree<cs>::poly_type;
+template <typename cs>
+using geom_type = RTree<cs>::geom_type;
+template <typename cs>
+using rect_type = RTree<cs>::rect_type;
+template <typename cs>
+using doc_type = RTree<cs>::doc_type;
+
+// Overload set to be used by std::visit.
+// Inhreits `operator()` from each of the function objects passed into it during construction.
+// Will fail to compile if the visited `std::variant` has variant types that the overload set does
+// not accept Can be used to force adding a new overload when adding new types to the variant.
 template <typename... Ts>
 struct overload : Ts... {
   using Ts::operator()...;
 };
-// template deduction guide might be necessary for clang? can't hurt to include it regardless.
-template <typename ...Ts>
+// template deduction guide unnecessary for gcc, but might be necessary for clang?
+// can't hurt to include it regardless.
+template <typename... Ts>
 overload(Ts...) -> overload<Ts...>;
 
 template <typename cs>
-constexpr auto make_mbr = overload{
-    [](typename RTree<cs>::point_type const& point) -> RTree<cs>::rect_type {
-      constexpr auto INF = std::numeric_limits<long double>::infinity();
-      const auto x = bg::get<0>(point);
-      const auto y = bg::get<1>(point);
-      const auto p1 = decltype(point){std::nexttoward(x, -INF), std::nexttoward(y, -INF)};
-      const auto p2 = decltype(point){std::nexttoward(x, +INF), std::nexttoward(y, +INF)};
-      return {p1, p2};
-    },
-    [](auto const& geom) { return bg::return_envelope<typename RTree<cs>::rect_type>(geom); }};
+constexpr auto make_mbr =
+    overload{[](point_type<cs> const& point) -> rect_type<cs> {
+               constexpr auto INF = std::numeric_limits<long double>::infinity();
+               const auto x = bg::get<0>(point);
+               const auto y = bg::get<1>(point);
+               const auto p1 = point_type<cs>{std::nexttoward(x, -INF), std::nexttoward(y, -INF)};
+               const auto p2 = point_type<cs>{std::nexttoward(x, +INF), std::nexttoward(y, +INF)};
+               return {p1, p2};
+             },
+             [](poly_type<cs> const& geom) { return bg::return_envelope<rect_type<cs>>(geom); }};
 
 template <typename cs>
-constexpr auto make_doc(typename RTree<cs>::geom_type const& geom, t_docId id = 0)
-    -> RTree<cs>::doc_type {
+constexpr auto make_doc(geom_type<cs> const& geom, t_docId id = 0) -> doc_type<cs> {
   return {std::visit(make_mbr<cs>, geom), id};
 }
 template <typename cs>
-constexpr auto get_rect(typename RTree<cs>::doc_type const& doc) -> RTree<cs>::rect_type {
+constexpr auto get_rect(doc_type<cs> const& doc) -> rect_type<cs> {
   return doc.first;
 }
 template <typename cs>
-constexpr auto get_id(typename RTree<cs>::doc_type const& doc) -> t_docId {
+constexpr auto get_id(doc_type<cs> const& doc) -> t_docId {
   return doc.second;
 }
 
@@ -60,40 +77,39 @@ auto to_string(T const& t) -> string {
   return ss.str();
 }
 template <typename cs>
-auto geometry_to_string(typename RTree<cs>::geom_type const& geom) -> string {
+auto geometry_to_string(geom_type<cs> const& geom) -> string {
   return std::visit([](auto const& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
 }
 template <typename cs>
-auto doc_to_string(typename RTree<cs>::doc_type const& doc) -> string {
+auto doc_to_string(doc_type<cs> const& doc) -> string {
   return to_string(bg::wkt(get_rect<cs>(doc)));
 }
 
 // Ironically, the reason I introduced an overload set in the first place requires recursive
 // lambdas and therefore does not work without `deducing this`, a C++23 feature.
 // template <typename cs>
-// constexpr auto to_string =
-//     overload{
-//         [](this auto&& self, typename RTree<cs>::geom_type const& geom) -> string {
-//           return std::visit([](auto const& geom) -> string { return self(bg::wkt(geom)); }, geom);
-//         },
-//         [](this auto&& self, typename RTree<cs>::doc_type const& doc) -> string {
-//           return self(bg::wkt(get_rect<cs>(doc)));
-//         },
-//         [](auto const& val) -> string {
-//           using sstream =
-//               std::basic_stringstream<char, std::char_traits<char>, Allocator::Allocator<char>>;
-//           auto ss = sstream{};
-//           ss << val;
-//           return ss.str();
-//         }};
+// constexpr auto to_string = overload{
+//     [](this auto self, geom_type<cs> const& geom) -> string {
+//       return std::visit([](auto const& geom) -> string { return self(bg::wkt(geom)); }, geom);
+//     },
+//     [](this auto self, doc_type<cs> const& doc) -> string {
+//       return self(bg::wkt(get_rect<cs>(doc)));
+//     },
+//     [](auto const& val) -> string {
+//       using sstream =
+//           std::basic_stringstream<char, std::char_traits<char>, Allocator::Allocator<char>>;
+//       auto ss = sstream{};
+//       ss << val;
+//       return ss.str();
+//     }};
 
 template <typename cs>
-auto from_wkt(std::string_view wkt) -> RTree<cs>::geom_type {
-  auto geom = [&] -> RTree<cs>::geom_type {
+auto from_wkt(std::string_view wkt) -> geom_type<cs> {
+  auto geom = [&] -> geom_type<cs> {
     if (wkt.starts_with("POI")) {
-      return bg::from_wkt<typename RTree<cs>::point_type>(std::string{wkt});
+      return bg::from_wkt<point_type<cs>>(std::string{wkt});
     } else if (wkt.starts_with("POL")) {
-      return bg::from_wkt<typename RTree<cs>::poly_type>(std::string{wkt});
+      return bg::from_wkt<poly_type<cs>>(std::string{wkt});
     } else {
       throw std::runtime_error{"unknown geometry type"};
     }
@@ -114,14 +130,16 @@ auto from_wkt(std::string_view wkt) -> RTree<cs>::geom_type {
 
 template <typename cs>
 constexpr auto geometry_reporter =
-    overload{[](typename RTree<cs>::point_type const& point) -> std::size_t { return 0; },
-             [](auto const& geom) -> std::size_t {
+    overload{[](point_type<cs> const& point) -> std::size_t { return 0; },
+             [](poly_type<cs> const& geom) -> std::size_t {
                const auto& inners = geom.inners();
                const auto outer_size = geom.outer().get_allocator().report();
                // reduce allows out-of-order execution of associative and commutative binary
                // ops. transform to associative and commutative using a unary predicate.
                return std::transform_reduce(
-#ifndef __APPLE__  // apple clang does not implement `std::execution` despite being a C++17 feature
+// apple clang does not implement `std::execution` despite being a C++17 feature
+// feature test macro for std::execution. hopefully the most applicable, smallest necessary tool
+#if !defined(__cpp_lib_execution)  // unless they're being deliberately malicious
                    std::execution::unseq,
 #endif
                    std::begin(inners), std::end(inners), outer_size, std::plus{},
@@ -130,8 +148,9 @@ constexpr auto geometry_reporter =
 
 template <typename cs>
 constexpr auto within_filter = overload{
-    [](auto const& geom1, typename RTree<cs>::point_type const& geom2) -> bool { return false; },
-    [](auto const& geom1, auto const& geom2) -> bool { return bg::within(geom1, geom2); }};
+    // nothing is within a point. (except itself?)
+    [](auto const& geom, point_type<cs> const& point) -> bool { return false; },
+    [](auto const& geom, poly_type<cs> const& poly) -> bool { return bg::within(geom, poly); }};
 }  // anonymous namespace
 
 template <typename cs>
