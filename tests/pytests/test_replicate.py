@@ -161,12 +161,14 @@ def testDropTempReplicate():
   The test checks consistency between master and slave where both index and document are deleted.
   '''
 
-  # test for TEMPORARY FT.DROPINDEX
-  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '1', 'SCHEMA', 't', 'TEXT')
+  # Create a temporary index, with a long TTL
+  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '3600', 'SCHEMA', 't', 'TEXT')
+  # Pause the index expiration, so we can control when it expires
+  env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').ok()
 
   master.execute_command('HSET', 'doc1', 't', 'hello')
 
-  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'})
 
   # check that same index and doc exist on master and slave
   master_index = master.execute_command('FT._LIST')
@@ -178,7 +180,10 @@ def testDropTempReplicate():
   env.assertEqual(len(master_keys), len(slave_keys))
   env.assertEqual(master_keys, slave_keys)
 
-  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=6)
+  # Make the index expire soon
+  env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').ok()
+  # Verify that the slave index was dropped as well along with the document
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {})
 
   # check that index and doc were deleted by master and slave
   env.assertEqual(master.execute_command('FT._LIST'), [])
