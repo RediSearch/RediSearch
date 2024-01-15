@@ -9,6 +9,7 @@
 #include "crc16.h"
 #include "crc12.h"
 #include "rmutil/vector.h"
+#include "node_map.h"
 
 #include <stdlib.h>
 
@@ -181,9 +182,6 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
 
   MRNodeMapIterator it;
   switch (strategy & ~(MRCluster_MastersOnly)) {
-    case MRCluster_RemoteCoordination:
-      it = MRNodeMap_IterateRandomNodePerhost(cl->nodeMap, cl->myNode);
-      break;
     case MRCluster_LocalCoordination:
       it = MRNodeMap_IterateHost(cl->nodeMap, cl->myNode->endpoint.host);
       break;
