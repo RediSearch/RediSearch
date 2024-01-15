@@ -32,7 +32,7 @@ static void TermData_Free(TermData* t_data) {
 
 static bool TermData_IdExists(TermData* t_data, const char* id) {
   for (uint32_t i = 0; i < array_len(t_data->groupIds); ++i) {
-    if (strcmp(t_data->groupIds[i], id) == 0) {
+    if (strcmp(t_data->groupIds[i] + 1, id) == 0) { /* skip the `~` when comparing */
       return true;
     }
   }
