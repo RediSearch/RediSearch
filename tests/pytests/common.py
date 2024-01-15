@@ -322,6 +322,10 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
+# Wraps the decorator `skip` for calling from within a test function
+def skipTest(**kwargs):
+    skip(**kwargs)(lambda: None)()
+
 def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
     def decorate(f):
         def wrapper():

@@ -37,7 +37,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5, mappi
     env.assertTrue(False, message=e.message)
 
 def initEnv():
-  skip(cluster=True)(lambda: None)() # skip on cluster before creating the env
+  skipTest(cluster=True) # skip on cluster before creating the env
   env = Env(useSlaves=True, forceTcp=True)
 
   ## on existing env we can not get a slave connection
