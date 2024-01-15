@@ -10,7 +10,7 @@
 
 static ArrayAllocProcs libcAllocProcs_g = {.Alloc = malloc, .Realloc = realloc, .Free = free};
 static ArrayAllocProcs rmAllocProcs_g = {
-    .Alloc = rm_malloc, .Realloc = rm_realloc, .Free = rm_free};
+    .Alloc = rm_malloc_wrap, .Realloc = rm_realloc_wrap, .Free = rm_free_wrap};
 
 void Array_InitEx(Array *array, ArrayAllocatorType allocType) {
   array->capacity = 0;
