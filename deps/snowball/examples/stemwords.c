@@ -17,7 +17,7 @@ stem_file(struct sb_stemmer * stemmer, FILE * f_in, FILE * f_out)
 {
 #define INC 10
     int lim = INC;
-    sb_symbol * b = (sb_symbol *) malloc(lim * sizeof(sb_symbol));
+    sb_symbol * b = (sb_symbol *)rm_malloc(lim * sizeof(sb_symbol));
 
     while (1) {
         int ch = getc(f_in);
