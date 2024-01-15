@@ -40,9 +40,9 @@ static bool TermData_IdExists(TermData* t_data, const char* id) {
 }
 
 static void TermData_AddId(TermData* t_data, const char* id) {
-  char* newId;
-  rm_asprintf(&newId, SYNONYM_PREFIX, id);
   if (!TermData_IdExists(t_data, id)) {
+    char* newId;
+    rm_asprintf(&newId, SYNONYM_PREFIX, id);
     t_data->groupIds = array_append(t_data->groupIds, newId);
   }
 }
