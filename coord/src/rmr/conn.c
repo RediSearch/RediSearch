@@ -104,14 +104,18 @@ static MRConn *MRConnPool_Get(MRConnPool *pool) {
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
-  mgr->map = dictCreate(&dictTypeHeapStrings, NULL);
+  dictType *nodeIdToConnPoolType = rm_malloc(sizeof(dictType));
+  memcpy(nodeIdToConnPoolType, &dictTypeHeapStrings, sizeof(dictType));
+  mgr->map = dictCreate(nodeIdToConnPoolType, NULL);
   mgr->map->type->valDestructor = MRConnPool_Free;
   mgr->nodeConns = nodeConns;
 }
 
 /* Free the entire connection manager */
 void MRConnManager_Free(MRConnManager *mgr) {
+  dictType *mgrType = mgr->map->type;
   dictRelease(mgr->map);
+  rm_free(mgrType);
 }
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
