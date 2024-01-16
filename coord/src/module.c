@@ -1866,6 +1866,22 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                CursorCommandInternal, ctx, argv, argc);
 }
 
+static int ConfigCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  size_t len;
+  const char *subcommand = RedisModule_StringPtrLen(argv[1], &len);
+  if (len == 3 || len == 4) {
+    if (!strcasecmp(subcommand, "GET") || !strcasecmp(subcommand, "HELP")) {
+      return SingleShardCommandHandler(ctx, argv, argc);
+    } else if (!strcasecmp(subcommand, "SET")) {
+      return MastersFanoutCommandHandler(ctx, argv, argc);
+    }
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown CONFIG subcommand");
+}
+
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -2551,6 +2567,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // write commands (on enterprise we do not define them, the dmc take care of them)
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
