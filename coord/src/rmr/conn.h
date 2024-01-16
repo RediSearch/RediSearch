@@ -12,7 +12,7 @@
 #include "hiredis/async.h"
 #include "endpoint.h"
 #include "command.h"
-#include "triemap/triemap.h"
+#include "util/dict.h"
 
 /*
  * The state of the connection.
@@ -61,7 +61,7 @@ typedef struct {
 
 /* A pool indexes connections by the node id */
 typedef struct {
-  TrieMap *map;
+  dict *map;
   int nodeConns;
 } MRConnManager;
 
