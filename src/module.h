@@ -24,6 +24,8 @@ void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 /** Cleans up all globals in the module */
 void RediSearch_CleanupModule(void);
 
+int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 /** Indicates that RediSearch_Init was called */
 extern int RS_Initialized;
 /** Module-level dummy context for certain dummy RM_XXX operations */

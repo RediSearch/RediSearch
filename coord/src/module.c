@@ -1872,14 +1872,10 @@ static int ConfigCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, i
   }
   size_t len;
   const char *subcommand = RedisModule_StringPtrLen(argv[1], &len);
-  if (len == 3 || len == 4) {
-    if (!strcasecmp(subcommand, "GET") || !strcasecmp(subcommand, "HELP")) {
-      return SingleShardCommandHandler(ctx, argv, argc);
-    } else if (!strcasecmp(subcommand, "SET")) {
-      return MastersFanoutCommandHandler(ctx, argv, argc);
-    }
+  if (len == 3 && !strcasecmp(subcommand, "SET")) {
+    return MastersFanoutCommandHandler(ctx, argv, argc); // Send _FT.CONFIG SET to all shards
   }
-  return RedisModule_ReplyWithError(ctx, "Unknown CONFIG subcommand");
+  return ConfigCommand(ctx, argv, argc); // Perform _FT.CONFIG XXX locally (include error handling)
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
