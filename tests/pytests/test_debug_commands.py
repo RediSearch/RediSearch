@@ -1,7 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex
-
+from common import waitForIndex, TimeLimit
 
 class TestDebugCommands(object):
 
@@ -28,7 +27,7 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GIT_SHA', 'TTL', 'TTL_PAUSE', 'TTL_EXPIRE', 'VECSIM_INFO']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -184,4 +183,23 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
 
     def testDumpSuffixWrongArity(self):
-        self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').raiseError()
+        self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
+
+    def testTTLcommands(self):
+        num_indexes = len(self.env.cmd('FT._LIST'))
+        self.env.expect('FT.DEBUG', 'TTL', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
+
+        self.env.expect('FT.CREATE', 'idx_temp', 'TEMPORARY', 3600, 'PREFIX', 1, 'temp:', 'SCHEMA', 'name', 'TEXT').ok()
+        # Should pass if command is called within 10 minutes from creation.
+        self.env.assertGreater(self.env.cmd('FT.DEBUG', 'TTL', 'idx_temp'), 3000) # It should be close to 3600.
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').ok()
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').error().contains('Index does not have a timer')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx_temp').ok()
+        with TimeLimit(10):
+            while len(self.env.cmd('FT._LIST')) > num_indexes:
+                pass
