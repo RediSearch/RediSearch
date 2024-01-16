@@ -700,8 +700,7 @@ DEBUG_COMMAND(ttlPause) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
@@ -714,11 +713,9 @@ DEBUG_COMMAND(ttlPause) {
     return RedisModule_ReplyWithError(ctx, "Index does not have a timer");
   }
 
-  WeakRef timer_ref;
   // The timed-out callback is called from the main thread and removes the index from the global
   // dictionary, so at this point we know that the timer exists.
-  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
-  WeakRef_Release(timer_ref);
+  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, NULL) == REDISMODULE_OK);
   sp->timerId = 0;
   sp->isTimerSet = false;
 
@@ -732,8 +729,7 @@ DEBUG_COMMAND(ttlExpire) {
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
                             .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
@@ -742,13 +738,18 @@ DEBUG_COMMAND(ttlExpire) {
     return RedisModule_ReplyWithError(ctx, "Index is not temporary");
   }
 
-  long long timeout = sp->timeout;
-  sp->timeout = 1; // Expire in 1ms
-  lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
-  // We validated that the index exists and is temporary, so we know that
-  // calling this function will set or reset a timer.
-  IndexSpec_LoadUnsafeEx(ctx, &lopts);
-  sp->timeout = timeout; // Restore the original timeout
+  // If the timer was not expired on its own, we expire it now.
+  // Otherwise an async callback will drop the index soon.
+  if (sp->timerId == 0 /* Timer doesn't exist because it was stopped */ ||
+      RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, NULL, NULL) == REDISMODULE_OK) {
+    long long timeout = sp->timeout;
+    sp->timeout = 1; // Expire in 1ms
+    lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
+    // We validated that the index exists and is temporary, so we know that
+    // calling this function will set or reset a timer.
+    IndexSpec_LoadEx(ctx, &lopts);
+    sp->timeout = timeout; // Restore the original timeout
+  }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
