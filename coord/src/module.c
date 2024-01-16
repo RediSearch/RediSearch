@@ -2348,9 +2348,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   /* Configure cluster injections */
   ShardFunc sf;
-
-  MRClusterTopology *initialTopology = NULL;
-
   const char **slotTable = NULL;
   size_t tableSize = 0;
 
@@ -2377,15 +2374,15 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
   } else {
-    #ifdef MT_BUILD
     // default
+    #ifdef MT_BUILD
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
     #else
     num_connections_per_shard = 1;
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 
