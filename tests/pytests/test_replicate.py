@@ -164,7 +164,7 @@ def testDropTempReplicate():
   # Create a temporary index, with a long TTL
   master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '3600', 'SCHEMA', 't', 'TEXT')
   # Pause the index expiration, so we can control when it expires
-  env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').ok()
+  env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx').ok()
 
   master.execute_command('HSET', 'doc1', 't', 'hello')
 
@@ -181,7 +181,7 @@ def testDropTempReplicate():
   env.assertEqual(master_keys, slave_keys)
 
   # Make the index expire soon
-  env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').ok()
+  env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx').ok()
   # Verify that the slave index was dropped as well along with the document
   checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {})
 
