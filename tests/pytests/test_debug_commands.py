@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed
+from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit
 
 class TestDebugCommands(object):
 
@@ -29,7 +29,8 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
+                     'TTL_EXPIRE', 'VECSIM_INFO']
         if MT_BUILD:
             help_list.append('WORKER_THREADS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
@@ -195,6 +196,25 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+    def testTTLcommands(self):
+        num_indexes = len(self.env.cmd('FT._LIST'))
+        self.env.expect('FT.DEBUG', 'TTL', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
+
+        self.env.expect('FT.CREATE', 'idx_temp', 'TEMPORARY', 3600, 'PREFIX', 1, 'temp:', 'SCHEMA', 'name', 'TEXT').ok()
+        # Should pass if command is called within 10 minutes from creation.
+        self.env.assertGreater(self.env.cmd('FT.DEBUG', 'TTL', 'idx_temp'), 3000) # It should be close to 3600.
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').ok()
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').error().contains('Index does not have a timer')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx_temp').ok()
+        with TimeLimit(10):
+            while len(self.env.cmd('FT._LIST')) > num_indexes:
+                pass
 
 
     def testStopAndResumeWorkersPool(self):
