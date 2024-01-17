@@ -1441,10 +1441,9 @@ def testTimedOutWarning_resp3():
   env = Env(protocol=3)
   TimedoutTest_resp3(env)
 
-@skip(asan=True, msan=True)
+@skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoord_resp3():
    env = Env(protocol=3)
-   SkipOnNonCluster(env)
    TimedOutWarningtestCoord(env)
 
 def test_error_with_partial_results():
