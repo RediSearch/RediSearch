@@ -2345,6 +2345,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       break;
     case ClusterType_RedisOSS:
     default:
+      InitRedisTopologyUpdater(ctx);
       sf = CRC16ShardFunc;
       slotTable = crc16_slot_table;
       tableSize = 16384;
@@ -2365,11 +2366,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
-
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    // Initiate the topology updater after the MR cluster is initialized
-    InitRedisTopologyUpdater(ctx);
-  }
 
   return REDISMODULE_OK;
 }

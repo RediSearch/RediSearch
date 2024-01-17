@@ -140,12 +140,14 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   MR_UpdateTopology(topo);
 }
 
+#define REFRESH_PERIOD 1000 // 1 second
+
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
-  RedisModule_CreateTimer(ctx, 1000, UpdateTopology_Periodic, NULL);
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
 }
 
 void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  UpdateTopology_Periodic(ctx, NULL);
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
 }
