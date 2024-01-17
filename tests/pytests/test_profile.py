@@ -574,9 +574,8 @@ def TimedOutWarningtestCoord(env):
     warning = coord_profile['Result processors profile']['profile']['Warning']
     env.assertEqual(warning, 'Timeout limit was reached')
 
-@skip(asan=True, msan=True)
+@skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoord(env):
-  SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
 
 # This test is currently skipped due to flaky behavior of some of the machines'
