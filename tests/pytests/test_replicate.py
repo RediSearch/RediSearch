@@ -1,10 +1,6 @@
-import subprocess
 import signal
-import os
-import os.path
 from RLTest import Env
 import time
-import random
 from includes import *
 from common import *
 
@@ -28,24 +24,21 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise TimeoutException()
 
-def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
+def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5, mapping=lambda x: x):
   try:
     with TimeLimit(time_out):
       res = slaveConn.execute_command(*command)
-      while res != expected_result:
+      while mapping(res) != expected_result:
+        time.sleep(0.1)
         res = slaveConn.execute_command(*command)
   except TimeoutException:
     env.assertTrue(False, message='Failed waiting for command to be executed on slave')
   except Exception as e:
     env.assertTrue(False, message=e.message)
 
-def initEnv(skip=True):
+def initEnv():
+  skipTest(cluster=True) # skip on cluster before creating the env
   env = Env(useSlaves=True, forceTcp=True)
-
-  if(skip):
-    env.skip() # flaky; TODO: remove when #3525 is resolved
-
-  env.skipOnCluster()
 
   ## on existing env we can not get a slave connection
   ## so we can no test it
@@ -61,7 +54,6 @@ def initEnv(skip=True):
 
   return env
 
-@skip(cluster=True)
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -97,7 +89,6 @@ def testDelReplicate():
     env.assertEqual(None,
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
-@skip(cluster=True)
 def testDropReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -110,15 +101,22 @@ def testDropReplicate():
 
   The text checks consistency between master and slave.
   '''
-  for j in range(100):
-    geo = '1.23456,' + str(float(j) / 100)
-    master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
+  def load_master():
+    for j in range(100):
+      geo = '1.23456,' + str(float(j) / 100)
+      master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
+    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  def master_command(*cmd):
+    master.execute_command(*cmd)
+    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+
+  load_master()
 
   # test for FT.DROPINDEX
-  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
-  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  master.execute_command('FT.DROPINDEX', 'idx', 'DD')
-  env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+  master_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  # No matter how many documents were indexed, we expect that the master and slave will be in sync
+  master_command('FT.DROPINDEX', 'idx', 'DD')
 
   # check that same docs were deleted by master and slave
   master_keys = sorted(master.execute_command('KEYS', '*'))
@@ -131,14 +129,16 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+  # Make sure there are still documents to index and drop
+  load_master()
 
   # test for FT.DROP
-  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  time.sleep(0.001)
-  master.execute_command('FT.DROP', 'idx')
+  master_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
+  # No matter how many documents were indexed, we expect that the master and slave will be in sync
+  master_command('FT.DROP', 'idx')
 
   # check that same docs were deleted by master and slave
-  time.sleep(0.01)
   master_keys = sorted(master.execute_command('KEYS', '*'))
   slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
@@ -150,7 +150,6 @@ def testDropReplicate():
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
 
-@skip(cluster=True)
 def testDropTempReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -162,12 +161,14 @@ def testDropTempReplicate():
   The test checks consistency between master and slave where both index and document are deleted.
   '''
 
-  # test for TEMPORARY FT.DROPINDEX
-  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '1', 'SCHEMA', 't', 'TEXT')
+  # Create a temporary index, with a long TTL
+  master.execute_command('FT.CREATE', 'idx', 'TEMPORARY', '3600', 'SCHEMA', 't', 'TEXT')
+  # Pause the index expiration, so we can control when it expires
+  env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').ok()
 
   master.execute_command('HSET', 'doc1', 't', 'hello')
 
-  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'})
 
   # check that same index and doc exist on master and slave
   master_index = master.execute_command('FT._LIST')
@@ -179,8 +180,10 @@ def testDropTempReplicate():
   env.assertEqual(len(master_keys), len(slave_keys))
   env.assertEqual(master_keys, slave_keys)
 
-  time.sleep(1)
-  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {}, time_out=5)
+  # Make the index expire soon
+  env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').ok()
+  # Verify that the slave index was dropped as well along with the document
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {})
 
   # check that index and doc were deleted by master and slave
   env.assertEqual(master.execute_command('FT._LIST'), [])
@@ -189,7 +192,6 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('KEYS', '*'), [])
   env.assertEqual(slave.execute_command('KEYS', '*'), [])
 
-@skip(cluster=True)
 def testDropWith__FORCEKEEPDOCS():
   env = initEnv()
   master = env.getConnection()
@@ -219,7 +221,6 @@ def testDropWith__FORCEKEEPDOCS():
     env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
     env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
-@skip(cluster=True)
 def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -
               # Without sortby -
@@ -231,7 +232,6 @@ def testExpireDocs():
               # lowest possible score upon sorting, so doc1 is returned last.
               [2, 'doc2', ['t', 'foo'], 'doc1', []])
 
-@skip(cluster=True)
 def testExpireDocsSortable():
     '''
     Same as test `testExpireDocs` only with SORTABLE
@@ -251,7 +251,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     When isSortable is True the index is created with `SORTABLE` arg
     '''
 
-    env = initEnv(skip=False)
+    env = initEnv()
     master = env.getConnection()
     slave = env.getSlaveConnection()
 
