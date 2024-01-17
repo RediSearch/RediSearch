@@ -27,12 +27,31 @@ typedef struct MRWorkQueue {
   uv_async_t async;
 } MRWorkQueue;
 
+/* start the event loop side thread */
+static void sideThread(void *arg) {
+  REDISMODULE_NOT_USED(arg);
+  uv_run(uv_default_loop(), UV_RUN_DEFAULT);
+}
+
+uv_thread_t loop_th;
+static int loop_th_running = 0;
+extern RedisModuleCtx *RSDummyContext;
+static void verify_uv_thread() {
+  if (!loop_th_running) {
+    // Verify that we are running on the event loop thread
+    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
+    RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+    loop_th_running = 1;
+  }
+}
+
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
-  uv_mutex_lock(&q->lock);
-  struct queueItem *item = rm_malloc(sizeof(*item));
+  struct queueItem *item = rm_new(*item);
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
+  uv_mutex_lock(&q->lock);
+  verify_uv_thread();
   // append the request to the tail of the list
   if (q->tail) {
     // make it the next of the current tail

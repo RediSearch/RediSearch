@@ -32,7 +32,7 @@ static void TermData_Free(TermData* t_data) {
 
 static bool TermData_IdExists(TermData* t_data, const char* id) {
   for (uint32_t i = 0; i < array_len(t_data->groupIds); ++i) {
-    if (strcmp(t_data->groupIds[i], id) == 0) {
+    if (strcmp(t_data->groupIds[i] + 1, id) == 0) { /* skip the `~` when comparing */
       return true;
     }
   }
@@ -40,9 +40,9 @@ static bool TermData_IdExists(TermData* t_data, const char* id) {
 }
 
 static void TermData_AddId(TermData* t_data, const char* id) {
-  char* newId;
-  rm_asprintf(&newId, SYNONYM_PREFIX, id);
   if (!TermData_IdExists(t_data, id)) {
+    char* newId;
+    rm_asprintf(&newId, SYNONYM_PREFIX, id);
     t_data->groupIds = array_append(t_data->groupIds, newId);
   }
 }

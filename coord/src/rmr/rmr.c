@@ -26,7 +26,6 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
-#include "hiredis/adapters/libuv.h"
 
 extern int redisMajorVesion;
 
@@ -248,20 +247,6 @@ void requestCb(void *p) {
   ctx->cb(ctx);
 }
 
-/* start the event loop side thread */
-static void sideThread(void *arg) {
-
-  // uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL)
-  while (1) {
-    if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
-    usleep(1000);
-    fprintf(stderr, "restarting loop!\n");
-  }
-  fprintf(stderr, "Uv loop exited!\n");
-}
-
-uv_thread_t loop_th;
-
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS) {
 
@@ -270,23 +255,14 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   // `*50` for following the previous behavior
   // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
   rq_g = RQ_New(cl->mgr.nodeConns * 50);
-
-  // MRCluster_ConnectAll(cluster_g);
-  printf("Creating thread...\n");
-
-  if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
-    perror("thread create");
-    exit(-1);
-  }
-  printf("Thread created\n");
 }
 
 MRClusterTopology *MR_GetCurrentTopology() {
-  return cluster_g ? cluster_g->topo : NULL;
+  return cluster_g->topo;
 }
 
 MRClusterNode *MR_GetMyNode() {
-  return cluster_g ? cluster_g->myNode : NULL;
+  return cluster_g->myNode;
 }
 
 //#ifef DEBUG_MR // @@
@@ -464,7 +440,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
 
 /* Return the active cluster's host count */
 size_t MR_NumHosts() {
-  return cluster_g ? MRCluster_NumHosts(cluster_g) : 0;
+  return MRCluster_NumHosts(cluster_g);
 }
 
 void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
@@ -480,11 +456,7 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
 }
 
 /* Set a new topology for the cluster */
-int MR_UpdateTopology(MRClusterTopology *newTopo) {
-  if (cluster_g == NULL) {
-    return REDIS_ERR;
-  }
-
+void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
@@ -492,7 +464,6 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   rc->protocol = 0;
 
   RQ_Push(rq_g, requestCb, rc);
-  return REDIS_OK;
 }
 
 struct MRIteratorCallbackCtx;
