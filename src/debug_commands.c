@@ -1113,6 +1113,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
                                       " or is not running");
     }
   } else if (!strcasecmp(op, "resume")) {
+    int *a = rm_malloc(sizeof(int));
     if (workersThreadPool_resume() != REDISMODULE_OK) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
                                         " or is already running");
