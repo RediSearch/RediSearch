@@ -67,7 +67,7 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
 
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
-  MRCluster *cl = rm_malloc(sizeof(MRCluster));
+  MRCluster *cl = rm_new(MRCluster);
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
@@ -328,12 +328,6 @@ size_t MRCluster_NumShards(MRCluster *cl) {
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
-}
-
-void _clusterConnectAllCB(uv_work_t *wrk) {
-  // printf("Executing connect CB\n");
-  MRCluster *c = wrk->data;
-  MRCluster_ConnectAll(c);
 }
 
 static ShardFunc selectHashFunc(MRHashFunc f) {

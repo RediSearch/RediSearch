@@ -46,12 +46,12 @@ static void verify_uv_thread() {
 }
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
-  uv_mutex_lock(&q->lock);
-  verify_uv_thread();
-  struct queueItem *item = rm_malloc(sizeof(*item));
+  struct queueItem *item = rm_new(*item);
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
+  uv_mutex_lock(&q->lock);
+  verify_uv_thread();
   // append the request to the tail of the list
   if (q->tail) {
     // make it the next of the current tail
