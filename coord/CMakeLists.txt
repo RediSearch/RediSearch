@@ -77,7 +77,6 @@ include(${root}/build/hiredis/hiredis.cmake)
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:rmr>)
 
 if (APPLE)
@@ -103,7 +102,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${MODULE_NAME_SUFFIX})
 
-    add_library(${_moduleName} SHARED 
+    add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
 		src/build-info/info-${MODULE_NAME_SUFFIX}.c)
 

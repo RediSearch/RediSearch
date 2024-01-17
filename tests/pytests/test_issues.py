@@ -867,17 +867,20 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
+    source_shard_id = conn.execute_command('CLUSTER MYID')
+    env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 IMPORTING {source_shard_id}"), "OK")
+    env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 MIGRATING {new_shard_id}"), "OK")
     env.assertEqual(new_shard_conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
     env.assertEqual(conn.execute_command(f"CLUSTER SETSLOT 0 NODE {new_shard_id}"), "OK")
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    while True:
-        time.sleep(0.5)
-        cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-        if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
-            break
-
+    with TimeLimit(40, "fail to acknowledge topology"):
+        while True:
+            time.sleep(0.5)
+            cluster_info = new_shard_conn.execute_command("search.clusterinfo")
+            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
+                break
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
     # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
@@ -950,3 +953,36 @@ def test_mod5880(env):
     env.cmd("DEL", "doc4")
     env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
     env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
+
+@skip()
+def test_mod_4374(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  for i in range(10):
+    conn.execute_command('HSET', i, 't', 'val')
+
+  conn.execute_command('HSET', 10, 't', 'unique')
+
+  # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
+  print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
+
+@skip()
+def test_mod_4375(env):
+  conn = getConnectionByEnv(env)
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+
+  for i in range(10):
+    if i%2==0:
+      conn.execute_command('HSET', i, 't', 'even', 'n', i)
+    else:
+      conn.execute_command('HSET', i, 't', 'odd', 'n', i)
+
+  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+
+  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+  conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
+  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))

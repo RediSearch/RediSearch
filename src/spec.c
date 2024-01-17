@@ -30,7 +30,6 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
-#include "rmutil/cxx/chrono-clock.h"
 #include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -1238,7 +1237,6 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
     cleanPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(cleanPool);
   }
 }
 
@@ -2072,7 +2070,6 @@ end:
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(reindexPool);
   }
 #ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
@@ -2300,7 +2297,6 @@ void Indexes_UpgradeLegacyIndexes() {
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
-    redisearch_thpool_init(reindexPool);
   }
 
   RedisModule_Log(NULL, "notice", "Scanning all indexes");
@@ -2411,6 +2407,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->scan_in_progress = false;
 
+  // `indexError` must be initialized before attempting to free the spec
+  sp->stats.indexError = IndexError_Init();
+
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
@@ -2427,8 +2426,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   } else {
     dictAdd(specDict_g, sp->name, spec_ref.rm);
   }
-
-  sp->stats.indexError = IndexError_Init();
 
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -2672,7 +2669,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef MT_BUILD
-    workersThreadPool_InitIfRequired();
+    workersThreadPool_Activate();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -2746,8 +2743,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t startDocTime = clock();
 
   QueryError status = {0};
   Document doc = {0};
@@ -2786,7 +2782,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
+  spec->stats.totalIndexTime += clock() - startDocTime;
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }

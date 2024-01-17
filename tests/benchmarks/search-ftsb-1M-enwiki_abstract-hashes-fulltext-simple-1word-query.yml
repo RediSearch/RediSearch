@@ -11,9 +11,7 @@ description: "
              - fields per doc: 3 TEXT sortable fields
              - average doc size: 227 bytes
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

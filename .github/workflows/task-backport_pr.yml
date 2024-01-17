@@ -38,6 +38,7 @@ jobs:
           pull_title: '[${target_branch}] ${pull_title}'
           merge_commits: 'skip'
           copy_requested_reviewers: 'true'
+          copy_labels_pattern: '.*' # copy all labels. Excluding the backport labels automatically
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}

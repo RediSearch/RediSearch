@@ -1,19 +1,20 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex
-
+from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit
 
 class TestDebugCommands(object):
 
     def __init__(self):
-        self.env = Env(testName="testing debug commands")
+        module_args = 'MT_MODE MT_MODE_FULL WORKER_THREADS 2' if MT_BUILD else ''
+        self.env = Env(testName="testing debug commands", moduleArgs=module_args)
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
-                        't', 'TAG', 'SORTABLE').ok()
+                        't', 'TAG', 'SORTABLE',
+                        'v', 'VECTOR', 'HNSW', 6, 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'TYPE', 'float32').ok()
         waitForIndex(self.env, 'idx')
-        self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
+        self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test').equal(3)
         self.env.cmd('SET', 'foo', 'bar')
 
     def testDebugWrongArity(self):
@@ -28,7 +29,10 @@ class TestDebugCommands(object):
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'VECSIM_INFO']
+                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
+                     'TTL_EXPIRE', 'VECSIM_INFO']
+        if MT_BUILD:
+            help_list.append('WORKER_THREADS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -42,7 +46,7 @@ class TestDebugCommands(object):
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
-                                ['index', 1, 'field', 'age AS age', 'value', '29'],
+                                ['index', 1, 'field', 'age AS age', 'value', '34'],
                                 ['index', 2, 'field', 't AS t', 'value', 'test']]], rv)
         self.env.expect('ft.debug', 'docinfo', 'idx').error()
         self.env.expect('ft.debug', 'docinfo', 'idx', 'doc2').error()
@@ -149,11 +153,11 @@ class TestDebugCommands(object):
 
     def testInvertedIndexSummary(self):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
-                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            32851, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
         self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
-                                                                            83, 'numberOfBlocks', 1, 'blocks',
+                                                                            32851, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
@@ -192,3 +196,64 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+    def testTTLcommands(self):
+        num_indexes = len(self.env.cmd('FT._LIST'))
+        self.env.expect('FT.DEBUG', 'TTL', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect('FT.DEBUG', 'TTL', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
+
+        self.env.expect('FT.CREATE', 'idx_temp', 'TEMPORARY', 3600, 'PREFIX', 1, 'temp:', 'SCHEMA', 'name', 'TEXT').ok()
+        # Should pass if command is called within 10 minutes from creation.
+        self.env.assertGreater(self.env.cmd('FT.DEBUG', 'TTL', 'idx_temp'), 3000) # It should be close to 3600.
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').ok()
+        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').error().contains('Index does not have a timer')
+        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx_temp').ok()
+        with TimeLimit(10):
+            while len(self.env.cmd('FT._LIST')) > num_indexes:
+                pass
+
+
+    def testStopAndResumeWorkersPool(self):
+        if not MT_BUILD:
+            self.env.skip()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains("wrong number of arguments for"
+                                                                              " 'FT.DEBUG' command")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
+            "Invalid argument for 'WORKER_THREADS' subcommand")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').error()\
+            .contains("Operation failed: workers thread pool doesn't exists or is not running")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
+            .contains("Operation failed: workers thread pool doesn't exists or is already running")
+
+    def testWorkersPoolDrain(self):
+        if not MT_BUILD:
+            self.env.skip()
+        # test stats and drain
+        conn = self.env.getConnection()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').error() \
+            .contains("Operation failed: workers thread pool is not running")
+        self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test',
+                        'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
+
+        # Expect 1 pending ingest job.
+        stats = getWorkersThpoolStats(self.env)
+        self.env.assertEqual(stats, {'totalJobsDone': 0,
+                                     'totalPendingJobs': 1,
+                                     'highPriorityPendingJobs': 0,
+                                     'lowPriorityPendingJobs': 1})
+
+        # After resuming, expect that the job is done.
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+        stats = getWorkersThpoolStats(self.env)
+        self.env.assertEqual(stats, {'totalJobsDone': 1,
+                                     'totalPendingJobs': 0,
+                                     'highPriorityPendingJobs': 0,
+                                     'lowPriorityPendingJobs': 0})

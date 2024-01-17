@@ -15,6 +15,3 @@ jobs:
   test-macos:
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
-    with:
-      flow-config: '' # full sanitization
-

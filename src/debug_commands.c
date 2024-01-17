@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -16,6 +16,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "util/workers.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -767,6 +768,66 @@ DEBUG_COMMAND(ttl) {
   return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
 }
 
+DEBUG_COMMAND(ttlPause) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  if (!sp->isTimerSet) {
+    return RedisModule_ReplyWithError(ctx, "Index does not have a timer");
+  }
+
+  WeakRef timer_ref;
+  // The timed-out callback is called from the main thread and removes the index from the global
+  // dictionary, so at this point we know that the timer exists.
+  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
+  WeakRef_Release(timer_ref);
+  sp->timerId = 0;
+  sp->isTimerSet = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(ttlExpire) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  long long timeout = sp->timeout;
+  sp->timeout = 1; // Expire in 1ms
+  lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
+  // We validated that the index exists and is temporary, so we know that
+  // calling this function will set or reset a timer.
+  IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  sp->timeout = timeout; // Restore the original timeout
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(GitSha) {
 #ifdef GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
@@ -1035,6 +1096,49 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+#ifdef MT_BUILD
+/**
+ * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
+ */
+DEBUG_COMMAND(WorkerThreadsSwitch) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
+  if (!strcasecmp(op, "pause")) {
+    if (workersThreadPool_pause() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                      " or is not running");
+    }
+  } else if (!strcasecmp(op, "resume")) {
+    if (workersThreadPool_resume() != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
+                                        " or is already running");
+    }
+  } else if (!strcasecmp(op, "drain")) {
+    if (workerThreadPool_isPaused()) {
+      return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool is not running");
+    }
+    workersThreadPool_Drain(RSDummyContext, 0);
+    // After we drained the thread pool and there are no more jobs in the queue, we wait until all
+    // threads are idle, so we can be sure that all jobs were executed.
+    workersThreadPool_wait();
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = workersThreadPool_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("highPriorityPendingJobs", stats.high_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("lowPriorityPendingJobs", stats.low_priority_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS' subcommand");
+  }
+  return RedisModule_ReplyWithCString(ctx, "OK");
+}
+#endif
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1063,7 +1167,12 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
+                               {"TTL_PAUSE", ttlPause},
+                               {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+#ifdef MT_BUILD
+                               {"WORKER_THREADS", WorkerThreadsSwitch},
+#endif
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

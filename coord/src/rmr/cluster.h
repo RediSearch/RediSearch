@@ -14,6 +14,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "node.h"
+#include "node_map.h"
 
 typedef uint16_t mr_slot_t;
 

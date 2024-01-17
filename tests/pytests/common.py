@@ -222,6 +222,14 @@ def numeric_tree_summary(env, idx, numeric_field):
     tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return tree_summary
 
+
+def getWorkersThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
+
+
+def getWorkersThpoolStatsFromShard(shard_conn):
+    return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
@@ -273,12 +281,15 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-def ftDebugCmdName(env):
-    return '_ft.debug' if env.isCluster() else 'ft.debug'
+def debug_cmd():
+    return '_ft.debug' if COORD else 'ft.debug'
+
+def config_cmd():
+    return '_ft.config' if COORD else 'ft.config'
 
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
-    return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
+    return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
 
 def forceInvokeGC(env, idx = 'idx', timeout = None):
@@ -286,9 +297,9 @@ def forceInvokeGC(env, idx = 'idx', timeout = None):
     if timeout is not None:
         if timeout == 0:
             env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -310,6 +321,10 @@ def unstable(f):
             return
         return f(env, *args, **kwargs)
     return wrapper
+
+# Wraps the decorator `skip` for calling from within a test function
+def skipTest(**kwargs):
+    skip(**kwargs)(lambda: None)()
 
 def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
     def decorate(f):
@@ -459,9 +474,9 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0):
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
-    np.random.seed(10)
+    np.random.seed(seed)
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
@@ -505,21 +520,53 @@ def number_to_ordinal(n: int) -> str:
         suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
     return str(n) + suffix
 
-def populate_db(env, n=10000):
-    """Creates a simple index called `idx`, and populates the database with
+def populate_db(env: Env, idx_name: str = 'idx', text: bool = False, numeric: bool = False, tag: bool = False, n_per_shard=10000):
+    """
+    Creates a simple index called `idx`, and populates the database with
     `n * n_shards` matching documents.
+    The names of the fields will be 'text1', 'numeric1', 'tag1' corresponding to
+    the field type.
 
     Parameters:
-        n (int): Number of documents to create per shard
+    -----------
+        env (Env): Environment to populate.
+        idx_name: The name of the index to create.
+        text (bool): Whether to create a text field in the index.
+        numeric (bool): Whether to create a numeric field in the index.
+        tag (bool): Whether to create a tag field in the index.
+        n_per_shard (int): Number of documents to create per shard.
+
     Returns:
+    -----------
         None
     """
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
-    num_docs = n * env.shardsCount
+    text_f = 'text1 TEXT' if text else ''
+    numeric_f = 'numeric1 NUMERIC' if numeric else ''
+    tag_f = 'tag1 TAG' if tag else ''
+
+    index_creation = f'FT.CREATE {idx_name} SCHEMA'
+    if text:
+        index_creation += f' {text_f}'
+    if numeric:
+        index_creation += f' {numeric_f}'
+    if tag:
+        index_creation += f' {tag_f}'
+
+    conn.execute_command(*index_creation.split(' '))
+
+    num_docs = n_per_shard * env.shardsCount
     pipeline = conn.pipeline(transaction=False)
-    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset(i, 't1', str(t1))
+    for i in range(num_docs):
+        population_command = f'HMSET doc:{i}'
+        if text:
+            population_command += f' text1 lala:{i}'
+        if numeric:
+            population_command += f' numeric1 {i}'
+        if tag:
+            population_command += f' tag1 MOVIE'
+
+        pipeline.execute_command(*population_command.split(' '))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
@@ -538,14 +585,8 @@ def get_TLS_args():
     with_pass = server_version_is_at_least('6.2')
 
     # If any of the files are missing, generate them
-    def exists(path):
-        return os.path.exists(path) and os.path.isfile(path)
-    if not exists(cert_file)    or \
-       not exists(key_file)     or \
-       not exists(ca_cert_file) or \
-       (with_pass and not exists(passphrase_file)):
-        import subprocess
-        subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
+    import subprocess
+    subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
 
     def get_passphrase():
         with open(passphrase_file, 'r') as f:

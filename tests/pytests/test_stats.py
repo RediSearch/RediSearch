@@ -418,7 +418,9 @@ def testInfoIndexingTime(env):
     d = index_info(env, 'idx1')
     env.assertEqual(int(d['total_indexing_time']), 0)
 
-    conn.execute_command('HSET', 'a', 'txt', 'hello world')
+    num_docs = 10000
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'a{i}', 'txt', f'hello world {i}')
 
     d = index_info(env, 'idx1')
     env.assertGreater(float(d['total_indexing_time']), 0)

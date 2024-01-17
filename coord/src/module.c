@@ -2348,9 +2348,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   /* Configure cluster injections */
   ShardFunc sf;
-
-  MRClusterTopology *initialTopology = NULL;
-
   const char **slotTable = NULL;
   size_t tableSize = 0;
 
@@ -2377,15 +2374,15 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
   } else {
-    #ifdef MT_BUILD
     // default
+    #ifdef MT_BUILD
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
     #else
     num_connections_per_shard = 1;
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf, 2);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 
@@ -2455,20 +2452,10 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
-
-static void Coordinator_CleanupModule(void) {
-  StopRedisTopologyUpdater(); // stop the topology updater loop, so we won't send any more update requests
-  MR_Destroy(); // destroy MR cluster and queue
-  GlobalSearchCluster_Release();
-}
-
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-  RedisModule_Log(ctx, "notice", "%s", "Begin releasing Coordinator resources on shutdown");
-  Coordinator_CleanupModule();
-  RedisModule_Log(ctx, "notice", "%s", "End releasing Coordinator resources");
 }
 
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
@@ -2517,7 +2504,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 

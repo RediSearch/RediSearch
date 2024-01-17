@@ -26,7 +26,6 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
-#include "hiredis/adapters/libuv.h"
 
 extern int redisMajorVesion;
 
@@ -248,20 +247,6 @@ void requestCb(void *p) {
   ctx->cb(ctx);
 }
 
-/* start the event loop side thread */
-static void sideThread(void *arg) {
-
-  // uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL)
-  while (1) {
-    if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
-    usleep(1000);
-    fprintf(stderr, "restarting loop!\n");
-  }
-  fprintf(stderr, "Uv loop exited!\n");
-}
-
-uv_thread_t loop_th;
-
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS) {
 
@@ -270,25 +255,6 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   // `*50` for following the previous behavior
   // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
   rq_g = RQ_New(cl->mgr.nodeConns * 50);
-
-  // MRCluster_ConnectAll(cluster_g);
-  printf("Creating thread...\n");
-
-  if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
-    perror("thread create");
-    exit(-1);
-  }
-  printf("Thread created\n");
-}
-void MR_Destroy() {
-  if (rq_g) {
-    RQ_Free(rq_g);
-    rq_g = NULL;
-  }
-  if (cluster_g) {
-    MRClust_Free(cluster_g);
-    cluster_g = NULL;
-  }
 }
 
 MRClusterTopology *MR_GetCurrentTopology() {
@@ -417,7 +383,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   rc->cb = uvFanoutRequest;
-  RQ_Push(rq_g, requestCb, rc, NULL);
+  RQ_Push(rq_g, requestCb, rc);
   return REDIS_OK;
 }
 
@@ -447,7 +413,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
   }
 
   rc->cb = uvMapRequest;
-  RQ_Push(rq_g, requestCb, rc, NULL);
+  RQ_Push(rq_g, requestCb, rc);
 
   return REDIS_OK;
 }
@@ -468,7 +434,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->bc);
 
   rc->cb = uvMapRequest;
-  RQ_Push(rq_g, requestCb, rc, NULL);
+  RQ_Push(rq_g, requestCb, rc);
   return REDIS_OK;
 }
 
@@ -489,13 +455,6 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
   rm_free(mc);
 }
 
-static void freeUpdateTopologyRequest(void *p) {
-  struct MRRequestCtx *rc = p;
-  /* free topology */
-  MRClusterTopology_Free(rc->ctx);
-  rm_free(rc);
-}
-
 /* Set a new topology for the cluster */
 int MR_UpdateTopology(MRClusterTopology *newTopo) {
   if (cluster_g == NULL) {
@@ -507,9 +466,8 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   rc->ctx = newTopo;
   rc->cb = uvUpdateTopologyRequest;
   rc->protocol = 0;
-  /* This request is called periodically and might be still in the queue
-  during a shut down event. see RQ_Push comment*/
-  RQ_Push(rq_g, requestCb, rc, freeUpdateTopologyRequest);
+
+  RQ_Push(rq_g, requestCb, rc);
   return REDIS_OK;
 }
 
@@ -585,9 +543,12 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
 void *MRITERATOR_DONE = "MRITERATOR_DONE";
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
+  // Mark the command of the context as depleted (so we won't send another command to the shard)
+  ctx->cmd.depleted = true;
   int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
   MRIteratorCallback_ProcessDone(ctx);
   if (pending <= 0) {
+    RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
     // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
     MRChannel_Close(ctx->ic->chan);
     return 0;
@@ -652,7 +613,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
-    RQ_Push(rq_g, iterManualNextCb, it, NULL);
+    RQ_Push(rq_g, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -693,7 +654,7 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
   ret->ctx.pending = ret->len;
   ret->ctx.inProcess = ret->len; // Initially all commands are in process
 
-  RQ_Push(rq_g, iterStartCb, ret, NULL);
+  RQ_Push(rq_g, iterStartCb, ret);
   return ret;
 }
 
@@ -731,7 +692,7 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
       }
     }
     // Send the DEL commands, and wait for them to be done
-    RQ_Push(rq_g, iterManualNextCb, it, NULL);
+    RQ_Push(rq_g, iterManualNextCb, it);
   }
   // Wait until all the commands are done (it->ctx.pending == 0)
   MRChannel_WaitClose(it->ctx.chan);
