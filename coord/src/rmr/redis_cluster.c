@@ -6,13 +6,9 @@
 
 #include "../config.h"
 #include "cluster.h"
-#include "conn.h"
-#include "libuv/include/uv.h"
 #include "redismodule.h"
-#include "rmutil/periodic.h"
-#include "version.h"
-
-#define REDIS_CLUSTER_REFRESH_TIMEOUT 1000
+#include "search_cluster.h"
+#include "rmr.h"
 
 MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
@@ -124,8 +120,6 @@ err:
   return NULL;
 }
 
-static struct RMUtilTimer *updateTopoTimer;
-
 static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
   RedisModule_ThreadSafeContextLock(ctx);
   RS_AutoMemory(ctx);
@@ -139,8 +133,21 @@ static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
   return 1;
 }
 
-int InitRedisTopologyUpdater() {
-  updateTopoTimer =
-      RMUtil_NewPeriodicTimer(updateTopoCB, NULL, NULL, (struct timespec){.tv_sec = 1});
-  return REDIS_OK;
+void UpdateTopology(RedisModuleCtx *ctx) {
+  RS_AutoMemory(ctx);
+  MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
+  SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
+  MR_UpdateTopology(topo);
+}
+
+#define REFRESH_PERIOD 1000 // 1 second
+
+static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
+  REDISMODULE_NOT_USED(p);
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  UpdateTopology(ctx);
+}
+
+void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
 }
