@@ -147,6 +147,5 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
 }
 
 void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  // UpdateTopology_Periodic(ctx, NULL);
-  RedisModule_CreateTimer(ctx, 1000, UpdateTopology_Periodic, NULL);
+  UpdateTopology_Periodic(ctx, NULL);
 }
