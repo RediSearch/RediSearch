@@ -24,13 +24,16 @@ struct QueryIterator {
   std::size_t index_;
 
   explicit QueryIterator() = delete;
-  template <std::ranges::input_range R>  // the elements of the range must be convertible to t_docId
-    requires std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
-  explicit QueryIterator(R &&range, std::size_t &alloc)
+
+  // Projection will be necessary to implement `distance` in the future
+  template <typename R, typename Proj = std::identity>
+    requires std::ranges::input_range<R> &&
+                 std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
+  explicit QueryIterator(R &&range, std::size_t &alloc, Proj proj = {})
       : base_{init_base(this)},
         iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
         index_{0} {
-    std::ranges::sort(iter_);
+    std::ranges::sort(iter_, std::ranges::less{}, proj);
   }
 
   /* rule of 5 */

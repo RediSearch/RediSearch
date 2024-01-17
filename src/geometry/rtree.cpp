@@ -32,8 +32,8 @@ using doc_type = RTree<cs>::doc_type;
 
 // Overload set to be used by std::visit.
 // Inhreits `operator()` from each of the function objects passed into it during construction.
-// Will fail to compile if the visited `std::variant` has variant types that the overload set does
-// not accept Can be used to force adding a new overload when adding new types to the variant.
+// Will fail to compile if the visited `std::variant` contains types that the overload set does
+// not accept. Can be used to force adding a new overload when adding new types to the variant.
 template <typename... Ts>
 struct overload : Ts... {
   using Ts::operator()...;
@@ -105,7 +105,7 @@ auto doc_to_string(doc_type<cs> const& doc) -> string {
 
 template <typename cs>
 auto from_wkt(std::string_view wkt) -> geom_type<cs> {
-  auto geom = [&] -> geom_type<cs> {
+  auto geom = [&]() -> geom_type<cs> {
     if (wkt.starts_with("POI")) {
       return bg::from_wkt<point_type<cs>>(std::string{wkt});
     } else if (wkt.starts_with("POL")) {
@@ -139,7 +139,8 @@ constexpr auto geometry_reporter =
                return std::transform_reduce(
 // apple clang does not implement `std::execution` despite being a C++17 feature
 // feature test macro for std::execution. hopefully the most applicable, smallest necessary tool
-#if !defined(__cpp_lib_execution)  // unless they're being deliberately malicious
+// nobody would define the feature test macro witout implementing the feature
+#if defined(__cpp_lib_execution)
                    std::execution::unseq,
 #endif
                    std::begin(inners), std::end(inners), outer_size, std::plus{},
@@ -251,7 +252,7 @@ template <typename cs>
 template <typename Predicate, typename Filter>
 auto RTree<cs>::query_begin(Predicate&& predicate, Filter&& filter) const -> query_results {
   return rtree_.qbegin(std::forward<Predicate>(predicate) &&
-                       bgi::satisfies([this, f = std::move(filter)](auto const& doc) -> bool {
+                       bgi::satisfies([this, f = std::move(filter)](doc_type const& doc) -> bool {
                          return lookup(doc).map(f).value_or(false);
                        }));
 }
@@ -262,11 +263,11 @@ auto RTree<cs>::generate_predicate(QueryType query_type, geom_type const& query_
   const auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
     case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
-      return query_begin(bgi::contains(query_mbr), [&](auto const& geom) -> bool {
+      return apply_predicate(bgi::contains(query_mbr), [query_geom](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, query_geom, geom);
       });
     case QueryType::WITHIN:
-      return query_begin(bgi::within(query_mbr), [&](auto const& geom) -> bool {
+      return apply_predicate(bgi::within(query_mbr), [query_geom](auto const& geom) -> bool {
         return std::visit(within_filter<cs>, geom, query_geom);
       });
     default:
@@ -280,14 +281,13 @@ auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleStr
   try {
     using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
     auto alloc = alloc_type{allocated_};
-    const auto query_geom = from_wkt<cs>(wkt);  // lifetime begins here
+    const auto query_geom = from_wkt<cs>(wkt);
     const auto qbegin = query_begin(query_type, query_geom);
+    const auto results =
+        std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    std::allocator_traits<alloc_type>::construct(
-        alloc, qi, std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>),
-        allocated_);  // query_geom used here. is not dangling
+    std::allocator_traits<alloc_type>::construct(alloc, qi, results, allocated_);
     return qi->base();
-    // query_geom lifetime ends here.
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
