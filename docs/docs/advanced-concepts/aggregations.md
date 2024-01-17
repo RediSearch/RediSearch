@@ -143,7 +143,7 @@ FT.AGGREGATE myIndex "*"
   SORTBY 2 @hour ASC
 ```
 
-And as a final step, format the hour as a human readable timestamp. This is done by calling the transformation function `timefmt` that formats Unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](http://strftime.org/)), but not specifying one is equivalent to specifying `%FT%TZ` to `strftime`.
+And as a final step, format the hour as a human readable timestamp. This is done by calling the transformation function `timefmt` that formats Unix timestamps. You can specify a format to be passed to the system's `strftime` function ([see documentation](https://pubs.opengroup.org/onlinepubs/9699919799/functions/strftime.html)), but not specifying one is equivalent to specifying `%FT%TZ` to `strftime`.
 
 ```
 FT.AGGREGATE myIndex "*"
@@ -401,7 +401,7 @@ Note that these operators apply only to numeric values and numeric sub-expressio
 
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
+| timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](https://pubs.opengroup.org/onlinepubs/9699919799/functions/strftime.html) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
 | parsetime(timesharing, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
 | day(timestamp) | Round a Unix timestamp to midnight (00:00) start of the current day. |
 | hour(timestamp) | Round a Unix timestamp to the beginning of the current hour. |
