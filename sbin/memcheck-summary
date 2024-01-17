@@ -50,9 +50,7 @@ sanitizer_check() {
 		echo "${LIGHTRED}### Sanitizer: ${TYPE} detected:${RED}"
 		grep -l "$1" $logdir/*.asan.log*
 		echo "${NOCOLOR}"
-		if [[ -z $WARN || $WARN != 1 ]]; then
 			E=1
-		fi
 	fi
 }
 
@@ -65,7 +63,7 @@ sanitizer_summary() {
 	TYPE="memory errors" sanitizer_check "memcpy-param-overlap"
 	TYPE="stack use after scope" sanitizer_check "stack-use-after-scope"
 	TYPE="use after free" sanitizer_check "heap-use-after-free"
-	TYPE="signal 11" WARN=1 sanitizer_check "signal 11"
+	TYPE="signal 11" sanitizer_check "caught signal 11"
 }
 
 #----------------------------------------------------------------------------------------------
