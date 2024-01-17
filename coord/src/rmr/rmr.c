@@ -258,11 +258,11 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
 }
 
 MRClusterTopology *MR_GetCurrentTopology() {
-  return cluster_g ? cluster_g->topo : NULL;
+  return cluster_g->topo;
 }
 
 MRClusterNode *MR_GetMyNode() {
-  return cluster_g ? cluster_g->myNode : NULL;
+  return cluster_g->myNode;
 }
 
 //#ifef DEBUG_MR // @@
@@ -440,7 +440,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
 
 /* Return the active cluster's host count */
 size_t MR_NumHosts() {
-  return cluster_g ? MRCluster_NumHosts(cluster_g) : 0;
+  return MRCluster_NumHosts(cluster_g);
 }
 
 void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
@@ -456,11 +456,7 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
 }
 
 /* Set a new topology for the cluster */
-int MR_UpdateTopology(MRClusterTopology *newTopo) {
-  if (cluster_g == NULL) {
-    return REDIS_ERR;
-  }
-
+void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
   struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
   rc->ctx = newTopo;
@@ -468,7 +464,6 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
   rc->protocol = 0;
 
   RQ_Push(rq_g, requestCb, rc);
-  return REDIS_OK;
 }
 
 struct MRIteratorCallbackCtx;
