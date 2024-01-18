@@ -389,7 +389,7 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
   rc->numCmds = cmds.Len(cmds.ctx);
   rc->protocol = MRCtx_GetProtocol(ctx);
 
-  // copy the commands from the iterator to the conext's array
+  // copy the commands from the iterator to the context's array
   for (int i = 0; i < rc->numCmds; i++) {
     if (!cmds.Next(cmds.ctx, &rc->cmds[i])) {
       rc->numCmds = i;
@@ -435,25 +435,19 @@ size_t MR_NumHosts() {
 
 void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 /* on-loop update topology request. This can't be done from the main thread */
-static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
-  MRCLuster_UpdateTopology(cluster_g, (MRClusterTopology *)mc->ctx);
+static void uvUpdateTopologyRequest(void *p) {
+  MRClusterTopology *topo = p;
+  MRCLuster_UpdateTopology(cluster_g, topo);
   if (cluster_g->myshard) {
-    SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
+    SetMyPartition(topo, cluster_g->myshard);
   }
   RQ_Done(rq_g);
-  // fprintf(stderr, "topo update: conc requests: %d\n", concurrentRequests_g);
-  rm_free(mc);
 }
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
-  struct MRRequestCtx *rc = rm_calloc(1, sizeof(*rc));
-  rc->ctx = newTopo;
-  rc->cb = uvUpdateTopologyRequest;
-  rc->protocol = 0;
-
-  RQ_Push(rq_g, requestCb, rc);
+  RQ_Push_Topology(rq_g, uvUpdateTopologyRequest, newTopo);
 }
 
 struct MRIteratorCallbackCtx;
