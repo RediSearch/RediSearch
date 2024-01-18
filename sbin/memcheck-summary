@@ -50,7 +50,7 @@ sanitizer_check() {
 		echo "${LIGHTRED}### Sanitizer: ${TYPE} detected:${RED}"
 		grep -l "$1" $logdir/*.asan.log*
 		echo "${NOCOLOR}"
-			E=1
+		E=1
 	fi
 }
 
