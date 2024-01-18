@@ -135,7 +135,7 @@ jobs:
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
-        if: > 
+        if: >
           steps.node20.outputs.supported == 'true' &&
           (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
         uses: actions/upload-artifact@v4
@@ -153,7 +153,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: tests/**/logs/*.log
+          path: tests/**/logs/*.log*
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
