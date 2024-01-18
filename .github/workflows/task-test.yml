@@ -155,3 +155,7 @@ jobs:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log
           if-no-files-found: ignore
+
+      - name: Fail flow if tests failed
+        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure'
+        run: exit 1
