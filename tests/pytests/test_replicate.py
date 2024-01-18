@@ -109,6 +109,8 @@ def testDropReplicate():
 
   def master_command(*cmd):
     master.execute_command(*cmd)
+    if cmd[0] == 'FT.CREATE':
+      waitForIndex(env, cmd[1]) #wait for indexing to complete
     env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
 
   load_master()
