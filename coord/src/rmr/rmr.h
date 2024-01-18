@@ -44,7 +44,7 @@ MRClusterNode *MR_GetMyNode();
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
-/* The request duration in microsecnds, relevant only on the reducer */
+/* The request duration in microseconds, relevant only on the reducer */
 int64_t MR_RequestDuration(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);

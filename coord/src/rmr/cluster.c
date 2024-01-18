@@ -60,11 +60,9 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   dictRelease(nodesToDisconnect);
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
-                         long long minTopologyUpdateInterval) {
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf) {
   MRCluster *cl = rm_new(MRCluster);
   cl->sf = sf;
-  cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
   cl->topo = initialTopology;
   cl->nodeMap = NULL;

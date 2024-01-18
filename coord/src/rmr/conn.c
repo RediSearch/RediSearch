@@ -477,7 +477,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     rm_free(ca_cert);
     if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
-      CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
+      CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);

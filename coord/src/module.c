@@ -2362,7 +2362,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf, 2);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf);
   MR_Init(cl, clusterConfig.timeoutMS);
   InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
 

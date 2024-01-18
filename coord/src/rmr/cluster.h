@@ -45,7 +45,7 @@ typedef enum {
 } MRHashFunc;
 
 /* A topology is the mapping of slots to shards and nodes */
-typedef struct {
+typedef struct MRClusterTopology {
   size_t numSlots;
   MRHashFunc hashFunc;
   size_t numShards;
@@ -73,6 +73,9 @@ typedef mr_slot_t (*ShardFunc)(MRCommand *cmd, mr_slot_t numSlots);
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
   MRConnManager mgr;
+  // the time we last updated the topology
+  // TODO: use millisecond precision time here
+  time_t lastTopologyUpdate;
   /* The latest topology of the cluster */
   MRClusterTopology *topo;
   /* the current node, detected when updating the topology */
@@ -84,11 +87,6 @@ typedef struct {
   /* map of nodes by ip:port */
   MRNodeMap *nodeMap;
 
-  // the time we last updated the topology
-  // TODO: use millisecond precision time here
-  time_t lastTopologyUpdate;
-  // the minimum allowed interval between topology updates
-  long long topologyUpdateMinInterval;
 } MRCluster;
 
 /* Define the coordination strategy of a coordination command */
@@ -130,8 +128,7 @@ size_t MRCluster_NumShards(MRCluster *cl);
 int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, ShardFunc sharder,
-                         long long minTopologyUpdateInterval);
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, ShardFunc sharder);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
