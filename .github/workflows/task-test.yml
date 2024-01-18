@@ -141,7 +141,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: tests/**/logs/*.log.*
+          path: tests/**/logs/*.log*
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.
       # Here we only upload the artifacts if the tests had failed, since it is very slow
