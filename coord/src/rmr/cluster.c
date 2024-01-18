@@ -5,64 +5,59 @@
  */
 
 #include "cluster.h"
-#include "hiredis/adapters/libuv.h"
 #include "crc16.h"
 #include "crc12.h"
-#include "rmutil/vector.h"
 #include "node_map.h"
 
 #include <stdlib.h>
 
-void _MRClsuter_UpdateNodes(MRCluster *cl) {
-  if (cl->topo) {
+void _MRCluster_UpdateNodes(MRCluster *cl) {
+  /* Reallocate the cluster's node map */
+  if (cl->nodeMap) {
+    MRNodeMap_Free(cl->nodeMap);
+  }
+  cl->nodeMap = MR_NewNodeMap();
 
-    /* Reallocate the cluster's node map */
-    if (cl->nodeMap) {
-      MRNodeMap_Free(cl->nodeMap);
-    }
-    cl->nodeMap = MR_NewNodeMap();
+  /* Get all the current node ids from the connection manager.  We will remove all the nodes
+   * that are in the new topology, and after the update, delete all the nodes that are in this map
+   * and not in the new topology */
+  dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
+  dictIterator *it = dictGetIterator(cl->mgr.map);
+  dictEntry *de;
+  while ((de = dictNext(it))) {
+    dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
+  }
+  dictReleaseIterator(it);
 
-    /* Get all the current node ids from the connection manager.  We will remove all the nodes
-     * that are in the new topology, and after the update, delete all the nodes that are in this map
-     * and not in the new topology */
-    dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
-    dictIterator *it = dictGetIterator(cl->mgr.map);
-    dictEntry *de;
-    while ((de = dictNext(it))) {
-      dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
-    }
-    dictReleaseIterator(it);
+  /* Walk the topology and add all nodes in it to the connection manager */
+  for (int sh = 0; sh < cl->topo->numShards; sh++) {
+    for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
+      MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
+      // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
+      MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
 
-    /* Walk the topology and add all nodes in it to the connection manager */
-    for (int sh = 0; sh < cl->topo->numShards; sh++) {
-      for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
-        MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-        // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
-        MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
+      /* Add the node to the node map */
+      MRNodeMap_Add(cl->nodeMap, node);
 
-        /* Add the node to the node map */
-        MRNodeMap_Add(cl->nodeMap, node);
+      /* This node is still valid, remove it from the nodes to delete list */
+      dictDelete(nodesToDisconnect, node->id);
 
-        /* This node is still valid, remove it from the nodes to delete list */
-        dictDelete(nodesToDisconnect, node->id);
-
-        /* See if this is us - if so we need to update the cluster's host and current id */
-        if (node->flags & MRNode_Self) {
-          cl->myNode = node;
-          cl->myshard = &cl->topo->shards[sh];
-        }
+      /* See if this is us - if so we need to update the cluster's host and current id */
+      if (node->flags & MRNode_Self) {
+        cl->myNode = node;
+        cl->myshard = &cl->topo->shards[sh];
       }
     }
-
-    // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,
-    // we need to disconnect the node's connections
-    it = dictGetIterator(nodesToDisconnect);
-    while ((de = dictNext(it))) {
-      MRConnManager_Disconnect(&cl->mgr, dictGetKey(de));
-    }
-    dictReleaseIterator(it);
-    dictRelease(nodesToDisconnect);
   }
+
+  // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,
+  // we need to disconnect the node's connections
+  it = dictGetIterator(nodesToDisconnect);
+  while ((de = dictNext(it))) {
+    MRConnManager_Disconnect(&cl->mgr, dictGetKey(de));
+  }
+  dictReleaseIterator(it);
+  dictRelease(nodesToDisconnect);
 }
 
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
@@ -78,13 +73,13 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
-    _MRClsuter_UpdateNodes(cl);
+    _MRCluster_UpdateNodes(cl);
   }
   return cl;
 }
 
 /* Find the shard responsible for a given slot */
-MRClusterShard *_MRCluster_FindShard(MRCluster *cl, uint slot) {
+MRClusterShard *_MRCluster_FindShard(MRCluster *cl, unsigned slot) {
   // TODO: Switch to binary search
   for (int i = 0; i < cl->topo->numShards; i++) {
     if (cl->topo->shards[i].startSlot <= slot && cl->topo->shards[i].endSlot >= slot) {
@@ -154,7 +149,7 @@ int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRComm
   }
 
   /* Get the cluster slot from the sharder */
-  uint slot = cl->sf(cmd, cl->topo->numSlots);
+  unsigned slot = cl->sf(cmd, cl->topo->numSlots);
 
   /* Get the shard from the slotmap */
   MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
@@ -356,11 +351,8 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
   MRClusterTopology *old = cl->topo;
   cl->topo = newTopo;
-  if (cl->topo) {
-    _MRClsuter_UpdateNodes(cl);
-
-    MRCluster_ConnectAll(cl);
-  }
+  _MRCluster_UpdateNodes(cl);
+  MRCluster_ConnectAll(cl);
   if (old) {
     MRClusterTopology_Free(old);
   }

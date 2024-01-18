@@ -87,7 +87,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
 }
 
 /* Get a connection from the connection pool. We select the next available connected connection with
- * a roundrobin selector */
+ * a round robin selector */
 static MRConn *MRConnPool_Get(MRConnPool *pool) {
   for (size_t i = 0; i < pool->num; i++) {
 
@@ -127,7 +127,7 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
-    MRConnPool *pool = dictGetVal(ptr );
+    MRConnPool *pool = dictGetVal(ptr);
     return MRConnPool_Get(pool);
   }
   return NULL;

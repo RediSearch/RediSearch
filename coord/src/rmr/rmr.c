@@ -166,17 +166,13 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
 
-static void freePrivDataCB(void *p) {
+static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   // printf("FreePrivData called!\n");
   MR_requestCompleted();
   if (p) {
     MRCtx *mc = p;
     MRCtx_Free(mc);
   }
-}
-
-static void freePrivDataCB_V5(RedisModuleCtx *ctx, void *p) {
-  freePrivDataCB(p);
 }
 
 static int timeoutHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -226,7 +222,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RedisModule_Assert(bc);
-      RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+      RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
   }
@@ -307,7 +303,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
     RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
   }
@@ -349,7 +345,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
     RedisModule_Assert(bc);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
   }
@@ -372,10 +368,8 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   if (block) {
     RedisModule_Assert(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
-        mrctx->redisCtx, unblockHandler, timeoutHandler,
-        redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-        0); // timeout_g);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, mrctx->bc);
+        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+    RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
   rc->ctx = mrctx;
   rc->f = reducer;
@@ -406,10 +400,8 @@ int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, boo
 
   if (block) {
     RedisModule_Assert(!ctx->bc);
-    ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
-      redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-      0); // timeout_g);
-    RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->bc);
+    ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+    RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
   }
 
   rc->cb = uvMapRequest;
@@ -428,10 +420,8 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   rc->cmds[0] = cmd;
   rc->protocol = MRCtx_GetProtocol(ctx);
   RedisModule_Assert(!ctx->bc);
-  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
-      redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-      0); // timeout_g);
-  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, ctx->bc);
+  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+  RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
 
   rc->cb = uvMapRequest;
   RQ_Push(rq_g, requestCb, rc);

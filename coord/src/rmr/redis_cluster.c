@@ -120,19 +120,6 @@ err:
   return NULL;
 }
 
-static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
-  RedisModule_ThreadSafeContextLock(ctx);
-  RS_AutoMemory(ctx);
-
-  RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
-  if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {
-    fprintf(stderr, "Error running CLUSTERREFRESH: %s\n", RedisModule_CallReplyStringPtr(r, NULL));
-  }
-  if (r) RedisModule_FreeCallReply(r);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  return 1;
-}
-
 void UpdateTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
