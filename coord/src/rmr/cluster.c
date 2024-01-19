@@ -45,7 +45,7 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
       /* See if this is us - if so we need to update the cluster's host and current id */
       if (node->flags & MRNode_Self) {
         cl->myNode = node;
-        cl->myshard = &cl->topo->shards[sh];
+        cl->myShard = &cl->topo->shards[sh];
       }
     }
   }
@@ -67,7 +67,7 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
-  cl->myshard = NULL;
+  cl->myShard = NULL;
   MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
@@ -137,28 +137,28 @@ MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, MRClusterNode *myN
   return NULL;
 }
 
-/* Send a single command to the right shard in the cluster, with an optional control over node
- * selection */
-int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
-                          redisCallbackFn *fn, void *privdata) {
+MRConn* MRCluster_GetConn(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd) {
 
-  if (!cl || !cl->topo) {
-    return REDIS_ERR;
-  }
+  if (!cl || !cl->topo) return NULL;
 
   /* Get the cluster slot from the sharder */
   unsigned slot = cl->sf(cmd, cl->topo->numSlots);
 
-  /* Get the shard from the slotmap */
+  /* Get the shard from the slot map */
   MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
-  if (!sh) {
-    return REDIS_ERR;
-  }
+  if (!sh) return NULL;
 
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, cl->myNode, strategy);
-  if (!node) return REDIS_ERR;
+  if (!node) return NULL;
 
-  MRConn *conn = MRConn_Get(&cl->mgr, node->id);
+  return MRConn_Get(&cl->mgr, node->id);
+}
+
+/* Send a single command to the right shard in the cluster, with an optional control over node
+ * selection */
+int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
+                          redisCallbackFn *fn, void *privdata) {
+  MRConn *conn = MRCluster_GetConn(cl, strategy, cmd);
   if (!conn) return REDIS_ERR;
   return MRConn_SendCommand(conn, cmd, fn, privdata);
 }
@@ -181,23 +181,27 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
   }
 
   int ret = 0;
+  int n_conns = 0;
+  MRConn **conns = rm_malloc(sizeof(MRConn *) * MRNodeMap_NumNodes(cl->nodeMap));
   MRClusterNode *n;
   while (NULL != (n = it.Next(&it))) {
     if ((strategy & MRCluster_MastersOnly) && !(n->flags & MRNode_Master)) {
       continue;
     }
-    MRConn *conn = MRConn_Get(&cl->mgr, n->id);
+    conns[n_conns] = MRConn_Get(&cl->mgr, n->id);
+    if (!conns[n_conns]) {
+      n_conns = 0;
+      break;
+    }
+    n_conns++;
+  }
+  for (int i = 0; i < n_conns; i++) {
     // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
-    if (conn) {
-      if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
-        ret++;
-      }
+    if (MRConn_SendCommand(conns[i], cmd, fn, privdata) != REDIS_ERR) {
+      ret++;
     }
   }
-  if(cmd->cmd) {
-    sdsfree(cmd->cmd);
-    cmd->cmd = NULL;
-  }
+  rm_free(conns);
   MRNodeMapIterator_Free(&it);
 
   return ret;
