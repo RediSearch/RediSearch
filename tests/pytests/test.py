@@ -3657,11 +3657,8 @@ def test_missing_schema(env):
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
 
+@skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set(env):
-    if not env.isCluster():
-        # this test is only relevant on cluster
-        env.skip()
-
     def verify_address(addr):
         try:
             with TimeLimit(10):
@@ -3672,6 +3669,7 @@ def test_cluster_set(env):
             env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
 
     # test ipv4
+    verify_shard_init(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3692,6 +3690,7 @@ def test_cluster_set(env):
     env.start()
 
     # test ipv6 test
+    verify_shard_init(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',

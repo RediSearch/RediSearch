@@ -1,8 +1,6 @@
 from common import *
-import operator
 from math import nan
 import json
-from redis import ResponseError
 from test_coordinator import test_error_propagation_from_shards
 from test_profile import TimedoutTest_resp3, TimedOutWarningtestCoord
 
@@ -17,33 +15,9 @@ def order_dict(d):
             result[k] = v
     return result
 
-def redis_version(con, isCluster=False):
-    res = con.execute_command('INFO')
-    ver = ""
-    if isCluster:
-        try:
-            ver = list(res.values())[0]['redis_version']
-        except:
-            ver = res['redis_version']
-    else:
-        ver = res['redis_version']
-    return version.parse(ver)
-
-def should_skip(env):
-    r_ver = redis_version(env)
-    if r_ver < version.parse("7.0.0"):
-        return True
-    with env.getClusterConnectionIfNeeded() as r:
-        r_ver = redis_version(r)
-        if r_ver < version.parse("7.0.0"):
-            return True
-    return False
-
+@skip(redis_less_than="7.0.0")
 def test_search():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
-
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
@@ -139,11 +113,10 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
+@skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
     env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
-    if should_skip(env):
-        env.skip()
     conn = getConnectionByEnv(env)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -169,11 +142,9 @@ def test_search_timeout():
       'FT.SEARCH', 'myIdx', '*', 'LIMIT', '0', str(num_range_2), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than="7.0.0")
 def test_profile(env):
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -208,11 +179,10 @@ def test_profile(env):
     }
     env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
 
+@skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
-    if not env.isCluster() or env.shardsCount != 3:
+    if env.shardsCount != 3:
         env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
@@ -257,10 +227,9 @@ def test_coord_profile():
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
 
+@skip(redis_less_than="7.0.0")
 def test_aggregate():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -316,10 +285,9 @@ def test_aggregate():
     res = env.cmd('FT.aggregate', 'idx1', "*", "LOAD", 3, "f1", "f2", "f3", "SORTBY", 2, "@f2", "DESC", "FORMAT", "STRING")
     env.assertEqual(res, exp)
 
+@skip(redis_less_than="7.0.0")
 def test_cursor():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -371,10 +339,9 @@ def test_cursor():
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
 
+@skip(redis_less_than="7.0.0")
 def test_list():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
@@ -382,10 +349,9 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
     env.expect('FT._LIST').equal({'idx2', 'idx1'})
 
+@skip(redis_less_than="7.0.0")
 def test_info():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -454,10 +420,9 @@ def test_info():
     res.pop('total_indexing_time', None)
     env.assertEqual(order_dict(res), order_dict(exp))
 
+@skip(redis_less_than="7.0.0")
 def test_config():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -483,10 +448,9 @@ def test_config():
     res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
+@skip(redis_less_than="7.0.0")
 def test_dictdump():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -520,10 +484,9 @@ def testSpellCheckOnExistingTerm(env):
     waitForIndex(env, 'idx')
     env.expect('ft.spellcheck', 'idx', 'name').equal({'results': {}})
 
+@skip(redis_less_than="7.0.0")
 def test_spell_check():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'text')
     env.cmd('FT.DICTADD', 'dict1', 'timmies', 'toque', 'toonie', 'Toonif', 'serviette', 'kerfuffle', 'chesterfield')
@@ -539,10 +502,9 @@ def test_spell_check():
     env.expect('FT.SPELLCHECK', 'incidents', 'Tooni toque kerfuffle', 'TERMS',
                'INCLUDE', 'dict1', 'dict2').equal(exp)
 
+@skip(redis_less_than="7.0.0")
 def test_syndump():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.expect('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring').ok()
@@ -553,10 +515,9 @@ def test_syndump():
       'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
     env.expect('ft.syndump', 'idx').equal(exp)
 
+@skip(redis_less_than="7.0.0")
 def test_tagvals():
     env = Env(protocol=3)
-    if should_skip(env):
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -570,10 +531,12 @@ def test_tagvals():
     env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
     env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
 
-def test_clusterinfo(env):
-    if not env.isCluster() or env.shardsCount != 3:
-        env.skip()
+@skip(cluster=False)
+def test_clusterinfo():
     env = Env(protocol=3)
+    if env.shardsCount != 3:
+        env.skip()
+    verify_shard_init(env)
     exp = {
       'cluster_type': 'redis_oss',
       'hash_func': 'CRC16',
