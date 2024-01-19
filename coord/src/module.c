@@ -1710,21 +1710,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  int partPos = MRCommand_GetPartitioningKey(&cmd);
-//
-//  /* Rewrite the sharding key based on the partitioning key */
-//  if (partPos > 0) {
-//    SearchCluster_RewriteCommand(GetSearchCluster(), &cmd, partPos);
-//  }
-//
-//  /* Rewrite the partitioning key as well */
-//
-//  if (MRCommand_GetFlags(&cmd) & MRCommand_MultiKey) {
-//    if (partPos > 0) {
-//      SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, partPos, partPos);
-//    }
-//  }
-  // MRCommand_Print(&cmd);
+
   MR_MapSingle(MR_CreateCtx(ctx, 0, NULL), singleReplyReducer, cmd);
 
   return REDISMODULE_OK;

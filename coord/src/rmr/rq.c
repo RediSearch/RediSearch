@@ -135,7 +135,15 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
-    req->cb(req->privdata);
+    if (req->cb(req->privdata) != REDIS_OK) {
+      // If the callback returns non-zero, it means that we need to re-queue the request
+      uv_mutex_lock(&q->lock);
+      rqPushItem(q, req);
+      uv_mutex_unlock(&q->lock);
+      uv_async_send(async); // wake up again
+      // We also break from the loop to allow other events to be processed
+      break;
+    }
     rm_free(req);
   }
 }

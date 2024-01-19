@@ -9,7 +9,8 @@
 
 #include <stdlib.h>
 
-typedef void (*MRQueueCallback)(void *);
+// Should return 0 on success, non-zero on failure
+typedef int (*MRQueueCallback)(void *);
 
 #ifndef RQ_C__
 typedef struct MRWorkQueue MRWorkQueue;
