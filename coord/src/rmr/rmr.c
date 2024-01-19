@@ -27,8 +27,6 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 
-extern int redisMajorVesion;
-
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;

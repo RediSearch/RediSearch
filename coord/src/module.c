@@ -45,18 +45,12 @@
 
 extern RSConfig RSGlobalConfig;
 
-int redisMajorVesion = 0;
-int redisMinorVesion = 0;
-int redisPatchVesion = 0;
-//REDISMODULE_INIT_SYMBOLS();
-
 extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
-RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
 
 // A reducer that just chains the replies from a map request
 
@@ -2388,20 +2382,6 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
     return REDISMODULE_ERR;                                           \
   }
 
-static void getRedisVersion() {
-  RedisModuleCallReply *reply = RedisModule_Call(RSDummyContext, "info", "c", "server");
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
-
-  int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisMajorVesion, &redisMinorVesion,
-                 &redisPatchVesion);
-
-  assert(n == 3);
-
-  RedisModule_FreeCallReply(reply);
-}
-
 /**
  * A wrapper function to override hiredis allocators with redis allocators.
  * It should be called after RedisModule_Init.
@@ -2448,10 +2428,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
-
-  getRedisVersion();
-  RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",
-                  redisMajorVesion, redisMinorVesion, redisPatchVesion);
 
   // Chain the config into RediSearch's global config and set the default values
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
