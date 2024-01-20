@@ -33,7 +33,7 @@ void MR_SetCoordinationStrategy(struct MRCtx *ctx, MRCoordinationStrategy strate
 void MR_Init(MRCluster *cl, long long timeoutMS);
 
 /* Set a new topology for the cluster */
-int MR_UpdateTopology(MRClusterTopology *newTopology);
+void MR_UpdateTopology(MRClusterTopology *newTopology);
 
 /* Get the current cluster topology */
 MRClusterTopology *MR_GetCurrentTopology();

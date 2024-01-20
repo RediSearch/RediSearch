@@ -2291,16 +2291,8 @@ int UnsuportedOnCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 // A special command for redis cluster OSS, that refreshes the cluster state
 int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  RS_AutoMemory(ctx);
-  MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
-
-  SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
-
-  MR_UpdateTopology(topo);
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
+  UpdateTopology(ctx);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2329,15 +2321,8 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // send the topology to the cluster
-  if (MR_UpdateTopology(topo) != REDISMODULE_OK) {
-    // failed update
-    MRClusterTopology_Free(topo);
-    return RedisModule_ReplyWithError(ctx, "Error updating the topology");
-  }
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
+  MR_UpdateTopology(topo);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /* Perform basic configurations and init all threads and global structures */
@@ -2360,11 +2345,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       break;
     case ClusterType_RedisOSS:
     default:
-      // init the redis topology updater loop
-      if (InitRedisTopologyUpdater() == REDIS_ERR) {
-        RedisModule_Log(ctx, "warning", "Could not init redis cluster topology updater. Aborting");
-        return REDISMODULE_ERR;
-      }
+      InitRedisTopologyUpdater(ctx);
       sf = CRC16ShardFunc;
       slotTable = crc16_slot_table;
       tableSize = 16384;

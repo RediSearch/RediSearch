@@ -13,5 +13,5 @@
 struct RedisModuleCtx;
 MRClusterTopology *RedisCluster_GetTopology(struct RedisModuleCtx *);
 
-int InitRedisTopologyUpdater();
-int StopRedisTopologyUpdater(); // For testing
+void UpdateTopology(struct RedisModuleCtx *ctx);
+void InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
