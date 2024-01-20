@@ -20,7 +20,7 @@
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 
-int Profile_Print(RedisModule_Reply *reply, AREQ *req);
+void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout);
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                  double cpuTime, PrintProfileConfig *config);

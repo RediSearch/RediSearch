@@ -229,15 +229,14 @@ def testRange(env):
         for i in range(doc_num, doc -1, -1):
             expected.append('doc:{}'.format(i))
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
 
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
-        env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
 
+@skip(cluster=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
-
-    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'NUMERIC').ok()
@@ -249,10 +248,9 @@ def testDebugDump(env):
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 
+@skip(cluster=True)
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
-
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10
@@ -275,7 +273,7 @@ def testInvertedIndexMultipleBlocks(env):
                                                                                  'arr2': [doc]}))
     expected_ids = range(1, doc_num + 1)
     res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDX' ,'idx', 'arr')
-    env.assertListEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
+    env.assertEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
 
     res = to_dict(conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'arr'))
     env.assertEqual(res['numEntries'], doc_num * 2)
@@ -286,7 +284,7 @@ def testInvertedIndexMultipleBlocks(env):
     #   FT.SEARCH idx '@arr:[191 200]' NOCONTENT LIMIT 0 20
     res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT', 'LIMIT', '0', overlap * 2)
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
-    env.assertListEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
+    env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
 def checkInfoAndGC(env, idx, doc_num, create, delete):
@@ -323,9 +321,9 @@ def printSeed(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
+@skip(cluster=True)
 def testInfoAndGC(env):
     """ Test cleanup of numeric ranges """
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -557,10 +555,9 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
 
+@skip(cluster=True)
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -579,7 +576,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[5 6]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary1 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary1 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
 
     # Add values from 5000 to -5000
     # Add to the left, rebalance to the right
@@ -593,14 +590,13 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[-6 -5]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary2 = env.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary2 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
 
     env.assertEqual(summary1, summary2)
 
+@skip(cluster=True)
 def testDebugRangeTree(env):
     """ Test debug of range tree """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -618,8 +614,6 @@ def testDebugRangeTree(env):
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
-
-    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -638,7 +632,7 @@ def checkUpdateNumRecords(env, is_json):
         conn.execute_command('HSET', 'doc:3', 'val1', 3, 'val2', 4, 'val3', 5)
 
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '9')
+    env.assertEqual(info['num_records'], 9)
 
     # Update doc to have one value less
     if is_json:
@@ -648,13 +642,13 @@ def checkUpdateNumRecords(env, is_json):
 
     # INFO is not accurately updated before GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '11')
+    env.assertEqual(info['num_records'], 11)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '8')
+    env.assertEqual(info['num_records'], 8)
 
     # Delete doc
     if is_json:
@@ -664,13 +658,13 @@ def checkUpdateNumRecords(env, is_json):
 
     # INFO is not accurately updated before GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '8')
+    env.assertEqual(info['num_records'], 8)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '6')
+    env.assertEqual(info['num_records'], 6)
 
     if is_json:
         conn.execute_command('JSON.DEL', 'doc:2', '$')
@@ -681,18 +675,20 @@ def checkUpdateNumRecords(env, is_json):
 
     # Info is not accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '6')
+    env.assertEqual(info['num_records'], 6)
 
     forceInvokeGC(env, 'idx')
 
     # Info is accurately updated after GC
     info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], '0')
+    env.assertEqual(info['num_records'], 0)
 
+@skip(cluster=True)
 def testUpdateNumRecordsJson(env):
     """ Test update of `num_records` when using JSON """
     checkUpdateNumRecords(env, True)
 
+@skip(cluster=True)
 def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)

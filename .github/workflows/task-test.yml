@@ -1,0 +1,187 @@
+name: Common Flow for Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        default: "ubuntu-latest"
+        type: string
+      container:
+        type: string
+      san:
+        type: string
+      get-redis:
+        type: string
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        required: true
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+      pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+
+env:
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
+
+jobs:
+  common-flow:
+    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    # Nothing to do if both are `false`, skip
+    if: ${{ inputs.standalone || inputs.coordinator }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
+        run: ${{ inputs.pre-steps-script }}
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Deps checkout
+        uses: actions/checkout@v3
+        with:
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
+      - name: Install Python
+        if: inputs.env == 'macos-12'
+        uses: actions/setup-python@v3
+        with:
+            python-version: '3.10'
+      - name: Setup
+        working-directory: setup/.install
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Full checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
+        run: ./sbin/setup
+
+      - name: Get Redis
+        if: inputs.get-redis != 'skip getting redis'
+        uses: actions/checkout@v3
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
+      - name: Build Redis
+        if: inputs.get-redis != 'skip getting redis'
+        working-directory: redis
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+
+      - name: Decide if to continue after failure
+        id: continue-on-error
+        run: |
+          if [[ -n "${{ inputs.san }}" ]]; then
+            echo "decision=true" >> $GITHUB_OUTPUT
+          else
+            echo "decision=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Set Artifact Names
+        # Artifact names have to be unique, so we base them on the environment.
+        # We also remove invalid characters from the name.
+        id: artifact-names
+        run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
+          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        run: |
+          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+
+      - name: Build Standalone
+        if: ${{ inputs.standalone }}
+        run: make SAN=${{ inputs.san }}
+      - name: Build Coordinator
+        if: ${{ inputs.coordinator }}
+        run: make COORD=1 SAN=${{ inputs.san }}
+
+      - name: Unit tests (standalone)
+        id: test1
+        if: ${{ inputs.standalone }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      - name: Flow tests (standalone)
+        id: test2
+        if: ${{ inputs.standalone }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+      - name: Unit tests (coordinator)
+        id: test3
+        if: ${{ inputs.coordinator }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+      - name: Flow tests (coordinator)
+        id: test4
+        if: ${{ inputs.coordinator }}
+        continue-on-error: ${{ fromJson(steps.continue-on-error.outputs.decision) }}
+        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+
+      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
+      - name: Upload Sanitizer Artifacts
+        id: upload-sanitizer-artifacts
+        if: ${{ steps.node20.outputs.supported == 'true' && inputs.san }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log.*
+          if-no-files-found: ignore
+      - name: Upload Artifacts
+        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'true' &&
+          (steps.upload-sanitizer-artifacts.outputs.artifact-id || failure())
+        uses: actions/upload-artifact@v4
+        with:
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log
+          if-no-files-found: ignore
+      # If node20 is not supported, we can only use version 3.
+      # Here we only upload the artifacts if the tests had failed, since it is very slow
+      - name: Upload Sanitizer Artifacts (node20 not supported)
+        id: upload-sanitizer-artifacts-v3
+        if: ${{ steps.node20.outputs.supported == 'false' && inputs.san }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: Sanitizer Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log.*
+          if-no-files-found: ignore
+      - name: Upload Artifacts (node20 not supported)
+        # Upload artifacts only if tests failed (including sanitizer failures)
+        if: >
+          steps.node20.outputs.supported == 'false' &&
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+        uses: actions/upload-artifact@v3
+        with:
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: tests/**/logs/*.log
+          if-no-files-found: ignore
+
+      - name: Fail flow if tests failed
+        if: >
+          steps.upload-sanitizer-artifacts.outputs.artifact-id ||
+          steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure'
+        run: exit 1

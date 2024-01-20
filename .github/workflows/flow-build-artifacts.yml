@@ -1,0 +1,137 @@
+name: Trigger Build and Upload Artifacts for Environments
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:jammy
+          - ubuntu:focal
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - rockylinux:9
+          - debian:bullseye
+          - amazonlinux:2
+          - mariner:2
+          - macos
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to build on. Use "all" to build on all'
+        default: all
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+
+jobs:
+  setup:
+    # Sets SHA and Validates the reference Input (branch or tag)
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.set-sha.outputs.sha }}
+      redis-ref: ${{ steps.get-redis.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - id: get-redis
+        shell: bash -l -eo pipefail {0}
+        run: |
+          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+      - name: Validate Reference
+        shell: python
+        run: |
+          from re import fullmatch
+          ref = '${{ github.ref_name }}'
+          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
+              print("::error title=Invalid Request::"
+                    "You can only build all configurations for master or a release branch")
+              exit(1)
+
+  decide-linux:
+    if: ${{ inputs.platform != 'macos' }}
+    uses: ./.github/workflows/task-get-linux-configurations.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  decide-macos:
+    runs-on: ubuntu-latest
+    if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
+    outputs:
+      platforms: ${{ steps.decide.outputs.platforms }}
+    steps:
+      - id: decide
+        shell: python
+        run: |
+          import os
+          platforms = []
+
+          if '${{ inputs.architecture }}' in ['all', 'x86_64']:
+            platforms.append('macos-12')
+          # if '${{ inputs.architecture }}' in ['all', 'aarch64']:
+          #   platforms.append('macos-13-xlarge')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            print(f'platforms={platforms}', file=f)
+
+  build-linux-x86:
+    needs: [decide-linux, setup]
+    if: contains(fromJson('["x86_64", "all"]'), inputs.architecture)
+    strategy:
+      fail-fast: false
+      matrix:
+        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.decide-linux.outputs.include_x86) }}
+    uses: ./.github/workflows/task-build-artifacts.yml
+    secrets: inherit
+    with:
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      sha: ${{ needs.setup.outputs.sha }}
+      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+
+  build-linux-arm:
+    needs: [decide-linux, setup]
+    if: contains(fromJson('["aarch64", "all"]'), inputs.architecture)
+    strategy:
+      fail-fast: false
+      matrix:
+        OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
+        include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    secrets: inherit
+    with:
+      build: true
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      sha: ${{ needs.setup.outputs.sha }}
+      get-redis: ${{ needs.setup.outputs.redis-ref }}
+
+  build-macos:
+    needs: [decide-macos, setup]
+    if: contains(fromJson('["macos", "all"]'), inputs.platform)
+    strategy:
+      matrix:
+        OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
+    uses: ./.github/workflows/task-build-artifacts.yml
+    secrets: inherit
+    with:
+      env: ${{ matrix.OS }}
+      sha: ${{ needs.setup.outputs.sha }}
+      redis-ref: ${{ needs.setup.outputs.redis-ref }}

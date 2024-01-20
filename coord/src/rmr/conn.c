@@ -30,6 +30,7 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
+#define UNUSED(x) (void)(x)
 
 #define CONN_LOG(conn, fmt, ...)                                                \
   fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
@@ -73,7 +74,8 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
   return pool;
 }
 
-static void MRConnPool_Free(void *p) {
+static void MRConnPool_Free(void *privdata, void *p) {
+  UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
@@ -99,24 +101,33 @@ static MRConn *MRConnPool_Get(MRConnPool *pool) {
   return NULL;
 }
 
+static dictType nodeIdToConnPoolType = {
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = MRConnPool_Free,
+};
+
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
-  mgr->map = NewTrieMap();
+  mgr->map = dictCreate(&nodeIdToConnPoolType, NULL);
   mgr->nodeConns = nodeConns;
 }
 
 /* Free the entire connection manager */
 void MRConnManager_Free(MRConnManager *mgr) {
-  TrieMap_Free(mgr->map, MRConnPool_Free);
+  dictRelease(mgr->map);
 }
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
-  void *ptr = TrieMap_Find(mgr->map, (char *)id, strlen(id));
-  if (ptr != TRIEMAP_NOTFOUND) {
-    MRConnPool *pool = ptr;
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr );
     return MRConnPool_Get(pool);
   }
   return NULL;
@@ -147,19 +158,12 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
-// replace an existing coonnection pool with a new one
-static void *replaceConnPool(void *oldval, void *newval) {
-  if (oldval) {
-    MRConnPool_Free(oldval);
-  }
-  return newval;
-}
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
 int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect) {
   /* First try to see if the connection is already in the manager */
-  void *ptr = TrieMap_Find(m->map, (char *)id, strlen(id));
-  if (ptr != TRIEMAP_NOTFOUND) {
-    MRConnPool *pool = ptr;
+  dictEntry *ptr = dictFind(m->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr);
 
     MRConn *conn = pool->conns[0];
     // the node hasn't changed address, we don't need to do anything */
@@ -178,7 +182,7 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
     }
   }
 
-  return TrieMap_Add(m->map, (char *)id, strlen(id), pool, replaceConnPool);
+  return dictReplace(m->map, (void *)id, pool);
 }
 
 /**
@@ -200,12 +204,13 @@ static int MRConn_StartNewConnection(MRConn *conn) {
 int MRConnManager_ConnectAll(MRConnManager *m) {
 
   int n = 0;
-  TrieMapIterator *it = TrieMap_Iterate(m->map, "", 0);
+  dictIterator *it = dictGetIterator(m->map);
   char *key;
   tm_len_t len;
   void *p;
-  while (TrieMapIterator_Next(it, &key, &len, &p)) {
-    MRConnPool *pool = p;
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
     if (!pool) continue;
     for (size_t i = 0; i < pool->num; i++) {
       if (MRConn_StartNewConnection(pool->conns[i]) == REDIS_OK) {
@@ -213,13 +218,13 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
       }
     }
   }
-  TrieMapIterator_Free(it);
+  dictReleaseIterator(it);
   return n;
 }
 
 /* Explicitly disconnect a connection and remove it from the connection pool */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
-  if (TrieMap_Delete(m->map, (char *)id, strlen(id), MRConnPool_Free)) {
+  if (dictDelete(m->map, id)) {
     return REDIS_OK;
   }
   return REDIS_ERR;
@@ -328,18 +333,18 @@ activate_timer:
 
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
+  redisReply *rep = r;
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
-    return;
+    goto cleanup;
   }
 
   if (c->err || !r) {
     detachFromConn(conn, !!r);
     MRConn_SwitchState(conn, MRConn_Connecting);
-    return;
+    goto cleanup;
   }
 
-  redisReply *rep = r;
   /* AUTH error */
   if (MRReply_Type(rep) == REDIS_REPLY_ERROR) {
     size_t len;
@@ -347,12 +352,16 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     CONN_LOG(conn, "Error authenticating: %.*s", (int)len, s);
     MRConn_SwitchState(conn, MRConn_ReAuth);
     /*we don't try to reconnect to failed connections */
-    return;
+    goto cleanup;
   }
 
   /* Success! we are now connected! */
   // fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
   MRConn_SwitchState(conn, MRConn_Connected);
+
+cleanup:
+  // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves
+  MRReply_Free(rep);
 }
 
 static int MRConn_SendAuth(MRConn *conn) {
@@ -475,8 +484,16 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
+    const redisContextFuncs *old_callbacks = c->c.funcs;
     if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
-      CONN_LOG(conn, "Error on tls auth");
+      const char *err = c->c.err ? c->c.errstr : "Unknown error";
+
+      // This is a temporary fix to the bug describe on https://github.com/redis/hiredis/issues/1233.
+      // In case of SSL initialization failure. We need to reset the callbacks value, as the `redisInitiateSSL`
+      // function will not do it for us.
+      ((struct redisAsyncContext*)c)->c.funcs = old_callbacks;
+
+      CONN_LOG(conn, "Error on tls auth, %s.", err);
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);

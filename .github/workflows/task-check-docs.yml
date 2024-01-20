@@ -1,0 +1,31 @@
+name: Checks if Only Documentation Files were Changed
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    outputs:
+      only-docs-changed:
+        value: ${{ jobs.check-only-docs-changed.outputs.only-docs-changed }}
+
+jobs:
+  check-only-docs-changed:
+    runs-on: ubuntu-latest
+    outputs:
+      only-docs-changed: ${{ steps.check-docs.outputs.only_modified }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # required for changed-files action to work
+      - name: Check if only docs were changed
+        id: check-docs
+        uses: tj-actions/changed-files@v40
+        with:
+          # List of files we allow to be changed without running the CI. Modify as needed.
+          files: |
+            **.md
+            docs/**
+            coord/docs/**
+            licenses/**
+            LICENSE.txt

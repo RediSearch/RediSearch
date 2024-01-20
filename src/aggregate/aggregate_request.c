@@ -189,6 +189,22 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+// Parse the timeout value
+int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
+  if (AC_NumRemaining(ac) < 1) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for TIMEOUT");
+    return REDISMODULE_ERR;
+  }
+
+  if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+      "TIMEOUT requires a non negative integer.");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status) {
   if (*flags & QEXEC_FORMAT_DEFAULT) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
@@ -278,7 +294,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetUnsignedLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
+    if (AC_GetLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
@@ -843,6 +859,7 @@ AREQ *AREQ_New(void) {
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
+  req->profile = Profile_Print;
   return req;
 }
 
@@ -1284,7 +1301,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter, req->timeoutTime);
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();

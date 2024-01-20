@@ -6,10 +6,10 @@
 
 #include "cluster.h"
 #include "hiredis/adapters/libuv.h"
-#include "triemap/triemap.h"
 #include "crc16.h"
 #include "crc12.h"
 #include "rmutil/vector.h"
+#include "node_map.h"
 
 #include <stdlib.h>
 
@@ -25,15 +25,13 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
     /* Get all the current node ids from the connection manager.  We will remove all the nodes
      * that are in the new topology, and after the update, delete all the nodes that are in this map
      * and not in the new topology */
-    TrieMap *currentNodes = NewTrieMap();
-    TrieMapIterator *it = TrieMap_Iterate(cl->mgr.map, "", 0);
-    char *k;
-    tm_len_t len;
-    void *p;
-    while (TrieMapIterator_Next(it, &k, &len, &p)) {
-      TrieMap_Add(currentNodes, k, len, NULL, NULL);
+    dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
+    dictIterator *it = dictGetIterator(cl->mgr.map);
+    dictEntry *de;
+    while ((de = dictNext(it))) {
+      dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
     }
-    TrieMapIterator_Free(it);
+    dictReleaseIterator(it);
 
     /* Walk the topology and add all nodes in it to the connection manager */
     for (int sh = 0; sh < cl->topo->numShards; sh++) {
@@ -45,8 +43,8 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
         /* Add the node to the node map */
         MRNodeMap_Add(cl->nodeMap, node);
 
-        /* Remove the node id from the current nodes ids map*/
-        TrieMap_Delete(currentNodes, (char *)node->id, strlen(node->id), NULL);
+        /* This node is still valid, remove it from the nodes to delete list */
+        dictDelete(nodesToDisconnect, node->id);
 
         /* See if this is us - if so we need to update the cluster's host and current id */
         if (node->flags & MRNode_Self) {
@@ -56,20 +54,20 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
       }
     }
 
-    /* Remove all nodes that are still in the current node map and not in the new topology*/
-    it = TrieMap_Iterate(currentNodes, "", 0);
-    while (TrieMapIterator_Next(it, &k, &len, &p)) {
-      k[len] = '\0';
-      MRConnManager_Disconnect(&cl->mgr, k);
+    // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,
+    // we need to disconnect the node's connections
+    it = dictGetIterator(nodesToDisconnect);
+    while ((de = dictNext(it))) {
+      MRConnManager_Disconnect(&cl->mgr, dictGetKey(de));
     }
-    TrieMapIterator_Free(it);
-    TrieMap_Free(currentNodes, NULL);
+    dictReleaseIterator(it);
+    dictRelease(nodesToDisconnect);
   }
 }
 
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf,
                          long long minTopologyUpdateInterval) {
-  MRCluster *cl = rm_malloc(sizeof(MRCluster));
+  MRCluster *cl = rm_new(MRCluster);
   cl->sf = sf;
   cl->topologyUpdateMinInterval = minTopologyUpdateInterval;
   cl->lastTopologyUpdate = 0;
@@ -146,7 +144,7 @@ MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, MRClusterNode *myN
   return NULL;
 }
 
-/* Send a single command to the right shard in the cluster, with an optoinal control over node
+/* Send a single command to the right shard in the cluster, with an optional control over node
  * selection */
 int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
                           redisCallbackFn *fn, void *privdata) {
@@ -184,9 +182,6 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
 
   MRNodeMapIterator it;
   switch (strategy & ~(MRCluster_MastersOnly)) {
-    case MRCluster_RemoteCoordination:
-      it = MRNodeMap_IterateRandomNodePerhost(cl->nodeMap, cl->myNode);
-      break;
     case MRCluster_LocalCoordination:
       it = MRNodeMap_IterateHost(cl->nodeMap, cl->myNode->endpoint.host);
       break;
@@ -333,12 +328,6 @@ size_t MRCluster_NumShards(MRCluster *cl) {
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
-}
-
-void _clusterConnectAllCB(uv_work_t *wrk) {
-  // printf("Executing connect CB\n");
-  MRCluster *c = wrk->data;
-  MRCluster_ConnectAll(c);
 }
 
 static ShardFunc selectHashFunc(MRHashFunc f) {

@@ -101,11 +101,10 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void IndexReader_OnReopen(void *privdata) {
-
+void TermReader_OnReopen(void *privdata) {
   IndexReader *ir = privdata;
   if (ir->record->type == RSResultType_Term) {
-    // we need to reopen the inverted index to make sure its stil valid.
+    // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
@@ -120,6 +119,14 @@ void IndexReader_OnReopen(void *privdata) {
     }
   }
 
+  IndexReader_OnReopen(ir);
+}
+
+void IndexReader_OnReopen(IndexReader *ir) {
+  if (IR_IS_AT_END(ir)) {
+    // Save time and state if we are already at the end
+    return;
+  }
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -130,12 +137,10 @@ void IndexReader_OnReopen(void *privdata) {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
     // anymore. This means that we need to seek to last docId we were at
 
-    // reset the state of the reader
+    // keep the last docId we were at
     t_docId lastId = ir->lastId;
-    ir->currentBlock = 0;
-    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
-    ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
-
+    // reset the state of the reader
+    IR_Rewind(ir);
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
@@ -959,99 +964,6 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
   return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res);
 }
 
-typedef struct {
-  IndexCriteriaTester base;
-  union {
-    NumericFilter nf;
-    struct {
-      char *term;
-      size_t termLen;
-      t_fieldMask fieldMask;
-    } tf;
-  };
-  const IndexSpec *spec;
-} IR_CriteriaTester;
-
-static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  const IndexSpec *sp = irct->spec;
-  size_t len;
-  const sds externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
-  double doubleValue;
-  int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
-  RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
-  sdsfree(externalId);
-  return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
-          (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
-}
-
-static void IR_TesterFreeNumeric(IndexCriteriaTester *ct) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  rm_free(irct->nf.fieldName);
-  rm_free(irct);
-}
-
-static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  const IndexSpec *sp = irct->spec;
-  size_t len;
-  int ret = 0;
-  const sds externalId = DocTable_GetKey(&sp->docs, id, &len);
-  for (int i = 0; i < sp->numFields; ++i) {
-    FieldSpec *field = sp->fields + i;
-    if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
-      // field is not requested, we are not checking this field!!
-      continue;
-    }
-    char *strValue;
-    int type = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    RS_LOG_ASSERT(type == RSVALTYPE_STRING, "RSvalue type should be a string");
-    if (strcmp(irct->tf.term, strValue) == 0) {
-      ret = 1;
-      break;
-    }
-  }
-
-  sdsfree(externalId);
-  return ret;
-}
-
-static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  rm_free(irct->tf.term);
-  rm_free(irct);
-}
-
-IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
-  IndexReader *ir = ctx;
-  if (!ir->sp || !ir->sp->getValue) {
-    return NULL;  // CriteriaTester is not supported!!!
-  }
-  if (ir->decoders.decoder == readNumeric) {
-    // for now, if the iterator did not took the numric filter
-    // we will avoid using the CT.
-    // TODO: save the numeric filter in the numeric iterator to support CT anyway.
-    if (!ir->decoderCtx.ptr) {
-      return NULL;
-    }
-  }
-  IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
-  irct->spec = ir->sp;
-  if (ir->decoders.decoder == readNumeric) {
-    irct->nf = *(NumericFilter *)ir->decoderCtx.ptr;
-    irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
-    irct->base.Test = IR_TestNumeric;
-    irct->base.Free = IR_TesterFreeNumeric;
-  } else {
-    irct->tf.term = rm_strdup(ir->record->term.term->str);
-    irct->tf.termLen = ir->record->term.term->len;
-    irct->tf.fieldMask = ir->decoderCtx.num;
-    irct->base.Test = IR_TestTerm;
-    irct->base.Free = IR_TesterFreeTerm;
-  }
-  return &irct->base;
-}
-
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
@@ -1331,10 +1243,8 @@ void IR_Rewind(void *ctx) {
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
-  ri->mode = MODE_SORTED;
   ri->type = READ_ITERATOR;
   ri->NumEstimated = IR_NumEstimated;
-  ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;
   ri->LastDocId = IR_LastDocId;

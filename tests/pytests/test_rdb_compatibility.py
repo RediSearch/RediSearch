@@ -20,8 +20,15 @@ RDBS = [
 
 def downloadFiles(rdbs = None):
     rdbs = RDBS if rdbs is None else rdbs
-    if not os.path.exists(REDISEARCH_CACHE_DIR):
+
+    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
+    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
+    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
+    # and the test can continue.
+    try:
         os.makedirs(REDISEARCH_CACHE_DIR)
+    except FileExistsError:
+        pass
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
@@ -30,15 +37,13 @@ def downloadFiles(rdbs = None):
             return False
     return True
 
-@unstable
+@skip(cluster=True)
 def testRDBCompatibility(env):
     # temp skip for out-of-index
 
     env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french; LANGUAGE_FIELD MyLang; SCORE 0.5; SCORE_FIELD MyScore; PAYLOAD_FIELD MyPayload; UPGRADE_INDEX idx1')
     # env = Env(moduleArgs=['UPGRADE_INDEX idx', 'PREFIX 1 tt', 'LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
     # env = Env(moduleArgs=['UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
-
-    env.skipOnCluster()
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -65,7 +70,7 @@ def testRDBCompatibility(env):
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
-        env.assertEqual(res['num_docs'], '1000')
+        env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
             res = env.cmd('FT.SYNDUMP idx')
@@ -74,9 +79,9 @@ def testRDBCompatibility(env):
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 
+@skip(cluster=True)
 def testRDBCompatibility_vecsim():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.skipOnCluster()
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -109,8 +114,8 @@ def testRDBCompatibility_vecsim():
             env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]', 'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
         env.expect('DBSIZE').equal(100)
         res = to_dict(env.cmd('FT.INFO idx'))
-        env.assertEqual(res['num_docs'], '100')
-        env.assertEqual(res['hash_indexing_failures'], '0')
+        env.assertEqual(res['num_docs'], 100)
+        env.assertEqual(res['hash_indexing_failures'], 0)
         infos = {}
         for vec_field, algo in zip(vec_fields, algorithms):
             infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))

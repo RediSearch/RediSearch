@@ -50,7 +50,7 @@ It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
-void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it, void *privdata), void *privdata);
+void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -64,10 +64,10 @@ void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
 
 /* Trim a union iterator to hold minimum iterators that contain `limit` results.
  * This is used to optimize queries with no additional filters. */
-void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc, bool unsorted);
+void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc);
 
 /* Create a NOT iterator by wrapping another index iterator */
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout);
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
@@ -95,7 +95,7 @@ void Profile_AddIters(IndexIterator **root);
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;
-    int printProfileClock;    
+    int printProfileClock;
 } PrintProfileConfig;
 
 // Print profile of iterators

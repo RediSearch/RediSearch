@@ -6,13 +6,14 @@
 
 #include "info_command.h"
 #include "resp3.h"
+#include "info/field_spec_info.h"
 
 // Type of field returned in INFO
 typedef enum {
   InfoField_WholeSum,
   InfoField_DoubleSum,
   InfoField_DoubleAverage,
-  InfoField_Max
+  InfoField_Max,
 } InfoFieldType;
 
 // Field specification
@@ -76,9 +77,13 @@ typedef struct {
     size_t total_l;
     double total_d;
     struct {
-      double avg;
+      double sum;
       double count;
     } avg;
+    struct {
+      char *str;
+      size_t len;
+    } str;
   } u;
 } InfoValue;
 
@@ -91,6 +96,8 @@ typedef struct {
   MRReply *indexOptions;
   size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
+  FieldSpecInfo *fieldSpecInfo_arr;
+  IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
@@ -115,27 +122,70 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec) {
   int type = spec->type;
 
-  if (type == InfoField_WholeSum) {
-    long long tmp;
-    MRReply_ToInteger(src, &tmp);
-    dst->u.total_l += tmp;
-  } else if (type == InfoField_DoubleSum) {
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.total_d += d;
-  } else if (type == InfoField_DoubleAverage) {
-    dst->u.avg.count++;
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.avg.avg += d;
-  } else if (type == InfoField_Max) {
-    long long newVal;
-    MRReply_ToInteger(src, &newVal);
-    if (dst->u.total_l < newVal) {
-      dst->u.total_l = newVal;
+  switch (type) {
+    case InfoField_WholeSum: {
+      long long tmp;
+      MRReply_ToInteger(src, &tmp);
+      dst->u.total_l += tmp;
+      break;
+    }
+    case InfoField_DoubleSum: {
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.total_d += d;
+      break;
+    }
+    case InfoField_DoubleAverage: {
+      dst->u.avg.count++;
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.avg.sum += d;
+      break;
+    }
+    case InfoField_Max: {
+      long long newVal;
+      MRReply_ToInteger(src, &newVal);
+      if (dst->u.total_l < newVal) {
+        dst->u.total_l = newVal;
+      }
+      break;
     }
   }
   dst->isSet = 1;
+}
+
+// Extract an array of FieldSpecInfo from MRReply
+void handleFieldStatistics(MRReply *src, InfoFields *fields) {
+  // Input validations
+  RedisModule_Assert(src && fields);
+  RedisModule_Assert(MRReply_Type(src) == MR_REPLY_ARRAY);
+
+  size_t len = MRReply_Length(src);
+  if (!fields->fieldSpecInfo_arr) {
+    // Lazy initialization
+    fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
+    for (size_t i = 0; i < len; i++) {
+      FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
+      fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
+    }
+  }
+
+  for (size_t i = 0; i < len; i++) {
+    MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
+    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
+  }
+}
+
+static void handleIndexError(InfoFields *fields, MRReply *src) {
+  // Check if indexError is initialized
+  if (!IndexError_LastError(&fields->indexError)) {
+    fields->indexError = IndexError_Init();
+  }
+  IndexError indexError = IndexError_Deserialize(src);
+  IndexError_OpPlusEquals(&fields->indexError, &indexError);
+  IndexError_Clear(indexError); // Free Resources
 }
 
 // Handle fields which aren't InfoValue types
@@ -168,6 +218,10 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
   } else if (!strcmp(name, "dialect_stats")) {
     processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
+  } else if (!strcmp(name, "field statistics")) {
+    handleFieldStatistics(value, fields);
+  } else if (!strcmp(name, IndexError_ObjectName)) {
+    handleIndexError(fields, value);
   }
 }
 
@@ -204,6 +258,15 @@ next_elem:
 }
 
 static void cleanInfoReply(InfoFields *fields) {
+  if (fields->fieldSpecInfo_arr) {
+    // Clear the info fields
+    for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); i++) {
+      FieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
+    }
+    array_free(fields->fieldSpecInfo_arr);
+    fields->fieldSpecInfo_arr = NULL;
+  }
+  IndexError_Clear(fields->indexError);
   rm_free(fields->errorIndexes);
 }
 
@@ -224,7 +287,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
       RedisModule_ReplyKV_Double(reply, key, source->u.total_d);
     } else if (type == InfoField_DoubleAverage) {
       if (source->u.avg.count) {
-        RedisModule_ReplyKV_Double(reply, key, source->u.avg.avg / source->u.avg.count);
+        RedisModule_ReplyKV_Double(reply, key, source->u.avg.sum / source->u.avg.count);
       } else {
         RedisModule_ReplyKV_Double(reply, key, 0);
       }
@@ -241,7 +304,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   if (fields->indexName) {
     RedisModule_ReplyKV_StringBuffer(reply, "index_name", fields->indexName, fields->indexNameLen);
   }
-  
+
   if (fields->indexDef) {
     RedisModule_ReplyKV_MRReply(reply, "index_definition", fields->indexDef);
   }
@@ -268,12 +331,26 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
+
+  // Global index error stats
+  RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+  IndexError_Reply(&fields->indexError, reply, 0);
+
+  if (fields->fieldSpecInfo_arr) {
+    RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
+    for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
+      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0);
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >Field statistics
+  }
+
+
   RedisModule_Reply_MapEnd(reply);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
-  InfoFields fields = {0};
+  InfoFields fields = { .indexError = IndexError_Init() };
   size_t numErrored = 0;
   MRReply *firstError = NULL;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
@@ -285,7 +362,8 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   for (size_t ii = 0; ii < count; ++ii) {
-    if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
+    int type = MRReply_Type(replies[ii]);
+    if (type == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
         fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
       }
@@ -297,16 +375,13 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       continue;
     }
 
-    if (MRReply_Type(replies[ii]) != MR_REPLY_ARRAY && MRReply_Type(replies[ii]) != MR_REPLY_MAP) {
+    if (type != MR_REPLY_ARRAY && type != MR_REPLY_MAP) {
       continue;  // Ooops!
     }
 
-    int type = MRReply_Type(replies[ii]);
-    if (type == MR_REPLY_ARRAY || type == MR_REPLY_MAP) {
-      size_t numElems = MRReply_Length(replies[ii]);
-      if (numElems % 2 != 0) {
-        printf("Uneven INFO Reply!!!?\n");
-      }
+    size_t numElems = MRReply_Length(replies[ii]);
+    if (numElems % 2 != 0) {
+      printf("Uneven INFO Reply!!!?\n");
     }
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0);
   }

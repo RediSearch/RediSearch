@@ -4,8 +4,7 @@ linkTitle: "Use cases"
 weight: 5
 description: >
     Search and query use cases
-aliases:
-  - /docs/stack/search/reference/query_syntax/  
+aliases: 
   - /docs/stack/use-cases/  
 ---
 

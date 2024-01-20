@@ -39,15 +39,13 @@ typedef struct InvertedIndex {
   t_docId lastId;
   uint32_t numDocs;
   uint32_t gcMarker;
-  // The following union must remain at the end as memory is not allocate for it
+  // The following union must remain at the end as memory is not allocated for it
   // if not required (see function `NewInvertedIndex`)
   union {
     t_fieldMask fieldMask;
     uint64_t numEntries;
   };
 } InvertedIndex;
-
-struct indexReadCtx;
 
 /**
  * This context is passed to the decoder callback, and can contain either
@@ -167,7 +165,11 @@ typedef struct IndexReader {
   uint32_t gcMarker;
 } IndexReader;
 
-void IndexReader_OnReopen(void *privdata);
+// On Reopen callback for term index
+void TermReader_OnReopen(void *privdata);
+
+// On Reopen callback for common use
+void IndexReader_OnReopen(IndexReader *ir);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
@@ -229,6 +231,8 @@ int IR_Next(void *ctx);
  *  - INDEXREAD_EOF if the ID is out of the upper range
  */
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
+
+void IR_Rewind(void *ctx);
 
 RSIndexResult *IR_Current(void *ctx);
 

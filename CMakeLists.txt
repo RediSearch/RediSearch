@@ -62,7 +62,6 @@ include_directories(
     ${root})
 
 add_subdirectory(deps/rmutil)
-add_subdirectory(deps/rmutil/cxx)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
@@ -87,6 +86,7 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/info/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -102,7 +102,6 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:rmutil-cxx>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)
@@ -111,7 +110,7 @@ set(FINAL_OBJECTS
 
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
-        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
 
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
@@ -119,7 +118,7 @@ if (BUILD_COORDINATOR)
             RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
-        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
 
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD

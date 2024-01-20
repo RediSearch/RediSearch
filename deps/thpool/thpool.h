@@ -24,6 +24,13 @@ typedef enum {
   THPOOL_PRIORITY_LOW,
 } thpool_priority;
 
+typedef struct {
+  unsigned long total_jobs_done;
+  unsigned long total_pending_jobs;
+  unsigned long high_priority_pending_jobs;
+  unsigned long low_priority_pending_jobs;
+} thpool_stats;
+
 // A callback to call redis log.
 typedef void (*LogFunc)(const char *, const char *, ...);
 
@@ -37,24 +44,6 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log);
-
-/**
- * @brief  Initialize an existing threadpool
- *
- * Initializes a threadpool. This function will not return until all
- * threads have initialized successfully.
- *
- * @example
- *
- *    ..
- *    threadpool thpool;                       //First we declare a threadpool
- *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
- *    thpool_init(&thpool);                  //Then we initialize the threads
- *    ..
- *
- * @param threadpool    threadpool to initialize
- */
-void redisearch_thpool_init(redisearch_threadpool);
 
 /**
  * @brief Add work to the job queue
@@ -136,7 +125,7 @@ int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t
  * Smart polling is used in wait. The polling is initially 0 - meaning that
  * there is virtually no polling at all. If after 1 seconds the threads
  * haven't finished, the polling interval starts growing exponentially
- * untill it reaches max_secs seconds. Then it jumps down to a maximum polling
+ * until it reaches max_secs seconds. Then it jumps down to a maximum polling
  * interval assuming that heavy processing is being used in the threadpool.
  *
  * @example
@@ -193,47 +182,21 @@ void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yiel
                                  void *yieldCtx, size_t threshold);
 
 /**
- * @brief Pauses all threads immediately
- *
- * The threads will be paused no matter if they are idle or working.
- * The threads return to their previous states once thpool_resume
- * is called.
- *
- * While the thread is being paused, new work can be added.
- *
- * @example
- *
- *    threadpool thpool = thpool_init(4);
- *    thpool_pause(thpool);
- *    ..
- *    // Add a bunch of work
- *    ..
- *    thpool_resume(thpool); // Let the threads start their magic
- *
- * @param threadpool    the threadpool where the threads should be paused
- * @return nothing
- */
-void redisearch_thpool_pause(redisearch_threadpool);
-
-/**
- * @brief Unpauses all threads if they are paused
- *
- * @example
- *    ..
- *    thpool_pause(thpool);
- *    sleep(10);              // Delay execution 10 seconds
- *    thpool_resume(thpool);
- *    ..
- *
- * @param threadpool     the threadpool where the threads should be unpaused
- * @return nothing
- */
-void redisearch_thpool_resume(redisearch_threadpool);
-
-/**
  * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
  */
-void redisearch_thpool_terminate_threads(redisearch_threadpool);
+void redisearch_thpool_terminate_reset_threads(redisearch_threadpool);
+
+/**
+ * @brief Same as redisearch_thpool_terminate_reset_threads, but for debugging purposes.
+ *        The threads won't be restarted until redisearch_thpool_resume_threads is called,
+ *        even if new jobs are added to the queue.
+ */
+void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
+
+/**
+ * @brief Resume the working threads after they were paused by redisearch_thpool_terminate_pause_threads.
+ */
+void redisearch_thpool_resume_threads(redisearch_threadpool);
 
 /**
  * @brief Set the terminate_when_empty flag, so that all threads are terminated when there are
@@ -282,6 +245,10 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @return integer       number of threads working
  */
 size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
+
+int redisearch_thpool_paused(redisearch_threadpool);
+
+thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
 
 #ifdef __cplusplus
 }

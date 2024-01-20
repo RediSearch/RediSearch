@@ -319,18 +319,19 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 }
 
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-  
-  QueryNode *ret = NULL;
-  
   enum QueryType query_type;
   if (!strncasecmp(predicate, "WITHIN", len)) {
     query_type = WITHIN;
   } else if (!strncasecmp(predicate, "CONTAINS", len)) {
     query_type = CONTAINS;
+  } else if (!strncasecmp(predicate, "DISJOINT", len)) {
+    query_type = DISJOINT;
+  } else if (!strncasecmp(predicate, "INTERSECTS", len)) {
+    query_type = INTERSECTS;
   } else {
     return NULL;
   }
-  ret = NewQueryNode(QN_GEOMETRY);
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
@@ -838,17 +839,15 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
-  QueryNotNode *node = &qn->inverted;
 
   return NewNotIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight);
+                        q->docTable->maxDocId, qn->opts.weight, q->sctx->timeout);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_OPTIONAL) {
     return NULL;
   }
-  QueryOptionalNode *node = &qn->opt;
 
   return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
                              q->docTable->maxDocId, qn->opts.weight);
@@ -875,11 +874,11 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config);
 }
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
-  
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
@@ -1640,12 +1639,6 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
   }
   return REDISMODULE_OK;
 }
-
-/* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,
- * resulting in the query not performing context switches */
-// void Query_SetConcurrentMode(QueryPlan *q, int concurrent) {
-//   q->concurrentMode = concurrent;
-// }
 
 static sds doPad(sds s, int len) {
   if (!len) return s;

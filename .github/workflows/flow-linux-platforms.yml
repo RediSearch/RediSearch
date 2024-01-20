@@ -1,0 +1,115 @@
+name: Build on Linux Platforms
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+      redis-ref:
+        type: string
+      fail-fast:
+        type: boolean
+        default: true # Default to true on workflow call (as in matrix, and unlike manual trigger)
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:jammy
+          - ubuntu:focal
+          - ubuntu:bionic
+          - centos:7
+          - rockylinux:8
+          - rockylinux:9
+          - debian:bullseye
+          - amazonlinux:2
+          - mariner:2
+        description: 'Platform to build on. Use "all" to build on all'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to build on. Use "all" to build on all'
+        default: all
+      coordinator:
+        description: 'Whether to run coordinator tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Whether to run standalone tests'
+        type: boolean
+        default: true
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        type: string
+      fail-fast:
+        description: 'Whether to fail fast on first failure'
+        type: boolean
+        default: false # Default to false on manual trigger
+
+jobs:
+  get-required-envs:
+    uses: ./.github/workflows/task-get-linux-configurations.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  linux-matrix-x86_64:
+    if: inputs.architecture == 'all' || inputs.architecture == 'x86_64'
+    needs: get-required-envs
+    strategy:
+      matrix:
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
+      fail-fast: ${{ inputs.fail-fast }}
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      get-redis: ${{ inputs.redis-ref }}
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}
+
+  linux-matrix-aarch64:
+    if: inputs.architecture == 'all' || inputs.architecture == 'aarch64'
+    needs: get-required-envs
+    strategy:
+      matrix:
+        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
+        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
+      fail-fast: ${{ inputs.fail-fast }}
+    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    secrets: inherit
+    with:
+      test: true
+      get-redis: ${{ inputs.redis-ref }}
+      container: ${{ matrix.OS }}
+      pre-steps-script: ${{ matrix.pre-deps }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}

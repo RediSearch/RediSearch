@@ -1,0 +1,25 @@
+codecov:
+  require_ci_to_pass: false # Enabling Codecov to report status even if the CI fails
+  notify:
+    wait_for_ci: false # Enabling Codecov to report coverage even if the CI has not completed
+coverage:
+  status:
+    project: # Configurations for the project coverage status
+      default:
+        # basic
+        target: auto  # target coverage based on the base commit
+        threshold: 1% # Allow `x%` of coverage to decrease without failing
+        paths:
+          - "src"
+          - "coord/src"
+        # advanced
+        removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
+
+    patch: # Configurations for the pull request coverage status
+      default:
+        # basic
+        target: auto  # target coverage based on the base commit
+        threshold: 5% # Allow `x%` of coverage to decrease without failing
+        # Not specifying paths so we get annotations on the PR
+        # advanced
+        removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
