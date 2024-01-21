@@ -2264,10 +2264,6 @@ int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   return REDISMODULE_OK;
 }
 
-int UnsuportedOnCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Command not supported on cluster");
-}
-
 // A special command for redis cluster OSS, that refreshes the cluster state
 int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UpdateTopology(ctx);
