@@ -439,7 +439,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     // JSON NULL value is ignored
     case FLD_VAR_T_NULL:
       return 0;
-    // Unsupported type retrun an error
+    // Unsupported type - return an error
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
@@ -891,7 +891,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     const FieldSpec *fs = aCtx->fspecs + i;
-    const DocumentField *ff = doc->fields + i;
+    DocumentField *ff = doc->fields + i;
     FieldIndexerData *fdata = aCtx->fdatas + i;
 
     for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
@@ -900,7 +900,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
 
       PreprocessorFunc pp = preprocessorMap[ii];
-      if (pp(aCtx, sctx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
+      if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
         IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         IndexError_AddError(&aCtx->spec->fields[fs->index].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
         ourRv = REDISMODULE_ERR;
