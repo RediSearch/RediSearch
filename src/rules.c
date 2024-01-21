@@ -10,7 +10,7 @@
 #include "json.h"
 #include "rdb.h"
 
-TrieMap *ScemaPrefixes_g;
+TrieMap *SchemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -510,7 +510,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void SchemaPrefixes_Create() {
-  ScemaPrefixes_g = NewTrieMap();
+  SchemaPrefixes_g = NewTrieMap();
 }
 
 static void freePrefixNode(void *ctx) {
@@ -523,10 +523,10 @@ void SchemaPrefixes_Free(TrieMap *t) {
 
 void SchemaPrefixes_Add(const char *prefix, StrongRef ref) {
   size_t nprefix = strlen(prefix);
-  void *p = TrieMap_Find(ScemaPrefixes_g, (char *)prefix, nprefix);
+  void *p = TrieMap_Find(SchemaPrefixes_g, (char *)prefix, nprefix);
   if (p == TRIEMAP_NOTFOUND) {
     SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
-    TrieMap_Add(ScemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
+    TrieMap_Add(SchemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
     node->index_specs = array_append(node->index_specs, ref);
@@ -540,7 +540,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   const char **prefixes = spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
-    SchemaPrefixNode *node = TrieMap_Find(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
+    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
     if (node == TRIEMAP_NOTFOUND) {
       continue;
     }
@@ -550,7 +550,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node
-          TrieMap_Delete(ScemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+          TrieMap_Delete(SchemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
         }
         break;
       }
