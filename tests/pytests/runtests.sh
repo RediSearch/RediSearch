@@ -79,7 +79,6 @@ help() {
 
 		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
-		STATFILE=file         Write test status (0|1) into `file`
 
 		LIST=1                List all tests and exit
 		ENV_ONLY=1            Just start environment, run no tests
@@ -231,7 +230,7 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-msan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
+			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl --own-openssl-version 3.2.0 \
 				--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
 				--clang-san-blacklist $ignorelist
 		fi
@@ -565,9 +564,6 @@ if [[ -n $TEST ]]; then
 	export RUST_BACKTRACE=1
 fi
 
-#-------------------------------------------------------------------------------- Platform Mode
-
-STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #---------------------------------------------------------------------------------- Parallelism
 
@@ -734,14 +730,6 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
 	echo "Test logs:"
 	du -ah --apparent-size bin/artifacts/tests
-fi
-
-if [[ -n $STATFILE ]]; then
-	mkdir -p "$(dirname "$STATFILE")"
-	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STATFILE || echo 1) )) || true
-	fi
-	echo $E > $STATFILE
 fi
 
 exit $E
