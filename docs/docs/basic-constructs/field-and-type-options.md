@@ -9,14 +9,14 @@ description: >
 
 Redis Stack provides various field types that allow you to store and search different kinds of data in your indexes. This page explains the available field types, their characteristics, and how they can be used effectively.
 
-## Number fields
+## Numeric fields
 
-Number fields are used to store non-textual, countable values. They can hold integer or floating-point values. Number fields are sortable, meaning you can perform range-based queries and retrieve documents based on specific numeric conditions. For example, you can search for documents with a price between a certain range or retrieve documents with a specific rating value.
+Numeric fields are used to store non-textual, countable values. They can hold integer or floating-point values. Numeric fields are sortable, meaning you can perform range-based queries and retrieve documents based on specific numeric conditions. For example, you can search for documents with a price between a certain range or retrieve documents with a specific rating value.
 
 You can add number fields to a schema in `FT.CREATE` using this syntax:
 
 ```
-FT.CREATE ... SCHEMA ... {field_name} NUMBER [SORTABLE] [NOINDEX]
+FT.CREATE ... SCHEMA ... {field_name} NUMERIC [SORTABLE] [NOINDEX]
 ```
 
 where:
