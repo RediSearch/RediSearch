@@ -29,9 +29,51 @@ typedef struct MRWorkQueue {
   uv_async_t async;
 } MRWorkQueue;
 
+uv_thread_t loop_th;
+static char loop_th_running = 0;
+static char loop_th_ready = 0;
+extern RedisModuleCtx *RSDummyContext;
+static void sideThread(void *arg);
+static void verify_uv_thread(MRWorkQueue *q) {
+  if (!loop_th_running) {
+    // Verify that we are running on the event loop thread
+    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, q) == 0);
+    RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+    loop_th_running = 1;
+  }
+}
+
+static void ensureConnections(RedisModuleCtx *ctx, void *data) {
+  static size_t tryCount = 1;
+  if (MR_CheckTopologyConnections(true) == REDIS_OK) {
+    // We are connected to all master nodes. We can mark the event loop thread as ready
+    uv_async_t *async = data;
+    __atomic_store_n(&loop_th_ready, 1, __ATOMIC_SEQ_CST);
+    uv_async_send(async);
+    RedisModule_Log(ctx, "verbose", "All nodes connected in %zu tries", tryCount);
+  } else {
+    // Try again in 1ms
+    // If we fail to connect to the cluster for 30 seconds, we give up
+    RedisModule_Assert(tryCount++ < 30000); // 30 seconds
+    RedisModule_Log(ctx, "verbose", "Waiting for all nodes to connect: %zu", tryCount);
+    RedisModule_CreateTimer(ctx, 1, ensureConnections, data);
+  }
+}
+
 /* start the event loop side thread */
 static void sideThread(void *arg) {
-  REDISMODULE_NOT_USED(arg);
+  MRWorkQueue *q = arg;
+  if (q->pendingTopo) {
+    q->pendingTopo->cb(q->pendingTopo->privdata);
+    rm_free(q->pendingTopo);
+    q->pendingTopo = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    RedisModule_CreateTimer(RSDummyContext, 1, ensureConnections, &q->async);
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  } else {
+    RedisModule_Log(RSDummyContext, "warning", "Topology is unknown");
+    __atomic_store_n(&loop_th_ready, 1, __ATOMIC_RELEASE);
+  }
   uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 }
 
@@ -46,23 +88,6 @@ static void rqPushItem(MRWorkQueue *q, struct queueItem *item) {
     q->head = q->tail = item;
   }
   q->sz++;
-}
-
-uv_thread_t loop_th;
-static int loop_th_running = 0;
-extern RedisModuleCtx *RSDummyContext;
-static void verify_uv_thread(MRWorkQueue *q) {
-  if (!loop_th_running) {
-    // Verify that we are running on the event loop thread
-    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
-    RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
-    if (q->pendingTopo) {
-      // If we have a pending topology, push it to the queue first
-      rqPushItem(q, q->pendingTopo);
-      q->pendingTopo = NULL;
-    }
-    loop_th_running = 1;
-  }
 }
 
 void RQ_Push_Topology(MRWorkQueue *q, MRQueueCallback cb, MRClusterTopology *topo) {
@@ -132,18 +157,11 @@ void RQ_Done(MRWorkQueue *q) {
 }
 
 static void rqAsyncCb(uv_async_t *async) {
+  if (!__atomic_load_n(&loop_th_ready, __ATOMIC_ACQUIRE)) return;
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
-    if (req->cb(req->privdata) != REDIS_OK) {
-      // If the callback returns non-zero, it means that we need to re-queue the request
-      uv_mutex_lock(&q->lock);
-      rqPushItem(q, req);
-      uv_mutex_unlock(&q->lock);
-      uv_async_send(async); // wake up again
-      // We also break from the loop to allow other events to be processed
-      break;
-    }
+    req->cb(req->privdata);
     rm_free(req);
   }
 }

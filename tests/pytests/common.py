@@ -601,7 +601,7 @@ def get_TLS_args():
 def verify_shard_init(env, shard=None):
     shard = shard if shard is not None else env # use default shard if not specified
     try:
-        shard.execute_command('FT.SEARCH', 'idx', '*')
+        shard.execute_command('FT.SEARCH', 'non-existing', '*')
         raise Exception('Expected FT.SEARCH to fail')
     except redis_exceptions.ResponseError as e:
         env.assertContains('no such index', str(e))

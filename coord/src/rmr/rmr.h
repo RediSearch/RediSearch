@@ -38,6 +38,9 @@ void MR_UpdateTopology(MRClusterTopology *newTopology);
 /* Get the current cluster topology */
 MRClusterTopology *MR_GetCurrentTopology();
 
+/* Get the current cluster topology connectivity status */
+int MR_CheckTopologyConnections(bool mastersOnly);
+
 /* Return our current node as detected by cluster state calls */
 MRClusterNode *MR_GetMyNode();
 

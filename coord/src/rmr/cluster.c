@@ -163,6 +163,36 @@ int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRComm
   return MRConn_SendCommand(conn, cmd, fn, privdata);
 }
 
+int MRCluster_CheckConnections(MRCluster *cl, MRCoordinationStrategy strategy) {
+  if (!cl->nodeMap) {
+    return REDIS_ERR;
+  }
+
+  MRNodeMapIterator it;
+  switch (strategy & ~(MRCluster_MastersOnly)) {
+    case MRCluster_LocalCoordination:
+      it = MRNodeMap_IterateHost(cl->nodeMap, cl->myNode->endpoint.host);
+      break;
+    default:
+      it = MRNodeMap_IterateAll(cl->nodeMap);
+  }
+
+  int ret = REDIS_OK;
+  MRClusterNode *n;
+  while (NULL != (n = it.Next(&it))) {
+    if ((strategy & MRCluster_MastersOnly) && !(n->flags & MRNode_Master)) {
+      continue;
+    }
+    if (!MRConn_Get(&cl->mgr, n->id)) {
+      ret = REDIS_ERR;
+      break;
+    }
+  }
+
+  MRNodeMapIterator_Free(&it);
+  return ret;
+}
+
 /* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
  * number of sent commands */
 int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
@@ -181,27 +211,19 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
   }
 
   int ret = 0;
-  int n_conns = 0;
-  MRConn **conns = rm_malloc(sizeof(MRConn *) * MRNodeMap_NumNodes(cl->nodeMap));
   MRClusterNode *n;
   while (NULL != (n = it.Next(&it))) {
     if ((strategy & MRCluster_MastersOnly) && !(n->flags & MRNode_Master)) {
       continue;
     }
-    conns[n_conns] = MRConn_Get(&cl->mgr, n->id);
-    if (!conns[n_conns]) {
-      n_conns = 0;
-      break;
-    }
-    n_conns++;
-  }
-  for (int i = 0; i < n_conns; i++) {
+    MRConn *conn = MRConn_Get(&cl->mgr, n->id);
     // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
-    if (MRConn_SendCommand(conns[i], cmd, fn, privdata) != REDIS_ERR) {
-      ret++;
+    if (conn) {
+      if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
+        ret++;
+      }
     }
   }
-  rm_free(conns);
   MRNodeMapIterator_Free(&it);
 
   return ret;

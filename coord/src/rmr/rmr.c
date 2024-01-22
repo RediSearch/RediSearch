@@ -225,6 +225,10 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   rq_g = RQ_New(cl->mgr.nodeConns * 50);
 }
 
+int MR_CheckTopologyConnections(bool mastersOnly) {
+  return MRCluster_CheckConnections(cluster_g, mastersOnly ? MRCluster_MastersOnly : 0);
+}
+
 MRClusterTopology *MR_GetCurrentTopology() {
   return cluster_g->topo;
 }
@@ -234,7 +238,7 @@ MRClusterNode *MR_GetMyNode() {
 }
 
 /* The fanout request received in the event loop in a thread safe manner */
-static int uvFanoutRequest(void *p) {
+static void uvFanoutRequest(void *p) {
   struct MRRequestCtx *mc = p;
   MRCtx *mrctx = mc->ctx;
   mrctx->numReplied = 0;
@@ -242,52 +246,12 @@ static int uvFanoutRequest(void *p) {
   mrctx->numExpected = 0;
 
   mrctx->numCmds = mc->numCmds;
+  mrctx->cmds = mc->cmds;
 
   if (cluster_g->topo) {
     MRCommand *cmd = &mc->cmds[0];
     mrctx->numExpected =
         MRCluster_FanoutCommand(cluster_g, mrctx->strategy, cmd, fanoutCallback, mrctx);
-  }
-
-  if (mrctx->numExpected == 0) {
-    return REDIS_ERR; // TODO: limited retry mechanism
-    // RedisModuleBlockedClient *bc = mrctx->bc;
-    // RedisModule_Assert(bc);
-    // RedisModule_BlockedClientMeasureTimeEnd(bc);
-    // RedisModule_UnblockClient(bc, mrctx);
-    // // printf("could not send single command. handle fail please\n");
-  }
-
-  mrctx->cmds = mc->cmds;
-  rm_free(mc);
-  return REDIS_OK;
-}
-
-static int uvMapRequest(void *p) {
-  struct MRRequestCtx *mc = p;
-  MRCtx *mrctx = mc->ctx;
-  mrctx->numReplied = 0;
-  mrctx->reducer = mc->f;
-  mrctx->numExpected = 0;
-  mrctx->numCmds = mc->numCmds;
-
-  MRConn **conns = rm_malloc(sizeof(MRConn *) * mrctx->numCmds);
-  for (int i = 0; i < mc->numCmds; i++) {
-    conns[i] = MRCluster_GetConn(cluster_g, mrctx->strategy, &mc->cmds[i]);
-    if (conns[i] == NULL) {
-      rm_free(conns);
-      return REDIS_ERR; // TODO: limited retry mechanism
-    }
-  }
-  for (int i = 0; i < mc->numCmds; i++) {
-    if (MRConn_SendCommand(conns[i], &mc->cmds[i], fanoutCallback, mrctx) == REDIS_OK) {
-      mrctx->numExpected++;
-    }
-  }
-  rm_free(conns);
-  mrctx->cmds = rm_calloc(mrctx->numCmds, sizeof(MRCommand));
-  for (int i = 0; i < mrctx->numCmds; ++i) {
-    mrctx->cmds[i] = mc->cmds[i];
   }
 
   if (mrctx->numExpected == 0) {
@@ -298,9 +262,33 @@ static int uvMapRequest(void *p) {
     // printf("could not send single command. handle fail please\n");
   }
 
-  rm_free(mc->cmds);
   rm_free(mc);
-  return REDIS_OK;
+}
+
+static void uvMapRequest(void *p) {
+  struct MRRequestCtx *mc = p;
+  MRCtx *mrctx = mc->ctx;
+  mrctx->numReplied = 0;
+  mrctx->reducer = mc->f;
+  mrctx->numExpected = 0;
+  mrctx->numCmds = mc->numCmds;
+  mrctx->cmds = mc->cmds;
+
+  for (int i = 0; i < mc->numCmds; i++) {
+    if (MRCluster_SendCommand(cluster_g, mrctx->strategy, &mc->cmds[i], fanoutCallback, mrctx) == REDIS_OK) {
+      mrctx->numExpected++;
+    }
+  }
+
+  if (mrctx->numExpected == 0) {
+    RedisModuleBlockedClient *bc = mrctx->bc;
+    RedisModule_Assert(bc);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
+    // printf("could not send single command. handle fail please\n");
+  }
+
+  rm_free(mc);
 }
 
 void MR_requestCompleted() {
@@ -383,14 +371,13 @@ size_t MR_NumHosts() {
 
 void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 /* on-loop update topology request. This can't be done from the main thread */
-static int uvUpdateTopologyRequest(void *p) {
+static void uvUpdateTopologyRequest(void *p) {
   MRClusterTopology *topo = p;
   MRCLuster_UpdateTopology(cluster_g, topo);
   if (cluster_g->myShard) {
     SetMyPartition(topo, cluster_g->myShard);
   }
   RQ_Done(rq_g);
-  return REDIS_OK;
 }
 
 /* Set a new topology for the cluster */
@@ -498,46 +485,28 @@ int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   return MRChannel_Push(ctx->ic->chan, rep);
 }
 
-int iterStartCb(void *p) {
+void iterStartCb(void *p) {
   MRIterator *it = p;
-  MRConn **conns = rm_malloc(sizeof(MRConn *) * it->len);
   for (size_t i = 0; i < it->len; i++) {
-    conns[i] = MRCluster_GetConn(it->ctx.cluster, MRCluster_FlatCoordination, &it->cbxs[i].cmd);
-    if (conns[i] == NULL) {
-      rm_free(conns);
-      return REDIS_ERR; // TODO: limited retry mechanism
-    }
-  }
-  for (size_t i = 0; i < it->len; i++) {
-    if (MRConn_SendCommand(conns[i], &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+    if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
+                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      // fprintf(stderr, "Could not send command!\n");
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
-  rm_free(conns);
-  return REDIS_OK;
 }
 
-int iterManualNextCb(void *p) {
+void iterManualNextCb(void *p) {
   MRIterator *it = p;
-  MRConn **conns = rm_malloc(sizeof(MRConn *) * it->len);
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
-      conns[i] = MRCluster_GetConn(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd);
-      if (conns[i] == NULL) {
-        rm_free(conns);
-        return REDIS_ERR; // TODO: limited retry mechanism
-      }
-    }
-  }
-  for (size_t i = 0; i < it->len; i++) {
-    if (!it->cbxs[i].cmd.depleted) {
-      if (MRConn_SendCommand(conns[i], &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
+                                mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+        // fprintf(stderr, "Could not send command!\n");
         MRIteratorCallback_Done(&it->cbxs[i], 1);
       }
     }
   }
-  rm_free(conns);
-  return REDIS_OK;
 }
 
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
