@@ -48,9 +48,4 @@ extern SearchClusterConfig clusterConfig;
  */
 MRClusterType DetectClusterType();
 
-/* Load the configuration from the module arguments.
- * Argument format: PARTITIONS {num_partitions} ENDPOINT {[password@]host:port}
- */
-int ParseConfig(SearchClusterConfig *conf, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 RSConfigOptions *GetClusterConfigOptions(void);
