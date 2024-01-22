@@ -1770,72 +1770,13 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  RS_AutoMemory(ctx);
-
-  int n = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-  RedisModule_ReplyWithSimpleString(ctx, "num_partitions");
-  n++;
-  RedisModule_ReplyWithLongLong(ctx, GetSearchCluster()->size);
-  n++;
-  RedisModule_ReplyWithSimpleString(ctx, "cluster_type");
-  n++;
-  RedisModule_ReplyWithSimpleString(
-      ctx, clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-  n++;
-
-  // Report hash func
-  MRClusterTopology *topo = MR_GetCurrentTopology();
-  RedisModule_ReplyWithSimpleString(ctx, "hash_func");
-  n++;
-  if (topo) {
-    RedisModule_ReplyWithSimpleString(
-        ctx, topo->hashFunc == MRHashFunc_CRC12
-                 ? MRHASHFUNC_CRC12_STR
-                 : (topo->hashFunc == MRHashFunc_CRC16 ? MRHASHFUNC_CRC16_STR : "n/a"));
+  if (MR_CurrentTopologyExists()) {
+    // If we have a topology, we must read it from the uv thread
+    MR_uvReplyClusterInfo(ctx);
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "n/a");
+    // If we don't have a topology, we can reply immediately
+    MR_ReplyClusterInfo(ctx, NULL);
   }
-  n++;
-
-  // Report topology
-  RedisModule_ReplyWithSimpleString(ctx, "num_slots");
-  n++;
-  RedisModule_ReplyWithLongLong(ctx, topo ? (long long)topo->numSlots : 0);
-  n++;
-
-  RedisModule_ReplyWithSimpleString(ctx, "slots");
-  n++;
-
-  if (!topo) {
-    RedisModule_ReplyWithNull(ctx);
-    n++;
-
-  } else {
-
-    for (int i = 0; i < topo->numShards; i++) {
-      MRClusterShard *sh = &topo->shards[i];
-      RedisModule_ReplyWithArray(ctx, 2 + sh->numNodes);
-      n++;
-      RedisModule_ReplyWithLongLong(ctx, sh->startSlot);
-      RedisModule_ReplyWithLongLong(ctx, sh->endSlot);
-      for (int j = 0; j < sh->numNodes; j++) {
-        MRClusterNode *node = &sh->nodes[j];
-        RedisModule_ReplyWithArray(ctx, 4);
-        RedisModule_ReplyWithSimpleString(ctx, node->id);
-        RedisModule_ReplyWithSimpleString(ctx, node->endpoint.host);
-        RedisModule_ReplyWithLongLong(ctx, node->endpoint.port);
-        RedisModule_ReplyWithString(
-            ctx, RedisModule_CreateStringPrintf(ctx, "%s%s",
-                                                node->flags & MRNode_Master ? "master " : "slave ",
-                                                node->flags & MRNode_Self ? "self" : ""));
-      }
-    }
-  }
-
-  RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
 

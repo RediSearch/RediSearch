@@ -26,6 +26,7 @@
 #include "chan.h"
 #include "rq.h"
 #include "rmutil/rm_assert.h"
+#include "coord/src/config.h"
 
 extern int redisMajorVesion;
 
@@ -252,8 +253,8 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   printf("Thread created\n");
 }
 
-MRClusterTopology *MR_GetCurrentTopology() {
-  return cluster_g ? cluster_g->topo : NULL;
+bool MR_CurrentTopologyExists() {
+  return cluster_g && cluster_g->topo != NULL;
 }
 
 MRClusterNode *MR_GetMyNode() {
@@ -431,6 +432,88 @@ int MR_UpdateTopology(MRClusterTopology *newTopo) {
 
   RQ_Push(rq_g, requestCb, rc);
   return REDIS_OK;
+}
+
+static void uvReplyClusterInfo(void *p) {
+  RedisModuleBlockedClient *bc = p;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
+  RedisModule_UnblockClient(bc, NULL);
+}
+
+void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeStart, bc);
+  RQ_Push(rq_g, uvReplyClusterInfo, bc);
+}
+
+void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
+  RS_AutoMemory(ctx);
+
+  int n = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  RedisModule_ReplyWithSimpleString(ctx, "num_partitions");
+  n++;
+  RedisModule_ReplyWithLongLong(ctx, topo ? topo->numShards : clusterConfig.numPartitions);
+  n++;
+  RedisModule_ReplyWithSimpleString(ctx, "cluster_type");
+  n++;
+  RedisModule_ReplyWithSimpleString(
+      ctx, clusterConfig.type == ClusterType_RedisOSS ? CLUSTER_TYPE_OSS : CLUSTER_TYPE_RLABS);
+  n++;
+
+  // Report hash func
+  RedisModule_ReplyWithSimpleString(ctx, "hash_func");
+  n++;
+  if (topo) {
+    RedisModule_ReplyWithSimpleString(
+        ctx, topo->hashFunc == MRHashFunc_CRC12
+                 ? MRHASHFUNC_CRC12_STR
+                 : (topo->hashFunc == MRHashFunc_CRC16 ? MRHASHFUNC_CRC16_STR : "n/a"));
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "n/a");
+  }
+  n++;
+
+  // Report topology
+  RedisModule_ReplyWithSimpleString(ctx, "num_slots");
+  n++;
+  RedisModule_ReplyWithLongLong(ctx, topo ? (long long)topo->numSlots : 0);
+  n++;
+
+  RedisModule_ReplyWithSimpleString(ctx, "slots");
+  n++;
+
+  if (!topo) {
+    RedisModule_ReplyWithNull(ctx);
+    n++;
+
+  } else {
+
+    for (int i = 0; i < topo->numShards; i++) {
+      MRClusterShard *sh = &topo->shards[i];
+      RedisModule_ReplyWithArray(ctx, 2 + sh->numNodes);
+      n++;
+      RedisModule_ReplyWithLongLong(ctx, sh->startSlot);
+      RedisModule_ReplyWithLongLong(ctx, sh->endSlot);
+      for (int j = 0; j < sh->numNodes; j++) {
+        MRClusterNode *node = &sh->nodes[j];
+        RedisModule_ReplyWithArray(ctx, 4);
+        RedisModule_ReplyWithSimpleString(ctx, node->id);
+        RedisModule_ReplyWithSimpleString(ctx, node->endpoint.host);
+        RedisModule_ReplyWithLongLong(ctx, node->endpoint.port);
+        RedisModule_ReplyWithString(
+            ctx, RedisModule_CreateStringPrintf(ctx, "%s%s",
+                                                node->flags & MRNode_Master ? "master " : "slave ",
+                                                node->flags & MRNode_Self ? "self" : ""));
+      }
+    }
+  }
+
+  RedisModule_ReplySetArrayLength(ctx, n);
 }
 
 struct MRIteratorCallbackCtx;
