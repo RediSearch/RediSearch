@@ -29,8 +29,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   }
 
   if (cursorId == 0) {
-    // Cursor was set to 0, end of reply chain.
-    cmd->depleted = true;
+    // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
   }
 
@@ -89,6 +88,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    RedisModule_Log(NULL, "warning", "Coordinator got an error from a shard");
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;

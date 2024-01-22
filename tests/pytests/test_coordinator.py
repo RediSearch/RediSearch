@@ -1,5 +1,6 @@
 from common import *
 from redis import ResponseError
+from time import sleep
 
 def testInfo(env):
     SkipOnNonCluster(env)
@@ -143,3 +144,45 @@ def test_timeout():
     env.expect(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
     ).error().contains('Timeout limit was reached')
+
+@skip(cluster=False)
+def test_mod_6287(env):
+    """Tests that the coordinator does not crash on aggregations with cursors,
+    when some of the shards return an error while the others don't. Specifically,
+    such a scenario depicted in PR #4324 results in a crash since the `depleted`
+    and `pending` flags/counter were not aligned."""
+
+    if env.shardsCount < 2:
+        raise SkipTest('This test requires at least 2 shards')
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    # Populate the database with enough documents to make sure that each shard
+    # will get at least 2 `_FT.CURSOR READ` commands from the coordinator, and
+    # still have more docs to return.
+    # Each such command pulls 1000 docs from each shard, so 2500 should work.
+    n_docs = 2500 * env.shardsCount
+    for i in range(n_docs):
+        conn.execute_command('HSET', i, 'n', i)
+
+    # Dispatch an aggregate with cursor command to the coordinator
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR')
+    received = len(res)-1
+
+    # Delete a shard cursor (of shard 2 in this case) so that once the coordinator
+    # sends a `CURSOR READ` command to that shard, it will return an error.
+    # Now (after PR 6287), the command for the errored shard will be set as
+    # `depleted`, such that the `depleted` shards will be aligned with the
+    # `pending` counter.
+    con2 = env.getConnection(2)
+    con2.execute_command('_FT.DEBUG', 'DELETE_CURSORS')
+
+    # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
+    # This results in the crash solved by #6287
+    env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
+
+    # Give the coordinator time to crash
+    sleep(1)
+    env.assertTrue(env.isUp())
