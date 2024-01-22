@@ -136,12 +136,12 @@ def testCapacities(env):
 
 @skip(cluster=True)
 def testTimeout(env):
-    # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
+    # currently this test is only valid on one shard because coordinator creates more cursors which are not cleaned
     # with the same timeout
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
-    res = env.cmd(*q1)
+    env.cmd(*q1)
     exptime = time() + 2.5
     rv = 1
     while time() < exptime:
