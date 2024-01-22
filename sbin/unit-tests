@@ -26,7 +26,6 @@ help() {
 		COORD=1|oss    Test Coordinator
 		TEST_LEAK=1    Run test that leaks (for sanitizer diagnostics)
 
-		NOFAIL=1       Do not fail on errors (always exit with 0)
 		STATFILE=file  Write test status (0|1) into `file`
 
 		GDB=1          Enable interactive gdb debugging (in single-test mode)
@@ -45,8 +44,8 @@ help() {
 sanitizer_defs() {
 	if [[ -n $SAN ]]; then
 		ASAN_LOG=${LOGS_DIR}/${TEST_NAME}.asan.log
-		export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}:verbosity=1:log_thread=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:verbosity=1:log_thread=1"
 		# :use_tls=0
 
 	fi
@@ -95,11 +94,6 @@ fi
 
 #-------------------------------------------------------------------------------- Platform Mode
 
-if [[ $PLATFORM_MODE == 1 ]]; then
-	CLEAR_LOGS=0
-	COLLECT_LOGS=1
-	NOFAIL=1
-fi
 STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #----------------------------------------------------------------------------------------- Logs
@@ -195,10 +189,6 @@ if [[ -n $STATFILE ]]; then
 		(( E |= $(cat $STATFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
-fi
-
-if [[ $NOFAIL == 1 ]]; then
-	exit 0
 fi
 
 exit $E
