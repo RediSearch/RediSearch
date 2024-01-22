@@ -394,7 +394,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
   if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create attribute index type");
+    RedisModule_Log(ctx, "warning", "Could not create attribute index type");
     return REDISMODULE_ERR;
   }
 
