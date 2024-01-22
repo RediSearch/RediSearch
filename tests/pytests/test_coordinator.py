@@ -145,16 +145,15 @@ def test_timeout():
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
     ).error().contains('Timeout limit was reached')
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_mod_6287(env):
     """Tests that the coordinator does not crash on aggregations with cursors,
     when some of the shards return an error while the others don't. Specifically,
     such a scenario depicted in PR #4324 results in a crash since the `depleted`
     and `pending` flags/counter were not aligned."""
 
-    if env.shardsCount < 2:
-        raise SkipTest('This test requires at least 2 shards')
     conn = getConnectionByEnv(env)
+    con2 = env.getConnection(2)
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -176,13 +175,13 @@ def test_mod_6287(env):
     # Now (after PR 6287), the command for the errored shard will be set as
     # `depleted`, such that the `depleted` shards will be aligned with the
     # `pending` counter.
-    con2 = env.getConnection(2)
-    con2.execute_command('_FT.DEBUG', 'DELETE_CURSORS')
+    con2.execute_command('_FT.DEBUG', 'DELETE_LOCAL_CURSORS')
 
     # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
     # This results in the crash solved by #6287
-    env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
+    env.assertEqual(cid, 0)
 
-    # Give the coordinator time to crash
-    sleep(1)
-    env.assertTrue(env.isUp())
+    # Send another command to make sure that the coordinator is healthy
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))
+    env.assertEqual(len(res)-1, n_docs)
