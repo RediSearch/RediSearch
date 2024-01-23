@@ -1640,7 +1640,6 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
-  bool resp3 = is_resp3(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
 
@@ -1656,7 +1655,6 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1726,9 +1724,6 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  for (int i = 2; i < argc; i++) {
-//    SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, i, i);
-//  }
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
@@ -2092,8 +2087,6 @@ static void DistSearchCommandHandler(void* pd) {
 }
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  bool resp3 = is_resp3(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2376,7 +2369,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.DELETE", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.BROADCAST", SafeCmd(BroadcastCommand), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
