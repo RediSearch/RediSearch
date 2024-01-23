@@ -29,23 +29,12 @@ static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
 
 // PARTITIONS
 CONFIG_SETTER(setNumPartitions) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  const char *s;
-  int acrc = AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(s, "AUTO")) {
-    realConfig->numPartitions = 0;
-    AC_Advance(ac); // don't forget to advance!
-  } else {
-    // otherwise, we expect a number. Get it without `AC_F_NOADVANCE` flag
-    acrc = AC_GetSize(ac, &realConfig->numPartitions, AC_F_GE1);
-  }
-  RETURN_STATUS(acrc);
+  RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to AUTO");
+  return AC_Advance(ac); // Consume the argument
 }
 
 CONFIG_GETTER(getNumPartitions) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->numPartitions);
+  return sdsnew("AUTO");
 }
 
 // TIMEOUT

@@ -419,7 +419,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
     break;
   }
   const char *cluster_type_str = clusterConfig.type == ClusterType_RedisOSS ? CLUSTER_TYPE_OSS : CLUSTER_TYPE_RLABS;
-  size_t partitions = topo ? topo->numShards : clusterConfig.numPartitions;
+  size_t partitions = topo ? topo->numShards : 0;
 
   //-------------------------------------------------------------------------------------------
   if (reply->resp3) { // RESP3 variant

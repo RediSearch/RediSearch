@@ -16,7 +16,6 @@
 typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterType;
 
 typedef struct {
-  size_t numPartitions;
   MRClusterType type;
   int timeoutMS;
   const char* globalPass;
@@ -34,7 +33,6 @@ extern SearchClusterConfig clusterConfig;
 
 #define DEFAULT_CLUSTER_CONFIG                                                             \
   (SearchClusterConfig) {                                                                  \
-    .numPartitions = 0,                                                                    \
     .connPerShard = 0,                                                                     \
     .type = DetectClusterType(),                                                           \
     .timeoutMS = 0,                                                                        \
