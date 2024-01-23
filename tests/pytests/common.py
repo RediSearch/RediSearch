@@ -326,10 +326,10 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
                 raise SkipTest()
             if cluster == COORD:
                 raise SkipTest()
@@ -344,6 +344,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if redis_less_than and server_version_is_less_than(redis_less_than):
                 raise SkipTest()
             if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
+                raise SkipTest()
+            if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()

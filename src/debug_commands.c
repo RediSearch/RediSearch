@@ -17,6 +17,7 @@
 #include "module.h"
 #include "suffix.h"
 #include "util/workers.h"
+#include "cursor.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -1096,6 +1097,21 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG DEL_CURSORS
+ * Deletes the local cursors of the shard.
+*/
+DEBUG_COMMAND(DeleteCursors) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_Log(ctx, "warning", "Deleting local cursors!");
+  CursorList_Empty(&g_CursorsList);
+  RedisModule_Log(ctx, "warning", "Done deleting local cursors.");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
@@ -1170,6 +1186,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"DELETE_LOCAL_CURSORS", DeleteCursors},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif

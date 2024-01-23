@@ -29,8 +29,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   }
 
   if (cursorId == 0) {
-    // Cursor was set to 0, end of reply chain.
-    cmd->depleted = true;
+    // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
   }
 
@@ -79,7 +78,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
     if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-      RedisModule_Log(NULL, "warning", "Error returned for CURSOR.DEL command from shard");
+      RedisModule_Log(RSDummyContext, "warning", "Error returned for CURSOR.DEL command from shard");
     }
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
@@ -89,6 +88,8 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error from a shard");
+    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", MRReply_String(rep, NULL));
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
@@ -101,18 +102,18 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (cmd->protocol == 3) {
       bail_out = len != 2; // (map, cursor)
       if (bail_out) {
-        RedisModule_Log(NULL, "warning", "Expected reply of length 2, got %ld", len);
+        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
       }
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
       if (bail_out) {
-        RedisModule_Log(NULL, "warning", "Expected reply of length 2 or 3, got %ld", len);
+        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2 or 3, got %ld", len);
       }
     }
   }
 
   if (bail_out) {
-    RedisModule_Log(NULL, "warning", "An unexpected reply was received from a shard");
+    RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     return REDIS_ERR;
@@ -279,7 +280,7 @@ static int getNextReply(RPNet *nc) {
     MRReply_Free(root);
     root = NULL;
     rows = NULL;
-    RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+    RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
   }
 
   // invariant: either rows == NULL or least one row exists
