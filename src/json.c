@@ -26,7 +26,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
   if (!GetJSONAPIs(ctx, 0)) {
-    RedisModule_Log(ctx, "error", "Detected RedisJSON: failed to acquire ReJSON API");
+    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API");
   }
 }
 
