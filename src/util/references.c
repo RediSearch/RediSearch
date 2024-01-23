@@ -70,6 +70,9 @@ static void RefManager_GetWeakReference(RefManager *rm) {
 static bool RefManager_TryGetStrongReference(RefManager *rm) {
   // Attempt to increase the strong refcount by 1 only if it's not 0
   uint32_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
+  // do nothing here
+  cur_ref--;
+  __atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, false, 0, 0);
   do {
     if (cur_ref == 0) {
       // Refcount was 0, so the object is being freed
