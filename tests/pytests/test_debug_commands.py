@@ -30,13 +30,13 @@ class TestDebugCommands(object):
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
                      'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
-                     'TTL_EXPIRE', 'VECSIM_INFO']
+                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS']
         if MT_BUILD:
             help_list.append('WORKER_THREADS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS']:
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
