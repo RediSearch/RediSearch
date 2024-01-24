@@ -260,7 +260,6 @@ static void uvFanoutRequest(void *p) {
     RedisModule_Assert(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
-    // printf("could not send single command. handle fail please\n");
   }
 
   rm_free(mc);
@@ -286,7 +285,6 @@ static void uvMapRequest(void *p) {
     RedisModule_Assert(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
-    // printf("could not send single command. handle fail please\n");
   }
 
   rm_free(mc);
