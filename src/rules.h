@@ -88,7 +88,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
 //---------------------------------------------------------------------------------------------
 
-extern TrieMap *ScemaPrefixes_g;
+extern TrieMap *SchemaPrefixes_g;
 
 void SchemaPrefixes_Create();
 void SchemaPrefixes_Free(TrieMap *t);

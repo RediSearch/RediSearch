@@ -309,7 +309,7 @@ end:
 // FT.DEBUG DUMP_PREFIX_TRIE
 DEBUG_COMMAND(DumpPrefixTrie) {
 
-  TrieMap *prefixes_map = ScemaPrefixes_g;
+  TrieMap *prefixes_map = SchemaPrefixes_g;
 
   START_POSTPONED_LEN_ARRAY(prefixesMapDump);
   REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
