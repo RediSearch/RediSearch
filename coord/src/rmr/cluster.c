@@ -63,7 +63,6 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf) {
   MRCluster *cl = rm_new(MRCluster);
   cl->sf = sf;
-  cl->lastTopologyUpdate = 0;
   cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
@@ -352,8 +351,6 @@ static ShardFunc selectHashFunc(MRHashFunc f) {
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
   if (!newTopo) return REDIS_ERR;
-  time_t now = time(NULL);
-  cl->lastTopologyUpdate = now;
 
   // if the topology has updated, we update to the new one
   if (newTopo->hashFunc != MRHashFunc_None) {

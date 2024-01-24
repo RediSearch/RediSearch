@@ -71,9 +71,6 @@ typedef mr_slot_t (*ShardFunc)(MRCommand *cmd, mr_slot_t numSlots);
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
   MRConnManager mgr;
-  // the time we last updated the topology
-  // TODO: use millisecond precision time here
-  time_t lastTopologyUpdate;
   /* The latest topology of the cluster */
   MRClusterTopology *topo;
   /* the current node, detected when updating the topology */
