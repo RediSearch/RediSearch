@@ -41,25 +41,27 @@ static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
 extern RedisModuleCtx *RSDummyContext;
 
 static void topologyTimerCB(uv_timer_t *timer) {
-  uv_async_send(&topologyAsync);
-}
-static void topologyAsyncCB(uv_async_t *async) {
-  struct queueItem *topo = exchangePendingTopo(NULL); // take the topology
-  if (!topo && MR_CheckTopologyConnections(true) == REDIS_OK) {
+  if (MR_CheckTopologyConnections(true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     loop_th_ready = true;
     RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
+    uv_timer_stop(timer); // stop the timer repetition
   } else {
-    if (topo) {
-      // Apply new topology
-      RedisModule_Log(RSDummyContext, "verbose", "Applying new topology");
-      topo->cb(topo->privdata);
-      rm_free(topo);
-    }
-    // Finish this round of topology checks to give the topology connections a chance to connect.
-    // Schedule connectivity check in 1ms
+    loop_th_ready = false;
     RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
-    uv_timer_start(&topologyTimer, topologyTimerCB, 1, 0);
+  }
+}
+
+static void topologyAsyncCB(uv_async_t *async) {
+  struct queueItem *topo = exchangePendingTopo(NULL); // take the topology
+  if (topo) {
+    // Apply new topology
+    RedisModule_Log(RSDummyContext, "verbose", "Applying new topology");
+    topo->cb(topo->privdata);
+    rm_free(topo);
+    // Finish this round of topology checks to give the topology connections a chance to connect.
+    // Schedule connectivity check immediately with a 1ms repeat interval
+    uv_timer_start(&topologyTimer, topologyTimerCB, 0, 1);
   }
 }
 
