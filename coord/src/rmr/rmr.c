@@ -378,13 +378,12 @@ static void uvUpdateTopologyRequest(void *p) {
   if (cluster_g->myShard) {
     SetMyPartition(topo, cluster_g->myShard);
   }
-  RQ_Done(rq_g);
 }
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
-  RQ_Push_Topology(rq_g, uvUpdateTopologyRequest, newTopo);
+  RQ_Push_Topology(uvUpdateTopologyRequest, newTopo);
 }
 
 static void uvReplyClusterInfo(void *p) {

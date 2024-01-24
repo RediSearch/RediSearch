@@ -20,5 +20,5 @@ void RQ_Done(MRWorkQueue *q);
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
 struct MRClusterTopology;
-void RQ_Push_Topology(MRWorkQueue *q, MRQueueCallback cb, struct MRClusterTopology *topo);
+void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
 #endif // RQ_C__
