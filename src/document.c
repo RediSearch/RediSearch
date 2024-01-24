@@ -762,6 +762,10 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         field->multisv = NULL;
       }
     }
+
+    if (FieldSpec_IndexesEmpty(fs)) {
+      RedisModule_Log(RSDummyContext, "warning", "Tag field %s indexes empty values (Implementation to follow)", fs->name);
+    }
   }
   return 0;
 }

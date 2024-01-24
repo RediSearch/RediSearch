@@ -66,6 +66,7 @@ typedef enum {
   FieldSpec_UNF = 0x20,
   FieldSpec_WithSuffixTrie = 0x40,
   FieldSpec_UndefinedOrder = 0x80,
+  FieldSpec_IndexEmpty = 0x100,       // Index empty values (i.e., empty strings)
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -81,17 +82,18 @@ typedef enum {
 
 RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
-/* The fieldSpec represents a single field in the document's field spec.
+/*
+The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
-Each field has a type, allowing us to add non text fields in the future */
+*/
 typedef struct FieldSpec {
   char *name;
   char *path;
   FieldType types : 8;
-  FieldSpecOptions options : 8;
+  FieldSpecOptions options : 16;
 
-  /** If this field is sortable, the sortable index */
+  /** If this field is sortable, the sortable index. Otherwise -1 */
   int16_t sortIdx;
 
   /** Unique field index. Each field has a unique index regardless of its type */
@@ -122,8 +124,6 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
-
-  // TODO: More options here..
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -139,6 +139,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
+#define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
 #define FieldSpec_IsUnf(fs) ((fs)->options & FieldSpec_UNF)
 
 void FieldSpec_SetSortable(FieldSpec* fs);
