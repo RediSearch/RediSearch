@@ -1015,7 +1015,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
             JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
             goto reset;
           } /* else {
-            RedisModule_Log(RSDummyContext, "info",
+            RedisModule_Log(RSDummyContext, "notice",
                             "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
                             fs->path, fs->name, sp->name);
           } */
@@ -2591,7 +2591,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "error", "RDB Load: %s",
+      RedisModule_Log(ctx, "warning", "RDB Load: %s",
                       status.detail ? status.detail : "general failure");
       return REDISMODULE_ERR;
     }
@@ -2752,7 +2752,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
   if (IndexSpecType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create index spec type");
+    RedisModule_Log(ctx, "warning", "Could not create index spec type");
     return REDISMODULE_ERR;
   }
 
