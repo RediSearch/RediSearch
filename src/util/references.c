@@ -14,8 +14,8 @@
 // Promises:
 // 1. If the strong refcount gets to 0, it will never be increased again
 
-// By using this functions through the strong and weak refcount API, we can guarantee that
-// The object will be freed before the weak refcount reaches 0.
+// By using these functions through the strong and weak refcount API, we can guarantee that
+// the object will be freed before the weak refcount reaches 0.
 
 struct RefManager {
   void *obj;
