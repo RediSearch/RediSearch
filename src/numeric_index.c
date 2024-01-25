@@ -410,7 +410,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   if (docId <= t->lastDocId && !isMulti) {
     // When not handling multi values - do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
     // from it
-    return (NRN_AddRv){0, 0, 0};
+    return (NRN_AddRv){0, 0, 0, 0};
   }
   t->lastDocId = docId;
 
@@ -515,13 +515,13 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
-  NRN_AddRv rv = {0};
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   NumericRangeNode_RemoveChild(&t->root, &rv);
   return rv;
 }
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
-  NRN_AddRv rv = {0};
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   NumericRangeNode_Free(t->root, &rv);
   rm_free(t);
 }
