@@ -95,6 +95,18 @@ CONFIG_GETTER(getSearchThreads) {
   return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
+// TOPOLOGY_VALIDATION_TIMEOUT
+CONFIG_SETTER(setTopologyValidationTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  int acrc = AC_GetSize(ac, &realConfig->topologyValidationTimeoutMS, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getTopologyValidationTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
+}
+
 static RSConfigOptions clusterOptions_g = {
     .vars =
         {
@@ -125,6 +137,12 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setSearchThreads,
              .getValue = getSearchThreads,
              .flags = RSCONFIGVAR_F_IMMUTABLE,},
+            {.name = "TOPOLOGY_VALIDATION_TIMEOUT",
+             .helpText = "Sets the timeout for topology validation (in milliseconds). After this timeout, "
+                         "any pending requests will be processed, even if the topology is not fully connected. "
+                         "Default is 30000 (30 seconds). 0 means no timeout.",
+             .setValue = setTopologyValidationTimeout,
+             .getValue = getTopologyValidationTimeout,},
             {.name = NULL}
             // fin
         }

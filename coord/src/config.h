@@ -22,6 +22,7 @@ typedef struct {
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
+  size_t topologyValidationTimeoutMS;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -39,6 +40,7 @@ extern SearchClusterConfig clusterConfig;
     .globalPass = NULL,                                                                    \
     .cursorReplyThreshold = 1,                                                             \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
+    .topologyValidationTimeoutMS = 30000,                                                  \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
