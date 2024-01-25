@@ -57,7 +57,6 @@ static void topologyTimerCB(uv_timer_t *timer) {
     uv_timer_stop(&topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&topologyFailureTimer);    // stop failure timer (as we are connected)
   } else {
-    loop_th_ready = false;
     RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
   }
 }
@@ -67,6 +66,10 @@ static void topologyAsyncCB(uv_async_t *async) {
   if (topo) {
     // Apply new topology
     RedisModule_Log(RSDummyContext, "verbose", "Applying new topology");
+    // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
+    // will be the topology check. If the topology hasn't changed, the topology check will quickly
+    // mark the event loop thread as ready again.
+    loop_th_ready = false;
     topo->cb(topo->privdata);
     rm_free(topo);
     // Finish this round of topology checks to give the topology connections a chance to connect.
