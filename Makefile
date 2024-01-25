@@ -348,15 +348,18 @@ clean-conan:
 parsers:
 ifeq ($(FORCE),1)
 	$(SHOW)cd src/aggregate/expr ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v1 ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v2 ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
+	$(SHOW)cd coord/src/rmr/redise_parser ;\
+	rm -f lex.yy.c grammar.c
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
 	$(SHOW)$(MAKE) -C src/query_parser/v1
 	$(SHOW)$(MAKE) -C src/query_parser/v2
+	$(SHOW)$(MAKE) generate -C coord/src/rmr/redise_parser
 
 .PHONY: parsers
 

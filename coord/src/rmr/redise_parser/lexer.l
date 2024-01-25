@@ -24,27 +24,24 @@ int yycolumn = 1;
 "UNIXADDR"              { return UNIXADDR; }
 "MASTER"                { return MASTER; }
 "HASHFUNC"              { return HASHFUNC; }
-"NUMSLOTS"                 { return NUMSLOTS; }
+"NUMSLOTS"              { return NUMSLOTS; }
 
-[\-\+]?[0-9]+    {   
-  tok.intval = atoi(yytext); 
+[0-9]+    {
+  tok.intval = atoi(yytext);
   return INTEGER;
 }
 
-[0-9A-Za-z][A-Za-z0-9_\.\:\@\-\/\[\]]* {
-    *(yytext+strlen(yytext)) = '\0';
-  	tok.strval = yytext;
-  	return STRING;
+[A-Za-z0-9_\.\:\@\-\/\[\]]+ {
+  tok.strval = yytext;
+  return STRING;
 }
 
 (\"(\\.|[^\"])*\")|('(\\.|[^'])*')    {
   /* String literals, with escape sequences - enclosed by "" or '' */
-  *(yytext+strlen(yytext)-1) = '\0';
   tok.strval = yytext+1;
+  tok.strval[tok.len-1] = '\0';
   return STRING;
 }
-
-
 
 
 [ \t]+ /* ignore whitespace */
@@ -52,16 +49,6 @@ int yycolumn = 1;
 
 %%
 
-/**
- * yyerror() is invoked when the lexer or the parser encounter
- * an error. The error message is passed via *s
- *
- *
- */
-void yyerror(char *s) {
-	printf("error: %s at line: %d\n",s,yylineno);
-}
-
 int yywrap(void) {
-	return 1;
+  return 1;
 }
