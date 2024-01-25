@@ -36,7 +36,6 @@ static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *id
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
                                           RSIndexResult *record);
 
-/* Add a new block to the index with a given document id as the initial id */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
   idx->size++;

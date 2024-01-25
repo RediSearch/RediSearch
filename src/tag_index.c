@@ -133,16 +133,16 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
-      size_t size = 0;
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1, &size);
+      iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
       TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
-      (*sz) += size;
     }
   }
   return iv;
 }
 
-/* Encode a single docId into a specific tag value */
+// Encode a single docId into a specific tag value
+// Returns the number of bytes occupied by the encoded entry plus the size of
+// the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz = 0;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
