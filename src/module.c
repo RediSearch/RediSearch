@@ -1175,7 +1175,7 @@ void RediSearch_CleanupModule(void) {
   mempool_free_global();
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
-  SchemaPrefixes_Free(ScemaPrefixes_g);
+  SchemaPrefixes_Free(SchemaPrefixes_g);
   // GeometryApi_Free();
 
   Dictionary_Free();
