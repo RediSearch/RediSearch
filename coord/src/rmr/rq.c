@@ -11,6 +11,7 @@
 #include "rq.h"
 #include "rmalloc.h"
 #include "rmr.h"
+#include "coord/src/config.h"
 
 struct queueItem {
   void *privdata;
@@ -31,7 +32,7 @@ typedef struct MRWorkQueue {
 uv_thread_t loop_th;
 static char loop_th_running = false;
 static char loop_th_ready = false;
-uv_timer_t topologyTimer;
+uv_timer_t topologyValidationTimer, topologyFailureTimer;
 uv_async_t topologyAsync;
 struct queueItem *pendingTopo = NULL;
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
@@ -40,12 +41,21 @@ static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
 
 extern RedisModuleCtx *RSDummyContext;
 
+static void topologyFailureCB(uv_timer_t *timer) {
+  RedisModule_Log(RSDummyContext, "warning", "Topology validation failed: not all nodes connected");
+  uv_timer_stop(&topologyValidationTimer); // stop the validation timer
+  // Mark the event loop thread as ready. This will allow any pending requests to be processed
+  // (and fail, but it will unblock clients)
+  loop_th_ready = true;
+}
+
 static void topologyTimerCB(uv_timer_t *timer) {
   if (MR_CheckTopologyConnections(true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     loop_th_ready = true;
     RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
-    uv_timer_stop(timer); // stop the timer repetition
+    uv_timer_stop(&topologyValidationTimer); // stop the timer repetition
+    uv_timer_stop(&topologyFailureTimer);    // stop failure timer (as we are connected)
   } else {
     loop_th_ready = false;
     RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
@@ -61,14 +71,19 @@ static void topologyAsyncCB(uv_async_t *async) {
     rm_free(topo);
     // Finish this round of topology checks to give the topology connections a chance to connect.
     // Schedule connectivity check immediately with a 1ms repeat interval
-    uv_timer_start(&topologyTimer, topologyTimerCB, 0, 1);
+    uv_timer_start(&topologyValidationTimer, topologyTimerCB, 0, 1);
+    if (clusterConfig.topologyValidationTimeoutMS) {
+      // Schedule a timer to fail the topology validation if we don't connect to all nodes in time
+      uv_timer_start(&topologyFailureTimer, topologyFailureCB, clusterConfig.topologyValidationTimeoutMS, 0);
+    }
   }
 }
 
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
-  uv_timer_init(uv_default_loop(), &topologyTimer);
+  uv_timer_init(uv_default_loop(), &topologyValidationTimer);
+  uv_timer_init(uv_default_loop(), &topologyFailureTimer);
   uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
   RedisModule_Assert(__atomic_load_n(&pendingTopo, __ATOMIC_ACQUIRE));
   uv_async_send(&topologyAsync); // start the topology check
