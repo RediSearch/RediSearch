@@ -1384,17 +1384,17 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
+int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
+               const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
-    dst->query = rm_strndup(q, n);
-    dst->nquery = n;
+    dst->query = rm_strndup(qstr, len);
+    dst->nquery = len;
   }
   QueryParseCtx qpCtx = {// force multiline
                          .raw = dst->query,
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
-                         .opts = opts,
+                         .opts = sopts,
                          .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL

@@ -122,7 +122,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 
   InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
   if (InvertedIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create inverted index type");
+    RedisModule_Log(ctx, "warning", "Could not create inverted index type");
     return REDISMODULE_ERR;
   }
 
