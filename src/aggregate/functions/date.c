@@ -241,7 +241,7 @@ static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t arg
   tmm.tm_sec = 0;
   tmm.tm_hour = 0;
   tmm.tm_min = 0;
-  tmm.tm_mday = 1;
+  tmm.tm_yday -= tmm.tm_mday - 1; // set to first day of month
   ts = fast_timegm(&tmm);
   RSValue_SetNumber(result, (double)ts);
   return EXPR_EVAL_OK;
