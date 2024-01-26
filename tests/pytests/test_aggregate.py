@@ -191,58 +191,19 @@ class TestAggregate():
                                        'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
         # Test a date in January 2024, which is a leap year (before the leap day)
-        cmd = ['FT.AGGREGATE', 'games', '*',
-
-               'APPLY', '1706294258', 'AS', 'dt',
-               'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
-               'APPLY', 'day(@dt)', 'AS', 'day',
-               'APPLY', 'hour(@dt)', 'AS', 'hour',
-               'APPLY', 'minute(@dt)', 'AS', 'minute',
-               'APPLY', 'month(@dt)', 'AS', 'month',
-               'APPLY', 'dayofweek(@dt)', 'AS', 'dayofweek',
-               'APPLY', 'dayofmonth(@dt)', 'AS', 'dayofmonth',
-               'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
-               'APPLY', 'year(@dt)', 'AS', 'year',
-
-               'LIMIT', '0', '1']
+        cmd[4] = '1706294258'
         res = self.env.cmd(*cmd)
         self.env.assertEqual([1, ['dt', '1706294258', 'timefmt', '2024-01-26T18:37:38Z', 'day', '1706227200', 'hour', '1706292000',
                                   'minute', '1706294220', 'month', '1704067200', 'dayofweek', '5', 'dayofmonth', '26', 'dayofyear', '25', 'year', '2024']], res)
 
         # Test the leap day in 2024
-        cmd = ['FT.AGGREGATE', 'games', '*',
-
-               'APPLY', '1709230599', 'AS', 'dt',
-               'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
-               'APPLY', 'day(@dt)', 'AS', 'day',
-               'APPLY', 'hour(@dt)', 'AS', 'hour',
-               'APPLY', 'minute(@dt)', 'AS', 'minute',
-               'APPLY', 'month(@dt)', 'AS', 'month',
-               'APPLY', 'dayofweek(@dt)', 'AS', 'dayofweek',
-               'APPLY', 'dayofmonth(@dt)', 'AS', 'dayofmonth',
-               'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
-               'APPLY', 'year(@dt)', 'AS', 'year',
-
-               'LIMIT', '0', '1']
+        cmd[4] = '1709230599'
         res = self.env.cmd(*cmd)
         self.env.assertEqual([1, ['dt', '1709230599', 'timefmt', '2024-02-29T18:16:39Z', 'day', '1709164800', 'hour', '1709229600',
                                   'minute', '1709230560', 'month', '1706745600', 'dayofweek', '4', 'dayofmonth', '29', 'dayofyear', '59', 'year', '2024']], res)
 
         # Test a date in March 2024, which is a leap year (after the leap day)
-        cmd = ['FT.AGGREGATE', 'games', '*',
-
-               'APPLY', '1711478258', 'AS', 'dt',
-               'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
-               'APPLY', 'day(@dt)', 'AS', 'day',
-               'APPLY', 'hour(@dt)', 'AS', 'hour',
-               'APPLY', 'minute(@dt)', 'AS', 'minute',
-               'APPLY', 'month(@dt)', 'AS', 'month',
-               'APPLY', 'dayofweek(@dt)', 'AS', 'dayofweek',
-               'APPLY', 'dayofmonth(@dt)', 'AS', 'dayofmonth',
-               'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
-               'APPLY', 'year(@dt)', 'AS', 'year',
-
-               'LIMIT', '0', '1']
+        cmd[4] = '1711478258'
         res = self.env.cmd(*cmd)
         self.env.assertEqual([1, ['dt', '1711478258', 'timefmt', '2024-03-26T18:37:38Z', 'day', '1711411200', 'hour', '1711476000',
                                   'minute', '1711478220', 'month', '1709251200', 'dayofweek', '2', 'dayofmonth', '26', 'dayofyear', '85', 'year', '2024']], res)
