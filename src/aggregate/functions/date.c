@@ -60,19 +60,20 @@ err:
 
 /* Fast alternative to mktime which is dog slow. From:
 https://gmbabar.wordpress.com/2010/12/01/mktime-slow-use-custom-function/ */
+// Fix and performance improvements:
+// https://godbolt.org/z/qscb5d9dT
+// https://quick-bench.com/q/oTV4_9uVqPTcrj2fpDEvbbMzZ48
+// https://quick-bench.com/q/2Bc8WY1Ys0vmbp-HPagWFxu81jI
 time_t fast_timegm(const struct tm *ltm) {
-  // elapsed days until the beginning of every month
-  const int mon_days[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-  long tyears, tdays, leaps, utc_hrs;
+  long tyears, tdays, leaps;
 
   tyears = ltm->tm_year - 70;  // tm->tm_year is from 1900.
-  leaps = (tyears + 2) / 4;    // no of next two lines until year 2100.
-  // i = (ltm->tm_year – 100) / 100;
-  // leaps -= ( (i/4)*3 + i%4 );
-  tdays = mon_days[ltm->tm_mon];
+  leaps = (tyears + 1) / 4;    // number of leap years from 1970, not including the current year.
+                               // correct until 2100.
 
-  tdays += ltm->tm_mday - 1;  // days of month passed.
-  tdays = tdays + (tyears * 365) + leaps;
+  // `ltm->tm_yday` is the number of days since January 1st of the current year (0-365).
+  // It includes the leap day if the current year is a leap year.
+  tdays = ltm->tm_yday + (tyears * 365) + leaps;
 
   return (tdays * 86400) + (ltm->tm_hour * 3600) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
@@ -278,7 +279,7 @@ static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
 
   const char *val = RSValue_StringPtrLen(argv[0], NULL);
   const char *fmt = RSValue_StringPtrLen(argv[1], NULL);
- 
+
   struct tm tm = {0};
   char *rc = strptime(val, fmt, &tm);
   if (rc == NULL) {
