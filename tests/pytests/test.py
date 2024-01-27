@@ -3723,6 +3723,7 @@ def cluster_set_test(env: Env):
     env.start()
 
     # test unix socket
+    verify_shard_init(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
