@@ -71,7 +71,7 @@ time_t fast_timegm(const struct tm *ltm) {
 
   // `ltm->tm_yday` is the number of days since January 1st of the current year (0-365).
   // It includes the leap day if the current year is a leap year.
-  long days = ltm->tm_yday + (years * 365) + leaps;sizeof(struct tm);
+  long days = ltm->tm_yday + (years * 365) + leaps;
 
   return (days * (24 * 60 * 60)) + (ltm->tm_hour * (60 * 60)) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
