@@ -79,11 +79,15 @@ jobs:
 
   linux-matrix-x86_64:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        id: [1, 2, 3]
     steps:
       - run: echo "x86_64"
-      - if: inputs.redis-ref == '6.0.20'
+      - if: inputs.redis-ref == '6.0.20' && matrix.id == 2
         run: sleep 10 ; exit 1
-      # - run: sleep 60
+      - if: inputs.redis-ref == '6.0.20'
+        run: sleep 60
 
   linux-matrix-aarch64:
     runs-on: ubuntu-latest
