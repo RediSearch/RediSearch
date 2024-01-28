@@ -1,6 +1,6 @@
 from common import *
 import json
-import itertools
+import bz2
 from datetime import datetime, timezone
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
