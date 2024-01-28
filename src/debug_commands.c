@@ -17,6 +17,7 @@
 #include "module.h"
 #include "suffix.h"
 #include "util/workers.h"
+#include "cursor.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -308,7 +309,7 @@ end:
 // FT.DEBUG DUMP_PREFIX_TRIE
 DEBUG_COMMAND(DumpPrefixTrie) {
 
-  TrieMap *prefixes_map = ScemaPrefixes_g;
+  TrieMap *prefixes_map = SchemaPrefixes_g;
 
   START_POSTPONED_LEN_ARRAY(prefixesMapDump);
   REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
@@ -1096,6 +1097,21 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG DEL_CURSORS
+ * Deletes the local cursors of the shard.
+*/
+DEBUG_COMMAND(DeleteCursors) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_Log(ctx, "warning", "Deleting local cursors!");
+  CursorList_Empty(&g_CursorsList);
+  RedisModule_Log(ctx, "warning", "Done deleting local cursors.");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DEBUG_COMMAND(dumpHNSWData) {
   if (argc < 2) { // TODO: it should probably be 2 or 3 (allowing specifying vectors for a certain doc)
     return RedisModule_WrongArity(ctx);
@@ -1208,6 +1224,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},

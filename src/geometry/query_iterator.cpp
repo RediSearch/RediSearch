@@ -8,19 +8,10 @@
 
 #include <utility>    // std::move
 #include <iterator>   // ranges::distance
-#include <algorithm>  // ranges::sort, ranges::lower_bound
+#include <algorithm>  // ranges::lower_bound
 
 namespace RediSearch {
 namespace GeoShape {
-
-QueryIterator::QueryIterator(container_type &&docs)
-    : base_{init_base()}, iter_{std::move(docs)}, index_{0} {
-  base_.ctx = this;
-  std::ranges::sort(iter_);
-}
-QueryIterator::~QueryIterator() noexcept {
-  IndexResult_Free(base_.current);
-}
 
 auto QueryIterator::base() noexcept -> IndexIterator * {
   return &base_;
@@ -44,8 +35,9 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
     return INDEXREAD_EOF;
   }
 
-  auto it = std::ranges::lower_bound(iter_.cbegin() + index_, iter_.cend(), docId);
-  index_ = std::ranges::distance(iter_.cbegin(), it + 1);
+  const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
+                                           std::ranges::end(iter_), docId);
+  index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
   if (!has_next()) {
     abort();
   }
@@ -90,7 +82,12 @@ int QIter_HasNext(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
-  delete static_cast<QueryIterator *>(self->ctx);
+  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+  const auto qi = static_cast<QueryIterator *const>(self->ctx);
+  auto alloc = alloc_type{qi->iter_.get_allocator()};
+  IndexResult_Free(self->current);
+  std::allocator_traits<alloc_type>::destroy(alloc, qi);
+  std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
 std::size_t QIter_Len(void *ctx) {
   return static_cast<QueryIterator const *>(ctx)->len();
@@ -103,10 +100,10 @@ void QIter_Rewind(void *ctx) {
 }
 }  // anonymous namespace
 
-IndexIterator QueryIterator::init_base() {
-  auto ii = IndexIterator{
+IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
+  return IndexIterator{
       .isValid = 1,
-      .ctx = nullptr,
+      .ctx = ctx,
       .current = NewVirtualResult(0),
       .type = ID_LIST_ITERATOR,
       .NumEstimated = QIter_Len,
@@ -119,17 +116,6 @@ IndexIterator QueryIterator::init_base() {
       .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,
   };
-  return ii;
-}
-void *QueryIterator::operator new(std::size_t, std::size_t& alloc) noexcept {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  return static_cast<void *>(alloc_type{alloc}.allocate(1));
-}
-void QueryIterator::operator delete(QueryIterator *ptr, std::destroying_delete_t) noexcept {
-  using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  auto alloc = alloc_type{ptr->iter_.get_allocator()};
-  ptr->~QueryIterator();
-  alloc.deallocate(ptr, 1);
 }
 }  // namespace GeoShape
 }  // namespace RediSearch
