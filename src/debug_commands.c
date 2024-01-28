@@ -1132,7 +1132,10 @@ DEBUG_COMMAND(dumpHNSWData) {
   const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
   t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
 
-  VecSimDebug_GetElementNeighborsInHNSWGraph(vecsimIndex, doc_id, &neighbours_data, &top_level);
+  if (VecSimDebug_GetElementNeighborsInHNSWGraph(vecsimIndex, doc_id, &neighbours_data, &top_level)
+  == VecSimDebugCommandCode_LabelNotExists) {
+	  return RedisModule_ReplyWithSimpleString(ctx, "Vector field in the given document is not indexed in HNSW");
+  }
   RedisModule_ReplyWithArray(ctx, (long)top_level + 2);
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "doc id");
