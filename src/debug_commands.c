@@ -1145,7 +1145,7 @@ DEBUG_COMMAND(dumpHNSWData) {
       RedisModule_ReplyWithLongLong(ctx, neighbours_data[l][i+1]);
     }
   }
-  // TODO: clean up the data array, use API
+  VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data, top_level);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
