@@ -174,7 +174,7 @@ class TestAggregate():
     def testTimeFunctions(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
 
-               'APPLY', ANY, 'AS', 'dt',
+               'APPLY', 'ANY', 'AS', 'dt',
                'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
                'APPLY', 'day(@dt)', 'AS', 'day',
                'APPLY', 'hour(@dt)', 'AS', 'hour',
