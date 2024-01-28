@@ -65,17 +65,15 @@ https://gmbabar.wordpress.com/2010/12/01/mktime-slow-use-custom-function/ */
 // https://quick-bench.com/q/oTV4_9uVqPTcrj2fpDEvbbMzZ48
 // https://quick-bench.com/q/2Bc8WY1Ys0vmbp-HPagWFxu81jI
 time_t fast_timegm(const struct tm *ltm) {
-  long tyears, tdays, leaps;
-
-  tyears = ltm->tm_year - 70;  // tm->tm_year is from 1900.
-  leaps = (tyears + 1) / 4;    // number of leap years from 1970, not including the current year.
-                               // correct until 2100.
+  long years = ltm->tm_year - 70; // tm->tm_year is from 1900, epoch is from 1970.
+  long leaps = (years + 1) / 4;   // number of leap years from 1970, not including the current year.
+                                  // correct until 2100.
 
   // `ltm->tm_yday` is the number of days since January 1st of the current year (0-365).
   // It includes the leap day if the current year is a leap year.
-  tdays = ltm->tm_yday + (tyears * 365) + leaps;
+  long days = ltm->tm_yday + (years * 365) + leaps;sizeof(struct tm);
 
-  return (tdays * 86400) + (ltm->tm_hour * 3600) + (ltm->tm_min * 60) + ltm->tm_sec;
+  return (days * (24 * 60 * 60)) + (ltm->tm_hour * (60 * 60)) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
 
 static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
