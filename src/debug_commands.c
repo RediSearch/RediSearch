@@ -1150,6 +1150,21 @@ DEBUG_COMMAND(dumpHNSWData) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG DEL_CURSORS
+ * Deletes the local cursors of the shard.
+*/
+DEBUG_COMMAND(DeleteCursors) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_Log(ctx, "warning", "Deleting local cursors!");
+  CursorList_Empty(&g_CursorsList);
+  RedisModule_Log(ctx, "warning", "Done deleting local cursors.");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
