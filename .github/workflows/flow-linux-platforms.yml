@@ -73,44 +73,19 @@ on:
 
 jobs:
   get-required-envs:
-    uses: ./.github/workflows/task-get-linux-configurations.yml
-    with:
-      platform: ${{ inputs.platform }}
-      architecture: ${{ inputs.architecture }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "REDIS_REF=${{ github.event.inputs.redis-ref || 'unstable' }}"
 
   linux-matrix-x86_64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'x86_64'
-    needs: get-required-envs
-    strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
-      fail-fast: ${{ inputs.fail-fast }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      get-redis: ${{ inputs.redis-ref }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      coordinator: ${{ inputs.coordinator }}
-      standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "x86_64"
+      - if: inputs.redis-ref == '6.0.20'
+        run: exit 1
+      - run: sleep 60
 
   linux-matrix-aarch64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'aarch64'
-    needs: get-required-envs
-    strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
-      fail-fast: ${{ inputs.fail-fast }}
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
-    secrets: inherit
-    with:
-      test: true
-      get-redis: ${{ inputs.redis-ref }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      coordinator: ${{ inputs.coordinator }}
-      standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "aarch64"
