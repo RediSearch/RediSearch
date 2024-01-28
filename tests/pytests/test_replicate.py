@@ -149,7 +149,6 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
-  env.assertTrue(0)
 
 def testDropTempReplicate():
   env = initEnv()
