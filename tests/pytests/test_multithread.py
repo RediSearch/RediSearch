@@ -341,6 +341,8 @@ def test_async_updates_sanity():
         # Number of zombies should decrease from one iteration to another.
         env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        doc_0_neighbors = env.cmd(debug_cmd(), 'dump_hnsw', 'idx', 'vector', '0')
+        print("doc 0 neighbors are ", doc_0_neighbors)
         local_marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
         env.assertLessEqual(local_marked_deleted_vectors_new, local_marked_deleted_vectors)
         local_marked_deleted_vectors = local_marked_deleted_vectors_new

@@ -1096,6 +1096,44 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(dumpHNSWData) {
+  if (argc < 2) { // TODO: it should probably be 2 or 3 (allowing specifying vectors for a certain doc)
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
+  if (!keyName) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+  }
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  size_t top_level;
+  int **neighbours_data;
+  size_t key_len;
+  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
+  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+
+  VecSimDebug_GetElementNeighborsInHNSWGraph(vecsimIndex, doc_id, &neighbours_data, &top_level);
+  RedisModule_ReplyWithArray(ctx, (long)top_level + 2);
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithSimpleString(ctx, "doc id");
+  RedisModule_ReplyWithLongLong(ctx, (long long)doc_id);
+  for (int l = 0; l <= top_level; l++) {
+    RedisModule_ReplyWithArray(ctx, neighbours_data[l][0] + 1);
+    RedisModule_Reply reply = RedisModule_NewReply(ctx);
+    RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", l); // do it format
+    for (size_t i = 0; i < neighbours_data[l][0]; i++) {
+      RedisModule_ReplyWithLongLong(ctx, neighbours_data[l][i+1]);
+    }
+  }
+  // TODO: clean up the data array, use API
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
@@ -1170,6 +1208,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"DUMP_HNSW", dumpHNSWData},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif
