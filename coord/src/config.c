@@ -29,8 +29,9 @@ static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
 
 // PARTITIONS
 CONFIG_SETTER(setNumPartitions) {
-  RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to AUTO");
-  return AC_Advance(ac); // Consume the argument
+  int acrc = AC_Advance(ac); // Consume the argument
+  RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to `AUTO`");
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getNumPartitions) {
