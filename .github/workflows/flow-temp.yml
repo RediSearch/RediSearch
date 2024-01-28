@@ -9,20 +9,22 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  deploy-snapshot:
+  matrixExec:
     strategy:
-      fail-fast: false
       matrix:
-        branch: ["meiravg_update_rmutil"]
-        include:
-          - branch: "meiravg_update_rmutil"
-            redis-ref: '6.2.14' # 2.6 doesn't support Redis 7
+        redis-version: ['6.0.20', '6.2.14']
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
     with:
-      reference: ${{ matrix.branch }}
-      redis-reference: ${{ matrix.redis-ref }}
-      platform: macos
+      redis-ref: ${{ matrix.redis-version }}
+      architecture: x86_64
+
+  test:
+    needs: matrixExec
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - run: echo "${{ needs.matrixExec.result }}"
