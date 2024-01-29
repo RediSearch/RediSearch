@@ -1634,10 +1634,16 @@ cleanup:
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
   }
 
-  searchRequestCtx_Free(req);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, mc);
+  RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(ctx);
+  // We could pass `mc` to the unblock function to perform the next 3 cleanup steps, but
+  // this way we free the memory from the background after the client is unblocked,
+  // which is a bit more efficient.
+  // The unblocking callback also replies with error if there was 0 replies from the shards,
+  // and since we already replied with error in this case (in the beginning of this function),
+  // we can't pass `mc` to the unblock function.
+  searchRequestCtx_Free(req);
   MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
@@ -2112,6 +2118,21 @@ static void DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
+// If the client is unblocked with a private data, we have to free it.
+// This currently happens only when the client is unblocked without calling its reduce function,
+// because we expect 0 replies. This function handles this case as well.
+static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (mrctx) {
+    if (MRCtx_GetNumReplied(mrctx) == 0) {
+      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    }
+    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
+    MR_requestCompleted();
+    MRCtx_Free(mrctx);
+  }
+}
+
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   bool resp3 = is_resp3(ctx);
@@ -2121,7 +2142,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
