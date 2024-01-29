@@ -4,6 +4,7 @@ run-name: Validate ${{ github.ref_name }}
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
+  push:
   merge_group:
     types: [checks_requested]
 
@@ -103,6 +104,9 @@ jobs:
       - sanitize
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
+    env:
+      ARR: ${{ toJson(needs.*.result) }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
+      - run: exit 1
