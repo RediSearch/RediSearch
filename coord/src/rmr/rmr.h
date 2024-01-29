@@ -51,6 +51,7 @@ struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 void MRCtx_SetRedisCtx(struct MRCtx *ctx, void* rctx);
 MRCommand *MRCtx_GetCmds(struct MRCtx *ctx);
 int MRCtx_GetCmdsSize(struct MRCtx *ctx);
+int MRCtx_GetNumReplied(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 void MR_requestCompleted();
 

@@ -1742,7 +1742,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     if (MRCtx_GetNumReplied(mrctx) == 0) {
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
     }
-    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
+    searchRequestCtx_Free(MRCtx_GetPrivdata(mrctx));
     MR_requestCompleted();
     MRCtx_Free(mrctx);
   }

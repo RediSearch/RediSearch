@@ -138,6 +138,10 @@ int MRCtx_GetCmdsSize(struct MRCtx *ctx) {
   return ctx->numCmds;
 }
 
+int MRCtx_GetNumReplied(struct MRCtx *ctx) {
+  return ctx->numReplied;
+}
+
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
