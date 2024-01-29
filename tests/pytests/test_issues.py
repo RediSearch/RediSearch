@@ -987,6 +987,8 @@ def test_mod_4375(env):
 
 @skip(cluster=False) # This test is only relevant for cluster
 def test_mod_6557(env: Env):
+  # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
+  env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',
