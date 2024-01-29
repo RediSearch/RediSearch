@@ -321,6 +321,8 @@ def test_async_updates_sanity():
     # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
     # (that is, no other node in HNSW is pointing to the deleted node).
     while local_marked_deleted_vectors > block_size:
+        if env.isCluster():
+            print(to_dict(conns[2].execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector'))['BACKEND_INDEX'])
         env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
         res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_local_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
@@ -342,8 +344,10 @@ def test_async_updates_sanity():
         env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         for con in conns[2:3]:
-            doc_0_neighbors = con.execute_command(debug_cmd(), 'dump_hnsw', 'idx', 'vector', '0')
-            print("doc 0 neighbors are ", doc_0_neighbors)
+            for i in range(n_vectors):
+                doc_neighbors = con.execute_command(debug_cmd(), 'dump_hnsw', 'idx', 'vector', str(i))
+                if type(doc_neighbors) == list:
+                    print(f"doc {i} neighbors are ", doc_neighbors)
         local_marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
         env.assertLessEqual(local_marked_deleted_vectors_new, local_marked_deleted_vectors)
         local_marked_deleted_vectors = local_marked_deleted_vectors_new
