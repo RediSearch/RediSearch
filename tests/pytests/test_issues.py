@@ -986,3 +986,23 @@ def test_mod_4375(env):
   # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
   conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
   print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+
+@skip(cluster=False) # This test is only relevant for cluster
+def test_mod_6557(env: Env):
+  # Set topology to an invalid one (assuming port 9 is not open)
+  env.expect('SEARCH.CLUSTERSET',
+             'MYID',
+             '1',
+             'RANGES',
+             '1',
+             'SHARD',
+             '1',
+             'SLOTRANGE',
+             '0',
+             '16383',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER'
+  ).ok()
+  # Verify that `FT.SEARCH` queries are not hanging and return an error
+  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
