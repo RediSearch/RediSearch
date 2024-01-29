@@ -20,8 +20,9 @@ RSValueType fieldTypeToValueType(FieldType ft) {
     case INDEXFLD_T_GEO:
       return RSValue_String;
 
-    case INDEXFLD_T_VECTOR: // TODO:
-    case INDEXFLD_T_GEOMETRY: // TODO: GEOMETRY
+    // Currently not supported
+    case INDEXFLD_T_VECTOR:
+    case INDEXFLD_T_GEOMETRY:
       return RSValue_Null;
   }
   return RSValue_Null;
