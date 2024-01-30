@@ -2185,131 +2185,13 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
-
-  // Report hash func
-  MRClusterTopology *topo = MR_GetCurrentTopology();
-  const char *hash_func_str;
-  switch (topo ? topo->hashFunc : MRHashFunc_None) {
-  case MRHashFunc_CRC12:
-    hash_func_str = MRHASHFUNC_CRC12_STR;
-    break;
-  case MRHashFunc_CRC16:
-    hash_func_str = MRHASHFUNC_CRC16_STR;
-    break;
-  default:
-    hash_func_str = "n/a";
-    break;
+  if (MR_CurrentTopologyExists()) {
+    // If we have a topology, we must read it from the uv thread
+    MR_uvReplyClusterInfo(ctx);
+  } else {
+    // If we don't have a topology, we can reply immediately
+    MR_ReplyClusterInfo(ctx, NULL);
   }
-
-  //-------------------------------------------------------------------------------------------
-  if (has_map) // RESP3 variant
-  {
-    //reply->resp3 = false;
-    RedisModule_Reply_Map(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "slots");
-      RedisModule_Reply_MapEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    if (reply->resp3) {
-      RedisModule_ReplyKV_Array(reply, "slots"); // >slots
-      for (int i = 0; i < topo->numShards; i++) {
-        MRClusterShard *sh = &topo->shards[i];
-
-        RedisModule_Reply_Map(reply); // >>(shards)
-        RedisModule_ReplyKV_LongLong(reply, "start", sh->startSlot);
-        RedisModule_ReplyKV_LongLong(reply, "end", sh->endSlot);
-
-        RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
-        for (int j = 0; j < sh->numNodes; j++) {
-          MRClusterNode *node = &sh->nodes[j];
-          RedisModule_Reply_Map(reply); // >>>>(node)
-
-          RedisModule_ReplyKV_SimpleString(reply, "id", node->id);
-          RedisModule_ReplyKV_SimpleString(reply, "host", node->endpoint.host);
-          RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModuleString *role = RedisModule_CreateStringPrintf(ctx, "%s%s",
-            node->flags & MRNode_Master ? "master " : "slave ", node->flags & MRNode_Self ? "self" : "");
-          RedisModule_ReplyKV_String(reply, "role", role);
-
-          RedisModule_Reply_MapEnd(reply); // >>>>(node)
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>nodes
-
-        RedisModule_Reply_MapEnd(reply); // >>(shards)
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >slots
-
-    } else {
-    }
-
-    RedisModule_Reply_MapEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-  else // ! has_map (RESP2 variant)
-  {
-    RedisModule_Reply_Array(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    RedisModule_Reply_SimpleString(reply, "slots");
-
-    if (!topo) {
-      RedisModule_Reply_Null(reply);
-      RedisModule_Reply_ArrayEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    for (int i = 0; i < topo->numShards; i++) {
-      MRClusterShard *sh = &topo->shards[i];
-      RedisModule_Reply_Array(reply); // >shards
-
-      RedisModule_Reply_LongLong(reply, sh->startSlot);
-      RedisModule_Reply_LongLong(reply, sh->endSlot);
-      for (int j = 0; j < sh->numNodes; j++) {
-        MRClusterNode *node = &sh->nodes[j];
-        RedisModule_Reply_Array(reply); // >>node
-          RedisModule_Reply_SimpleString(reply, node->id);
-          RedisModule_Reply_SimpleString(reply, node->endpoint.host);
-          RedisModule_Reply_LongLong(reply, node->endpoint.port);
-          RedisModule_Reply_Stringf(reply, "%s%s",
-                                    node->flags & MRNode_Master ? "master " : "slave ",
-                                    node->flags & MRNode_Self ? "self" : "");
-        RedisModule_Reply_ArrayEnd(reply); // >>node
-      }
-
-      RedisModule_Reply_ArrayEnd(reply); // >shards
-    }
-
-    RedisModule_Reply_ArrayEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-
-  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
 }
 

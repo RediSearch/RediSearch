@@ -36,7 +36,11 @@ void MR_Init(MRCluster *cl, long long timeoutMS);
 int MR_UpdateTopology(MRClusterTopology *newTopology);
 
 /* Get the current cluster topology */
-MRClusterTopology *MR_GetCurrentTopology();
+bool MR_CurrentTopologyExists();
+
+void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
+
+void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 /* Return our current node as detected by cluster state calls */
 MRClusterNode *MR_GetMyNode();
