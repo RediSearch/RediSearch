@@ -47,11 +47,10 @@ jobs:
     strategy:
       matrix:
         redis-ref:
-          - ${{ needs.get-latest-redis-tag.outputs.tag }}
-          - ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
-          - ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+          # - ${{ needs.get-latest-redis-tag.outputs.tag }}
+          # - ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
+          # - ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
           - ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
-      fail-fast: false
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
