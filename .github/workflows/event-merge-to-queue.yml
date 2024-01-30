@@ -41,20 +41,43 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
-  test-linux-x86_64:
-    needs: [docs-only, get-latest-redis-tag, get-latest-7-0-redis-tag, get-latest-6-2-redis-tag, get-latest-6-0-redis-tag]
+  # Flat-out test-linux-x86_64 matrix. GitHub currently fails to report failures in nested matrices.
+  # See https://github.com/actions/runner/issues/3041
+  test-linux-x86_64-redis-latest:
+    name: test-linux-x86_64 (${{ needs.get-latest-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
-    strategy:
-      matrix:
-        redis-ref:
-          # - ${{ needs.get-latest-redis-tag.outputs.tag }}
-          # - ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
-          # - ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
-          - ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: ${{ matrix.redis-ref }}
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-7-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-0-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-7-0-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-2-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-6-2-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-0-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-6-0-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
       architecture: x86_64
 
   # test-linux-aarch64:
