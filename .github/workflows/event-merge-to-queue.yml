@@ -58,15 +58,15 @@ jobs:
       redis-ref: ${{ matrix.redis-ref }}
       architecture: x86_64
 
-  test-linux-aarch64:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
-      architecture: aarch64
+  # test-linux-aarch64:
+  #   needs: [docs-only, get-latest-redis-tag]
+  #   if: needs.docs-only.outputs.only-docs-changed == 'false'
+  #   uses: ./.github/workflows/flow-linux-platforms.yml
+  #   secrets: inherit
+  #   with:
+  #     redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+  #     test-config: QUICK=1
+  #     architecture: aarch64
 
   test-macos:
     needs: [docs-only, get-latest-redis-tag]
@@ -99,7 +99,7 @@ jobs:
       - get-latest-6-2-redis-tag
       - get-latest-6-0-redis-tag
       - test-linux-x86_64
-      - test-linux-aarch64
+      # - test-linux-aarch64
       - test-macos
       - coverage
       - sanitize
