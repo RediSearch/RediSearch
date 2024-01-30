@@ -291,12 +291,10 @@ def test_async_updates_sanity():
     env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
 
     # Wait until all vectors are indexed into HNSW.
-    conns = env.getOSSMasterNodesConnectionList()
-    total_jobs_done = 0
-    for con in conns:
-        env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'DRAIN'))
-        env.assertEqual(getWorkersThpoolStatsFromShard(con)['totalPendingJobs'], 0)
-        total_jobs_done += getWorkersThpoolStatsFromShard(con)['totalJobsDone']
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'DRAIN']), ['OK']*n_shards)
+    stats = run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'STATS'])
+    env.assertEqual(sum([to_dict(shard_stat)['totalPendingJobs'] for shard_stat in stats]), 0)  # 0 in each shard
+    total_jobs_done = sum([to_dict(shard_stat)['totalJobsDone'] for shard_stat in stats])
 
     env.assertEqual(total_jobs_done, n_vectors + n_shards)  # job per vector + one job for the query.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -305,8 +303,7 @@ def test_async_updates_sanity():
     # Overwrite vectors. All vectors were ingested into the background index, so now we collect new vectors
     # into the frontend index and prepare repair and ingest jobs. The overwritten vector were not removed from
     # the backend index yet.
-    for con in conns:
-        env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'PAUSE'))
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'PAUSE']), ['OK']*n_shards)
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=0, seed=11) # new seed to generate new vectors
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -322,8 +319,7 @@ def test_async_updates_sanity():
     # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
     # (that is, no other node in HNSW is pointing to the deleted node).
     while local_marked_deleted_vectors > block_size:
-        for con in conns:
-            env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'RESUME'))
+        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'RESUME']), ['OK']*n_shards)
         res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_local_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
                                    'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
@@ -341,22 +337,17 @@ def test_async_updates_sanity():
         forceInvokeGC(env)
 
         # Number of zombies should decrease from one iteration to another.
-        for con in conns:
-            env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'PAUSE'))
+        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'PAUSE']), ['OK']*n_shards)
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        for con in conns[2:3]:
-            for i in range(n_vectors):
-                doc_neighbors = con.execute_command(debug_cmd(), 'dump_hnsw', 'idx', 'vector', str(i))
-                if type(doc_neighbors) == list:
-                    print(f"doc {i} neighbors are ", doc_neighbors)
+
         local_marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
         env.assertLessEqual(local_marked_deleted_vectors_new, local_marked_deleted_vectors)
         local_marked_deleted_vectors = local_marked_deleted_vectors_new
 
     # Eventually, all updated vectors should be in the backend index, and all zombies should be removed.
-    for con in conns:
-        env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'RESUME'))
-        env.assertOk(con.execute_command(debug_cmd(), 'WORKER_THREADS', 'DRAIN'))
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'RESUME']), ['OK']*n_shards)
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'DRAIN']), ['OK']*n_shards)
+
     forceInvokeGC(env)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
