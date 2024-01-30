@@ -1037,6 +1037,7 @@ err:
         break;
       case 9: /* endpoint ::= tcp_addr */
 {
+    yylhsminor.yy17.unixSock = NULL;
     if (MREndpoint_Parse(yymsp[0].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[0].minor.yy0.pos, yymsp[0].minor.yy0.strval);
     }
@@ -1045,10 +1046,9 @@ err:
         break;
       case 10: /* endpoint ::= tcp_addr unix_addr */
 {
+    yylhsminor.yy17.unixSock = yymsp[0].minor.yy9;
     if (MREndpoint_Parse(yymsp[-1].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[-1].minor.yy0.pos, yymsp[-1].minor.yy0.strval);
-    } else {
-        yylhsminor.yy17.unixSock = rm_strdup(yymsp[0].minor.yy9);
     }
 }
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
