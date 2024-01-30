@@ -120,7 +120,10 @@ jobs:
       - get-latest-7-0-redis-tag
       - get-latest-6-2-redis-tag
       - get-latest-6-0-redis-tag
-      - test-linux-x86_64
+      - test-linux-x86_64-redis-latest
+      - test-linux-x86_64-redis-7-0
+      - test-linux-x86_64-redis-6-2
+      - test-linux-x86_64-redis-6-0
       # - test-linux-aarch64
       - test-macos
       - coverage
