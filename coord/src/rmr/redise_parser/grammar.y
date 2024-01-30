@@ -22,12 +22,12 @@
 
 #include "lexer.h"
 
-static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len);
+static void syntax_error(parseCtx *ctx, const char *fmt, ...);
 
 } // END %include
 
 %syntax_error {
-    syntax_error(ctx, TOKEN.pos, TOKEN.s, TOKEN.len);
+    syntax_error(ctx, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
 %default_type { char * }
@@ -44,7 +44,7 @@ static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len);
 %destructor master {}
 %destructor cluster {}
 %type tcp_addr {Token}
-%destructor tcp_addr {}  // string is not allocated, so no need to free
+%destructor tcp_addr {}
 
 root ::= cluster topology(D). {
     if (ctx->numSlots) {
@@ -52,8 +52,7 @@ root ::= cluster topology(D). {
             D->numSlots = ctx->numSlots;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid number of slots %d", ctx->numSlots);
             goto err;
         }
     }
@@ -68,8 +67,7 @@ root ::= cluster topology(D). {
             D->hashFunc = MRHashFunc_CRC16;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
             goto err;
         }
     }
@@ -142,19 +140,13 @@ shardid(A) ::= INTEGER(B). {
 
 endpoint(A) ::= tcp_addr(B). {
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
-        char *err;
-        int len = rm_asprintf(&err, "Invalid tcp address: %s", B.strval);
-        syntax_error(ctx, B.pos, err, len);
-        rm_free(err);
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
     }
 }
 
 endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
-        char *err;
-        int len = rm_asprintf(&err, "Invalid tcp address: %s", B.strval);
-        syntax_error(ctx, B.pos, err, len);
-        rm_free(err);
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
     } else {
         A.unixSock = rm_strdup(C);
     }
@@ -179,8 +171,13 @@ master(A) ::= . {
 
 %code {
 
-static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len) {
-    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", pos, len, msg));
+static void syntax_error(parseCtx *ctx, const char *fmt, ...) {
+    if (!ctx->errorMsg) {
+        va_list ap;
+        va_start(ap, fmt);
+        __ignore__(rm_vasprintf(&ctx->errorMsg, fmt, ap));
+        va_end(ap);
+    }
     ctx->ok = 0;
 }
 

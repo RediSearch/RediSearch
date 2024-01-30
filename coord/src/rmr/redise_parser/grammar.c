@@ -40,7 +40,7 @@
 
 #include "lexer.h"
 
-static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len);
+static void syntax_error(parseCtx *ctx, const char *fmt, ...);
 
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
@@ -937,8 +937,7 @@ static YYACTIONTYPE yy_reduce(
             yymsp[0].minor.yy41->numSlots = ctx->numSlots;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid number of slots %d", ctx->numSlots);
             goto err;
         }
     }
@@ -953,8 +952,7 @@ static YYACTIONTYPE yy_reduce(
             yymsp[0].minor.yy41->hashFunc = MRHashFunc_CRC16;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
             goto err;
         }
     }
@@ -1040,10 +1038,7 @@ err:
       case 9: /* endpoint ::= tcp_addr */
 {
     if (MREndpoint_Parse(yymsp[0].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
-        char *err;
-        int len = rm_asprintf(&err, "Invalid tcp address: %s", yymsp[0].minor.yy0.strval);
-        syntax_error(ctx, yymsp[0].minor.yy0.pos, err, len);
-        rm_free(err);
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[0].minor.yy0.pos, yymsp[0].minor.yy0.strval);
     }
 }
   yymsp[0].minor.yy17 = yylhsminor.yy17;
@@ -1051,10 +1046,7 @@ err:
       case 10: /* endpoint ::= tcp_addr unix_addr */
 {
     if (MREndpoint_Parse(yymsp[-1].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
-        char *err;
-        int len = rm_asprintf(&err, "Invalid tcp address: %s", yymsp[-1].minor.yy0.strval);
-        syntax_error(ctx, yymsp[-1].minor.yy0.pos, err, len);
-        rm_free(err);
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[-1].minor.yy0.pos, yymsp[-1].minor.yy0.strval);
     } else {
         yylhsminor.yy17.unixSock = rm_strdup(yymsp[0].minor.yy9);
     }
@@ -1143,7 +1135,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    syntax_error(ctx, TOKEN.pos, TOKEN.s, TOKEN.len);
+    syntax_error(ctx, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   MRTopologyRequest_ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
   MRTopologyRequest_ParseCTX_STORE
@@ -1421,8 +1413,13 @@ int MRTopologyRequest_ParseFallback(int iToken){
 }
 
 
-static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len) {
-    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", pos, len, msg));
+static void syntax_error(parseCtx *ctx, const char *fmt, ...) {
+    if (!ctx->errorMsg) {
+        va_list ap;
+        va_start(ap, fmt);
+        __ignore__(rm_vasprintf(&ctx->errorMsg, fmt, ap));
+        va_end(ap);
+    }
     ctx->ok = 0;
 }
 
