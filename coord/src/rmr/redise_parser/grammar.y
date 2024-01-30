@@ -139,16 +139,16 @@ shardid(A) ::= INTEGER(B). {
 }
 
 endpoint(A) ::= tcp_addr(B). {
+    A.unixSock = NULL;
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
     }
 }
 
 endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
+    A.unixSock = C;
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
-    } else {
-        A.unixSock = rm_strdup(C);
     }
 }
 
