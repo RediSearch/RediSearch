@@ -4,7 +4,6 @@ run-name: Validate ${{ github.ref_name }}
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
-  push:
   merge_group:
     types: [checks_requested]
 
@@ -80,15 +79,15 @@ jobs:
       redis-ref: ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
       architecture: x86_64
 
-  # test-linux-aarch64:
-  #   needs: [docs-only, get-latest-redis-tag]
-  #   if: needs.docs-only.outputs.only-docs-changed == 'false'
-  #   uses: ./.github/workflows/flow-linux-platforms.yml
-  #   secrets: inherit
-  #   with:
-  #     redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-  #     test-config: QUICK=1
-  #     architecture: aarch64
+  test-linux-aarch64:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      architecture: aarch64
 
   test-macos:
     needs: [docs-only, get-latest-redis-tag]
@@ -124,15 +123,14 @@ jobs:
       - test-linux-x86_64-redis-7-0
       - test-linux-x86_64-redis-6-2
       - test-linux-x86_64-redis-6-0
-      # - test-linux-aarch64
+      - test-linux-aarch64
       - test-macos
       - coverage
       - sanitize
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     env:
-      ARR: ${{ toJson(needs.*.result) }}
+      RESULTS: ${{ toJson(needs.*.result) }} # For debugging purposes
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
-      - run: exit 1
