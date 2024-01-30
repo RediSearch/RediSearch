@@ -22,17 +22,12 @@
 
 #include "lexer.h"
 
-static void parseCtx_Free(parseCtx *ctx) {
-    if (ctx->my_id) {
-        rm_free(ctx->my_id);
-    }
-}
+static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len);
 
 } // END %include
 
 %syntax_error {
-    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s));
-    ctx->ok = 0;
+    syntax_error(ctx, TOKEN.pos, TOKEN.s, TOKEN.len);
 }
 
 %default_type { char * }
@@ -48,6 +43,8 @@ static void parseCtx_Free(parseCtx *ctx) {
 %type master {int}
 %destructor master {}
 %destructor cluster {}
+%type tcp_addr {Token}
+%destructor tcp_addr {}  // string is not allocated, so no need to free
 
 root ::= cluster topology(D). {
     if (ctx->numSlots) {
@@ -144,17 +141,28 @@ shardid(A) ::= INTEGER(B). {
 }
 
 endpoint(A) ::= tcp_addr(B). {
-    MREndpoint_Parse(B, &A);
+    if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
+        char *err;
+        int len = rm_asprintf(&err, "Invalid tcp address: %s", B.strval);
+        syntax_error(ctx, B.pos, err, len);
+        rm_free(err);
+    }
 }
 
 endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
-    MREndpoint_Parse(B, &A);
-    A.unixSock = C;
+    if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
+        char *err;
+        int len = rm_asprintf(&err, "Invalid tcp address: %s", B.strval);
+        syntax_error(ctx, B.pos, err, len);
+        rm_free(err);
+    } else {
+        A.unixSock = rm_strdup(C);
+    }
 }
 
 
 tcp_addr(A) ::= ADDR STRING(B) . {
-    A = B.strval;
+    A = B;
 }
 
 unix_addr(A) ::= UNIXADDR STRING(B). {
@@ -170,6 +178,17 @@ master(A) ::= . {
 }
 
 %code {
+
+static void syntax_error(parseCtx *ctx, int pos, const char *msg, int len) {
+    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", pos, len, msg));
+    ctx->ok = 0;
+}
+
+static void parseCtx_Free(parseCtx *ctx) {
+    if (ctx->my_id) {
+        rm_free(ctx->my_id);
+    }
+}
 
 MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err)  {
 
