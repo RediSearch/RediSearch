@@ -1112,43 +1112,67 @@ DEBUG_COMMAND(DeleteCursors) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
+	size_t top_level = HNSW_INVALID_LEVEL;
+	int **neighbours_data = NULL;
+	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data,
+	                                                                        &top_level);
+	RedisModule_Reply reply = RedisModule_NewReply(ctx);
+	if  (res == VecSimDebugCommandCode_LabelNotExists){
+		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+		return res;
+	}
+	RedisModule_ReplyWithArray(ctx, (long)top_level + 2);
+	RedisModule_ReplyWithArray(ctx, 2);
+	RedisModule_ReplyWithSimpleString(ctx, "Doc id");
+	RedisModule_ReplyWithLongLong(ctx, (long long)doc_id);
+	for (int l = 0; l <= top_level; l++) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[l][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", l);
+		for (size_t i = 0; i < neighbours_data[l][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[l][i+1]);
+		}
+	}
+	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data, top_level);
+}
+
 DEBUG_COMMAND(dumpHNSWData) {
-  if (argc < 2) { // TODO: it should probably be 2 or 3 (allowing specifying vectors for a certain doc)
+  if (argc < 2 || argc > 3) { // it should be 2 or 3 (allowing specifying a certain doc)
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[0])
 
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
   if (!keyName) {
-    SearchCtx_Free(sctx);
-    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+    RedisModule_ReplyWithError(ctx, "Vector index not found");
+	goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
-  size_t top_level;
-  int **neighbours_data;
-  size_t key_len;
-  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
-  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
+  if (info.algo != VecSimAlgo_HNSWLIB) {
+	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
+	  goto cleanup;
+  }
+  if (info.isMulti) {
+	  RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
+	  goto cleanup;
+  }
 
-  if (VecSimDebug_GetElementNeighborsInHNSWGraph(vecsimIndex, doc_id, &neighbours_data, &top_level)
-  == VecSimDebugCommandCode_LabelNotExists) {
-	  return RedisModule_ReplyWithSimpleString(ctx, "Vector field in the given document is not indexed in HNSW");
+  if (argc == 3) {  // we want the neighbors of a specific vector only
+	  size_t key_len;
+	  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
+	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
+	  goto cleanup;
   }
-  RedisModule_ReplyWithArray(ctx, (long)top_level + 2);
-  RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithSimpleString(ctx, "doc id");
-  RedisModule_ReplyWithLongLong(ctx, (long long)doc_id);
-  for (int l = 0; l <= top_level; l++) {
-    RedisModule_ReplyWithArray(ctx, neighbours_data[l][0] + 1);
-    RedisModule_Reply reply = RedisModule_NewReply(ctx);
-    RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", l); // do it format
-    for (size_t i = 0; i < neighbours_data[l][0]; i++) {
-      RedisModule_ReplyWithLongLong(ctx, neighbours_data[l][i+1]);
-    }
-  }
-  VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data, top_level);
+  // Otherwise, dump neighbors for every document in the index.
+  START_POSTPONED_LEN_ARRAY(num_docs);
+  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); (ARRAY_LEN_VAR(num_docs))++;})
+  END_POSTPONED_LEN_ARRAY(num_docs);
+
+  cleanup:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
