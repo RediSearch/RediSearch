@@ -30,15 +30,27 @@ typedef struct MRWorkQueue {
 } MRWorkQueue;
 
 uv_thread_t loop_th;
-static char loop_th_running = false;
-static char loop_th_ready = false;
+static char loop_th_started = false; // set to true when the event loop thread is started
+static char loop_th_running = false; // set to true when the event loop thread is initialized
+static char loop_th_ready = false;   /* set to true when the event loop thread is ready to process requests.
+                                      * This is set to false when a new topology is applied, and set to true
+                                      * when the topology check is done. */
 uv_timer_t topologyValidationTimer, topologyFailureTimer;
 uv_async_t topologyAsync;
 struct queueItem *pendingTopo = NULL;
 arrayof(uv_async_t *) pendingQueues = NULL;
 
+// Atomically exchange the pending topology with a new topology.
+// Returns the old pending topology (or NULL if there was no pending topology).
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
   return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);
+}
+
+// Atomically check if the event loop thread is uninitialized and mark it as initialized.
+// Returns true if the event loop thread was uninitialized, and in this case the caller should
+// start the event loop thread. Should normally return false.
+static inline bool loopThreadUninitialized() {
+  return __builtin_expect((__atomic_test_and_set(&loop_th_started, __ATOMIC_ACQUIRE) == false), false);
 }
 
 static void triggerPendingQueues() {
@@ -95,20 +107,21 @@ static void topologyAsyncCB(uv_async_t *async) {
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
-  uv_timer_init(uv_default_loop(), &topologyValidationTimer);
-  uv_timer_init(uv_default_loop(), &topologyFailureTimer);
-  uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
   RedisModule_Assert(__atomic_load_n(&pendingTopo, __ATOMIC_ACQUIRE));
+  // Mark the event loop thread as running before triggering the topology check.
+  loop_th_running = true;
   uv_async_send(&topologyAsync); // start the topology check
   uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 }
 
 static void verify_uv_thread() {
-  if (!loop_th_running) {
+  if (loopThreadUninitialized()) {
+    uv_timer_init(uv_default_loop(), &topologyValidationTimer);
+    uv_timer_init(uv_default_loop(), &topologyFailureTimer);
+    uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
     RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
     RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
-    loop_th_running = true;
   }
 }
 
@@ -127,12 +140,12 @@ void RQ_Push_Topology(MRQueueCallback cb, MRClusterTopology *topo) {
 }
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
+  verify_uv_thread();
   struct queueItem *item = rm_new(*item);
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;
   uv_mutex_lock(&q->lock);
-  verify_uv_thread();
   // append the request to the tail of the list
   if (q->tail) {
     // make it the next of the current tail
