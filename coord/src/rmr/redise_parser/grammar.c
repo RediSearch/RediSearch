@@ -40,11 +40,7 @@
 
 #include "lexer.h"
 
-static void parseCtx_Free(parseCtx *ctx) {
-    if (ctx->my_id) {
-        rm_free(ctx->my_id);
-    }
-}
+static void syntax_error(parseCtx *ctx, const char *fmt, ...);
 
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
@@ -226,15 +222,15 @@ typedef union {
 *********** Begin parsing tables **********************************************/
 #define YY_ACTTAB_COUNT (31)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */     5,    3,   11,    2,   46,    7,   32,    8,   36,   48,
- /*    10 */    37,    6,   12,   49,   16,   13,   53,    4,   58,   42,
- /*    20 */    33,   31,   54,    9,   10,   40,   41,   15,   47,    1,
+ /*     0 */     5,    3,   11,    2,    7,   46,   32,    8,    6,   36,
+ /*    10 */    48,   37,   12,   49,   16,   13,   53,   58,    4,   42,
+ /*    20 */    33,   54,   31,    9,   10,   40,   41,   15,   47,    1,
  /*    30 */    14,
 };
 static const YYCODETYPE yy_lookahead[] = {
- /*     0 */    15,    1,    2,   17,   18,   14,    6,    7,    3,    0,
- /*    10 */     5,   20,   10,   19,   19,   11,   13,    8,   21,   12,
- /*    20 */     5,    5,   16,    4,    3,    3,    3,    9,   22,    5,
+ /*     0 */    15,    1,    2,   17,   14,   19,    6,    7,   18,    3,
+ /*    10 */     0,    5,   10,   20,   20,   11,   13,   21,    8,   12,
+ /*    20 */     5,   16,    5,    4,    3,    3,    3,    9,   22,    5,
  /*    30 */     5,   22,   22,   22,   22,   22,   22,   22,   22,   22,
  /*    40 */    22,   22,   22,   22,
 };
@@ -242,14 +238,14 @@ static const YYCODETYPE yy_lookahead[] = {
 #define YY_SHIFT_MIN      (0)
 #define YY_SHIFT_MAX      (25)
 static const unsigned char yy_shift_ofst[] = {
- /*     0 */    31,    2,    0,    5,    5,    9,    4,    7,   15,   16,
+ /*     0 */    31,    2,    0,    6,    6,   10,    4,    7,   15,   17,
  /*    10 */    19,   21,   22,   23,   24,   25,   18,
 };
 #define YY_REDUCE_COUNT (7)
 #define YY_REDUCE_MIN   (-15)
-#define YY_REDUCE_MAX   (6)
+#define YY_REDUCE_MAX   (5)
 static const signed char yy_reduce_ofst[] = {
- /*     0 */   -14,   -9,  -15,   -6,   -5,    3,   -3,    6,
+ /*     0 */   -14,  -10,  -15,   -7,   -6,    3,   -4,    5,
 };
 static const YYACTIONTYPE yy_default[] = {
  /*     0 */    63,   45,   45,   45,   45,   45,   57,   62,   45,   45,
@@ -379,9 +375,9 @@ static const char *const yyTokenName[] = {
   /*   15 */ "topology",
   /*   16 */ "master",
   /*   17 */ "cluster",
-  /*   18 */ "root",
-  /*   19 */ "shardid",
-  /*   20 */ "tcp_addr",
+  /*   18 */ "tcp_addr",
+  /*   19 */ "root",
+  /*   20 */ "shardid",
   /*   21 */ "unix_addr",
 };
 #endif /* defined(YYCOVERAGE) || !defined(NDEBUG) */
@@ -532,9 +528,8 @@ static void yy_destructor(
     */
 /********* Begin destructor definitions ***************************************/
       /* Default NON-TERMINAL Destructor */
-    case 18: /* root */
-    case 19: /* shardid */
-    case 20: /* tcp_addr */
+    case 19: /* root */
+    case 20: /* shardid */
     case 21: /* unix_addr */
 {
  rm_free((yypminor->yy9)); 
@@ -561,6 +556,11 @@ static void yy_destructor(
 }
       break;
     case 17: /* cluster */
+{
+
+}
+      break;
+    case 18: /* tcp_addr */
 {
 
 }
@@ -851,18 +851,18 @@ static void yy_shift(
 /* For rule J, yyRuleInfoLhs[J] contains the symbol on the left-hand side
 ** of that rule */
 static const YYCODETYPE yyRuleInfoLhs[] = {
-    18,  /* (0) root ::= cluster topology */
+    19,  /* (0) root ::= cluster topology */
     17,  /* (1) cluster ::= cluster MYID shardid */
     17,  /* (2) cluster ::= cluster HASHFUNC STRING NUMSLOTS INTEGER */
     17,  /* (3) cluster ::= cluster HASREPLICATION */
     15,  /* (4) topology ::= RANGES INTEGER */
     15,  /* (5) topology ::= topology shard */
     13,  /* (6) shard ::= SHARD shardid SLOTRANGE INTEGER INTEGER endpoint master */
-    19,  /* (7) shardid ::= STRING */
-    19,  /* (8) shardid ::= INTEGER */
+    20,  /* (7) shardid ::= STRING */
+    20,  /* (8) shardid ::= INTEGER */
     14,  /* (9) endpoint ::= tcp_addr */
     14,  /* (10) endpoint ::= tcp_addr unix_addr */
-    20,  /* (11) tcp_addr ::= ADDR STRING */
+    18,  /* (11) tcp_addr ::= ADDR STRING */
     21,  /* (12) unix_addr ::= UNIXADDR STRING */
     16,  /* (13) master ::= MASTER */
     16,  /* (14) master ::= */
@@ -937,8 +937,7 @@ static YYACTIONTYPE yy_reduce(
             yymsp[0].minor.yy41->numSlots = ctx->numSlots;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid number of slots %d", ctx->numSlots);
             goto err;
         }
     }
@@ -953,8 +952,7 @@ static YYACTIONTYPE yy_reduce(
             yymsp[0].minor.yy41->hashFunc = MRHashFunc_CRC16;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
             goto err;
         }
     }
@@ -1039,20 +1037,25 @@ err:
         break;
       case 9: /* endpoint ::= tcp_addr */
 {
-    MREndpoint_Parse(yymsp[0].minor.yy9, &yylhsminor.yy17);
+    yylhsminor.yy17.unixSock = NULL;
+    if (MREndpoint_Parse(yymsp[0].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[0].minor.yy0.pos, yymsp[0].minor.yy0.strval);
+    }
 }
   yymsp[0].minor.yy17 = yylhsminor.yy17;
         break;
       case 10: /* endpoint ::= tcp_addr unix_addr */
 {
-    MREndpoint_Parse(yymsp[-1].minor.yy9, &yylhsminor.yy17);
     yylhsminor.yy17.unixSock = yymsp[0].minor.yy9;
+    if (MREndpoint_Parse(yymsp[-1].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[-1].minor.yy0.pos, yymsp[-1].minor.yy0.strval);
+    }
 }
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
         break;
       case 11: /* tcp_addr ::= ADDR STRING */
 {
-    yymsp[-1].minor.yy9 = yymsp[0].minor.yy0.strval;
+    yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
 }
         break;
       case 12: /* unix_addr ::= UNIXADDR STRING */
@@ -1132,8 +1135,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s));
-    ctx->ok = 0;
+    syntax_error(ctx, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   MRTopologyRequest_ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
   MRTopologyRequest_ParseCTX_STORE
@@ -1410,6 +1412,22 @@ int MRTopologyRequest_ParseFallback(int iToken){
 #endif
 }
 
+
+static void syntax_error(parseCtx *ctx, const char *fmt, ...) {
+    if (!ctx->errorMsg) {
+        va_list ap;
+        va_start(ap, fmt);
+        __ignore__(rm_vasprintf(&ctx->errorMsg, fmt, ap));
+        va_end(ap);
+    }
+    ctx->ok = 0;
+}
+
+static void parseCtx_Free(parseCtx *ctx) {
+    if (ctx->my_id) {
+        rm_free(ctx->my_id);
+    }
+}
 
 MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err)  {
 
