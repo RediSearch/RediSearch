@@ -7,7 +7,7 @@ $MODE dnf update -y
 # Install epel
 $MODE dnf groupinstall "Development Tools" -y
 $MODE dnf config-manager --set-enabled powertools
-$MODE dnf install epel-release
+$MODE dnf install epel-release -y
 
 
 $MODE dnf install -y gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ make wget git openssl openssl-devel \
