@@ -22,3 +22,6 @@ source install_cmake.sh $MODE
 $MODE dnf install python39 -y
 $MODE alternatives --set python `which python3.9`
 update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+python3 -m venv venv
+cp venv/bin/activate /etc/profile.d/activate_venv.sh
