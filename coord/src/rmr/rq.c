@@ -35,14 +35,14 @@ static char loop_th_ready = false;
 uv_timer_t topologyValidationTimer, topologyFailureTimer;
 uv_async_t topologyAsync;
 struct queueItem *pendingTopo = NULL;
-arrayof(MRWorkQueue *) pendingQueues = NULL;
+arrayof(uv_async_t *) pendingQueues = NULL;
 
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
   return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
 static void triggerPendingQueues() {
-  array_foreach(pendingQueues, q, uv_async_send(&q->async));
+  array_foreach(pendingQueues, async, uv_async_send(async));
   array_free(pendingQueues);
   pendingQueues = NULL;
 }
@@ -182,7 +182,7 @@ void RQ_Done(MRWorkQueue *q) {
 
 static void rqAsyncCb(uv_async_t *async) {
   if (!loop_th_ready) {
-    array_ensure_append_1(pendingQueues, async->data); // try again later
+    array_ensure_append_1(pendingQueues, async); // try again later
     return;
   }
   MRWorkQueue *q = async->data;
