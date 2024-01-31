@@ -525,11 +525,22 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
+    size_t min_data_len;
+    size_t cap = idx->blocks[idx->size-1].buf.cap;
+    size_t offset = idx->blocks[idx->size-1].buf.offset;
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-    if(i == 0) {
-      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+
+    if(i == 0 || i == 4 || i == 5) {
+      // For tests numbers 0, 1.0, and 5.0, two bytes are enough to store them.
+      min_data_len = 2;
     } else {
-      ASSERT_TRUE(sz >= 0);
+      min_data_len = 10;
+    }
+
+    if(cap - offset < min_data_len) {
+      ASSERT_TRUE(sz > 0);
+    } else {
+      ASSERT_TRUE(sz == 0);
     }
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
@@ -592,20 +603,28 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
+    size_t cap = idx->blocks[idx->size-1].buf.cap;
+    size_t offset = idx->blocks[idx->size-1].buf.offset;
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-    if(ii == 0) {
-      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+
+    // if there was not enough space to store the entry, sz will be greater than zero
+    if(cap - offset < infos[ii].size) {
+      ASSERT_TRUE(sz > 0);
     } else {
-      ASSERT_TRUE(sz >= 0);
+      ASSERT_TRUE(sz == 0);
     }
+
     if (isMulti) {
+      cap = idx->blocks[idx->size-1].buf.cap;
+      offset = idx->blocks[idx->size-1].buf.offset;
+
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-      // in multi mode we do not write the zero delta
-      // (first entry has zero delta also for single mode)
-      if(ii == 0) {
-        ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
+
+      // Delta is 0, so we don't store it.
+      if(cap - offset < infos[ii].size - 1) {
+        ASSERT_TRUE(sz > 0);
       } else {
-        ASSERT_TRUE(sz >= 0);
+        ASSERT_TRUE(sz == 0);
       }
     }
   }
