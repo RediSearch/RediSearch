@@ -3,6 +3,9 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
+python3 -m venv venv
+cp $PWD/venv/bin/activate /etc/profile.d/activate_venv.sh
+
 pip install --upgrade pip
 pip install -q --upgrade setuptools
 echo "pip version: $(pip --version)"
