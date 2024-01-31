@@ -10,35 +10,61 @@
 #include <sstream>    // std::stringstream
 #include <algorithm>  // ranges::for_each, views::transform
 #include <exception>  // std::exception
+#include <execution>  // std::unseq
+#include <numeric>    // std::transform_reduce
 
 namespace RediSearch {
 namespace GeoShape {
 
+// anonymous namespace is the C++ equivalent of C's static, but also applies to typedefs.
 namespace {
-template <typename cs, typename rect_type = RTree<cs>::rect_type>
-constexpr auto make_mbr = [](auto&& geom) -> rect_type {
-  using point_type = typename RTree<cs>::point_type;
-  if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-    constexpr auto EPSILON = 1e-10;
-    auto p1 = point_type{bg::get<0>(geom) - EPSILON, bg::get<1>(geom) - EPSILON};
-    auto p2 = point_type{bg::get<0>(geom) + EPSILON, bg::get<1>(geom) + EPSILON};
-    return rect_type{p1, p2};
-  } else {
-    return bg::return_envelope<rect_type>(geom);
-  }
+// these types can not escape this TU
+template <typename cs>
+using point_type = RTree<cs>::point_type;
+template <typename cs>
+using poly_type = RTree<cs>::poly_type;
+template <typename cs>
+using geom_type = RTree<cs>::geom_type;
+template <typename cs>
+using rect_type = RTree<cs>::rect_type;
+template <typename cs>
+using doc_type = RTree<cs>::doc_type;
+
+// Overload set to be used by std::visit.
+// Inhreits `operator()` from each of the function objects passed into it during construction.
+// Will fail to compile if the visited `std::variant` contains types that the overload set does
+// not accept. Can be used to force adding a new overload when adding new types to the variant.
+template <typename... Ts>
+struct overload : Ts... {
+  using Ts::operator()...;
 };
-template <typename cs, typename geom_type = RTree<cs>::geom_type,
-          typename doc_type = RTree<cs>::doc_type>
-constexpr auto make_doc(geom_type const& geom, t_docId id = 0) -> doc_type {
-  return doc_type{std::visit(make_mbr<cs>, geom), id};
+// template deduction guide unnecessary for gcc, but might be necessary for clang?
+// can't hurt to include it regardless.
+template <typename... Ts>
+overload(Ts...) -> overload<Ts...>;
+
+template <typename cs>
+constexpr auto make_mbr =
+    overload{[](point_type<cs> const& point) -> rect_type<cs> {
+               constexpr auto INF = std::numeric_limits<long double>::infinity();
+               const auto x = bg::get<0>(point);
+               const auto y = bg::get<1>(point);
+               const auto p1 = point_type<cs>{std::nexttoward(x, -INF), std::nexttoward(y, -INF)};
+               const auto p2 = point_type<cs>{std::nexttoward(x, +INF), std::nexttoward(y, +INF)};
+               return {p1, p2};
+             },
+             [](poly_type<cs> const& geom) { return bg::return_envelope<rect_type<cs>>(geom); }};
+
+template <typename cs>
+constexpr auto make_doc(geom_type<cs> const& geom, t_docId id = 0) -> doc_type<cs> {
+  return {std::visit(make_mbr<cs>, geom), id};
 }
-template <typename cs, typename doc_type = RTree<cs>::doc_type,
-          typename rect_type = RTree<cs>::rect_type>
-constexpr auto get_rect(doc_type const& doc) -> rect_type {
+template <typename cs>
+constexpr auto get_rect(doc_type<cs> const& doc) -> rect_type<cs> {
   return doc.first;
 }
-template <typename cs, typename doc_type = RTree<cs>::doc_type>
-constexpr auto get_id(doc_type const& doc) -> t_docId {
+template <typename cs>
+constexpr auto get_id(doc_type<cs> const& doc) -> t_docId {
   return doc.second;
 }
 
@@ -50,27 +76,44 @@ auto to_string(T const& t) -> string {
   ss << t;
   return ss.str();
 }
-template <typename cs, typename geom_type = RTree<cs>::geom_type>
-auto geometry_to_string(geom_type const& geom) -> string {
-  return std::visit([](auto&& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
+template <typename cs>
+auto geometry_to_string(geom_type<cs> const& geom) -> string {
+  return std::visit([](auto const& geom) -> string { return to_string(bg::wkt(geom)); }, geom);
 }
-template <typename cs, typename doc_type = RTree<cs>::doc_type>
-auto doc_to_string(doc_type const& doc) -> string {
+template <typename cs>
+auto doc_to_string(doc_type<cs> const& doc) -> string {
   return to_string(bg::wkt(get_rect<cs>(doc)));
 }
 
-template <typename cs, typename geom_type = RTree<cs>::geom_type>
-auto from_wkt(std::string_view wkt) -> geom_type {
-  geom_type geom{};
-  if (wkt.starts_with("POI")) {
-    using point_type = RTree<cs>::point_type;
-    geom = bg::from_wkt<point_type>(std::string{wkt});
-  } else if (wkt.starts_with("POL")) {
-    using poly_type = RTree<cs>::poly_type;
-    geom = bg::from_wkt<poly_type>(std::string{wkt});
-  } else {
-    throw std::runtime_error{"unknown geometry type"};
-  }
+// Ironically, the reason I introduced an overload set in the first place requires recursive
+// lambdas and therefore does not work without `deducing this`, a C++23 feature.
+// template <typename cs>
+// constexpr auto to_string = overload{
+//     [](this auto self, geom_type<cs> const& geom) -> string {
+//       return std::visit([](auto const& geom) -> string { return self(bg::wkt(geom)); }, geom);
+//     },
+//     [](this auto self, doc_type<cs> const& doc) -> string {
+//       return self(bg::wkt(get_rect<cs>(doc)));
+//     },
+//     [](auto const& val) -> string {
+//       using sstream =
+//           std::basic_stringstream<char, std::char_traits<char>, Allocator::Allocator<char>>;
+//       auto ss = sstream{};
+//       ss << val;
+//       return ss.str();
+//     }};
+
+template <typename cs>
+auto from_wkt(std::string_view wkt) -> geom_type<cs> {
+  auto geom = [&]() -> geom_type<cs> {
+    if (wkt.starts_with("POI")) {
+      return bg::from_wkt<point_type<cs>>(std::string{wkt});
+    } else if (wkt.starts_with("POL")) {
+      return bg::from_wkt<poly_type<cs>>(std::string{wkt});
+    } else {
+      throw std::runtime_error{"unknown geometry type"};
+    }
+  }();
   std::visit(
       [](auto&& geom) -> void {
         if (bg::is_empty(geom)) {
@@ -85,39 +128,30 @@ auto from_wkt(std::string_view wkt) -> geom_type {
   return geom;
 }
 
-template <typename cs, typename query_results = RTree<cs>::query_results>
-auto generate_query_iterator(query_results&& results, std::size_t& alloc) -> IndexIterator* {
-  auto geometry_query_iterator = new (alloc) QueryIterator{
-      results | std::views::transform([](auto&& doc) -> t_docId { return get_id<cs>(doc); }),
-      alloc};
-  return geometry_query_iterator->base();
-}
+template <typename cs>
+constexpr auto geometry_reporter =
+    overload{[](point_type<cs> const& point) -> std::size_t { return 0; },
+             [](poly_type<cs> const& geom) -> std::size_t {
+               const auto& inners = geom.inners();
+               const auto outer_size = geom.outer().get_allocator().report();
+               // reduce allows out-of-order execution of associative and commutative binary
+               // ops. transform to associative and commutative using a unary predicate.
+               return std::transform_reduce(
+// apple clang does not implement `std::execution` despite being a C++17 feature
+// feature test macro for std::execution. hopefully the most applicable, smallest necessary tool
+// nobody would define the feature test macro witout implementing the feature
+#if defined(__cpp_lib_execution)
+                   std::execution::unseq,
+#endif
+                   std::begin(inners), std::end(inners), outer_size, std::plus{},
+                   [](auto const& hole) { return hole.get_allocator().report(); });
+             }};
 
 template <typename cs>
-constexpr auto geometry_reporter = [](auto&& geom) -> std::size_t {
-  using point_type = typename RTree<cs>::point_type;
-  if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom)>>) {
-    return 0ul;
-  } else {
-    auto const& inners = geom.inners();
-    auto outer_size = geom.outer().get_allocator().report();
-    return std::accumulate(inners.begin(), inners.end(), outer_size,
-                           [](std::size_t acc, auto&& hole) -> std::size_t {
-                             return acc + hole.get_allocator().report();
-                           });
-  }
-};
-
-template <typename cs>
-constexpr auto filter_results = [](auto&& geom1, auto&& geom2) -> bool {
-  using point_type = typename RTree<cs>::point_type;
-  if constexpr (std::is_same_v<point_type, std::decay_t<decltype(geom2)>> &&
-                !std::is_same_v<point_type, std::decay_t<decltype(geom1)>>) {
-    return false;
-  } else {
-    return !bg::within(geom1, geom2);
-  }
-};
+constexpr auto within_filter = overload{
+    // nothing is within a point. (except itself?)
+    [](auto const& geom, point_type<cs> const& point) -> bool { return false; },
+    [](auto const& geom, poly_type<cs> const& poly) -> bool { return bg::within(geom, poly); }};
 }  // anonymous namespace
 
 template <typename cs>
@@ -132,7 +166,7 @@ auto RTree<cs>::lookup(t_docId id) const -> boost::optional<geom_type const&> {
   if (auto it = docLookup_.find(id); it != docLookup_.end()) {
     return it->second;
   }
-  return {};
+  return boost::none;
 }
 template <typename cs>
 auto RTree<cs>::lookup(doc_type const& doc) const -> boost::optional<geom_type const&> {
@@ -153,7 +187,7 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
     return 0;
   } catch (const std::exception& e) {
     if (err_msg) {
-      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
     }
     return 1;
   }
@@ -161,62 +195,52 @@ int RTree<cs>::insertWKT(std::string_view wkt, t_docId id, RedisModuleString** e
 
 template <typename cs>
 bool RTree<cs>::remove(t_docId id) {
-  if (auto geom = lookup(id); geom.has_value()) {
-    allocated_ -= std::visit(geometry_reporter<cs>, *geom);
-    rtree_.remove(make_doc<cs>(*geom, id));
-    docLookup_.erase(id);
-    return true;
-  }
-  return false;
+  return lookup(id)
+      .map([&](geom_type const& geom) {
+        allocated_ -= std::visit(geometry_reporter<cs>, geom);
+        rtree_.remove(make_doc<cs>(geom, id));
+        docLookup_.erase(id);
+        return true;
+      })
+      .value_or(false);
 }
 
 template <typename cs>
 void RTree<cs>::dump(RedisModuleCtx* ctx) const {
-  std::size_t lenTop = 0;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithArray(ctx, 8);
 
-  RedisModule_ReplyWithStringBuffer(ctx, "type", strlen("type"));
-  RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", strlen("boost_rtree"));
-  lenTop += 2;
+  RedisModule_ReplyWithStringBuffer(ctx, "type", std::strlen("type"));
+  RedisModule_ReplyWithStringBuffer(ctx, "boost_rtree", std::strlen("boost_rtree"));
 
-  RedisModule_ReplyWithStringBuffer(ctx, "ptr", strlen("ptr"));
-  auto addr = to_string(&rtree_);
+  RedisModule_ReplyWithStringBuffer(ctx, "ptr", std::strlen("ptr"));
+  const auto addr = to_string(&rtree_);
   RedisModule_ReplyWithStringBuffer(ctx, addr.c_str(), addr.length());
-  lenTop += 2;
 
-  RedisModule_ReplyWithStringBuffer(ctx, "num_docs", strlen("num_docs"));
-  RedisModule_ReplyWithLongLong(ctx, static_cast<long long>(rtree_.size()));
-  lenTop += 2;
+  RedisModule_ReplyWithStringBuffer(ctx, "num_docs", std::strlen("num_docs"));
+  const auto len = static_cast<long long>(rtree_.size());
+  RedisModule_ReplyWithLongLong(ctx, len);
 
-  RedisModule_ReplyWithStringBuffer(ctx, "docs", strlen("docs"));
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  lenTop += 2;
+  RedisModule_ReplyWithStringBuffer(ctx, "docs", std::strlen("docs"));
+  RedisModule_ReplyWithArray(ctx, len);
 
-  std::size_t lenDocs = 0;
-  std::ranges::for_each(rtree_, [&](doc_type const& doc) -> void {
-    lenDocs += 1;
-    std::size_t lenValues = 0;
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  for (doc_type const& doc : rtree_) {
+    const auto geom = lookup(doc);
+    RedisModule_ReplyWithArray(ctx, 4 + (geom ? 2 : 0));
 
-    RedisModule_ReplyWithStringBuffer(ctx, "id", strlen("id"));
+    RedisModule_ReplyWithStringBuffer(ctx, "id", std::strlen("id"));
     RedisModule_ReplyWithLongLong(ctx, get_id<cs>(doc));
-    lenValues += 2;
 
-    if (auto geom = lookup(doc); geom.has_value()) {
-      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", strlen("geoshape"));
-      auto str = geometry_to_string<cs>(*geom);
+    geom.map([ctx](geom_type const& geom) {
+      RedisModule_ReplyWithStringBuffer(ctx, "geoshape", std::strlen("geoshape"));
+      const auto str = geometry_to_string<cs>(geom);
       RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-      lenValues += 2;
-    }
-    RedisModule_ReplyWithStringBuffer(ctx, "rect", strlen("rect"));
-    auto str = doc_to_string<cs>(doc);
-    RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
-    lenValues += 2;
+      return 0;
+    });
 
-    RedisModule_ReplySetArrayLength(ctx, lenValues);
-  });
-  RedisModule_ReplySetArrayLength(ctx, lenDocs);
-  RedisModule_ReplySetArrayLength(ctx, lenTop);
+    RedisModule_ReplyWithStringBuffer(ctx, "rect", std::strlen("rect"));
+    const auto str = doc_to_string<cs>(doc);
+    RedisModule_ReplyWithStringBuffer(ctx, str.c_str(), str.length());
+  }
 }
 
 template <typename cs>
@@ -226,39 +250,26 @@ std::size_t RTree<cs>::report() const noexcept {
 
 template <typename cs>
 template <typename Predicate, typename Filter>
-auto RTree<cs>::apply_predicate(Predicate&& p, Filter&& f) const -> query_results {
-  auto results = query_results{rtree_.qbegin(std::forward<Predicate>(p)), rtree_.qend(),
-                               Allocator::TrackingAllocator<doc_type>{allocated_}};
-  std::erase_if(results, std::forward<Filter>(f));
-  return results;
+auto RTree<cs>::apply_predicate(Predicate&& predicate, Filter&& filter) const -> query_results {
+  return rtree_.qbegin(std::forward<Predicate>(predicate) &&
+                       bgi::satisfies([this, f = std::move(filter)](doc_type const& doc) -> bool {
+                         return lookup(doc).map(f).value_or(false);
+                       }));
 }
 
 template <typename cs>
-auto RTree<cs>::contains(doc_type const& query_doc, geom_type const& query_geom) const
+auto RTree<cs>::query_begin(QueryType query_type, geom_type const& query_geom) const
     -> query_results {
-  return apply_predicate(bgi::contains(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, query_geom, *geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::within(doc_type const& query_doc, geom_type const& query_geom) const
-    -> query_results {
-  return apply_predicate(bgi::within(get_rect<cs>(query_doc)), [&](auto const& doc) -> bool {
-    auto geom = lookup(doc);
-    return geom.has_value() && std::visit(filter_results<cs>, *geom, query_geom);
-  });
-}
-
-template <typename cs>
-auto RTree<cs>::generate_predicate(doc_type const& query_doc, QueryType query_type,
-                                   geom_type const& query_geom) const -> query_results {
+  const auto query_mbr = get_rect<cs>(make_doc<cs>(query_geom));
   switch (query_type) {
-    case QueryType::CONTAINS:
-      return contains(query_doc, query_geom);
+    case QueryType::CONTAINS:  // contains(g1, g2) == within(g2, g1)
+      return apply_predicate(bgi::contains(query_mbr), [query_geom](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, query_geom, geom);
+      });
     case QueryType::WITHIN:
-      return within(query_doc, query_geom);
+      return apply_predicate(bgi::within(query_mbr), [query_geom](auto const& geom) -> bool {
+        return std::visit(within_filter<cs>, geom, query_geom);
+      });
     default:
       throw std::runtime_error{"unknown query"};
   }
@@ -268,26 +279,21 @@ template <typename cs>
 auto RTree<cs>::query(std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> IndexIterator* {
   try {
-    auto query_geom = from_wkt<cs>(wkt);
-    return generate_query_iterator<cs>(
-        generate_predicate(make_doc<cs>(query_geom), query_type, query_geom), allocated_);
+    using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+    auto alloc = alloc_type{allocated_};
+    const auto query_geom = from_wkt<cs>(wkt);
+    const auto qbegin = query_begin(query_type, query_geom);
+    const auto results =
+        std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
+    const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
+    std::allocator_traits<alloc_type>::construct(alloc, qi, results, allocated_);
+    return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {
-      *err_msg = RedisModule_CreateString(nullptr, e.what(), strlen(e.what()));
+      *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));
     }
     return nullptr;
   }
-}
-
-template <typename cs>
-void* RTree<cs>::operator new(std::size_t) noexcept {
-  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
-  return static_cast<void*>(alloc_type::allocate(1));
-}
-template <typename cs>
-void RTree<cs>::operator delete(void* p) noexcept {
-  using alloc_type = RediSearch::Allocator::Allocator<RTree<cs>>;
-  alloc_type::deallocate(static_cast<RTree<cs>*>(p), 1);
 }
 
 #define X(variant) template class RTree<variant>;
