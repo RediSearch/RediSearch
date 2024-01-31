@@ -442,13 +442,60 @@ TEST_F(IndexTest, testNumericInverted) {
   size_t size = 0;
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
 
+  size_t sz = 0;
+  size_t expected_sz = 0;
+  size_t written_bytes = 0;
+  size_t bytes_per_entry = 0;
+  size_t buff_cap = INDEX_BLOCK_INITIAL_CAP;
+  size_t available_size = INDEX_BLOCK_INITIAL_CAP;
+
   for (int i = 0; i < 75; i++) {
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
-    if(i < 3) {
-      ASSERT_TRUE(sz == 0); // first doc has zero delta (not written)
-    } else if(i > 2 && i < 6 ) {
-      ASSERT_TRUE(sz > 0);
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    ASSERT_TRUE(sz == expected_sz);
+
+    // The buffer has an initial capacity: INDEX_BLOCK_INITIAL_CAP = 6
+    // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
+    // only 1 byte.
+    // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
+    // 
+    // The delta will occupy 1 byte.
+    // The first entry has zero delta, so it will not be written.
+    //
+    // For the first 3 entries, the buffer will not grow, and sz = 0,
+    // after that, the sz be greater than zero when the buffer grows.
+    // The buffer will grow when there is not enough space to write the entry
+    //
+    // The number of bytes added to the capacity is defined by the formula:
+    // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
+    //
+    //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
+    // i | bytes | bytes | per Entry | bytes    |          | size      |   
+    // ----------------------------------------------------------------------
+    // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
+    // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
+    // 2 | 1     | 1     | 2         |  5       |  6       | 1         | 0
+    // 3 | 1     | 1     | 2         |  7       |  8       | 1         | 2
+    // 4 | 1     | 1     | 2         |  9       | 10       | 1         | 2
+    // 5 | 1     | 1     | 2         | 11       | 13       | 2         | 3
+    // 6 | 1     | 1     | 2         | 13       | 16       | 3         | 0
+    // 7 | 2     | 1     | 3         | 16       | 16       | 0         | 3
+    // 8 | 2     | 1     | 3         | 19       | 20       | 1         | 4
+    // 9 | 2     | 1     | 3         | 19       | 25       | 1         | 5
+
+    if(i < 7) {
+      bytes_per_entry = 1 + (i > 0);
+    } else {
+      bytes_per_entry = 3;
     }
+
+    // Simulate the buffer growth to get the expected size
+    written_bytes += bytes_per_entry;
+    if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
+      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);  
+    } else {
+      expected_sz = 0;
+    }
+    buff_cap += expected_sz;
   }
   ASSERT_EQ(75, idx->lastId);
 
