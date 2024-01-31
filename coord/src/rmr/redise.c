@@ -30,12 +30,13 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   RedisModule_Log(ctx, "notice", "Got topology update: %s", str);
   char *err = NULL;
   MRClusterTopology *topo = MR_ParseTopologyRequest(str, strlen(str), &err);
+  rm_free(str);
   if (err != NULL) {
-    RedisModule_Log(ctx, "warning", "Could not parse cluster topology: %s\n", err);
+    RedisModule_Log(ctx, "warning", "Could not parse cluster topology: %s", err);
     RedisModule_ReplyWithError(ctx, err);
+    rm_free(err);
     return NULL;
   }
-  rm_free(str);
 
   return topo;
 }

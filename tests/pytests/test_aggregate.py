@@ -3,6 +3,7 @@ from common import *
 import bz2
 import json
 import unittest
+from datetime import datetime, timezone
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -174,7 +175,7 @@ class TestAggregate():
     def testTimeFunctions(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
 
-               'APPLY', '1517417144', 'AS', 'dt',
+               'APPLY', ANY, 'AS', 'dt',
                'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
                'APPLY', 'day(@dt)', 'AS', 'day',
                'APPLY', 'hour(@dt)', 'AS', 'hour',
@@ -186,9 +187,41 @@ class TestAggregate():
                'APPLY', 'year(@dt)', 'AS', 'year',
 
                'LIMIT', '0', '1']
-        res = self.env.cmd(*cmd)
-        self.env.assertEqual([1, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
-                                       'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
+
+        def expected(date: datetime):
+            return [1, ['dt', str(int(date.timestamp())),
+                        'timefmt', date.strftime('%FT%TZ'),
+                        'day', str(int(date.replace(hour=0, minute=0, second=0).timestamp())),
+                        'hour', str(int(date.replace(minute=0, second=0).timestamp())),
+                        'minute', str(int(date.replace(second=0).timestamp())),
+                        'month', str(int(date.replace(day=1, hour=0, minute=0, second=0).timestamp())),
+                        'dayofweek', str(date.isoweekday()),
+                        'dayofmonth', str(date.day),
+                        'dayofyear', str(date.timetuple().tm_yday - 1), # Python tm_yday is 1-based, while C tm_yday is 0-based
+                        'year', str(date.year)]]
+
+        date = datetime(2018, 1, 31, 16, 45, 44, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1517417144) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test a date in January 2024, which is a leap year (before the leap day)
+        date = datetime(2024, 1, 26, 18, 37, 38, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1706294258) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test the leap day in 2024
+        date = datetime(2024, 2, 29, 18, 16, 39, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1709230599) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test a date in March 2024, which is a leap year (after the leap day)
+        date = datetime(2024, 3, 26, 18, 37, 38, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1711478258) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
 
     def testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',

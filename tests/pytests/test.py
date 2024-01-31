@@ -3659,11 +3659,19 @@ def test_missing_schema(env):
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
 
-def test_cluster_set(env):
-    if not env.isCluster():
-        # this test is only relevant on cluster
-        env.skip()
 
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set(env):
+    cluster_set_test(env)
+
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_with_password():
+    mypass = '42MySecretPassword'
+    args = 'OSS_GLOBAL_PASSWORD ' + mypass
+    env = Env(moduleArgs=args, password=mypass)
+    cluster_set_test(env)
+
+def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
             with TimeLimit(10):
@@ -3673,6 +3681,7 @@ def test_cluster_set(env):
         except Exception:
             env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
 
+    password = env.password + "@" if env.password else ""
     # test ipv4
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
@@ -3685,9 +3694,9 @@ def test_cluster_set(env):
                '0',
                '16383',
                'ADDR',
-               'password@127.0.0.1:22000',
+               f'{password}127.0.0.1:{env.port}',
                'MASTER'
-            ).equal('OK')
+            ).ok()
     verify_address('127.0.0.1')
 
     env.stop()
@@ -3705,11 +3714,91 @@ def test_cluster_set(env):
                '0',
                '16383',
                'ADDR',
-               'password@[::1]:22000',
+               f'{password}[::1]:{env.port}',
                'MASTER'
-            ).equal('OK')
+            ).ok()
     verify_address('::1')
 
+    env.stop()
+    env.start()
+
+    # test unix socket
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               f'{password}localhost:{env.port}',
+               'UNIXADDR',
+               '/tmp/redis.sock',
+               'MASTER'
+            ).ok()
+    verify_address('localhost')
+    # check that multiple unix sockets are not allowed
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID',
+               '1',
+               'RANGES',
+               '1',
+               'SHARD',
+               '1',
+               'SLOTRANGE',
+               '0',
+               '16383',
+               'ADDR',
+               f'{password}localhost:{env.port}',
+               'UNIXADDR',
+               '/tmp/redis.sock',
+               'UNIXADDR',
+               '/tmp/another.sock',
+               'MASTER'
+            ).error().contains('Syntax error at offset').contains("near 'UNIXADDR'")
+
+    invalid_addresses = [
+        'invalid',
+        'invalid:',
+        'localhost:invalid',
+        '[::1:234'
+    ]
+    for addr in invalid_addresses:
+        # Test withouth unix socket
+        env.expect('SEARCH.CLUSTERSET',
+                   'MYID',
+                   '1',
+                   'RANGES',
+                   '1',
+                   'SHARD',
+                   '1',
+                   'SLOTRANGE',
+                   '0',
+                   '16383',
+                   'ADDR',
+                    addr,
+                   'MASTER'
+            ).error().contains('Invalid tcp address').contains(addr)
+        # Test with unix socket
+        env.expect('SEARCH.CLUSTERSET',
+                   'MYID',
+                   '1',
+                   'RANGES',
+                   '1',
+                   'SHARD',
+                   '1',
+                   'SLOTRANGE',
+                   '0',
+                   '16383',
+                   'ADDR',
+                    addr,
+                   'UNIXADDR',
+                   '/tmp/redis.sock',
+                   'MASTER'
+            ).error().contains('Invalid tcp address').contains(addr)
 
 def test_cluster_set_server_memory_tracking(env):
     if not env.isCluster():
