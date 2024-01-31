@@ -4,9 +4,10 @@ set -e
 
 $MODE dnf update -y
 
-# Install epel
+# Install python11
 $MODE dnf groupinstall "Development Tools" -yqq
 $MODE dnf config-manager --set-enabled powertools
+
 $MODE dnf install epel-release -yqq
 
 
@@ -18,7 +19,4 @@ echo "gcc version: $(gcc --version)"
 
 source install_cmake.sh $MODE
 
-# Install python3.10 (latest version suggested by the default package manager is python3.6)
-$MODE dnf install python39 -y
-$MODE alternatives --set python `which python3.9`
-update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+$MODE dnf install python3.11-pip -y
