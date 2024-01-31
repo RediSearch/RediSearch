@@ -113,13 +113,10 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: |
-          echo "pip: $(which pip)"
-          make SAN=${{ inputs.san }}
+        run: make SAN=${{ inputs.san }}
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
-        run: |
-          make COORD=1 SAN=${{ inputs.san }}
+        run: make COORD=1 SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
         id: test1
