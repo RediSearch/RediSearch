@@ -3,10 +3,6 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
-# create virtual env
-python3 -m venv venv
-source venv/bin/activate
-
 pip install --upgrade pip
 pip install -q --upgrade setuptools
 echo "pip version: $(pip --version)"
