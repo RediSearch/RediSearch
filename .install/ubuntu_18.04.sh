@@ -24,6 +24,3 @@ $MODE update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2 
 #$MODE apt-get install python3-venv -y
 
 source install_cmake.sh $MODE
-
-python3 -m venv venv
-cp venv/bin/activate /etc/profile.d/activate_venv.sh
