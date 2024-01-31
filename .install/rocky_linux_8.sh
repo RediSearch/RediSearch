@@ -5,15 +5,15 @@ set -e
 $MODE dnf update -y
 
 # Install epel
-$MODE dnf groupinstall "Development Tools" -y
+$MODE dnf groupinstall "Development Tools" -yqq
 $MODE dnf config-manager --set-enabled powertools
-$MODE dnf install epel-release -y
+$MODE dnf install epel-release -yqq
 
 
-$MODE dnf install -y gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ make wget git openssl openssl-devel \
+$MODE dnf install -y gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ gcc-toolset-11-libatomic-devel make wget git openssl openssl-devel \
     bzip2-devel libffi-devel zlib-devel tar xz which
 
-source /opt/rh/gcc-toolset-11/enable
+cp /opt/rh/gcc-toolset-11/enable /etc/profile.d/gcc-toolset-11.sh
 echo "gcc version: $(gcc --version)"
 
 source install_cmake.sh $MODE
