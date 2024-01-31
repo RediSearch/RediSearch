@@ -35,8 +35,16 @@ static char loop_th_ready = false;
 uv_timer_t topologyValidationTimer, topologyFailureTimer;
 uv_async_t topologyAsync;
 struct queueItem *pendingTopo = NULL;
+arrayof(MRWorkQueue *) pendingQueues = NULL;
+
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
   return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);
+}
+
+static void triggerPendingQueues() {
+  array_foreach(pendingQueues, q, uv_async_send(&q->async));
+  array_free(pendingQueues);
+  pendingQueues = NULL;
 }
 
 extern RedisModuleCtx *RSDummyContext;
@@ -47,6 +55,7 @@ static void topologyFailureCB(uv_timer_t *timer) {
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
   loop_th_ready = true;
+  triggerPendingQueues();
 }
 
 static void topologyTimerCB(uv_timer_t *timer) {
@@ -56,6 +65,7 @@ static void topologyTimerCB(uv_timer_t *timer) {
     RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
     uv_timer_stop(&topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&topologyFailureTimer);    // stop failure timer (as we are connected)
+    triggerPendingQueues();
   } else {
     RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
   }
@@ -172,7 +182,7 @@ void RQ_Done(MRWorkQueue *q) {
 
 static void rqAsyncCb(uv_async_t *async) {
   if (!loop_th_ready) {
-    uv_async_send(async); // try again later
+    array_ensure_append_1(pendingQueues, async->data); // try again later
     return;
   }
   MRWorkQueue *q = async->data;
