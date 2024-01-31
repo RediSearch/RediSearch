@@ -3801,6 +3801,45 @@ def cluster_set_test(env: Env):
                'MASTER'
             ).error().contains('Syntax error at offset').contains("near 'UNIXADDR'")
 
+    invalid_addresses = [
+        'invalid',
+        'invalid:',
+        'localhost:invalid',
+        '[::1:234'
+    ]
+    for addr in invalid_addresses:
+        # Test withouth unix socket
+        env.expect('SEARCH.CLUSTERSET',
+                   'MYID',
+                   '1',
+                   'RANGES',
+                   '1',
+                   'SHARD',
+                   '1',
+                   'SLOTRANGE',
+                   '0',
+                   '16383',
+                   'ADDR',
+                    addr,
+                   'MASTER'
+            ).error().contains('Invalid tcp address').contains(addr)
+        # Test with unix socket
+        env.expect('SEARCH.CLUSTERSET',
+                   'MYID',
+                   '1',
+                   'RANGES',
+                   '1',
+                   'SHARD',
+                   '1',
+                   'SLOTRANGE',
+                   '0',
+                   '16383',
+                   'ADDR',
+                    addr,
+                   'UNIXADDR',
+                   '/tmp/redis.sock',
+                   'MASTER'
+            ).error().contains('Invalid tcp address').contains(addr)
 
 def test_cluster_set_server_memory_tracking(env):
     if not env.isCluster():

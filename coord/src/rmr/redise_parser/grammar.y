@@ -22,17 +22,12 @@
 
 #include "lexer.h"
 
-static void parseCtx_Free(parseCtx *ctx) {
-    if (ctx->my_id) {
-        rm_free(ctx->my_id);
-    }
-}
+static void syntax_error(parseCtx *ctx, const char *fmt, ...);
 
 } // END %include
 
 %syntax_error {
-    __ignore__(rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s));
-    ctx->ok = 0;
+    syntax_error(ctx, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
 %default_type { char * }
@@ -48,6 +43,8 @@ static void parseCtx_Free(parseCtx *ctx) {
 %type master {int}
 %destructor master {}
 %destructor cluster {}
+%type tcp_addr {Token}
+%destructor tcp_addr {}
 
 root ::= cluster topology(D). {
     if (ctx->numSlots) {
@@ -55,8 +52,7 @@ root ::= cluster topology(D). {
             D->numSlots = ctx->numSlots;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid number of slots %d", ctx->numSlots);
             goto err;
         }
     }
@@ -71,8 +67,7 @@ root ::= cluster topology(D). {
             D->hashFunc = MRHashFunc_CRC16;
         } else {
             // ERROR!
-            __ignore__(rm_asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc));
-            ctx->ok = 0;
+            syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
             goto err;
         }
     }
@@ -144,17 +139,22 @@ shardid(A) ::= INTEGER(B). {
 }
 
 endpoint(A) ::= tcp_addr(B). {
-    MREndpoint_Parse(B, &A);
+    A.unixSock = NULL;
+    if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
+    }
 }
 
 endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
-    MREndpoint_Parse(B, &A);
     A.unixSock = C;
+    if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
+        syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
+    }
 }
 
 
 tcp_addr(A) ::= ADDR STRING(B) . {
-    A = B.strval;
+    A = B;
 }
 
 unix_addr(A) ::= UNIXADDR STRING(B). {
@@ -170,6 +170,22 @@ master(A) ::= . {
 }
 
 %code {
+
+static void syntax_error(parseCtx *ctx, const char *fmt, ...) {
+    if (!ctx->errorMsg) {
+        va_list ap;
+        va_start(ap, fmt);
+        __ignore__(rm_vasprintf(&ctx->errorMsg, fmt, ap));
+        va_end(ap);
+    }
+    ctx->ok = 0;
+}
+
+static void parseCtx_Free(parseCtx *ctx) {
+    if (ctx->my_id) {
+        rm_free(ctx->my_id);
+    }
+}
 
 MRClusterTopology *MR_ParseTopologyRequest(const char *c, size_t len, char **err)  {
 
