@@ -312,7 +312,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   rc->cmds = rm_calloc(1, sizeof(MRCommand));
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
-  assert(rc->protocol == cmd.protocol);
+  RedisModule_Assert(rc->protocol == cmd.protocol); // TODO: dev-time assert only
   RQ_Push(rq_g, uvFanoutRequest, rc);
   return REDIS_OK;
 }
@@ -354,7 +354,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   rc->protocol = MRCtx_GetProtocol(ctx);
-  assert(rc->protocol == cmd.protocol);
+  RedisModule_Assert(rc->protocol == cmd.protocol); // TODO: dev-time assert only
   RedisModule_Assert(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
@@ -400,7 +400,6 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
-  RS_AutoMemory(ctx);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   const char *hash_func_str;

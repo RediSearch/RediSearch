@@ -182,8 +182,6 @@ def test_profile(env):
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
     env = Env(protocol=3)
-    if env.shardsCount != 3:
-        env.skip()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -194,35 +192,27 @@ def test_coord_profile():
     waitForIndex(env, 'idx1')
 
     # test with profile
-    exp = {
-        'attributes': [],
-        'warning': [],
-        'total_results': 2,
-        'format': 'STRING',
-        'results': [
-          {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
-          {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
-        ],
-        'shards':
-        {'Shard #1': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+    shards_exp = {
+      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
                       'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
                       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #2': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
-                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
-                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Shard #3': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
-                     'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
-                     'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                   {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
+                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}
+      for i in range(1, env.shardsCount + 1)
+    }
+    shards_exp['Coordinator'] = {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}
+    exp = {
+      'attributes': [],
+      'warning': [],
+      'total_results': 2,
+      'format': 'STRING',
+      'results': [
+        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
+      ],
+      'shards': shards_exp
+    }
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
