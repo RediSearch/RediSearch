@@ -448,9 +448,9 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
           RedisModule_ReplyKV_SimpleString(reply, "id", node->id);
           RedisModule_ReplyKV_SimpleString(reply, "host", node->endpoint.host);
           RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModuleString *role = RedisModule_CreateStringPrintf(ctx, "%s%s",
-            node->flags & MRNode_Master ? "master " : "slave ", node->flags & MRNode_Self ? "self" : "");
-          RedisModule_ReplyKV_String(reply, "role", role);
+          RedisModule_ReplyKV_Stringf(reply, "role", "%s%s",
+                                      node->flags & MRNode_Master ? "master " : "slave ",
+                                      node->flags & MRNode_Self ? "self" : "");
 
           RedisModule_Reply_MapEnd(reply); // >>>>(node)
         }

@@ -400,6 +400,20 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
   return REDISMODULE_OK;
 }
 
+int RedisModule_ReplyKV_Stringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
+  RedisModule_Reply_SimpleString(reply, key);
+  va_list args;
+  va_start(args, fmt);
+  char *p;
+  rm_vasprintf(&p, fmt, args);
+  RedisModule_ReplyWithSimpleString(reply->ctx, p);
+  json_add(reply, false, "\"%s\"", p);
+  rm_free(p);
+  _RedisModule_Reply_Next(reply);
+  va_end(args);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
@@ -414,7 +428,7 @@ int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
   _RedisModule_Reply_Next(reply);
-  
+
   //RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_Reply_Array(reply);
   //_RedisModule_Reply_Push(reply, REDISMODULE_REPLY_ARRAY);
