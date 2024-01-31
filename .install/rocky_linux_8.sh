@@ -10,7 +10,6 @@ source /opt/rh/gcc-toolset-10/enable
 source install_cmake.sh $MODE
 
 # Install python3.10 (latest version suggested by the default package manager is python3.6)
-$MODE dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
-$MODE dnf config-manager --set-enabled powertools
-$MODE dnf install epel-release
-$MODE dnf install python38 -y
+$MODE dnf install python39 -y
+$MODE alternatives --set python `which python3.9`
+update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
