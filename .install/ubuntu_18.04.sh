@@ -6,7 +6,7 @@ MODE=$1 # whether to install using sudo or not
 $MODE apt update -qq
 $MODE apt upgrade -yqq
 $MODE apt dist-upgrade -yqq
-$MODE apt install -yqq software-properties-common
+$MODE apt install -yqq software-properties-common unzip
 
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
 $MODE add-apt-repository ppa:git-core/ppa -y
