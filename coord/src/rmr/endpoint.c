@@ -13,7 +13,6 @@
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
 
   ep->host = NULL;
-  ep->unixSock = NULL;
   ep->auth = NULL;
 
   // see if we have an auth password
