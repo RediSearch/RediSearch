@@ -13,7 +13,6 @@
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
 
   ep->host = NULL;
-  ep->unixSock = NULL;
   ep->auth = NULL;
 
   // see if we have an auth password
@@ -29,13 +28,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
       ++addr; // skip the ipv6 opener '['
   }
 
-  char *iter = strchr(addr, ':');
-  char *colon = NULL;
-  while (iter) {
-      colon = iter;
-      ++iter;
-      iter = strchr(iter, ':');
-  }
+  char *colon = strrchr(addr, ':');
 
   if (!colon) {
     MREndpoint_Free(ep);
