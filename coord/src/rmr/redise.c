@@ -5,40 +5,30 @@
  */
 
 #include "redise.h"
-#include "redise_parser/parse.h"
 
-MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                 int argc) {
+typedef struct {
+  int startSlot;
+  int endSlot;
+  MRClusterNode node;
+} RLShard;
 
-  size_t totalLen = 0;
-  const char *cargs[argc];
-  size_t lens[argc];
-  for (int i = 1; i < argc; i++) {
-    cargs[i - 1] = RedisModule_StringPtrLen(argv[i], &lens[i - 1]);
-    totalLen += lens[i - 1] + 1;
+static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
+
+  int found = -1;
+  for (int i = 0; i < t->numShards; i++) {
+    if (sh->startSlot == t->shards[i].startSlot && sh->endSlot == t->shards[i].endSlot) {
+      found = i;
+      break;
+    }
   }
 
-  char *str = rm_calloc(totalLen + 2, 1);
-  char *p = str;
-  for (int i = 0; i < argc - 1; i++) {
-    strncpy(p, cargs[i], lens[i]);
-    p += lens[i];
-    *p++ = ' ';
+  if (found >= 0) {
+    MRClusterShard_AddNode(&t->shards[found], &sh->node);
+  } else {
+    MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
+    MRClusterShard_AddNode(&csh, &sh->node);
+    MRClusterTopology_AddShard(t, &csh);
   }
-  p--;
-  *p = 0;
-  RedisModule_Log(ctx, "notice", "Got topology update: %s", str);
-  char *err = NULL;
-  MRClusterTopology *topo = MR_ParseTopologyRequest(str, strlen(str), &err);
-  rm_free(str);
-  if (err != NULL) {
-    RedisModule_Log(ctx, "warning", "Could not parse cluster topology: %s", err);
-    RedisModule_ReplyWithError(ctx, err);
-    rm_free(err);
-    return NULL;
-  }
-
-  return topo;
 }
 
 #define ERROR_FMT(fmt, ...)                          \
@@ -60,7 +50,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     goto error;                                   \
   }
 
-MRClusterTopology *RedisEnterprise_ParseTopology_(RedisModuleCtx *ctx, RedisModuleString **argv,
+MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                   int argc) {
   // Minimal command: CMD MYID <myid> RANGES 1 SHARD <shard_id> SLOTRANGE <start_slot> <end_slot>
   // ADDR <tcp>
