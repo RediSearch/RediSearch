@@ -10,7 +10,7 @@
 #include "rmr/common.h"
 #include "rmr/endpoint.h"
 
-typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2, MRNode_Coordinator = 0x4 } MRNodeFlags;
+typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2} MRNodeFlags;
 
 typedef struct {
   MREndpoint endpoint;

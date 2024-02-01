@@ -49,10 +49,9 @@ typedef struct MRClusterTopology {
   size_t numShards;
   size_t capShards;
   MRClusterShard *shards;
-
 } MRClusterTopology;
 
-MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots);
+MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots, MRHashFunc hashFunc);
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh);
 
 void MRClusterTopology_Free(MRClusterTopology *t);
