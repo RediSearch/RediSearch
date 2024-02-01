@@ -400,11 +400,12 @@ void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n) {
   sh->nodes[sh->numNodes++] = *n;
 }
 
-MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots) {
-  MRClusterTopology *topo = rm_calloc(1, sizeof(*topo));
-  topo->capShards = numShards;
-  topo->numShards = 0;
+MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots, MRHashFunc hashFunc) {
+  MRClusterTopology *topo = rm_new(MRClusterTopology);
   topo->numSlots = numSlots;
+  topo->hashFunc = hashFunc;
+  topo->numShards = 0;
+  topo->capShards = numShards;
   topo->shards = rm_calloc(topo->capShards, sizeof(MRClusterShard));
   return topo;
 }
