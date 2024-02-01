@@ -20,22 +20,14 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
-  test-linux:
+  test-rocky9:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      platform: "ubuntu:bionic"
-  test-rocky8:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      platform: "rockylinux:8"
+      platform: "rockylinux:9"
 
   # test-macos:
   #   uses: ./.github/workflows/flow-macos.yml
