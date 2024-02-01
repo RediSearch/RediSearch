@@ -2,6 +2,7 @@
 
 #include "grammar.h"
 #include "token.h"
+#include "rmalloc.h"
 #include <string.h>
 #include <math.h>
 
@@ -10,7 +11,7 @@ Token tok = { };
 /* handle locations */
 int yycolumn = 1;
 
-#define YY_USER_ACTION yycolumn += yyleng; tok.pos = yycolumn;  tok.s = yytext; tok.len = strlen(yytext);
+#define YY_USER_ACTION yycolumn += yyleng; tok.pos = yycolumn; tok.s = yytext; tok.len = yyleng; tok.strval = NULL;
 %}
 
 %%
@@ -32,14 +33,13 @@ int yycolumn = 1;
 }
 
 [A-Za-z0-9_\.\:\@\-\/\[\]]+ {
-  tok.strval = yytext;
+  tok.strval = rm_strdup(yytext);
   return STRING;
 }
 
 (\"(\\.|[^\"])*\")|('(\\.|[^'])*')    {
   /* String literals, with escape sequences - enclosed by "" or '' */
-  tok.strval = yytext+1;
-  tok.strval[tok.len-1] = '\0';
+  tok.strval = rm_strndup(yytext+1, yyleng-1);
   return STRING;
 }
 
