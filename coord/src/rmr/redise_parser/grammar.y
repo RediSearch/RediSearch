@@ -44,7 +44,7 @@ static void syntax_error(parseCtx *ctx, const char *fmt, ...);
 %destructor master {}
 %destructor cluster {}
 %type tcp_addr {Token}
-%destructor tcp_addr {}
+%destructor tcp_addr { rm_free($$.strval); }
 
 root ::= cluster topology(D). {
     if (ctx->numSlots) {
@@ -68,8 +68,10 @@ root ::= cluster topology(D). {
         } else {
             // ERROR!
             syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
+            rm_free(ctx->shardFunc);
             goto err;
         }
+        rm_free(ctx->shardFunc);
     }
     ctx->topology = D;
 
@@ -131,7 +133,7 @@ shard(A) ::= SHARD shardid(B) SLOTRANGE INTEGER(C) INTEGER(D) endpoint(E) master
 
 
 shardid(A) ::= STRING(B). {
-    A = rm_strdup(B.strval);
+    A = B.strval;
 }
 
 shardid(A) ::= INTEGER(B). {
@@ -143,6 +145,7 @@ endpoint(A) ::= tcp_addr(B). {
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
     }
+    rm_free(B.strval);
 }
 
 endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
@@ -150,6 +153,7 @@ endpoint(A) ::= tcp_addr(B) unix_addr(C) . {
     if (MREndpoint_Parse(B.strval, &A) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", B.pos, B.strval);
     }
+    rm_free(B.strval);
 }
 
 
@@ -158,7 +162,7 @@ tcp_addr(A) ::= ADDR STRING(B) . {
 }
 
 unix_addr(A) ::= UNIXADDR STRING(B). {
-    A = rm_strdup(B.strval);
+    A = B.strval;
 }
 
 master(A) ::= MASTER . {
