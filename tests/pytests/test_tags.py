@@ -2,6 +2,7 @@
 
 from includes import *
 from common import *
+import json
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
@@ -344,8 +345,8 @@ def testEmptyTagLeak(env):
     tags = 30
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     pl = conn.pipeline()
 
     for i in range(cycles):
@@ -358,3 +359,149 @@ def testEmptyTagLeak(env):
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+def testEmptyValueTags(env):
+    """Tests that empty values are indexed properly"""
+
+    def testHashIndex(env, conn, idx):
+        """Performs a series of tests on a hash index"""
+        # Search for a single document, via its indexed empty value
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty}']
+        expected = [1, 'h1', ['t', '']]
+        cmd_assert(env, cmd, expected)
+
+        # Make sure the document is NOT returned when searching for a non-empty
+        # value
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{foo}']
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------ Negation ------------------------------
+        # Search for a negation of a non-empty value, make sure the document is
+        # returned
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['-@t:{foo}']
+        expected = [1, 'h1', ['t', '']]
+        cmd_assert(env, cmd, expected)
+
+        # Search for a negation of an empty value, make sure the document is NOT
+        # returned
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['-@t:{__empty}']
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------- Union --------------------------------
+        # Union of empty and non-empty values
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty | foo}']
+        expected = [1, 'h1', ['t', '']]
+        cmd_assert(env, cmd, expected)
+
+        # ---------------------------- Intersection ----------------------------
+        # Intersection of empty and non-empty values
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty & foo}']
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------- Prefix -------------------------------
+        # We shouldn't get the document when searching for a prefix of "__empty"
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{*pty}']
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------- Suffix -------------------------------
+        # We shouldn't get the document when searching for a suffix of "__empty"
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__em*}']
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # -------------------- Combination with other fields -------------------
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{__empty}']
+        expected = [1, 'h1', ['t', '']]
+        cmd_assert(env, cmd, [1, 'h1', ['t', '']])
+
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{__empty}']
+        expected = [0]
+        cmd_assert(env, cmd, [0])
+
+        # Non-empty intersection with another field
+        conn.execute_command('HSET', 'h1', 'text', 'hello')
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{__empty}']
+        expected = [1, 'h1', ['t', '', 'text', 'hello']]
+        cmd_assert(env, cmd, expected)
+
+        # Non-empty union with another field
+        conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'Movie')
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['love | @t:{__empty}', 'SORTBY', 'text', 'ASC']
+        expected = [
+            2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'Movie']
+        ]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------- APPLY --------------------------------
+        # Populate with some data that we will be able to see the `APPLYz`
+        cmd = f'FT.AGGREGATE {idx} * LOAD 1 @t APPLY upper(@t) as upper_t SORTBY 4 @t ASC @upper_t ASC'.split(' ')
+        expected = [
+            ANY, \
+            ['t', '', 'upper_t', ''], \
+            ['t', 'Movie', 'upper_t', 'MOVIE']
+        ]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------ SORTBY --------------------------------
+        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
+        expected = [
+            ANY, \
+            ['t', '', 'text', 'hello'], \
+            ['t', 'Movie', 'text', 'love you']
+        ]
+        cmd_assert(env, cmd, expected)
+
+        # Reverse order
+        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
+        expected = [
+            ANY, \
+            ['t', 'Movie', 'text', 'love you'], \
+            ['t', '', 'text', 'hello']
+        ]
+        cmd_assert(env, cmd, expected)
+
+    # Create an index with a TAG field, that also indexes empty strings
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY', 'text', 'TEXT').ok()
+
+    # Create a document with an empty field, corresponding to the TAG field of
+    # the index (use cluster connection - for rerouting).
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'h1', 't', '')
+
+    testHashIndex(env, conn, 'idx')
+    env.flush()
+
+    # ----------------------------- SORTABLE case ------------------------------
+    # Create an index with a SORTABLE TAG field, that also indexes empty strings
+    # TODO: The below command doesn't work, as opposed to the one below. Make it flexible so it will work.
+    # env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'EMPTY', 'SORTABLE', 'text', 'TEXT').ok()
+    conn.execute_command('HSET', 'h1', 't', '')
+
+    testHashIndex(env, conn, 'idx_sortable')
+    env.flush()
+
+    def testJSONIndex(env, idx):
+        # Search for a single document, via its indexed empty value
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty}']
+        expected = [1, 'j1', ['$', '{"t":""}']]
+        cmd_assert(env, cmd, expected)
+
+        # More cases: TBD
+
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'EMPTY').ok()
+    # Create a document with an empty field, corresponding to the TAG field of
+    # the index.
+    empty_j = {'t': ''}
+    env.expect('JSON.SET', 'j1', '$', json.dumps(empty_j)).equal('OK')
+    testJSONIndex(env, 'jidx')
+
+    """
+    TODO: The following cases' behavior is to be defined:
+        - "tag:{*__empty}"
+        - "tag:{__empty*}"
+    """

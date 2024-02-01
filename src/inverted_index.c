@@ -979,8 +979,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
-      // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
+        // We're at the end of the last block...
         goto eof;
       }
       IndexReader_AdvanceBlock(ir);

@@ -1033,7 +1033,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     return NULL;
   }
 
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
@@ -1234,6 +1234,14 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (n->tn.str) {
     tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
+  }
+
+  // Support for EMPTY TAG values (searched via the "__empty" token).
+  if (n->tn.str && strcmp(n->tn.str, "__empty") == 0 && FieldSpec_IndexesEmpty(fs)) {
+    // Transform the query to an empty string query.
+    rm_free(n->tn.str);
+    n->tn.str = rm_strdup("");
+    n->tn.len = 0;
   }
 
   switch (n->type) {

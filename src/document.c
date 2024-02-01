@@ -751,7 +751,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  if (TagIndex_Preprocess(fs->tagOpts.tagSep, fs->tagOpts.tagFlags, field, fdata)) {
+  if (TagIndex_Preprocess(fs, field, fdata)) {
     if (FieldSpec_IsSortable(fs)) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;
@@ -761,10 +761,6 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
         field->multisv = NULL;
       }
-    }
-
-    if (FieldSpec_IndexesEmpty(fs)) {
-      RedisModule_Log(RSDummyContext, "warning", "Tag field %s indexes empty values (Implementation to follow)", fs->name);
     }
   }
   return 0;

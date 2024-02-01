@@ -66,7 +66,10 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
   return start;
 }
 
-static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
+static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resArray) {
+  char sep = fs->tagOpts.tagSep;
+  TagFieldFlags flags = fs->tagOpts.tagFlags;
+
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
@@ -80,10 +83,18 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   char *pp = p = rm_strdup(str);
   while (p) {
     // get the next token
-    size_t toklen;
+    size_t toklen = 0;
     char *tok = TagIndex_SepString(sep, &p, &toklen);
     // this means we're at the end
-    if (tok == NULL) break;
+    if (tok == NULL) {
+      if (pp == p && FieldSpec_IndexesEmpty(fs)) {
+        // The value is empty (i.e., empty string) and the field indexes such fields.
+        tok = rm_strdup(p);
+        *resArray = array_append(*resArray, tok);
+      }
+
+      break;
+    }
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
@@ -97,21 +108,23 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
   return REDISMODULE_OK;
 }
 
-int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata) {
+int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata) {
+  char sep = fs->tagOpts.tagSep;
+  TagFieldFlags flags = fs->tagOpts.tagFlags;
   arrayof(char*) arr = array_new(char *, 4);
   const char *str;
   int ret = 1;
   switch (data->unionType) {
   case FLD_VAR_T_RMS:
     str = (char *)RedisModule_StringPtrLen(data->text, NULL);
-    tokenizeTagString(str, sep, flags, &arr);
+    tokenizeTagString(str, fs, &arr);
     break;
   case FLD_VAR_T_CSTR:
-    tokenizeTagString(data->strval, sep, flags, &arr);
+    tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
-      tokenizeTagString(data->multiVal[i], sep, flags, &arr);
+      tokenizeTagString(data->multiVal[i], fs, &arr);
     }
     break;
   case FLD_VAR_T_NULL:
@@ -141,7 +154,6 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
 
 /* Ecode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
-
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
@@ -154,8 +166,10 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
   size_t ret = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
-    if (tok && *tok != '\0') {
+    if (tok) {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
+
+      // TODO: Skip this if tok=''?
       if (idx->suffix) { // add to suffix triemap if exist
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
