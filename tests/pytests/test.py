@@ -3753,26 +3753,69 @@ def cluster_set_test(env: Env):
                'MASTER'
             ).ok()
     verify_address('localhost')
+
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_errors(env: Env):
+
+    # Check general values parsing
+    env.expect('SEARCH.CLUSTERSET').error().contains('Missing value for MYID')
+    env.expect('SEARCH.CLUSTERSET', 'RANDOM').error().contains('Unexpected argument').contains('RANDOM')
+
+    env.expect('SEARCH.CLUSTERSET', 'MYID').error().contains('Missing value for MYID')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES').error().contains('Missing value for RANGES')
+    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
+
+    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
+
+    # Check shard values parsing
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'BANANA').error().contains('Expected `SHARD` but got `BANANA`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD').error().contains('Missing value for SHARD')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1').error().contains('Expected `SLOTRANGE` but got `(nil)`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE').error().contains('Missing value for SLOTRANGE')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0').error().contains('Missing value for SLOTRANGE')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', 'banana').error().contains('Bad value for SLOTRANGE').contains('banana')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1').error().contains('Expected `ADDR` but got `(nil)`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR').error().contains('Missing value for ADDR')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1', 'UNIXADDR').error().contains('Missing value for UNIXADDR')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1', 'UNEXPECTED').error().contains('Expected end of command but got `UNEXPECTED`')
+
+    # Test too many slots (or too few shards)
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1').error().contains('Expected `SHARD` but got `(nil)`')
+
     # check that multiple unix sockets are not allowed
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'RANGES',
-               '1',
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD',
                '1',
                'SLOTRANGE',
                '0',
                '16383',
                'ADDR',
-               f'{password}localhost:{env.port}',
+               'localhost:123',
                'UNIXADDR',
                '/tmp/redis.sock',
+               'MASTER'
                'UNIXADDR',
                '/tmp/another.sock',
-               'MASTER'
             ).error().contains('Expected').contains("UNIXADDR")
 
+    # check invalid addresses
     invalid_addresses = [
         'invalid',
         'invalid:',
