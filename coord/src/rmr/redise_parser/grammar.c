@@ -527,6 +527,23 @@ static void yy_destructor(
     ** inside the C code.
     */
 /********* Begin destructor definitions ***************************************/
+      /* TERMINAL Destructor */
+    case 1: /* MYID */
+    case 2: /* HASHFUNC */
+    case 3: /* STRING */
+    case 4: /* NUMSLOTS */
+    case 5: /* INTEGER */
+    case 6: /* HASREPLICATION */
+    case 7: /* RANGES */
+    case 8: /* SHARD */
+    case 9: /* SLOTRANGE */
+    case 10: /* ADDR */
+    case 11: /* UNIXADDR */
+    case 12: /* MASTER */
+{
+ rm_free((yypminor->yy0).strval); 
+}
+      break;
       /* Default NON-TERMINAL Destructor */
     case 19: /* root */
     case 20: /* shardid */
@@ -981,6 +998,7 @@ err:
 {
     ctx->my_id = yymsp[0].minor.yy9;
 }
+  yy_destructor(yypParser,1,&yymsp[-1].minor);
 }
         break;
       case 2: /* cluster ::= cluster HASHFUNC STRING NUMSLOTS INTEGER */
@@ -989,6 +1007,8 @@ err:
     ctx->shardFunc = yymsp[-2].minor.yy0.strval;
     ctx->numSlots = yymsp[0].minor.yy0.intval;
 }
+  yy_destructor(yypParser,2,&yymsp[-3].minor);
+  yy_destructor(yypParser,4,&yymsp[-1].minor);
 }
         break;
       case 3: /* cluster ::= cluster HASREPLICATION */
@@ -996,13 +1016,16 @@ err:
 {
     ctx->replication = 1;
 }
+  yy_destructor(yypParser,6,&yymsp[0].minor);
 }
         break;
       case 4: /* topology ::= RANGES INTEGER */
+{  yy_destructor(yypParser,7,&yymsp[-1].minor);
 {
     yymsp[-1].minor.yy41 = MR_NewTopology(yymsp[0].minor.yy0.intval, 4096);
     // this is the default hash func
     yymsp[-1].minor.yy41->hashFunc = MRHashFunc_CRC12;
+}
 }
         break;
       case 5: /* topology ::= topology shard */
@@ -1013,6 +1036,7 @@ err:
   yymsp[-1].minor.yy41 = yylhsminor.yy41;
         break;
       case 6: /* shard ::= SHARD shardid SLOTRANGE INTEGER INTEGER endpoint master */
+{  yy_destructor(yypParser,8,&yymsp[-6].minor);
 {
     yymsp[-6].minor.yy25 = (RLShard){
             .node = (MRClusterNode) {
@@ -1023,6 +1047,8 @@ err:
         .startSlot = yymsp[-3].minor.yy0.intval,
         .endSlot = yymsp[-2].minor.yy0.intval,
     };
+}
+  yy_destructor(yypParser,9,&yymsp[-4].minor);
 }
         break;
       case 7: /* shardid ::= STRING */
@@ -1058,18 +1084,24 @@ err:
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
         break;
       case 11: /* tcp_addr ::= ADDR STRING */
+{  yy_destructor(yypParser,10,&yymsp[-1].minor);
 {
     yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
 }
+}
         break;
       case 12: /* unix_addr ::= UNIXADDR STRING */
+{  yy_destructor(yypParser,11,&yymsp[-1].minor);
 {
     yymsp[-1].minor.yy9 = yymsp[0].minor.yy0.strval;
 }
+}
         break;
       case 13: /* master ::= MASTER */
+{  yy_destructor(yypParser,12,&yymsp[0].minor);
 {
     yymsp[0].minor.yy20 = 1;
+}
 }
         break;
       case 14: /* master ::= */

@@ -5,6 +5,7 @@
  */
 
 %token_type {Token}
+%token_destructor { rm_free($$.strval); }
 %name MRTopologyRequest_Parse
 
 %include {
