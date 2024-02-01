@@ -115,7 +115,7 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
+        run: make SAN=${{ inputs.san }} CC_STATIC_LIBSTDCXX=0
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }}
