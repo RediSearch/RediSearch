@@ -562,7 +562,7 @@ static void yy_destructor(
       break;
     case 18: /* tcp_addr */
 {
-
+ rm_free((yypminor->yy0).strval); 
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -953,8 +953,10 @@ static YYACTIONTYPE yy_reduce(
         } else {
             // ERROR!
             syntax_error(ctx, "Invalid hash func %s", ctx->shardFunc);
+            rm_free(ctx->shardFunc);
             goto err;
         }
+        rm_free(ctx->shardFunc);
     }
     ctx->topology = yymsp[0].minor.yy41;
 
@@ -1025,7 +1027,7 @@ err:
         break;
       case 7: /* shardid ::= STRING */
 {
-    yylhsminor.yy9 = rm_strdup(yymsp[0].minor.yy0.strval);
+    yylhsminor.yy9 = yymsp[0].minor.yy0.strval;
 }
   yymsp[0].minor.yy9 = yylhsminor.yy9;
         break;
@@ -1041,6 +1043,7 @@ err:
     if (MREndpoint_Parse(yymsp[0].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[0].minor.yy0.pos, yymsp[0].minor.yy0.strval);
     }
+    rm_free(yymsp[0].minor.yy0.strval);
 }
   yymsp[0].minor.yy17 = yylhsminor.yy17;
         break;
@@ -1050,6 +1053,7 @@ err:
     if (MREndpoint_Parse(yymsp[-1].minor.yy0.strval, &yylhsminor.yy17) != REDIS_OK) {
         syntax_error(ctx, "Invalid tcp address at offset %d: %s", yymsp[-1].minor.yy0.pos, yymsp[-1].minor.yy0.strval);
     }
+    rm_free(yymsp[-1].minor.yy0.strval);
 }
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
         break;
@@ -1060,7 +1064,7 @@ err:
         break;
       case 12: /* unix_addr ::= UNIXADDR STRING */
 {
-    yymsp[-1].minor.yy9 = rm_strdup(yymsp[0].minor.yy0.strval);
+    yymsp[-1].minor.yy9 = yymsp[0].minor.yy0.strval;
 }
         break;
       case 13: /* master ::= MASTER */

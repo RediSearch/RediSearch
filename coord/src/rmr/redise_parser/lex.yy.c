@@ -532,6 +532,7 @@ char *yytext;
 
 #include "grammar.h"
 #include "token.h"
+#include "rmalloc.h"
 #include <string.h>
 #include <math.h>
 
@@ -540,9 +541,9 @@ Token tok = { };
 /* handle locations */
 int yycolumn = 1;
 
-#define YY_USER_ACTION yycolumn += yyleng; tok.pos = yycolumn;  tok.s = yytext; tok.len = strlen(yytext);
-#line 545 "lex.yy.c"
+#define YY_USER_ACTION yycolumn += yyleng; tok.pos = yycolumn; tok.s = yytext; tok.len = yyleng; tok.strval = NULL;
 #line 546 "lex.yy.c"
+#line 547 "lex.yy.c"
 
 #define INITIAL 0
 
@@ -759,10 +760,10 @@ YY_DECL
 		}
 
 	{
-#line 16 "lexer.l"
+#line 17 "lexer.l"
 
 
-#line 766 "lex.yy.c"
+#line 767 "lex.yy.c"
 
 	while ( /*CONSTCOND*/1 )		/* loops until end-of-file is reached */
 		{
@@ -821,57 +822,57 @@ do_action:	/* This label is used only to access EOF actions. */
 
 case 1:
 YY_RULE_SETUP
-#line 18 "lexer.l"
+#line 19 "lexer.l"
 { return MYID; }
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
-#line 19 "lexer.l"
+#line 20 "lexer.l"
 { return HASREPLICATION; }
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 20 "lexer.l"
+#line 21 "lexer.l"
 { return RANGES; }
 	YY_BREAK
 case 4:
 YY_RULE_SETUP
-#line 21 "lexer.l"
+#line 22 "lexer.l"
 { return SHARD; }
 	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 22 "lexer.l"
+#line 23 "lexer.l"
 { return SLOTRANGE; }
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 23 "lexer.l"
+#line 24 "lexer.l"
 { return ADDR; }
 	YY_BREAK
 case 7:
 YY_RULE_SETUP
-#line 24 "lexer.l"
+#line 25 "lexer.l"
 { return UNIXADDR; }
 	YY_BREAK
 case 8:
 YY_RULE_SETUP
-#line 25 "lexer.l"
+#line 26 "lexer.l"
 { return MASTER; }
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 26 "lexer.l"
+#line 27 "lexer.l"
 { return HASHFUNC; }
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 27 "lexer.l"
+#line 28 "lexer.l"
 { return NUMSLOTS; }
 	YY_BREAK
 case 11:
 YY_RULE_SETUP
-#line 29 "lexer.l"
+#line 30 "lexer.l"
 {
   tok.intval = atoi(yytext);
   return INTEGER;
@@ -879,20 +880,19 @@ YY_RULE_SETUP
 	YY_BREAK
 case 12:
 YY_RULE_SETUP
-#line 34 "lexer.l"
+#line 35 "lexer.l"
 {
-  tok.strval = yytext;
+  tok.strval = rm_strdup(yytext);
   return STRING;
 }
 	YY_BREAK
 case 13:
 /* rule 13 can match eol */
 YY_RULE_SETUP
-#line 39 "lexer.l"
+#line 40 "lexer.l"
 {
   /* String literals, with escape sequences - enclosed by "" or '' */
-  tok.strval = yytext+1;
-  tok.strval[tok.len-1] = '\0';
+  tok.strval = rm_strndup(yytext+1, yyleng-1);
   return STRING;
 }
 	YY_BREAK
