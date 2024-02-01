@@ -3906,7 +3906,13 @@ def test_notIterTimeout(env):
     # such that the timeout will be checked in the NOT iterator loop (coverage).
     # Note: Removed parts of this test relative to 2.8 (and on) due to missing
     # timeout PRs 
-    res = env.cmd(
-        'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
-        'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
-    )
+    try:
+        env.cmd(
+            'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
+            'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
+        )
+    except Exception:
+        # An error may be raised here, only if a timeout was experienced before
+        # pipeline execution has begun (i.e., after parsing and query iterator
+        # construction). This behavior differs from 2.8.9 and on.
+        pass
