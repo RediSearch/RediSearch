@@ -271,6 +271,8 @@ class TestDebugCommands(object):
         self.env.cmd(*['JSON.SET', '_doc2', '$', '{\"v_HNSW\":[3, 3], \"v_HNSW_multi\":[[3, 3], [4, 4]], \"v_flat\":[3, 3]}'])
         self.env.cmd(*['JSON.SET', '_doc3', '$', '{\"v_HNSW_multi\":[[5, 5], [6, 6]], \"v_flat\":[5, 5]}'])
         self.env.expect(index_info(self.env, 'temp-idx')['num_docs'], 3)
+        if MT_BUILD:
+            self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
 
         # Test error handling
         self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
