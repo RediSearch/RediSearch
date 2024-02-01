@@ -26,6 +26,3 @@ pip install -q -r .install/build_package_requirments.txt
 
 # List installed packages
 pip list
-
-# add actiavte venv to github env
-echo ACTIVATE_VENV=$PWD/venv/bin/activate >> $GITHUB_ENV
