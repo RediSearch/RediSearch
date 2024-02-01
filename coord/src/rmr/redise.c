@@ -31,32 +31,40 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   }
 }
 
+/* Error replying macros, in attempt to make the code itself readable */
 #define ERROR_FMT(fmt, ...)                          \
-  {                                                  \
+  ({                                                 \
     char *err;                                       \
     __ignore__(rm_asprintf(&err, fmt, __VA_ARGS__)); \
     RedisModule_ReplyWithError(ctx, err);            \
     rm_free(err);                                    \
-  }
+  })
 
-#define ERROR_BAD_STRING(arg, val) ERROR_FMT("Bad value for %s: %s", arg, val)
+#define ERROR_BADVAL(arg, val) ERROR_FMT("Bad value for %s: %s", arg, val)
 #define ERROR_BAD_SIZE(arg, val) ERROR_FMT("Bad value for %s: %zu", arg, val)
 #define ERROR_EXPECTED(exp, arg) ERROR_FMT("Expected " exp " but got `%s`", arg)
 #define ERROR_MISSING(arg) RedisModule_ReplyWithError(ctx, "Missing value for " arg)
 
-#define VERIFY_ARG(arg)                                     \
-  if (!AC_AdvanceIfMatch(&ac, arg)) {                       \
-    ERROR_EXPECTED("`" arg "`", AC_GetStringNC(&ac, NULL)); \
-    goto error;                                             \
-  }
+#define ERROR_BAD_OR_MISSING(arg, ac_code)          \
+  ({                                                \
+    if (ac_code == AC_ERR_NOARG) {                  \
+      ERROR_MISSING(arg);                           \
+    } else {                                        \
+      ERROR_BADVAL(arg, AC_GetStringNC(&ac, NULL)); \
+    }                                               \
+  })
+
+#define VERIFY_ARG(arg)                                   \
+  ({                                                      \
+    if (!AC_AdvanceIfMatch(&ac, arg)) {                   \
+      const char *val = AC_GetStringNC(&ac, NULL);        \
+      ERROR_EXPECTED("`" arg "`", (val ? val : "(nil)")); \
+      goto error;                                         \
+    }                                                     \
+  })
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                  int argc) {
-  // Minimal: CMD MYID <myid> RANGES 1 SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp>
-  if (argc < 12) {
-    RedisModule_WrongArity(ctx);
-    return NULL;
-  }
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
@@ -79,17 +87,22 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       } else if (!strcasecmp(hashFuncStr, MRHASHFUNC_CRC16_STR)) {
         hashFunc = MRHashFunc_CRC16;
       } else {
-        ERROR_BAD_STRING("HASHFUNC", hashFuncStr);
+        ERROR_BADVAL("HASHFUNC", hashFuncStr);
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "NUMSLOTS")) {
-      if (AC_GetSize(&ac, &numSlots, AC_F_GE1) != AC_OK || numSlots > 16384) {
-        ERROR_BAD_SIZE("NUMSLOTS", numSlots);
+      int rc = AC_GetSize(&ac, &numSlots, AC_F_GE1);
+      if (rc != AC_OK) {
+        ERROR_BAD_OR_MISSING("NUMSLOTS", rc);
+        return NULL;
+      } else if (numSlots > 16384) {
+        ERROR_FMT("Bad value for NUMSLOTS: %zu", numSlots);
         return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "RANGES")) {  // End of general arguments
-      if (AC_GetSize(&ac, &numShards, AC_F_GE1) != AC_OK) {
-        ERROR_BAD_SIZE("RANGES", numShards);
+      int rc = AC_GetSize(&ac, &numShards, AC_F_GE1);
+      if (rc != AC_OK) {
+        ERROR_BAD_OR_MISSING("RANGES", rc);
         return NULL;
       }
       break;
@@ -109,6 +122,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   // Parse shards. We have to free the topology and previous shards if we encounter an error
   for (size_t i = 0; i < numShards; i++) {
     RLShard sh;
+    int rc;
     /* Mandatory: SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp> */
     VERIFY_ARG("SHARD");
     sh.node.id = AC_GetStringNC(&ac, NULL);
@@ -118,10 +132,17 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     }
 
     VERIFY_ARG("SLOTRANGE");
-    if (AC_GetInt(&ac, &sh.startSlot, AC_F_GE0) != AC_OK ||
-        AC_GetInt(&ac, &sh.endSlot, AC_F_GE0) != AC_OK || sh.startSlot > sh.endSlot ||
-        sh.endSlot >= numSlots) {
-      // Error bad/missing argument
+    rc = AC_GetInt(&ac, &sh.startSlot, AC_F_GE0);
+    if (rc != AC_OK) {
+      ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
+      goto error;
+    }
+    rc = AC_GetInt(&ac, &sh.endSlot, AC_F_GE0);
+    if (rc != AC_OK) {
+      ERROR_BAD_OR_MISSING("SLOTRANGE", rc);
+      goto error;
+    }
+    if (sh.startSlot > sh.endSlot || sh.endSlot >= numSlots) {
       ERROR_FMT("Bad values for SLOTRANGE: %d, %d", sh.startSlot, sh.endSlot);
       goto error;
     }
@@ -142,11 +163,11 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       }
     }
     if (MREndpoint_Parse(addr, &sh.node.endpoint) != REDIS_OK) {
-      ERROR_BAD_STRING("ADDR", addr);
+      ERROR_BADVAL("ADDR", addr);
       goto error;
     }
     // All good. Finish up the node
-    sh.node.id = rm_strdup(sh.node.id); // Take ownership of the string
+    sh.node.id = rm_strdup(sh.node.id);  // Take ownership of the string
     if (unixSock) {
       sh.node.endpoint.unixSock = rm_strdup(unixSock);
     }
