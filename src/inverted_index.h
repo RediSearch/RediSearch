@@ -91,11 +91,14 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 
 // Create a new inverted index object, with the given flag.
 // If initBlock is 1, we create the first block.
-// in/out *memsize must be not NULL, the total of allocated memory added to it
+// in/out memsize must be not NULL, the total of allocated memory 
+// will be returned in it
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
+
 /* Add a new block to the index with a given document id as the initial id
   * Returns the new block
-  * in/out *memsize must be not NULL, because the size (bytes) of the new block is added to it
+  * in/out memsize must be not NULL, because the size (bytes) of the new block 
+  * is added to it
 */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 size_t indexBlock_Free(IndexBlock *blk);

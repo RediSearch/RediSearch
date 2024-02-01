@@ -180,7 +180,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   n->maxDepth = 0;
   n->range = rm_malloc(sizeof(NumericRange));
-  size_t sz = 0;
+  size_t index_memsize;
 
   *n->range = (NumericRange){
       .minVal = __DBL_MAX__,
@@ -191,10 +191,10 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .splitCard = splitCard,
       .values = array_new(CardinalityValue, 1),
       //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
-      .entries = NewInvertedIndex(Index_StoreNumeric, 1, &sz),
+      .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
   };
 
-  n->range->invertedIndexSize = sz;
+  n->range->invertedIndexSize = index_memsize;
   return n;
 }
 

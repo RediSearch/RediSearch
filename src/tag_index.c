@@ -130,6 +130,7 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
                                           size_t len, int create, size_t *sz) {
+  *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
@@ -144,7 +145,7 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
-  size_t sz = 0;
+  size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
@@ -182,7 +183,7 @@ static void TagReader_OnReopen(void *privdata) {
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
     if (ir->record->type == RSResultType_Term) {
-      size_t sz = 0;
+      size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,

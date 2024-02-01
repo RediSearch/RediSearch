@@ -28,8 +28,8 @@ static void writeEntry(InvertedIndex *idx, size_t id) {
 
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex(MY_FLAGS, 1, &size);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(MY_FLAGS, 1, &index_memsize);
   for (size_t ii = 0; ii < NUM_ENTRIES; ++ii) {
     writeEntry(idx, ii);
   }

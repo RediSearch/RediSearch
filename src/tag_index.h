@@ -140,7 +140,13 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create, size_t *sz);
+/* Find and index containing value, if the index is not found and create == 1,
+ * a new index is created.
+ * If a new index was created, the size of the new index is returned in *sz,
+ * otherwise *sz is set to 0
+*/
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
+                                          size_t len, int create, size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);

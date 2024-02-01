@@ -142,8 +142,9 @@ class IndexFlagsTest : public testing::TestWithParam<int> {};
 
 TEST_P(IndexFlagsTest, testRWFlags) {
   IndexFlags indexFlags = (IndexFlags)GetParam();
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &size);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
+  ASSERT_TRUE(index_memsize > 0);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
   IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -439,8 +440,8 @@ TEST_F(IndexTest, DISABLED_testOptional) {
 }
 
 TEST_F(IndexTest, testNumericInverted) {
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
 
   size_t sz = 0;
   size_t expected_sz = 0;
@@ -516,8 +517,8 @@ TEST_F(IndexTest, testNumericInverted) {
 }
 
 TEST_F(IndexTest, testNumericVaried) {
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
 
   static const double nums[] = {0,          0.13,          0.001,     -0.1,     1.0,
                                 5.0,        4.323,         65535,     65535.53, 32768.432,
@@ -598,8 +599,8 @@ static const encodingInfo infos[] = {
 
 void testNumericEncodingHelper(bool isMulti) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &size);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
@@ -1369,8 +1370,15 @@ TEST_F(IndexTest, testIndexFlags) {
   VVW_Truncate(h.vw);
 
   uint32_t flags = INDEX_DEFAULT_FLAGS;
-  size_t size = 0;
-  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  size_t index_memsize;
+  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  // The memory occupied by a empty inverted index 
+  // created with INDEX_DEFAULT_FLAGS is 102 bytes,
+  // which is the sum of the following (See NewInvertedIndex()):
+  // sizeof_InvertedIndex(index->flags)   48
+  // sizeof(IndexBlock)                   48	
+	// INDEX_BLOCK_INITIAL_CAP               6
+  ASSERT_EQ(102, index_memsize);
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT_TRUE(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
@@ -1379,8 +1387,8 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
-  size = 0;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
@@ -1389,8 +1397,8 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
-  size = 0;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
@@ -1398,8 +1406,8 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
-  size = 0;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
@@ -1408,8 +1416,14 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
-  size = 0;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  // The memory occupied by a empty inverted index with
+  // Index_StoreFieldFlags == 0 is 86 bytes
+  // which is the sum of the following (See NewInvertedIndex()):
+  // sizeof_InvertedIndex(index->flags)   32
+  // sizeof(IndexBlock)                   48
+  // INDEX_BLOCK_INITIAL_CAP               6
+  ASSERT_EQ(86, index_memsize);
   ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
@@ -1418,8 +1432,8 @@ TEST_F(IndexTest, testIndexFlags) {
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
-  size = 0;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &size);
+  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((w->flags & Index_WideSchema));
   ASSERT_TRUE((w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
@@ -1595,8 +1609,8 @@ TEST_F(IndexTest, testVarintFieldMask) {
 }
 
 TEST_F(IndexTest, testDeltaSplits) {
-  size_t size = 0;
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &size);
+  size_t index_memsize = 0;
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &index_memsize);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;

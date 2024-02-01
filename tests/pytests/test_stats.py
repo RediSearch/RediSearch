@@ -232,8 +232,8 @@ def testMemoryAfterDrop_numeric(env):
     # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
     # which is the sum of the following (See NewInvertedIndex()):
     # sizeof_InvertedIndex(index->flags)   48
-    # sizeof(IndexBlock)	               48	
-	# INDEX_BLOCK_INITIAL_CAP               6	
+    # sizeof(IndexBlock)                   48
+    # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
@@ -274,8 +274,8 @@ def testMemoryAfterDrop_geo(env):
     # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
     # which is the sum of the following (See NewInvertedIndex()):
     # sizeof_InvertedIndex(index->flags)   48
-    # sizeof(IndexBlock)	               48	
-	# INDEX_BLOCK_INITIAL_CAP               6
+    # sizeof(IndexBlock)                   48
+    # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
@@ -315,8 +315,8 @@ def testMemoryAfterDrop_text(env):
     # becase FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
     # The size of a new block is 54 bytes, which is the sum of:
-    # sizeof(IndexBlock)	               48
-	# INDEX_BLOCK_INITIAL_CAP               6
+    # sizeof(IndexBlock)                   48
+    # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
@@ -356,8 +356,8 @@ def testMemoryAfterDrop_tag(env):
     # becase FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
     # The size of a new block is 54 bytes, which is the sum of:
-    # sizeof(IndexBlock)	               48
-	# INDEX_BLOCK_INITIAL_CAP               6
+    # sizeof(IndexBlock)                   48
+    # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)

@@ -3,7 +3,7 @@
 #include "src/inverted_index.h"
 
 InvertedIndex *createIndex(int size, int idStep, int start_with) {
-    size_t sz = 0;
+    size_t sz;
     InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
 
     IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);

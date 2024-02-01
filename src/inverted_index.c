@@ -54,7 +54,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   RedisModule_Assert(!(useFieldMask && useNumEntries));
   size_t size = sizeof_InvertedIndex(flags);
   InvertedIndex *idx = rm_malloc(size);
-  *memsize += size;
+  *memsize = size;
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;

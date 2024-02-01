@@ -23,8 +23,8 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  size_t sz = 0;
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &sz);
+  size_t index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &index_memsize);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
   // options - we force adding StoreFreqs.
@@ -248,7 +248,9 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &(ctx->spec->stats.invertedSize));
+  size_t index_size;
+  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
 }
@@ -277,7 +279,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
         if (outIsNew) {
           *outIsNew = true;
         }
-        idx = NewInvertedIndex(ctx->spec->flags, 1, &(ctx->spec->stats.invertedSize));
+        size_t index_size;
+        idx = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+        ctx->spec->stats.invertedSize += index_size;
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
       }
     } else if (kType == REDISMODULE_KEYTYPE_MODULE &&

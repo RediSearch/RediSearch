@@ -1051,7 +1051,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    size_t dummy_size = 0;
+    size_t dummy_size;
     InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0, &dummy_size);
     if (idx == TRIEMAP_NOTFOUND || idx != value) {
       status = FGC_PARENT_ERROR;

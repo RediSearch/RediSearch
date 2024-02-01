@@ -129,7 +129,7 @@ static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
   RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
   auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
-  size_t sz = 0;
+  size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
   sctx->spec->stats.invertedSize += sz;
   return iv;
