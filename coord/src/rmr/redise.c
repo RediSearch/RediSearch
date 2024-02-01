@@ -44,16 +44,15 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 #define ERROR_EXPECTED(exp, arg) ERROR_FMT("Expected " exp " but got `%s`", arg)
 #define ERROR_MISSING(arg) RedisModule_ReplyWithError(ctx, "Missing value for " arg)
 
-#define VERIFY_ARG(arg)                           \
-  if (!AC_AdvanceIfMatch(&ac, arg)) {             \
-    ERROR_EXPECTED("`" arg "`", AC_CURRENT(&ac)); \
-    goto error;                                   \
+#define VERIFY_ARG(arg)                                     \
+  if (!AC_AdvanceIfMatch(&ac, arg)) {                       \
+    ERROR_EXPECTED("`" arg "`", AC_GetStringNC(&ac, NULL)); \
+    goto error;                                             \
   }
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
-                                                  int argc) {
-  // Minimal command: CMD MYID <myid> RANGES 1 SHARD <shard_id> SLOTRANGE <start_slot> <end_slot>
-  // ADDR <tcp>
+                                                 int argc) {
+  // Minimal: CMD MYID <myid> RANGES 1 SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp>
   if (argc < 12) {
     RedisModule_WrongArity(ctx);
     return NULL;
@@ -86,14 +85,16 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     } else if (AC_AdvanceIfMatch(&ac, "NUMSLOTS")) {
       if (AC_GetSize(&ac, &numSlots, AC_F_GE1) != AC_OK || numSlots > 16384) {
         ERROR_BAD_SIZE("NUMSLOTS", numSlots);
+        return NULL;
       }
     } else if (AC_AdvanceIfMatch(&ac, "RANGES")) {  // End of general arguments
       if (AC_GetSize(&ac, &numShards, AC_F_GE1) != AC_OK) {
         ERROR_BAD_SIZE("RANGES", numShards);
+        return NULL;
       }
       break;
     } else {
-      ERROR_FMT("Unexpected argument: `%s`", AC_CURRENT(&ac));
+      ERROR_FMT("Unexpected argument: `%s`", AC_GetStringNC(&ac, NULL));
       return NULL;
     }
   }
@@ -145,6 +146,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       goto error;
     }
     // All good. Finish up the node
+    sh.node.id = rm_strdup(sh.node.id); // Take ownership of the string
     if (unixSock) {
       sh.node.endpoint.unixSock = rm_strdup(unixSock);
     }
@@ -161,7 +163,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   }
 
   if (!AC_IsAtEnd(&ac)) {
-    ERROR_EXPECTED("end of command", AC_CURRENT(&ac));
+    ERROR_EXPECTED("end of command", AC_GetStringNC(&ac, NULL));
     goto error;
   }
 
