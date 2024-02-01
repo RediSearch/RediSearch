@@ -41,7 +41,6 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   })
 
 #define ERROR_BADVAL(arg, val) ERROR_FMT("Bad value for %s: %s", arg, val)
-#define ERROR_BAD_SIZE(arg, val) ERROR_FMT("Bad value for %s: %zu", arg, val)
 #define ERROR_EXPECTED(exp, arg) ERROR_FMT("Expected " exp " but got `%s`", arg)
 #define ERROR_MISSING(arg) RedisModule_ReplyWithError(ctx, "Missing value for " arg)
 
