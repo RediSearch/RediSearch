@@ -3735,13 +3735,17 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
+               'HASHFUNC',
+               'CRC12',
+               'NUMSLOTS',
+               '4096'
                'RANGES',
                '1',
                'SHARD',
                '1',
                'SLOTRANGE',
                '0',
-               '16383',
+               '4095',
                'ADDR',
                f'{password}localhost:{env.port}',
                'UNIXADDR',
@@ -3782,6 +3786,10 @@ def test_cluster_set_errors(env: Env):
                'SHARD', '1', 'SLOTRANGE', '0').error().contains('Missing value for SLOTRANGE')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE', '0', 'banana').error().contains('Bad value for SLOTRANGE').contains('banana')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '1', '0').error().contains('Bad value for SLOTRANGE')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1000000').error().contains('Bad value for SLOTRANGE')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE', '0', '1').error().contains('Expected `ADDR` but got `(nil)`')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
