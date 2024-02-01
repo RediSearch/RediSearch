@@ -3747,6 +3747,10 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
+               'HASHFUNC',
+               'CRC16',
+               'NUMSLOTS',
+               '16384',
                'RANGES',
                '1',
                'SHARD',
@@ -3785,6 +3789,12 @@ def cluster_set_test(env: Env):
                'MASTER'
             ).ok()
     verify_address('localhost')
+
+    shards = []
+    for i in range(env.shardsCount):
+        shards += ['SHARD', str(i), 'SLOTRANGE', '0', '16383',
+                   'ADDR', f'{password}localhost:{env.envRunner.shards[i].port}', 'MASTER']
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
 
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
