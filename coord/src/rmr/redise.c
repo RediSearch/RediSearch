@@ -14,21 +14,18 @@ typedef struct {
 
 static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 
-  int found = -1;
   for (int i = 0; i < t->numShards; i++) {
     if (sh->startSlot == t->shards[i].startSlot && sh->endSlot == t->shards[i].endSlot) {
-      found = i;
-      break;
+      // New node in the same shard (slot range)
+      MRClusterShard_AddNode(&t->shards[i], &sh->node);
+      return;
     }
   }
 
-  if (found >= 0) {
-    MRClusterShard_AddNode(&t->shards[found], &sh->node);
-  } else {
-    MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
-    MRClusterShard_AddNode(&csh, &sh->node);
-    MRClusterTopology_AddShard(t, &csh);
-  }
+  // New shard
+  MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
+  MRClusterShard_AddNode(&csh, &sh->node);
+  MRClusterTopology_AddShard(t, &csh);
 }
 
 /* Error replying macros, in attempt to make the code itself readable */
