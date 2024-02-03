@@ -11,7 +11,6 @@
 
 // forward declaration
 struct RedisModuleCtx;
-MRClusterTopology *RedisCluster_GetTopology(struct RedisModuleCtx *);
 
 void UpdateTopology(struct RedisModuleCtx *ctx);
 void InitRedisTopologyUpdater(struct RedisModuleCtx *ctx);
