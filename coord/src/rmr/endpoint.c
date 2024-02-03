@@ -28,7 +28,8 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
       ++addr; // skip the ipv6 opener '['
   }
 
-  char *colon = strrchr(addr, ':'); // find the last colon
+  char *colon = strrchr(addr, ':');
+
   if (!colon) {
     MREndpoint_Free(ep);
     return REDIS_ERR;
