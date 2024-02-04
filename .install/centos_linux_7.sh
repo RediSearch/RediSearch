@@ -5,7 +5,7 @@ export DEBIAN_FRONTEND=noninteractive
 ARCH=$([[ $(uname -m) == x86_64 ]] && echo x86_64 || echo noarch)
 $MODE yum update -y
 $MODE yum install -y https://packages.endpointdev.com/rhel/7/os/${ARCH}/endpoint-repo.${ARCH}.rpm
-#$MODE yum groupinstall -y "Development Tools"
+$MODE yum groupinstall -y "Development Tools"
 
 
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git
