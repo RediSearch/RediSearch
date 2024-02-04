@@ -8,10 +8,10 @@ $MODE yum update -y
 #$MODE yum groupinstall -y "Development Tools"
 
 
-$MODE  yum install openssl-devel openssl bzip2-devel libffi-devel wget which git -y
+$MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git
 
-$MODE yum install centos-release-scl
-$MODE yum install devtoolset-10-gcc devtoolset-10-gcc-c++
+$MODE yum -y install centos-release-scl
+$MODE yum -y install devtoolset-10-gcc devtoolset-10-gcc-c++
 cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
 bash
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
