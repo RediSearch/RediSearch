@@ -223,6 +223,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
     return (RSDocumentMetadata *)DocTable_Borrow(t, xid);
   }
   t_docId docId = ++t->maxDocId;
+  RedisModule_Log(NULL, "debug", "Adding doc id %lu", docId);
 
   RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
