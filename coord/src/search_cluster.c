@@ -285,11 +285,6 @@ MRCommandGenerator noPartitionCommandGenerator = {.Next = NoPartitionCommandMuxI
                                               .Len = NoPartitionCommandMuxIterator_Len,
                                               .ctx = NULL};
 
-MRCommandGenerator defaultCommandGenerator = {.Next = SCCommandMuxIterator_Next,
-                                              .Free = SCCommandMuxIterator_Free,
-                                              .Len = SCCommandMuxIterator_Len,
-                                              .ctx = NULL};
-
 MRCommandGenerator spellCheckCommandGenerator = {.Next = SpellCheckMuxIterator_Next,
                                                  .Free = SCCommandMuxIterator_Free,
                                                  .Len = SCCommandMuxIterator_Len,

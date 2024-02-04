@@ -56,11 +56,6 @@ static int AliasTable_Del(AliasTable *table, const char *alias, StrongRef spec_r
                           QueryError *error) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
   char *toFree = NULL;
-  // ensure that the item exists in the list
-  if (!spec->aliases) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Alias does not belong to provided spec");
-    return REDISMODULE_ERR;
-  }
 
   ssize_t idx = -1;
   for (size_t ii = 0; ii < array_len(spec->aliases); ++ii) {

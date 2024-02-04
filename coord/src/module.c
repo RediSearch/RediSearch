@@ -1660,18 +1660,6 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
   return REDISMODULE_OK;
 }
 
-int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-
-  RS_AutoMemory(ctx);
-
-  struct MRCtx *mrCtx = MR_CreateCtx(ctx, 0, NULL);
-
-  return FirstPartitionCommandHandler(ctx, argv, argc, singleReplyReducer, mrCtx);
-}
-
 int SynAddCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
