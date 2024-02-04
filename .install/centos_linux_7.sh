@@ -14,6 +14,9 @@ $MODE yum -y install centos-release-scl
 $MODE yum -y install devtoolset-10-gcc devtoolset-10-gcc-c++
 cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
 bash
+
+echo "gcc version: $(gcc --version)"
+
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
 tar -xvf Python-3.9.6.tgz
 cd Python-3.9.6
@@ -22,5 +25,5 @@ $MODE make altinstall
 update-alternatives --install /usr/bin/python3 python3 `which python3.9` 2
 # gcc
 
-
+cd -
 source install_cmake.sh $MODE
