@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
-import subprocess
-from redis import Redis, RedisCluster, cluster, exceptions
-
 from common import *
-from RLTest import Env
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -850,6 +845,8 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
     mod5778_add_new_shard_to_cluster(env)
 
 def mod5778_add_new_shard_to_cluster(env: Env):
+    for i in range(env.shardsCount):
+      verify_shard_init(env, env.getConnection(i))
     conn = env.getConnection()
     initial_shards_count = env.shardsCount
     # The first two fields in the cluster info reply are the number of partition in thr cluster.
@@ -860,6 +857,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
+    verify_shard_init(env, new_shard_conn)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
     # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
@@ -989,6 +987,8 @@ def test_mod_4375(env):
 
 @skip(cluster=False) # This test is only relevant for cluster
 def test_mod_6557(env: Env):
+  # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
+  env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',

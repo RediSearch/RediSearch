@@ -65,6 +65,7 @@ int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);
 int RedisModule_ReplyKV_SimpleString(RedisModule_Reply *reply, const char *key, const char *val);
 int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, const char *val, size_t len);
+int RedisModule_ReplyKV_Stringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...);
 int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val);
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);

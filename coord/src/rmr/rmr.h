@@ -36,16 +36,20 @@ void MR_Init(MRCluster *cl, long long timeoutMS);
 void MR_UpdateTopology(MRClusterTopology *newTopology);
 
 /* Get the current cluster topology */
-MRClusterTopology *MR_GetCurrentTopology();
+bool MR_CurrentTopologyExists();
+
+/* Get the current cluster topology connectivity status */
+int MR_CheckTopologyConnections(bool mastersOnly);
+
+void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
+
+void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 /* Return our current node as detected by cluster state calls */
 MRClusterNode *MR_GetMyNode();
 
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
-
-/* The request duration in microsecnds, relevant only on the reducer */
-int64_t MR_RequestDuration(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);

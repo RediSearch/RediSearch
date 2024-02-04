@@ -19,8 +19,6 @@ void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
     }
   }
 
-  printf("Adding rl node %s to %s shard %d..%d\n", sh->node.id, found >= 0 ? "found" : "", sh->startSlot, sh->endSlot);
-
   if (found >= 0) {
     MRClusterShard_AddNode(&t->shards[found], &sh->node);
   } else {
