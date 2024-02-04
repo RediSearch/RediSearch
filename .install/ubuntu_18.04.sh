@@ -8,7 +8,7 @@ $MODE apt upgrade -yqq
 $MODE apt dist-upgrade -yqq
 $MODE apt install -yqq software-properties-common unzip rsync
 
-# ppa for modern python and gcc
+# ppa for modern python and gcc10
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
 $MODE add-apt-repository ppa:git-core/ppa -y
 $MODE apt update
