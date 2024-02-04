@@ -27,7 +27,7 @@ jobs:
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      platform: "ubuntu:focal"
+      platform: "ubuntu:bionic"
 
   # test-rocky9:
   #   needs: [docs-only, get-latest-redis-tag]
