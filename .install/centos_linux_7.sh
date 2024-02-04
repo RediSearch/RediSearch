@@ -12,10 +12,14 @@ $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which g
 
 $MODE yum -y install centos-release-scl
 $MODE yum -y install devtoolset-10-gcc devtoolset-10-gcc-c++
+
+source /opt/rh/devtoolset-10/enable
+echo "gcc version: $(gcc --version)"
+
 cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
 bash
 
-echo "gcc version: $(gcc --version)"
+echo "gcc version after bash: $(gcc --version)"
 
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
 tar -xvf Python-3.9.6.tgz
