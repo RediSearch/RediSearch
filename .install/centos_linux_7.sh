@@ -11,7 +11,7 @@ $MODE yum groupinstall -y "Development Tools"
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git
 
 $MODE yum -y install centos-release-scl
-$MODE yum -y install devtoolset-10-gcc devtoolset-10-gcc-c++
+$MODE yum -y install devtoolset-10-gcc devtoolset-10-gcc-c++ devtoolset-9-make devtoolset-10-libatomic-devel
 
 source /opt/rh/devtoolset-10/enable
 echo "gcc version: $(gcc --version)"
