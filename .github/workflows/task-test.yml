@@ -68,13 +68,18 @@ jobs:
       #   uses: actions/setup-python@v5
       #   with:
       #     python-version: "3.x"
-      - run: |
-          echo "python version: $(python3 --version)"
-          echo "gnu version: $(gcc --version)"
+
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Setup (readies)
+        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
+        run: ./sbin/setup
+      - run: |
+          echo "python version: $(python3 --version)"
+          echo "gnu version: $(gcc --version)"
+          echo "make version: $(make --version)"
       - name: Setup common
         run: |
           echo "python3 version: $(python3 --version)"
