@@ -2342,7 +2342,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Initialize_CoordKeyspaceNotifications(ctx);
 
   // read commands
-  RM_TRY(RedisModule_CreateCommand(ctx, "FT.EXPLAIN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
   if (clusterConfig.type == ClusterType_RedisLabs) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2));
   } else {
