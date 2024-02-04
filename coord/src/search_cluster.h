@@ -45,16 +45,7 @@ int SearchCluster_Ready(SearchCluster *sc);
  * iteration, based on the original command */
 MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *cmd);
 
-/* Rewrite a command by tagging its sharding key, using its partitioning key (which may or may not
- * be the same key) */
-int SearchCluster_RewriteCommand(SearchCluster *c, MRCommand *cmd, int partitionKey);
-
 int SearchCluster_RewriteCommandToFirstPartition(SearchCluster *sc, MRCommand *cmd);
-
-/* Rewrite a specific argument in a command by tagging it using the partition key, arg is the
- * index
- * of the argument being tagged, and it may be the paritioning key itself */
-int SearchCluster_RewriteCommandArg(SearchCluster *c, MRCommand *cmd, int partitionKey, int arg);
 
 /* Make sure that if the cluster is unaware of its sizing, it will take the size from the topology
  */

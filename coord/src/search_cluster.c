@@ -43,7 +43,7 @@ void SearchCluster_Release(SearchCluster *sc) {
 }
 
 inline int SearchCluster_Ready(SearchCluster *sc) {
-  return sc != NULL && sc->size != 0 && sc->part.table != NULL;
+  return sc->size;
 }
 
 char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
@@ -136,43 +136,6 @@ char *writeTaggedId(const char *key, size_t keyLen, const char *tag, size_t tagL
   return tagged;
 }
 
-/**
- * Rewrite a command for a given partition.
- * @param sc the cluster
- * @param cmd the command to rewrite
- * @param dstArg the index within the command that contains the key to rewrite
- * @param partition the partition to use for tagging
- */
-static void SearchCluster_RewriteForPartition(SearchCluster *sc, MRCommand *cmd, int dstArg,
-                                              size_t partition) {
-  size_t narg;
-  const char *arg = MRCommand_ArgStringPtrLen(cmd, dstArg, &narg);
-  const char *partTag = PartitionTag(&sc->part, partition);
-  size_t taggedLen;
-  char *tagged = writeTaggedId(arg, narg, partTag, strlen(partTag), &taggedLen);
-  MRCommand_ReplaceArgNoDup(cmd, dstArg, tagged, taggedLen);
-}
-
-int SearchCluster_RewriteCommandArg(SearchCluster *sc, MRCommand *cmd, int partitionKey, int arg) {
-
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(sc)) return 0;
-
-  if (arg < 0 || arg >= cmd->num || partitionKey >= cmd->num) {
-    return 0;
-  }
-
-  // the partition arg is the arg which we select the partition on
-  const char *partitionArg, *rewriteArg;
-  size_t partitionLen, rewriteLen;
-
-  partitionArg = MRCommand_ArgStringPtrLen(cmd, partitionKey, &partitionLen);
-
-  size_t part = PartitionForKey(&sc->part, partitionArg, partitionLen);
-  SearchCluster_RewriteForPartition(sc, cmd, arg, part);
-  return 1;
-}
-
 static const char *getUntaggedId(const char *id, size_t *outlen) {
   const char *openBrace = rindex(id, '{');
   if (openBrace) {
@@ -192,49 +155,6 @@ static const char *lookupAlias(const char *orig, size_t *len) {
     return orig;
   }
   return getUntaggedId(sp->name, len);
-}
-
-int SearchCluster_RewriteCommand(SearchCluster *sc, MRCommand *cmd, int partIdx) {
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(sc)) return 0;
-
-  int sk = -1;
-  if ((sk = MRCommand_GetShardingKey(cmd)) >= 0) {
-    if (partIdx < 0 || partIdx >= cmd->num || sk >= cmd->num) {
-      return 0;
-    }
-
-    // printf("ShardKey: %d. Before rewrite: ", sk);
-    // MRCommand_Print(cmd);
-
-    size_t partLen = 0, targetLen = 0, taggedLen;
-
-    // the partition arg is the arg which we select the partition on
-    const char *partStr = MRCommand_ArgStringPtrLen(cmd, partIdx, &partLen);
-
-    // the sharding arg is the arg that we will add the partition tag to
-    const char *target = MRCommand_ArgStringPtrLen(cmd, sk, &targetLen);
-
-    size_t partId = PartitionForKey(&sc->part, partStr, partLen);
-    const char *tag = PartitionTag(&sc->part, partId);
-    if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
-      // 1:1 partition mapping
-      // borrowing the global reference to the index spec
-      StrongRef global = IndexAlias_Get(target);
-      IndexSpec *spec = StrongRef_Get(global);
-      if (spec) {
-        target = spec->name;
-        targetLen = rindex(spec->name, '{') - target;
-      }
-    }
-
-    char *tagged = writeTaggedId(target, targetLen, tag, strlen(tag), &taggedLen);
-    MRCommand_ReplaceArgNoDup(cmd, sk, tagged, taggedLen);
-
-    // printf("After rewrite: ");
-    // MRCommand_Print(cmd);
-  }
-  return 1;
 }
 
 int SearchCluster_RewriteCommandToFirstPartition(SearchCluster *sc, MRCommand *cmd) {
@@ -271,11 +191,6 @@ int SpellCheckMuxIterator_Next(void *ctx, MRCommand *cmd) {
   }
 
   *cmd = MRCommand_Copy(it->cmd);
-  if (it->keyOffset >= 0 && it->keyOffset < it->cmd->num) {
-    if (it->keyAlias) {
-      MRCommand_ReplaceArg(cmd, it->keyOffset, it->keyAlias, strlen(it->keyAlias));
-    }
-  }
 
   cmd->targetSlot = GetSlotByPartition(&it->cluster->part, it->offset++);
 
