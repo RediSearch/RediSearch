@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-import time
-import unittest
-from cmath import inf
-from email import message
-import redis.exceptions
-from includes import *
 from common import *
-from RLTest import Env
 
 def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL'):
     if(moduleArgs == ''):
@@ -74,7 +67,7 @@ def test_invalid_mt_config_combinations(env):
             env.assertFalse(True, message=mode)   # we shouldn't get here
         except Exception as e:
             # Expect to see a failure in loading the module due to the invalid configuration combination.
-            env.assertEqual(type(e), redis.exceptions.ModuleError, message=mode)
+            env.assertEqual(type(e), redis_exceptions.ModuleError, message=mode)
             env.assertContains("Error loading the extension.", str(e))
 
 

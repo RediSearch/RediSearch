@@ -29,23 +29,13 @@ static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
 
 // PARTITIONS
 CONFIG_SETTER(setNumPartitions) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  const char *s;
-  int acrc = AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(s, "AUTO")) {
-    realConfig->numPartitions = 0;
-    AC_Advance(ac); // don't forget to advance!
-  } else {
-    // otherwise, we expect a number. Get it without `AC_F_NOADVANCE` flag
-    acrc = AC_GetSize(ac, &realConfig->numPartitions, AC_F_GE1);
-  }
+  int acrc = AC_Advance(ac); // Consume the argument
+  RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to `AUTO`");
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getNumPartitions) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->numPartitions);
+  return sdsnew("AUTO");
 }
 
 // TIMEOUT
@@ -106,6 +96,18 @@ CONFIG_GETTER(getSearchThreads) {
   return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
+// TOPOLOGY_VALIDATION_TIMEOUT
+CONFIG_SETTER(setTopologyValidationTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  int acrc = AC_GetSize(ac, &realConfig->topologyValidationTimeoutMS, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getTopologyValidationTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
+}
+
 static RSConfigOptions clusterOptions_g = {
     .vars =
         {
@@ -136,6 +138,12 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setSearchThreads,
              .getValue = getSearchThreads,
              .flags = RSCONFIGVAR_F_IMMUTABLE,},
+            {.name = "TOPOLOGY_VALIDATION_TIMEOUT",
+             .helpText = "Sets the timeout for topology validation (in milliseconds). After this timeout, "
+                         "any pending requests will be processed, even if the topology is not fully connected. "
+                         "Default is 30000 (30 seconds). 0 means no timeout.",
+             .setValue = setTopologyValidationTimeout,
+             .getValue = getTopologyValidationTimeout,},
             {.name = NULL}
             // fin
         }

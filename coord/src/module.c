@@ -45,18 +45,12 @@
 
 extern RSConfig RSGlobalConfig;
 
-int redisMajorVesion = 0;
-int redisMinorVesion = 0;
-int redisPatchVesion = 0;
-//REDISMODULE_INIT_SYMBOLS();
-
 extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
-RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
 
 // A reducer that just chains the replies from a map request
 
@@ -1652,7 +1646,6 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
-  bool resp3 = is_resp3(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
 
@@ -1668,7 +1661,6 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1716,21 +1708,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  int partPos = MRCommand_GetPartitioningKey(&cmd);
-//
-//  /* Rewrite the sharding key based on the partitioning key */
-//  if (partPos > 0) {
-//    SearchCluster_RewriteCommand(GetSearchCluster(), &cmd, partPos);
-//  }
-//
-//  /* Rewrite the partitioning key as well */
-//
-//  if (MRCommand_GetFlags(&cmd) & MRCommand_MultiKey) {
-//    if (partPos > 0) {
-//      SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, partPos, partPos);
-//    }
-//  }
-  // MRCommand_Print(&cmd);
+
   MR_MapSingle(MR_CreateCtx(ctx, 0, NULL), singleReplyReducer, cmd);
 
   return REDISMODULE_OK;
@@ -1752,9 +1730,6 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  for (int i = 2; i < argc; i++) {
-//    SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, i, i);
-//  }
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
@@ -1944,7 +1919,6 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  // MR_UpdateTopology(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2134,8 +2108,6 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 }
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  bool resp3 = is_resp3(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2178,136 +2150,14 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
-
-  // Report hash func
-  MRClusterTopology *topo = MR_GetCurrentTopology();
-  const char *hash_func_str;
-  switch (topo ? topo->hashFunc : MRHashFunc_None) {
-  case MRHashFunc_CRC12:
-    hash_func_str = MRHASHFUNC_CRC12_STR;
-    break;
-  case MRHashFunc_CRC16:
-    hash_func_str = MRHASHFUNC_CRC16_STR;
-    break;
-  default:
-    hash_func_str = "n/a";
-    break;
+  if (MR_CurrentTopologyExists()) {
+    // If we have a topology, we must read it from the uv thread
+    MR_uvReplyClusterInfo(ctx);
+  } else {
+    // If we don't have a topology, we can reply immediately
+    MR_ReplyClusterInfo(ctx, NULL);
   }
-
-  //-------------------------------------------------------------------------------------------
-  if (has_map) // RESP3 variant
-  {
-    //reply->resp3 = false;
-    RedisModule_Reply_Map(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "slots");
-      RedisModule_Reply_MapEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    if (reply->resp3) {
-      RedisModule_ReplyKV_Array(reply, "slots"); // >slots
-      for (int i = 0; i < topo->numShards; i++) {
-        MRClusterShard *sh = &topo->shards[i];
-
-        RedisModule_Reply_Map(reply); // >>(shards)
-        RedisModule_ReplyKV_LongLong(reply, "start", sh->startSlot);
-        RedisModule_ReplyKV_LongLong(reply, "end", sh->endSlot);
-
-        RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
-        for (int j = 0; j < sh->numNodes; j++) {
-          MRClusterNode *node = &sh->nodes[j];
-          RedisModule_Reply_Map(reply); // >>>>(node)
-
-          RedisModule_ReplyKV_SimpleString(reply, "id", node->id);
-          RedisModule_ReplyKV_SimpleString(reply, "host", node->endpoint.host);
-          RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModuleString *role = RedisModule_CreateStringPrintf(ctx, "%s%s",
-            node->flags & MRNode_Master ? "master " : "slave ", node->flags & MRNode_Self ? "self" : "");
-          RedisModule_ReplyKV_String(reply, "role", role);
-
-          RedisModule_Reply_MapEnd(reply); // >>>>(node)
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>nodes
-
-        RedisModule_Reply_MapEnd(reply); // >>(shards)
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >slots
-
-    } else {
-    }
-
-    RedisModule_Reply_MapEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-  else // ! has_map (RESP2 variant)
-  {
-    RedisModule_Reply_Array(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    RedisModule_Reply_SimpleString(reply, "slots");
-
-    if (!topo) {
-      RedisModule_Reply_Null(reply);
-      RedisModule_Reply_ArrayEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    for (int i = 0; i < topo->numShards; i++) {
-      MRClusterShard *sh = &topo->shards[i];
-      RedisModule_Reply_Array(reply); // >shards
-
-      RedisModule_Reply_LongLong(reply, sh->startSlot);
-      RedisModule_Reply_LongLong(reply, sh->endSlot);
-      for (int j = 0; j < sh->numNodes; j++) {
-        MRClusterNode *node = &sh->nodes[j];
-        RedisModule_Reply_Array(reply); // >>node
-          RedisModule_Reply_SimpleString(reply, node->id);
-          RedisModule_Reply_SimpleString(reply, node->endpoint.host);
-          RedisModule_Reply_LongLong(reply, node->endpoint.port);
-          RedisModule_Reply_Stringf(reply, "%s%s",
-                                    node->flags & MRNode_Master ? "master " : "slave ",
-                                    node->flags & MRNode_Self ? "self" : "");
-        RedisModule_Reply_ArrayEnd(reply); // >>node
-      }
-
-      RedisModule_Reply_ArrayEnd(reply); // >shards
-    }
-
-    RedisModule_Reply_ArrayEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-
-  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
-}
-
-int UnsuportedOnCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Command not supported on cluster");
 }
 
 // A special command for redis cluster OSS, that refreshes the cluster state
@@ -2349,8 +2199,8 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* Perform basic configurations and init all threads and global structures */
 static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Log(ctx, "notice",
-                  "Cluster configuration: %ld partitions, type: %d, coordinator timeout: %dms",
-                  clusterConfig.numPartitions, clusterConfig.type, clusterConfig.timeoutMS);
+                  "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
+                  clusterConfig.type, clusterConfig.timeoutMS);
 
   /* Configure cluster injections */
   ShardFunc sf;
@@ -2384,9 +2234,9 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf, 2);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf);
   MR_Init(cl, clusterConfig.timeoutMS);
-  InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
+  InitGlobalSearchCluster(0, slotTable, tableSize);
 
   return REDISMODULE_OK;
 }
@@ -2423,20 +2273,6 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
     RedisModule_Log(ctx, "warning", "Could not run " __STRING(expr)); \
     return REDISMODULE_ERR;                                           \
   }
-
-static void getRedisVersion() {
-  RedisModuleCallReply *reply = RedisModule_Call(RSDummyContext, "info", "c", "server");
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
-
-  int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisMajorVesion, &redisMinorVesion,
-                 &redisPatchVesion);
-
-  assert(n == 3);
-
-  RedisModule_FreeCallReply(reply);
-}
 
 /**
  * A wrapper function to override hiredis allocators with redis allocators.
@@ -2484,10 +2320,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
-
-  getRedisVersion();
-  RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",
-                  redisMajorVesion, redisMinorVesion, redisPatchVesion);
 
   // Chain the config into RediSearch's global config and set the default values
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
@@ -2558,7 +2390,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.DELETE", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.BROADCAST", SafeCmd(BroadcastCommand), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));

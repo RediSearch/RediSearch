@@ -10,8 +10,8 @@
 #include "search_cluster.h"
 #include "rmr.h"
 
-MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
-
+static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
+  RS_AutoMemory(ctx);
   const char *myId = NULL;
   RedisModuleCallReply *r = RedisModule_Call(ctx, "CLUSTER", "c", "MYID");
   if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
@@ -120,24 +120,12 @@ err:
   return NULL;
 }
 
-static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
-  RedisModule_ThreadSafeContextLock(ctx);
-  RS_AutoMemory(ctx);
-
-  RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
-  if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {
-    fprintf(stderr, "Error running CLUSTERREFRESH: %s\n", RedisModule_CallReplyStringPtr(r, NULL));
-  }
-  if (r) RedisModule_FreeCallReply(r);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  return 1;
-}
-
 void UpdateTopology(RedisModuleCtx *ctx) {
-  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
-  SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
-  MR_UpdateTopology(topo);
+  if (topo) { // if we didn't get a topology, do nothing. Log was already printed
+    SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
+    MR_UpdateTopology(topo);
+  }
 }
 
 #define REFRESH_PERIOD 1000 // 1 second
