@@ -8,7 +8,8 @@ $MODE apt upgrade -yqq
 $MODE apt dist-upgrade -yqq
 $MODE apt install -yqq software-properties-common unzip rsync
 
-$MODE add-apt-repository ppa:ubuntu-toolchain-r/ppa -y
+# ppa for modern python and gcc
+$MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
 $MODE add-apt-repository ppa:git-core/ppa -y
 $MODE apt update
 $MODE apt-get install -yqq build-essential git wget make gcc-10 g++-10 openssl libssl-dev
