@@ -1,8 +1,6 @@
-import time
-
 from RLTest import Env
 from includes import *
-from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit, index_info
+from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit, index_info, skip
 
 
 class TestDebugCommands(object):
@@ -261,36 +259,36 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1})
+@skip(cluster=True)
+def testDumpHNSW(env):
+    # Note that this test has its own env as it relies on the specific doc ids in the index created.
+    # Had we used this test in the TestDebugCommands env, a background indexing would have been triggered, and
+    # with high probability, some documents would be indexed BEFORE the background scan would end, and it will be
+    # overwritten (same doc, but with a new doc id...)
+    env.cmd('FT.CREATE temp-idx ON JSON prefix 1 _ SCHEMA '
+                 '$.v_HNSW AS v_HNSW VECTOR HNSW 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 '
+                 '$.v_HNSW_multi[*] AS v_HNSW_multi VECTOR HNSW 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 '
+                 '$.v_flat AS v_flat VECTOR FLAT 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 ')
+    env.cmd(*['JSON.SET', '_doc1', '$', '{\"v_HNSW\":[1, 1], \"v_HNSW_multi\":[[1, 1], [2, 2]], \"v_flat\":[1, 1]}'])
+    env.cmd(*['JSON.SET', '_doc2', '$', '{\"v_HNSW\":[3, 3], \"v_HNSW_multi\":[[3, 3], [4, 4]], \"v_flat\":[3, 3]}'])
+    env.cmd(*['JSON.SET', '_doc3', '$', '{\"v_HNSW_multi\":[[5, 5], [6, 6]], \"v_flat\":[5, 5]}'])
+    env.expect(index_info(env, 'temp-idx')['num_docs'], 3)
 
-    def testDumpHNSW(self):
-        self.env.cmd('FT.CREATE temp-idx ON JSON prefix 1 _ SCHEMA '
-                     '$.v_HNSW AS v_HNSW VECTOR HNSW 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 '
-                     '$.v_HNSW_multi[*] AS v_HNSW_multi VECTOR HNSW 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 '
-                     '$.v_flat AS v_flat VECTOR FLAT 6 DIM 2 DISTANCE_METRIC L2 TYPE FLOAT32 ')
-        self.env.cmd(*['JSON.SET', '_doc1', '$', '{\"v_HNSW\":[1, 1], \"v_HNSW_multi\":[[1, 1], [2, 2]], \"v_flat\":[1, 1]}'])
-        self.env.cmd(*['JSON.SET', '_doc2', '$', '{\"v_HNSW\":[3, 3], \"v_HNSW_multi\":[[3, 3], [4, 4]], \"v_flat\":[3, 3]}'])
-        self.env.cmd(*['JSON.SET', '_doc3', '$', '{\"v_HNSW_multi\":[[5, 5], [6, 6]], \"v_flat\":[5, 5]}'])
-        self.env.expect(index_info(self.env, 'temp-idx')['num_docs'], 3)
-        if MT_BUILD:
-            self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+    # Test error handling
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
+        .contains("wrong number of arguments for 'FT.DEBUG' command")
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'bad_idx', 'v').error() \
+        .contains("Can not create a search ctx")
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \
+        .contains("Vector index not found")
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_flat').error() \
+        .contains("Vector index is not an HNSW index")
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW_multi').error() \
+        .contains("Command not supported for HNSW multi-value index")
 
-        # Test error handling
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
-            .contains("wrong number of arguments for 'FT.DEBUG' command")
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'bad_idx', 'v').error() \
-            .contains("Can not create a search ctx")
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \
-            .contains("Vector index not found")
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_flat').error() \
-            .contains("Vector index is not an HNSW index")
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW_multi').error() \
-            .contains("Command not supported for HNSW multi-value index")
-
-        # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
-            equal([['Doc id', 1], ['Neighbors in level 0', 2]])
-        self.env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
-            equal([[['Doc id', 1], ['Neighbors in level 0', 2]], [['Doc id', 2], ['Neighbors in level 0', 1]],
-                   "Doc id 3 doesn't contain the given field"])
-
-        self.env.cmd('FT.DROPINDEX', 'temp-idx', 'DD')
+    # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
+        equal([['Doc id', 1], ['Neighbors in level 0', 2]])
+    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
+        equal([[['Doc id', 1], ['Neighbors in level 0', 2]], [['Doc id', 2], ['Neighbors in level 0', 1]],
+               "Doc id 3 doesn't contain the given field"])

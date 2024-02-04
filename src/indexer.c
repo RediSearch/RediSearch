@@ -156,7 +156,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
 
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
-  RedisModule_Log(NULL, "debug", "Adding doc id %lu to index %s", table->maxDocId+1, spec->name);
+  RedisModule_Log(ctx, "debug", "Adding doc id %lu to index %s", table->maxDocId+1, spec->name);
   RSDocumentMetadata *dmd =
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
