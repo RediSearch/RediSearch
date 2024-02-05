@@ -38,19 +38,13 @@ struct mrCommandConf __commandConfig[] = {
     {"_FT.MGET", MRCommand_Read | MRCommand_MultiKey | MRCommand_Aliased, 1, 2, NULL},
 
     {"_FT.ADD", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2, 2, NULL},
-    {"_FT.ADDHASH", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2, 2, NULL},
     {"_FT.AGGREGATE", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
 
     // index commands
     {"_FT.CREATE", MRCommand_Write | MRCommand_SingleKey, 1, 1, NULL},
-    {"_FT.RULEADD", MRCommand_Write | MRCommand_SingleKey, 1, 1, NULL},
-    {"_FT.RULESET", MRCommand_Write | MRCommand_SingleKey, 1, 1, NULL},
     {"_FT.ALTER", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
     {"_FT.DROP", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
-    {"_FT.DELETE", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
-    {"_FT.OPTIMIZE", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
     {"_FT.INFO", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
-    {"_FT.EXPLAIN", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
     {"_FT.TAGVALS", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1, NULL},
 
     // Alias commands
@@ -66,8 +60,6 @@ struct mrCommandConf __commandConfig[] = {
     {"_FT.CURSOR", MRCommand_Read | MRCommand_SingleKey, 2, 2, NULL},
 
     // Synonyms commands
-    {"_FT.SYNADD", MRCommand_Write | MRCommand_NoKey, 1, -1, NULL},
-    {"_FT.SYNDUMP", MRCommand_Write | MRCommand_NoKey, 1, -1, NULL},
     {"_FT.SYNUPDATE", MRCommand_Write | MRCommand_NoKey, 1, -1, NULL},
     {"_FT.SYNFORCEUPDATE", MRCommand_Write | MRCommand_NoKey, 1, -1, NULL},
 
@@ -78,16 +70,11 @@ struct mrCommandConf __commandConfig[] = {
 
     {"FT.EXPLAIN", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
 
-    {"FT.FSEARCH", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
-    {"FT.RULEADD", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
-    {"FT.RULESET", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {REDISEARCH_MODULE_NAME".CLUSTERINFO", MRCommand_Read | MRCommand_Coordination, -1, -1, NULL},
     {"FT.INFO", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
-    {"FT.ADDHASH", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
     {"FT.DEL", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
     {"FT.DROP", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
-    {"FT.DELETE", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.GET", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
     {"FT.MGET", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
@@ -105,7 +92,6 @@ struct mrCommandConf __commandConfig[] = {
     // dictionary commands
     {"_FT.DICTADD", MRCommand_Write | MRCommand_SingleKey, 1, 1, NULL},
     {"_FT.DICTDEL", MRCommand_Write | MRCommand_SingleKey, 1, 1, NULL},
-    {"_FT.DICTDUMP", MRCommand_Write | MRCommand_NoKey, 1, -1, NULL},
 
     // spell check
     {"_FT.SPELLCHECK", MRCommand_Write | MRCommand_NoKey, 1, -1, &spellCheckCommandGenerator},

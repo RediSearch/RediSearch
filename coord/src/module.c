@@ -168,106 +168,6 @@ int mergeArraysReducer(struct MRCtx *mc, int count, MRReply **replies) {
   return REDISMODULE_OK;
 }
 
-int synonymAddFailedReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  if (count == 0) {
-    RedisModule_Reply_Null(reply);
-  } else {
-    MR_ReplyWithMRReply(reply, replies[0]);
-  }
-
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
-}
-
-int synonymAllOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  if (count == 0) {
-    RedisModule_Reply_Error(reply, "Could not distribute comand");
-    RedisModule_EndReply(reply);
-    return REDISMODULE_OK;
-  }
-
-  for (int i = 0; i < count; i++) {
-    if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
-      MR_ReplyWithMRReply(reply, replies[i]);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-  }
-
-  assert(MRCtx_GetCmdsSize(mc) >= 1);
-  assert(MRCtx_GetCmds(mc)[0].num > 3);
-
-  size_t groupLen;
-  const char *groupStr = MRCommand_ArgStringPtrLen(&MRCtx_GetCmds(mc)[0], 2, &groupLen);
-  RedisModuleString *synonymGroupIdStr = RedisModule_CreateString(ctx, groupStr, groupLen);
-  long long synonymGroupId = 0;
-  int rv = RedisModule_StringToLongLong(synonymGroupIdStr, &synonymGroupId);
-  assert(rv == REDIS_OK);
-
-  RedisModule_Reply_LongLong(reply, synonymGroupId);
-
-  RedisModule_FreeString(ctx, synonymGroupIdStr);
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
-}
-
-int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-
-  if (count != 1 || (MRReply_Type(replies[0]) != MR_REPLY_INTEGER && MRReply_Type(replies[0]) != MR_REPLY_DOUBLE)) {
-    RedisModule_Assert(bc);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
-    return REDISMODULE_OK;
-  }
-
-  assert(MRCtx_GetCmdsSize(mc) == 1);
-  MRCommand updateCommand = {NULL};
-  MRCommand_SetProtocol(&updateCommand, ctx);
-  const MRCommand *srcCmd = &MRCtx_GetCmds(mc)[0];
-  for (size_t ii = 0; ii < 2; ++ii) {
-    MRCommand_AppendFrom(&updateCommand, srcCmd, ii);
-  }
-
-  // MRCommand updateCommand = MR_NewCommandFromStrings(2, MRCtx_GetCmds(mc)[0].args);
-  double d = 0;
-  MRReply_ToDouble(replies[0], &d);
-  char buf[128] = {0};
-  size_t nbuf = sprintf(buf, "%lu", (unsigned long)d);
-  MRCommand_Append(&updateCommand, buf, nbuf);
-
-  for (size_t ii = 2; ii < srcCmd->num; ++ii) {
-    MRCommand_AppendFrom(&updateCommand, srcCmd, ii);
-  }
-
-  const char *cmdName = "_FT.SYNFORCEUPDATE";
-  MRCommand_ReplaceArg(&updateCommand, 0, cmdName, strlen(cmdName));
-
-  size_t idLen = 0;
-  const char *idStr = MRCommand_ArgStringPtrLen(&updateCommand, 1, &idLen);
-  MRKey key = {0};
-  MRKey_Parse(&key, idStr, idLen);
-
-  // reseting the tag
-  MRCommand_ReplaceArg(&updateCommand, 1, key.base, key.baseLen);
-
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &updateCommand);
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, bc, NULL);
-  MR_Map(mrctx, synonymAllOKReducer, cg, false);
-  cg.Free(cg.ctx);
-
-  // we need to call request complete here manually since we did not unblock the client
-  MR_requestCompleted();
-  return REDISMODULE_OK;
-}
-
 int singleReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -1624,44 +1524,6 @@ cleanup:
   return res;
 }
 
-int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 MRReduceFunc reducer, struct MRCtx *mrCtx) {
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  /* Rewrite the sharding key based on the partitioning key */
-  SearchCluster_RewriteCommandToFirstPartition(GetSearchCluster(), &cmd);
-
-  MR_MapSingle(mrCtx, reducer, cmd);
-
-  return REDISMODULE_OK;
-}
-
-int SynAddCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-
-  RS_AutoMemory(ctx);
-
-  struct MRCtx *mrCtx = MR_CreateCtx(ctx, 0, NULL);
-
-  // reducer is set here so the client will not be unblocked.
-  // we need to send SYNFORCEUPDATE commands to the other
-  // shards before unblocking the client.
-  MRCtx_SetReduceFunction(mrCtx, synonymUpdateFanOutReducer);
-
-  return FirstPartitionCommandHandler(ctx, argv, argc, synonymAddFailedReducer, mrCtx);
-}
-
 /* ft.ADD {index} ... */
 int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -2265,7 +2127,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersUnshardedHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     // todo : how to handle those
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNADD", SafeCmd(SynAddCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1));
   }

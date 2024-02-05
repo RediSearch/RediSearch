@@ -32,7 +32,6 @@
 #define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"
 #define RS_DROP_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPIFX"             // for replica of support
 #define RS_DROP_INDEX_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPINDEXIFX"  // for replica of support
-#define RS_SYNADD_CMD RS_CMD_WRITE_PREFIX ".SYNADD"
 #define RS_SYNUPDATE_CMD RS_CMD_WRITE_PREFIX ".SYNUPDATE"
 #define RS_ALTER_CMD RS_CMD_WRITE_PREFIX ".ALTER"
 #define RS_ALTER_IF_NX_CMD RS_CMD_WRITE_PREFIX "._ALTERIFNX"  // for replica of support
@@ -55,6 +54,7 @@
 #define RS_DICT_DUMP "FT.DICTDUMP"
 #define RS_SYNDUMP_CMD "FT.SYNDUMP"
 #define RS_INDEX_LIST_CMD "FT._LIST"
+#define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
 
 // read commands
 #define RS_INFO_CMD RS_CMD_READ_PREFIX ".INFO"
