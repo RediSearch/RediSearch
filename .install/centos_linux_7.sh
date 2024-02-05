@@ -23,7 +23,7 @@ echo "gcc version after bash: $(gcc --version)"
 # get a newer libstc++ library. The one that comes with the gcc version (6.0.19) will fail with
 # the error: `/usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found`
 echo "start downloading libstdc++"
-wget https://redismodules.s3.amazonaws.com/gnu/libstdc++.so.6.0.25-linux-x64.tgz
+wget https://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-linux-x64.tgz"
 echo "done downloading libstdc++"
 
 
