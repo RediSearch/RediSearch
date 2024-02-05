@@ -19,6 +19,7 @@ cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 bash
 
 echo "gcc version after bash: $(gcc --version)"
+echo "libstc++ version: $(find / -name libstdc++.so.6*)"
 
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
 tar -xvf Python-3.9.6.tgz
