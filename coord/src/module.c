@@ -1595,8 +1595,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                int isSharded) {
+static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1613,22 +1612,8 @@ static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, i
   MRCommand_SetPrefix(&cmd, "_FT");
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
 
-  if (isSharded) {
-    MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-    MR_Map(mrctx, allOKReducer, cg, true);
-    cg.Free(cg.ctx);
-  } else {
-    MR_Fanout(mrctx, allOKReducer, cmd, true);
-  }
+  MR_Fanout(mrctx, allOKReducer, cmd, true);
   return REDISMODULE_OK;
-}
-
-int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return mastersCommandCommon(ctx, argv, argc, 1);
-}
-
-static int MastersUnshardedHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return mastersCommandCommon(ctx, argv, argc, 0);
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -2108,8 +2093,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersUnshardedHandler), "readonly", 0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersUnshardedHandler), "readonly", 0, 0, -1));
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     // todo : how to handle those
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1));
