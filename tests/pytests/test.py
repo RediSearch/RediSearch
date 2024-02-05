@@ -3681,8 +3681,17 @@ def cluster_set_test(env: Env):
         except Exception:
             env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
 
+    def prepare_env(env):
+        # set validation timeout to 5ms so occasionaly we will fail to validate the cluster,
+        # this is to test the timeout logic, and help us with ipv6 addresses in containers
+        # where the ipv6 address is not available by default
+        env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
+        verify_shard_init(env)
+
     password = env.password + "@" if env.password else ""
+
     # test ipv4
+    prepare_env(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3703,6 +3712,7 @@ def cluster_set_test(env: Env):
     env.start()
 
     # test ipv6 test
+    prepare_env(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
@@ -3723,6 +3733,7 @@ def cluster_set_test(env: Env):
     env.start()
 
     # test unix socket
+    prepare_env(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',

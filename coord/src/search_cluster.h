@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-/* A search cluster contains the configuations for partitioning and multiplexing commands */
+/* A search cluster contains the configurations for partitioning and multiplexing commands */
 typedef struct {
   size_t size;
   int* shardsStartSlots;
