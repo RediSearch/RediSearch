@@ -1608,9 +1608,9 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
     char *localCmd;
     rm_asprintf(&localCmd, "_%.*s", len, cmd);
-    RedisModule_Call(ctx, localCmd, "v", argv + 1, argc - 1);
+    RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "v", argv + 1, argc - 1);
     rm_free(localCmd);
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
   }
   RS_AutoMemory(ctx);
 
