@@ -94,7 +94,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
               (MREndpoint){
                   .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
           .id = id_str,
-          .flags = MRNode_Coordinator,
+          .flags = 0,
       };
       // the first node in every shard is the master
       if (n == 0) node.flags |= MRNode_Master;

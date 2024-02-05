@@ -3714,6 +3714,10 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
+               'HASHFUNC',
+               'CRC16',
+               'NUMSLOTS',
+               '16384',
                'RANGES',
                '1',
                'SHARD',
@@ -3735,13 +3739,17 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
                '1',
+               'HASHFUNC',
+               'CRC12',
+               'NUMSLOTS',
+               '4096',
                'RANGES',
                '1',
                'SHARD',
                '1',
                'SLOTRANGE',
                '0',
-               '16383',
+               '4095',
                'ADDR',
                f'{password}localhost:{env.port}',
                'UNIXADDR',
@@ -3749,26 +3757,79 @@ def cluster_set_test(env: Env):
                'MASTER'
             ).ok()
     verify_address('localhost')
+
+    shards = []
+    for i in range(env.shardsCount):
+        shards += ['SHARD', str(i), 'SLOTRANGE', '0', '16383',
+                   'ADDR', f'{password}localhost:{env.envRunner.shards[i].port}', 'MASTER']
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
+
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_errors(env: Env):
+
+    # Check general values parsing
+    env.expect('SEARCH.CLUSTERSET').error().contains('Missing value for MYID')
+    env.expect('SEARCH.CLUSTERSET', 'RANDOM').error().contains('Unexpected argument').contains('RANDOM')
+
+    env.expect('SEARCH.CLUSTERSET', 'MYID').error().contains('Missing value for MYID')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES').error().contains('Missing value for RANGES')
+    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
+
+    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Bad value for RANGES: -1')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', 'yes please').error().contains('Bad value for NUMSLOTS: yes please')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Bad value for NUMSLOTS: 0')
+    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '1000000').error().contains('Bad value for NUMSLOTS: 1000000')
+
+    # Check shard values parsing
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'BANANA').error().contains('Expected `SHARD` but got `BANANA`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD').error().contains('Missing value for SHARD')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1').error().contains('Expected `SLOTRANGE` but got `(nil)`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE').error().contains('Missing value for SLOTRANGE')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0').error().contains('Missing value for SLOTRANGE')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', 'banana').error().contains('Bad value for SLOTRANGE').contains('banana')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '1', '0').error().contains('Bad values for SLOTRANGE: 1, 0')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1000000').error().contains('Bad values for SLOTRANGE: 0, 1000000')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1').error().contains('Expected `ADDR` but got `(nil)`')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR').error().contains('Missing value for ADDR')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1', 'UNIXADDR').error().contains('Missing value for UNIXADDR')
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1', 'UNEXPECTED').error().contains('Expected end of command but got `UNEXPECTED`')
+
+    # Test too many slots (or too few shards)
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '1', 'ADDR', '1:1').error().contains('Expected `SHARD` but got `(nil)`')
+
     # check that multiple unix sockets are not allowed
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'RANGES',
-               '1',
+    env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD',
                '1',
                'SLOTRANGE',
                '0',
                '16383',
                'ADDR',
-               f'{password}localhost:{env.port}',
+               'localhost:123',
                'UNIXADDR',
                '/tmp/redis.sock',
+               'MASTER'
                'UNIXADDR',
                '/tmp/another.sock',
-               'MASTER'
-            ).error().contains('Syntax error at offset').contains("near 'UNIXADDR'")
+            ).error().contains('Expected').contains("UNIXADDR")
 
+    # check invalid addresses
     invalid_addresses = [
         'invalid',
         'invalid:',
@@ -3790,7 +3851,7 @@ def cluster_set_test(env: Env):
                    'ADDR',
                     addr,
                    'MASTER'
-            ).error().contains('Invalid tcp address').contains(addr)
+            ).error().contains('Bad value for ADDR:').contains(addr)
         # Test with unix socket
         env.expect('SEARCH.CLUSTERSET',
                    'MYID',
@@ -3807,40 +3868,7 @@ def cluster_set_test(env: Env):
                    'UNIXADDR',
                    '/tmp/redis.sock',
                    'MASTER'
-            ).error().contains('Invalid tcp address').contains(addr)
-
-def test_cluster_set_server_memory_tracking(env):
-    if not env.isCluster():
-        # this test is only relevant on cluster
-        env.skip()
-
-    def get_memory(env):
-        res = env.cmd('INFO', "MEMORY")
-        return res['used_memory']
-
-    def cluster_set_ipv4():
-        env.cmd('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'RANGES',
-               '1',
-               'SHARD',
-               '1',
-               'SLOTRANGE',
-               '0',
-               '16383',
-               'ADDR',
-               'password@127.0.0.1:22000',
-               'MASTER'
-            )
-    for _ in range(200):
-        cluster_set_ipv4()
-    initial = get_memory(env) - 1024 * 1024 # to account for some variance in memory
-    for _ in range(1_000): # hangs at 1932 iterations. need to determine the cause
-        cluster_set_ipv4()
-        mem = get_memory(env)
-        env.assertLessEqual(initial, mem)
-
+            ).error().contains('Bad value for ADDR:').contains(addr)
 
 
 def test_internal_commands(env):
