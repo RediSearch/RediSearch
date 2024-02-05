@@ -252,7 +252,7 @@ static void uvFanoutRequest(void *p) {
   if (cluster_g->topo) {
     MRCommand *cmd = &mc->cmds[0];
     mrctx->numExpected =
-        MRCluster_FanoutCommand(cluster_g, mrctx->strategy, cmd, fanoutCallback, mrctx);
+        MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, cmd, fanoutCallback, mrctx);
   }
 
   if (mrctx->numExpected == 0) {
@@ -275,7 +275,7 @@ static void uvMapRequest(void *p) {
   mrctx->cmds = mc->cmds;
 
   for (int i = 0; i < mc->numCmds; i++) {
-    if (MRCluster_SendCommand(cluster_g, mrctx->strategy, &mc->cmds[i], fanoutCallback, mrctx) == REDIS_OK) {
+    if (MRCluster_SendCommand(cluster_g, mrctx->mastersOnly, &mc->cmds[i], fanoutCallback, mrctx) == REDIS_OK) {
       mrctx->numExpected++;
     }
   }
@@ -550,8 +550,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd) {
   ctx->cmd = *cmd;
-  return MRCluster_SendCommand(ctx->ic->cluster, MRCluster_MastersOnly, cmd, mrIteratorRedisCB,
-                               ctx);
+  return MRCluster_SendCommand(ctx->ic->cluster, true, cmd, mrIteratorRedisCB, ctx);
 }
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
@@ -612,7 +611,7 @@ int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 void iterStartCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
+    if (MRCluster_SendCommand(it->ctx.cluster, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       // fprintf(stderr, "Could not send command!\n");
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -624,7 +623,7 @@ void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
-      if (MRCluster_SendCommand(it->ctx.cluster, MRCluster_MastersOnly, &it->cbxs[i].cmd,
+      if (MRCluster_SendCommand(it->ctx.cluster, true, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         // fprintf(stderr, "Could not send command!\n");
         MRIteratorCallback_Done(&it->cbxs[i], 1);

@@ -45,15 +45,10 @@ int SearchCluster_Ready(SearchCluster *sc);
  * iteration, based on the original command */
 MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *cmd);
 
-int SearchCluster_RewriteCommandToFirstPartition(SearchCluster *sc, MRCommand *cmd);
-
 /* Make sure that if the cluster is unaware of its sizing, it will take the size from the topology
  */
 void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTopology *topo);
 
 void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
-
-char *writeTaggedId(const char *key, size_t keyLen, const char *tag, size_t tagLen,
-                    size_t *taggedLen);
 
 int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass);

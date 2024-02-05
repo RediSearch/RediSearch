@@ -112,30 +112,6 @@ done:
   return ret;
 }
 
-char *writeTaggedId(const char *key, size_t keyLen, const char *tag, size_t tagLen,
-                    size_t *taggedLen) {
-  size_t total = keyLen + tagLen + 3;  // +3 because of '{', '}', and NUL
-  char *tagged = rm_malloc(total);
-  tagged[total - 1] = 0;
-  if (taggedLen) {
-    *taggedLen = total - 1;
-  }
-
-  // key{tag}
-
-  char *pos = tagged;
-  memcpy(pos, key, keyLen);
-  pos += keyLen;
-  *(pos++) = '{';
-
-  memcpy(pos, tag, tagLen);
-  pos += tagLen;
-  *(pos++) = '}';
-
-  // printf("TaggedID: %.*s\n", (int)*taggedLen, tagged);
-  return tagged;
-}
-
 static const char *getUntaggedId(const char *id, size_t *outlen) {
   const char *openBrace = rindex(id, '{');
   if (openBrace) {
@@ -155,28 +131,6 @@ static const char *lookupAlias(const char *orig, size_t *len) {
     return orig;
   }
   return getUntaggedId(sp->name, len);
-}
-
-int SearchCluster_RewriteCommandToFirstPartition(SearchCluster *sc, MRCommand *cmd) {
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(sc)) return 0;
-
-  int sk = MRCommand_GetShardingKey(cmd);
-  if (sk < 0) {
-    return 1;
-  } else if (sk >= cmd->num) {
-    return 0;
-  }
-
-  size_t keylen = 0;
-  const char *key = MRCommand_ArgStringPtrLen(cmd, sk, &keylen);
-  if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
-    const char* alias = lookupAlias(key, &keylen);
-    MRCommand_ReplaceArg(cmd, sk, alias, strlen(alias));
-  }
-
-  cmd->targetSlot = GetSlotByPartition(&sc->part, 0);
-  return 1;
 }
 
 /* Get the next multiplexed command for spellcheck command. Return 1 if we are not done, else 0 */
@@ -217,38 +171,6 @@ int NoPartitionCommandMuxIterator_Next(void *ctx, MRCommand *cmd) {
   }
 
   cmd->targetSlot = it->cluster->shardsStartSlots[it->offset++];
-
-  return 1;
-}
-
-/* Get the next multiplexed command from the iterator. Return 1 if we are not done, else 0 */
-int SCCommandMuxIterator_Next(void *ctx, MRCommand *cmd) {
-  SCCommandMuxIterator *it = ctx;
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(it->cluster)) return 0;
-
-  /* at end */
-  if (it->offset >= it->cluster->size) {
-    return 0;
-  }
-
-  *cmd = MRCommand_Copy(it->cmd);
-  if (it->keyOffset >= 0 && it->keyOffset < it->cmd->num) {
-    size_t argLen;
-    const char *arg;
-    if (it->keyAlias) {
-      arg = it->keyAlias;
-      argLen = strlen(it->keyAlias);
-    } else {
-      arg = MRCommand_ArgStringPtrLen(cmd, it->keyOffset, &argLen);
-    }
-    const char *tag = PartitionTag(&it->cluster->part, it->offset++);
-
-    size_t taggedLen;
-    char *tagged = writeTaggedId(arg, argLen, tag, strlen(tag), &taggedLen);
-    MRCommand_ReplaceArgNoDup(cmd, it->keyOffset, tagged, taggedLen);
-  }
-  // MRCommand_Print(cmd);
 
   return 1;
 }

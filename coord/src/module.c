@@ -17,7 +17,6 @@
 #include "crc12_tags.h"
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
-#include "fnv32.h"
 #include "search_cluster.h"
 #include "config.h"
 #include "coord_module.h"
@@ -1625,25 +1624,6 @@ int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
 static int MastersUnshardedHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return mastersCommandCommon(ctx, argv, argc, 0);
-}
-
-int FanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RS_AutoMemory(ctx);
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_Map(MR_CreateCtx(ctx, 0, NULL), allOKReducer, cg, true);
-  cg.Free(cg.ctx);
-  return REDISMODULE_OK;
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
