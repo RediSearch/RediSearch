@@ -10,12 +10,12 @@ $MODE yum -y install centos-release-scl
 
 
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
-    devtoolset-10-gcc devtoolset-10-gcc-c++ devtoolset-10-make devtoolset-10-libatomic-devel
+    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel
 
-source /opt/rh/devtoolset-10/enable
+source /opt/rh/devtoolset-11/enable
 echo "gcc version: $(gcc --version)"
 
-cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
+cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 bash
 
 echo "gcc version after bash: $(gcc --version)"
