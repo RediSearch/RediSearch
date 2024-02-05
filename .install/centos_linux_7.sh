@@ -19,7 +19,13 @@ cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 bash
 
 echo "gcc version after bash: $(gcc --version)"
-echo "libstc++ version: $(find / -name libstdc++.so.6*)"
+
+# get a newer libstc++ library. The one that comes with the gcc version (6.0.19) will fail with
+# the error: `/usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found`
+echo "start downloading libstdc++"
+wget https://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-linux-x86_64.tgz
+echo "done downloading libstdc++"
+
 
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
 tar -xvf Python-3.9.6.tgz
