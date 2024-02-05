@@ -1586,7 +1586,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MRCommand_Append(&cmd, "FULLSCOREINFO", sizeof("FULLSCOREINFO") - 1);
+  MRCommand_Insert(&cmd, 3, "FULLSCOREINFO", sizeof("FULLSCOREINFO") - 1);
 
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
   MR_Fanout(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cmd, true);
@@ -1626,13 +1626,19 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  if (numSards == 0) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (numSards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSAggregateCommand(ctx, argv, argc);
+  }
+
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                RSExecDistAggregate, ctx, argv, argc);
@@ -1780,7 +1786,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
 
   // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
   if (!req->withSortby) {
-    MRCommand_Append(&cmd, "WITHSCORES", sizeof("WITHSCORES") - 1);
+    MRCommand_Insert(&cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 
   if(req->specialCases) {
@@ -1827,12 +1833,18 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
   }
 }
 
+int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  if (numSards == 0) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (numSards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSSearchCommand(ctx, argv, argc);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
@@ -1850,7 +1862,12 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (SearchCluster_Size(GetSearchCluster()) == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSProfileCommand(ctx, argv, argc);
+  }
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2089,8 +2106,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
@@ -2118,6 +2133,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RSBuildType_g == RSBuildType_OSS) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
   }
 
   return REDISMODULE_OK;

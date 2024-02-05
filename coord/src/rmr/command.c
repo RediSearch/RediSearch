@@ -223,6 +223,17 @@ static void extendCommandList(MRCommand *cmd, size_t toAdd) {
   cmd->lens = rm_realloc(cmd->lens, sizeof(*cmd->lens) * cmd->num);
 }
 
+void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
+  int oldNum = cmd->num;
+  extendCommandList(cmd, 1);
+
+  // shift right all arguments that comes after pos
+  memmove(cmd->strs + pos + 1, cmd->strs + pos, (oldNum - pos) * sizeof(char*));
+  memmove(cmd->lens + pos + 1, cmd->lens + pos, (oldNum - pos) * sizeof(size_t));
+
+  assignStr(cmd, pos, s, n);
+}
+
 void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx) {
   MRCommand_Append(cmd, srcCmd->strs[srcidx], srcCmd->lens[srcidx]);
 }
