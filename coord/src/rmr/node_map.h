@@ -24,7 +24,6 @@ typedef struct MRNodeMapIterator {
 } MRNodeMapIterator;
 
 MRNodeMapIterator MRNodeMap_IterateAll(MRNodeMap *m);
-MRNodeMapIterator MRNodeMap_IterateHost(MRNodeMap *m, const char *host);
 void MRNodeMapIterator_Free(MRNodeMapIterator *it);
 
 MRNodeMap *MR_NewNodeMap();

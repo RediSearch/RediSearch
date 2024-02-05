@@ -46,7 +46,7 @@ typedef struct MRCtx {
   void *privdata;
   RedisModuleCtx *redisCtx;
   RedisModuleBlockedClient *bc;
-  MRCoordinationStrategy strategy;
+  bool mastersOnly;
   char protocol;
   int numCmds;
   MRCommand *cmds;
@@ -63,8 +63,8 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
-void MR_SetCoordinationStrategy(MRCtx *ctx, MRCoordinationStrategy strategy) {
-  ctx->strategy = strategy;
+void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
+  ctx->mastersOnly = mastersOnly;
 }
 
 /* Create a new MapReduce context */
@@ -77,7 +77,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->replies = rm_calloc(ret->repliesCap, sizeof(redisReply *));
   ret->reducer = NULL;
   ret->privdata = privdata;
-  ret->strategy = MRCluster_FlatCoordination;
+  ret->mastersOnly = true; // default to masters only
   ret->redisCtx = ctx;
   ret->bc = bc;
   RedisModule_Assert(ctx || bc);
@@ -227,7 +227,7 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
-  return MRCluster_CheckConnections(cluster_g, mastersOnly ? MRCluster_MastersOnly : 0);
+  return MRCluster_CheckConnections(cluster_g, mastersOnly);
 }
 
 bool MR_CurrentTopologyExists() {

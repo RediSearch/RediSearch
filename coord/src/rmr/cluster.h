@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "triemap/triemap.h"
@@ -83,36 +82,22 @@ typedef struct {
 
 } MRCluster;
 
-/* Define the coordination strategy of a coordination command */
-typedef enum {
-  /* Send the coordination command to all nodes */
-  MRCluster_FlatCoordination,
-  /* Send the command to one coordinator per physical machine (identified by its IP address) */
-  MRCluster_RemoteCoordination,
-  /* Send the command to local nodes only - i.e. nodes working on the same physical host */
-  MRCluster_LocalCoordination,
-  /* If this is set, we only wish to talk to masters.
-   * NOTE: This is a flag that should be added to the strategy along with one of the above */
-  MRCluster_MastersOnly = 0x08,
-
-} MRCoordinationStrategy;
-
-int MRCluster_CheckConnections(MRCluster *cl, MRCoordinationStrategy strategy);
+int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);
 
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
  * return value is the number of nodes we managed to successfully send the command to */
-int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
-                            redisCallbackFn *fn, void *privdata);
+int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
+                            void *privdata);
 
 /* Get a connected connection according to the cluster, strategy and command.
  * Returns NULL if no fitting connection exists at the moment */
-MRConn* MRCluster_GetConn(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd);
+MRConn *MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd);
 
 /* Send a command to its appropriate shard, selecting a node based on the coordination strategy.
  * Returns REDIS_OK on success, REDIS_ERR on failure. Notice that that send is asynchronous so even
  * though we signal for success, the request may fail */
-int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
-                          redisCallbackFn *fn, void *privdata);
+int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
+                          void *privdata);
 
 /* The number of individual hosts (by IP address) in the cluster */
 size_t MRCluster_NumHosts(MRCluster *cl);

@@ -33,26 +33,6 @@ MRNodeMapIterator MRNodeMap_IterateAll(MRNodeMap *m) {
                              .host = NULL};
 }
 
-/* Return 1 if this is the host of the node's endpoint */
-static int IsNodeHost(const MRClusterNode *node, const char *host) {
-  return !strcasecmp(node->endpoint.host, host);
-}
-
-static MRClusterNode *_nmi_hostNext(MRNodeMapIterator *it) {
-  dictEntry *de;
-  while ((de = dictNext(it->iter)) && !IsNodeHost(dictGetVal(de), it->host)) {
-  }
-  return de ? dictGetVal(de) : NULL;
-}
-
-MRNodeMapIterator MRNodeMap_IterateHost(MRNodeMap *m, const char *host) {
-  return (MRNodeMapIterator){.Next = _nmi_hostNext,
-                             .m = m,
-                             .excluded = NULL,
-                             .iter = dictGetIterator(m->nodes),
-                             .host = host};
-}
-
 void MRNodeMap_Free(MRNodeMap *m) {
   dictRelease(m->hosts);
   dictRelease(m->nodes);

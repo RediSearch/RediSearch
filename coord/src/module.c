@@ -49,24 +49,6 @@ extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
-// forward declaration
-int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
-
-// A reducer that just chains the replies from a map request
-
-int chainReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-  RedisModule_Reply_Array(reply);
-    for (int i = 0; i < count; i++) {
-      MR_ReplyWithMRReply(reply, replies[i]);
-    }
-  RedisModule_Reply_ArrayEnd(reply);
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
-}
-
 // A reducer that just merges N sets of strings by chaining them into one big array with no
 // duplicates
 
@@ -278,7 +260,6 @@ int synonymUpdateFanOutReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &updateCommand);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, bc, NULL);
-  MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly);
   MR_Map(mrctx, synonymAllOKReducer, cg, false);
   cg.Free(cg.ctx);
 
@@ -1721,7 +1702,6 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
-  MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
   MR_Map(mrctx, mergeArraysReducer, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
@@ -1744,7 +1724,6 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
-  MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
   MR_Map(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
@@ -1770,7 +1749,6 @@ static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   if (isSharded) {
     MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-    MR_SetCoordinationStrategy(mrctx, MRCluster_MastersOnly | MRCluster_FlatCoordination);
     MR_Map(mrctx, allOKReducer, cg, true);
     cg.Free(cg.ctx);
   } else {
@@ -1856,32 +1834,6 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return REDISMODULE_OK;
 }
 
-int BroadcastCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-  RS_AutoMemory(ctx);
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc - 1, &argv[1]);
-  MRCommand_SetProtocol(&cmd, ctx);
-  struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL);
-  MR_SetCoordinationStrategy(mctx, MRCluster_FlatCoordination);
-
-  if (cmd.num > 1 && MRCommand_GetShardingKey(&cmd) >= 0) {
-    MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-    MR_Map(mctx, chainReplyReducer, cg, true);
-    cg.Free(cg.ctx);
-  } else {
-    MR_Fanout(mctx, chainReplyReducer, cmd, true);
-  }
-  return REDISMODULE_OK;
-}
-
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     // FT.INFO {index}
@@ -1899,60 +1851,8 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL);
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_SetCoordinationStrategy(mctx, MRCluster_FlatCoordination);
+  MR_SetCoordinationStrategy(mctx, false); // send to all shards (not just the masters)
   MR_Map(mctx, InfoReplyReducer, cg, true);
-  cg.Free(cg.ctx);
-  return REDISMODULE_OK;
-}
-
-int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-  RS_AutoMemory(ctx);
-
-  QueryError status = {0};
-  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
-  if (!req) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
-  }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-
-  // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
-  int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
-  if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
-    MRCommand_ReplaceArg(&cmd, limitIndex + 1, "0", 1);
-  }
-
-  /* Replace our own DFT command with FT. command */
-  MRCommand_ReplaceArg(&cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
-
-  if (req->withSortby) {
-    // if sort by requested we adding the WITHSORTKEYS option anyway immediately after the query.
-    // Worst case it will appears twice.
-    MRCommand_AppendArgsAtPos(&cmd, 3, 1, "WITHSORTKEYS");
-  } else {
-    // adding the WITHSCORES option anyway immediately after the query if there is no SORTBY.
-    // If user added `WITHSCORES`, it will appear twice.
-    MRCommand_AppendArgsAtPos(&cmd, 3, 1, "WITHSCORES");
-  }
-
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, req);
-  // we prefer the next level to be local - we will only approach nodes on our own shard
-  // we also ask only masters to serve the request, to avoid duplications by random
-  MR_SetCoordinationStrategy(mrctx, MRCluster_LocalCoordination | MRCluster_MastersOnly);
-
-  MR_Map(mrctx, searchResultReducer, cg, true);
   cg.Free(cg.ctx);
   return REDISMODULE_OK;
 }
@@ -2053,10 +1953,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
 
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req);
   MRCtx_SetProtocol(mrctx, protocol);
-
-  // we prefer the next level to be local - we will only approach nodes on our own shard
-  // we also ask only masters to serve the request, to avoid duplications by random
-  MR_SetCoordinationStrategy(mrctx, MRCluster_FlatCoordination | MRCluster_MastersOnly);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
@@ -2384,12 +2280,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1));
-  RM_TRY(RedisModule_CreateCommand(ctx, "FT.LSEARCH", SafeCmd(LocalSearchCommandHandler), "readonly", 0, 0, -1)); // Undocumented
-  RM_TRY(RedisModule_CreateCommand(ctx, "FT.FSEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1)); // Undocumented
   if (RSBuildType_g == RSBuildType_OSS) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.BROADCAST", SafeCmd(BroadcastCommand), "readonly", 0, 0, -1)); // Undocumented
   }
 
   return REDISMODULE_OK;
