@@ -61,7 +61,7 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
 
 MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModuleString **argv,
                                                  int argc) {
-  ArgsCursor ac;
+  ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *myID = NULL;                 // Mandatory. No default.
   size_t numShards = 0;                    // Mandatory. No default.
@@ -102,6 +102,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
         return NULL;
       }
       break;
+    } else if (AC_AdvanceIfMatch(&ac, "HASREPLICATION")) { // TODO: remove
     } else {
       ERROR_FMT("Unexpected argument: `%s`", AC_GetStringNC(&ac, NULL));
       return NULL;
