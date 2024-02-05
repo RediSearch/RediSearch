@@ -43,11 +43,15 @@ void SearchCluster_Release(SearchCluster *sc) {
 }
 
 inline int SearchCluster_Ready(SearchCluster *sc) {
-  return sc->size;
+  return sc->size != 0;
 }
 
 inline size_t SearchCluster_Size(SearchCluster *sc) {
   return sc->size;
+}
+
+inline int SearchCluster_GetSlotByPartition(SearchCluster *sc, size_t partition) {
+  return sc->shardsStartSlots[partition];
 }
 
 char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
@@ -114,93 +118,6 @@ done:
   }
   RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
-}
-
-static const char *getUntaggedId(const char *id, size_t *outlen) {
-  const char *openBrace = rindex(id, '{');
-  if (openBrace) {
-    *outlen = openBrace - id;
-  } else {
-    *outlen = strlen(id);
-  }
-  return id;
-}
-
-static const char *lookupAlias(const char *orig, size_t *len) {
-  // borrowing the global reference to the spec
-  StrongRef global = IndexAlias_Get(orig);
-  IndexSpec *sp = StrongRef_Get(global);
-  if (!sp) {
-    *len = strlen(orig);
-    return orig;
-  }
-  return getUntaggedId(sp->name, len);
-}
-
-int NoPartitionCommandMuxIterator_Next(void *ctx, MRCommand *cmd) {
-  SCCommandMuxIterator *it = ctx;
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(it->cluster)) return 0;
-
-  /* at end */
-  if (it->offset >= it->cluster->size) {
-    return 0;
-  }
-
-  *cmd = MRCommand_Copy(it->cmd);
-  if (it->keyOffset >= 0 && it->keyOffset < it->cmd->num) {
-    if (it->keyAlias) {
-      MRCommand_ReplaceArg(cmd, it->keyOffset, it->keyAlias, strlen(it->keyAlias));
-    }
-  }
-
-  cmd->targetSlot = it->cluster->shardsStartSlots[it->offset++];
-
-  return 1;
-}
-
-size_t NoPartitionCommandMuxIterator_Len(void *ctx) {
-  SCCommandMuxIterator *it = ctx;
-  return it->cluster->size;
-}
-
-void NoPartitionCommandMuxIterator_Free(void *ctx) {
-  SCCommandMuxIterator *it = ctx;
-  if (it->cmd) MRCommand_Free(it->cmd);
-  it->cmd = NULL;
-  rm_free(it->keyAlias);
-  rm_free(it);
-}
-
-MRCommandGenerator noPartitionCommandGenerator = {.Next = NoPartitionCommandMuxIterator_Next,
-                                              .Free = NoPartitionCommandMuxIterator_Free,
-                                              .Len = NoPartitionCommandMuxIterator_Len,
-                                              .ctx = NULL};
-
-MRCommandGenerator SearchCluster_GetCommandGenerator(SCCommandMuxIterator *mux) {
-  MRCommandGenerator ret = noPartitionCommandGenerator;
-  ret.ctx = mux;
-  return ret;
-}
-
-/* Multiplex a command to the cluster using an iterator that will yield a multiplexed command per
- * iteration, based on the original command */
-MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *cmd) {
-
-  SCCommandMuxIterator *mux = rm_malloc(sizeof(SCCommandMuxIterator));
-  *mux = (SCCommandMuxIterator){
-      .cluster = c, .cmd = cmd, .keyOffset = MRCommand_GetShardingKey(cmd),
-      .offset = 0, .keyAlias = NULL};
-  if (MRCommand_GetFlags(cmd) & MRCommand_Aliased) {
-    if (mux->keyOffset > 0 && mux->keyOffset < cmd->num) {
-      size_t newlen = 0;
-      const char *target = lookupAlias(cmd->strs[mux->keyOffset], &newlen);
-      if (strcmp(cmd->strs[mux->keyOffset], target) != 0) {
-        mux->keyAlias = rm_strndup(target, newlen);
-      }
-    }
-  }
-  return SearchCluster_GetCommandGenerator(mux);
 }
 
 /* Make sure that the cluster either has a size or updates its size from the topology when updated.

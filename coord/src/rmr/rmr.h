@@ -15,6 +15,7 @@
 
 struct MRCtx;
 struct RedisModuleCtx;
+struct SearchCluster;
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -42,9 +43,6 @@ int MR_CheckTopologyConnections(bool mastersOnly);
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
-
-/* Return our current node as detected by cluster state calls */
-MRClusterNode *MR_GetMyNode();
 
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
@@ -84,7 +82,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb);
+MRIterator *MR_Iterate(const MRCommand *cmd, struct SearchCluster *sc, MRIteratorCallback cb);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 

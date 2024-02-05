@@ -66,21 +66,6 @@ static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t
   return cmd->strs[idx];
 }
 
-/* A generator producing a list of commands on successive calls to Next(); */
-typedef struct {
-  /* Private context of what's actually going on */
-  void *ctx;
-
-  /* The number of commands in this generator. We must know it in advance */
-  size_t (*Len)(void *ctx);
-
-  /* Next callback - should yield 0 if we are at the end, 1 if not, and put the next value in cmd */
-  int (*Next)(void *ctx, MRCommand *cmd);
-
-  /* Free callback - used to free the private context */
-  void (*Free)(void *ctx);
-} MRCommandGenerator;
-
 /** Copy from an argument of an existing command */
 void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx);
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
@@ -97,19 +82,6 @@ void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, con
                               size_t n);
 
 int MRCommand_GetShardingKey(MRCommand *cmd);
-
-typedef enum {
-  MRCommand_SingleKey = 0x01,
-  MRCommand_MultiKey = 0x02,
-  MRCommand_Read = 0x04,
-  MRCommand_Write = 0x08,
-  MRCommand_Coordination = 0x10,
-  MRCommand_NoKey = 0x20,
-  // Command can be aliased. Look up the alias and rewrite if possible
-  MRCommand_Aliased = 0x40
-} MRCommandFlags;
-
-MRCommandFlags MRCommand_GetFlags(MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 

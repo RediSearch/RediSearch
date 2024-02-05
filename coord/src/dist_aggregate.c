@@ -240,7 +240,7 @@ typedef struct {
   size_t curIdx;
   MRIterator *it;
   MRCommand cmd;
-  MRCommandGenerator cg;
+  SearchCluster *sc;
   AREQ *areq;
 
   // profile vars
@@ -465,7 +465,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
+  MRIterator *it = MR_Iterate(&nc->cmd, nc->sc, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -483,8 +483,6 @@ static void rpnetFree(ResultProcessor *rp) {
   if (nc->it) {
     MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
-
-  nc->cg.Free(nc->cg.ctx);
 
   if (nc->shardsProfile) {
     for (size_t i = 0; i < nc->shardsProfileIdx; ++i) {
@@ -505,7 +503,7 @@ static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
   //  MRCommand_FPrint(stderr, &cmd);
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
-  nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
+  nc->sc = sc;
   nc->areq = NULL;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;

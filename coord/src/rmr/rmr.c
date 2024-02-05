@@ -14,6 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "coord/src/config.h"
+#include "search_cluster.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -232,10 +233,6 @@ int MR_CheckTopologyConnections(bool mastersOnly) {
 
 bool MR_CurrentTopologyExists() {
   return cluster_g->topo != NULL;
-}
-
-MRClusterNode *MR_GetMyNode() {
-  return cluster_g->myNode;
 }
 
 /* The fanout request received in the event loop in a thread safe manner */
@@ -626,10 +623,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
+MRIterator *MR_Iterate(const MRCommand *cmd, SearchCluster *sc, MRIteratorCallback cb) {
 
   MRIterator *ret = rm_malloc(sizeof(*ret));
-  size_t len = cg.Len(cg.ctx);
+  size_t len = SearchCluster_Size(sc);
   *ret = (MRIterator){
       .ctx =
           {
@@ -645,17 +642,10 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
 
   for (size_t i = 0; i < len; i++) {
     ret->cbxs[i].ic = &ret->ctx;
-    if (!cg.Next(cg.ctx, &(ret->cbxs[i].cmd))) {
-      ret->len = i;
-      break;
-    }
+    ret->cbxs[i].cmd = MRCommand_Copy(cmd);
+    ret->cbxs[i].cmd.targetSlot = SearchCluster_GetSlotByPartition(sc, i);
   }
 
-  // Could not create command, probably invalid cluster
-  if (ret->len == 0) {
-    MRIterator_Free(ret);
-    return NULL;
-  }
   ret->ctx.pending = ret->len;
   ret->ctx.inProcess = ret->len; // Initially all commands are in process
 
