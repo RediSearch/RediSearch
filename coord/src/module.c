@@ -1603,6 +1603,16 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (SearchCluster_Size(GetSearchCluster()) == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    size_t len;
+    const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
+    RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
+    char *localCmd;
+    rm_asprintf(&localCmd, "_%.*s", len, cmd);
+    RedisModule_Call(ctx, localCmd, "v", argv + 1, argc - 1);
+    rm_free(localCmd);
+    return REDISMODULE_OK;
   }
   RS_AutoMemory(ctx);
 
