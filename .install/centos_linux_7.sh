@@ -24,6 +24,12 @@ echo "gcc version after bash: $(gcc --version)"
 # the error: `/usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found`
 echo "start downloading libstdc++"
 wget https://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-linux-x64.tgz
+file_name=$(tar -xvf libstdc++.so.6.0.25-linux-x64.tgz)
+mv $file_name /usr/lib64/
+cd /usr/lib64
+rm -f libstdc++.so.6  # remove the old symlink
+ln -s libstdc++.so.6.0.25 libstdc++.so.6
+cd -
 echo "done downloading libstdc++"
 
 
