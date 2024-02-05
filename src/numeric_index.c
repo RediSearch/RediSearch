@@ -154,10 +154,9 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  rv->sz += (*lp)->range->invertedIndexSize;
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  rv->sz += (*rp)->range->invertedIndexSize;
+  rv->sz += (*lp)->range->invertedIndexSize + (*rp)->range->invertedIndexSize;
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0, false);
