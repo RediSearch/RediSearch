@@ -46,6 +46,10 @@ inline int SearchCluster_Ready(SearchCluster *sc) {
   return sc->size;
 }
 
+inline size_t SearchCluster_Size(SearchCluster *sc) {
+  return sc->size;
+}
+
 char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
@@ -133,26 +137,6 @@ static const char *lookupAlias(const char *orig, size_t *len) {
   return getUntaggedId(sp->name, len);
 }
 
-/* Get the next multiplexed command for spellcheck command. Return 1 if we are not done, else 0 */
-int SpellCheckMuxIterator_Next(void *ctx, MRCommand *cmd) {
-  SCCommandMuxIterator *it = ctx;
-  // make sure we can actually calculate partitioning
-  if (!SearchCluster_Ready(it->cluster)) return 0;
-
-  /* at end */
-  if (it->offset >= it->cluster->size) {
-    return 0;
-  }
-
-  *cmd = MRCommand_Copy(it->cmd);
-
-  cmd->targetSlot = GetSlotByPartition(&it->cluster->part, it->offset++);
-
-  MRCommand_AppendArgsAtPos(cmd, 3, 1, "FULLSCOREINFO");
-
-  return 1;
-}
-
 int NoPartitionCommandMuxIterator_Next(void *ctx, MRCommand *cmd) {
   SCCommandMuxIterator *it = ctx;
   // make sure we can actually calculate partitioning
@@ -175,23 +159,9 @@ int NoPartitionCommandMuxIterator_Next(void *ctx, MRCommand *cmd) {
   return 1;
 }
 
-/* Return the size of the command generator */
-size_t SCCommandMuxIterator_Len(void *ctx) {
-  SCCommandMuxIterator *it = ctx;
-  return it->cluster->size;
-}
-
 size_t NoPartitionCommandMuxIterator_Len(void *ctx) {
   SCCommandMuxIterator *it = ctx;
   return it->cluster->size;
-}
-
-void SCCommandMuxIterator_Free(void *ctx) {
-  SCCommandMuxIterator *it = ctx;
-  if (it->cmd) MRCommand_Free(it->cmd);
-  it->cmd = NULL;
-  rm_free(it->keyAlias);
-  rm_free(it);
 }
 
 void NoPartitionCommandMuxIterator_Free(void *ctx) {
@@ -207,19 +177,8 @@ MRCommandGenerator noPartitionCommandGenerator = {.Next = NoPartitionCommandMuxI
                                               .Len = NoPartitionCommandMuxIterator_Len,
                                               .ctx = NULL};
 
-MRCommandGenerator spellCheckCommandGenerator = {.Next = SpellCheckMuxIterator_Next,
-                                                 .Free = SCCommandMuxIterator_Free,
-                                                 .Len = SCCommandMuxIterator_Len,
-                                                 .ctx = NULL};
-
-MRCommandGenerator SearchCluster_GetCommandGenerator(SCCommandMuxIterator *mux, MRCommand *cmd) {
-  MRCommandGenerator *ptr = MRCommand_GetCommandGenerator(cmd);
-  MRCommandGenerator ret;
-  if (ptr) {
-    ret = *ptr;
-  } else {
-    ret = noPartitionCommandGenerator;
-  }
+MRCommandGenerator SearchCluster_GetCommandGenerator(SCCommandMuxIterator *mux) {
+  MRCommandGenerator ret = noPartitionCommandGenerator;
   ret.ctx = mux;
   return ret;
 }
@@ -241,7 +200,7 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
       }
     }
   }
-  return SearchCluster_GetCommandGenerator(mux, cmd);
+  return SearchCluster_GetCommandGenerator(mux);
 }
 
 /* Make sure that the cluster either has a size or updates its size from the topology when updated.
@@ -257,16 +216,5 @@ void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTo
       c->shardsStartSlots[i] = topo->shards[i].startSlot;
     }
     PartitionCtx_SetSize(&c->part, topo->numShards);
-  }
-}
-
-void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard) {
-  SearchCluster *c = GetSearchCluster();
-  for (size_t i = 0; i < c->size; ++i) {
-    int slot = GetSlotByPartition(&c->part, i);
-    if (myShard->startSlot <= slot && myShard->endSlot >= slot) {
-      c->myPartition = i;
-      return;
-    }
   }
 }

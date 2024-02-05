@@ -1569,12 +1569,17 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Check that the cluster state is valid
+  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  if (numSards == 0) {
+    // Cluster state is not ready
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (numSards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return SpellCheckCommand(ctx, argv, argc);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
 
@@ -1583,10 +1588,10 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
+  MRCommand_Append(&cmd, "FULLSCOREINFO", sizeof("FULLSCOREINFO") - 1);
+
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
-  MR_Map(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cg, true);
-  cg.Free(cg.ctx);
+  MR_Fanout(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cmd, true);
   return REDISMODULE_OK;
 }
 
@@ -1786,7 +1791,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
 
   // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
   if (!req->withSortby) {
-    MRCommand_AppendArgsAtPos(&cmd, 3 + req->profileArgs, 1, "WITHSCORES");
+    MRCommand_Append(&cmd, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 
   if(req->specialCases) {

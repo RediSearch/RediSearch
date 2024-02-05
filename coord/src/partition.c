@@ -6,11 +6,6 @@
 
 #include "partition.h"
 
-int GetSlotByPartition(PartitionCtx *ctx, size_t partition){
-  size_t step = ctx->tableSize / ctx->size;
-  return ((partition + 1) * step - 1) % ctx->tableSize;
-}
-
 void PartitionCtx_Init(PartitionCtx *ctx, size_t numPartitions, const char **table,
                        size_t tableSize) {
   ctx->size = numPartitions;

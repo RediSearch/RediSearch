@@ -21,8 +21,6 @@ typedef struct {
   size_t tableSize;
 } PartitionCtx;
 
-int GetSlotByPartition(PartitionCtx *ctx, size_t partition);
-
 void PartitionCtx_Init(PartitionCtx *ctx, size_t numPartitions, const char **table,
                        size_t tableSize);
 

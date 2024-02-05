@@ -368,14 +368,9 @@ size_t MR_NumHosts() {
   return MRCluster_NumHosts(cluster_g);
 }
 
-void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateTopologyRequest(void *p) {
-  MRClusterTopology *topo = p;
-  MRCLuster_UpdateTopology(cluster_g, topo);
-  if (cluster_g->myShard) {
-    SetMyPartition(topo, cluster_g->myShard);
-  }
+  MRCLuster_UpdateTopology(cluster_g, p);
 }
 
 /* Set a new topology for the cluster */

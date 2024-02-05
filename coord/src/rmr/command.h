@@ -81,10 +81,6 @@ typedef struct {
   void (*Free)(void *ctx);
 } MRCommandGenerator;
 
-void MRCommand_AppendStringsArgs(MRCommand *cmd, int num, char **args);
-void MRCommand_AppendArgs(MRCommand *cmd, int num, ...);
-void MRCommand_AppendArgsAtPos(MRCommand *cmd, int pos, int num, ...);
-
 /** Copy from an argument of an existing command */
 void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx);
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
@@ -100,7 +96,6 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
-MRCommandGenerator *MRCommand_GetCommandGenerator(MRCommand *cmd);
 int MRCommand_GetShardingKey(MRCommand *cmd);
 int MRCommand_GetPartitioningKey(MRCommand *cmd);
 

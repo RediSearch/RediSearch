@@ -96,11 +96,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
-    if (scCtx->fullScoreInfo) {
-      retVal = invidx->numDocs;
-    } else {
-      retVal = invidx->numDocs;
-    }
+    retVal = invidx->numDocs;
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
@@ -199,7 +195,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
         RedisModule_Reply_Map(reply);
           RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
           RedisModule_Reply_Double(reply, suggestions[i]->score == -1 ? 0 :
-                                        suggestions[i]->score / totalDocNumber);                                      
+                                        suggestions[i]->score / totalDocNumber);
         RedisModule_Reply_MapEnd(reply);
       }
 

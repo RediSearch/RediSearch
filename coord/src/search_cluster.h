@@ -18,7 +18,6 @@ typedef struct {
   size_t size;
   int* shardsStartSlots;
   PartitionCtx part;
-  size_t myPartition;
 } SearchCluster;
 
 SearchCluster *GetSearchCluster();
@@ -40,6 +39,7 @@ typedef struct {
 } SCCommandMuxIterator;
 
 int SearchCluster_Ready(SearchCluster *sc);
+size_t SearchCluster_Size(SearchCluster *sc);
 
 /* Multiplex a command to the cluster using an iterator that will yield a multiplexed command per
  * iteration, based on the original command */
@@ -48,7 +48,5 @@ MRCommandGenerator SearchCluster_MultiplexCommand(SearchCluster *c, MRCommand *c
 /* Make sure that if the cluster is unaware of its sizing, it will take the size from the topology
  */
 void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTopology *topo);
-
-void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 
 int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass);
