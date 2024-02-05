@@ -1561,10 +1561,8 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
-  MR_Map(mrctx, mergeArraysReducer, cg, true);
-  cg.Free(cg.ctx);
+  MR_Fanout(mrctx, mergeArraysReducer, cmd, true);
   return REDISMODULE_OK;
 }
 
@@ -1670,9 +1668,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_Map(MR_CreateCtx(ctx, 0, NULL), uniqueStringsReducer, cg, true);
-  cg.Free(cg.ctx);
+  MR_Fanout(MR_CreateCtx(ctx, 0, NULL), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
 
@@ -1692,10 +1688,8 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL);
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   MR_SetCoordinationStrategy(mctx, false); // send to all shards (not just the masters)
-  MR_Map(mctx, InfoReplyReducer, cg, true);
-  cg.Free(cg.ctx);
+  MR_Fanout(mctx, InfoReplyReducer, cmd, true);
   return REDISMODULE_OK;
 }
 

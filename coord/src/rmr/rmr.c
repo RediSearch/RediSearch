@@ -309,39 +309,11 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   }
   rc->ctx = mrctx;
   rc->f = reducer;
-  rc->cmds = rm_calloc(1, sizeof(MRCommand));
+  rc->cmds = rm_malloc(sizeof(MRCommand));
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   RedisModule_Assert(rc->protocol == cmd.protocol); // TODO: dev-time assert only
   RQ_Push(rq_g, uvFanoutRequest, rc);
-  return REDIS_OK;
-}
-
-int MR_Map(struct MRCtx *ctx, MRReduceFunc reducer, MRCommandGenerator cmds, bool block) {
-  struct MRRequestCtx *rc = rm_malloc(sizeof(struct MRRequestCtx));
-  rc->ctx = ctx;
-  rc->f = reducer;
-  rc->cmds = rm_calloc(cmds.Len(cmds.ctx), sizeof(MRCommand));
-  rc->numCmds = cmds.Len(cmds.ctx);
-  rc->protocol = MRCtx_GetProtocol(ctx);
-
-  // copy the commands from the iterator to the context's array
-  for (int i = 0; i < rc->numCmds; i++) {
-    if (!cmds.Next(cmds.ctx, &rc->cmds[i])) {
-      rc->numCmds = i;
-      break;
-    }
-    rc->cmds[i].protocol = rc->protocol;
-  }
-
-  if (block) {
-    RedisModule_Assert(!ctx->bc);
-    ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
-    RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  }
-
-  RQ_Push(rq_g, uvMapRequest, rc);
-
   return REDIS_OK;
 }
 

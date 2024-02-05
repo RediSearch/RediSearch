@@ -16,84 +16,78 @@
 #include <string.h>
 #include <stdarg.h>
 
-/*
- * Forward declaration
- */
-extern MRCommandGenerator spellCheckCommandGenerator;
-
 struct mrCommandConf {
   const char *command;
   MRCommandFlags flags;
   int keyPos;
-  int partitionKeyPos;
 };
 
 struct mrCommandConf __commandConfig[] = {
 
     // document commands
-    {"_FT.SEARCH", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
-    {"_FT.DEL", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2, 2},
-    {"_FT.GET", MRCommand_Read | MRCommand_MultiKey | MRCommand_Aliased, 2, 2},
-    {"_FT.MGET", MRCommand_Read | MRCommand_MultiKey | MRCommand_Aliased, 1, 2},
+    {"_FT.SEARCH", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1},
+    {"_FT.DEL", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2},
+    {"_FT.GET", MRCommand_Read | MRCommand_MultiKey | MRCommand_Aliased, 2},
+    {"_FT.MGET", MRCommand_Read | MRCommand_MultiKey | MRCommand_Aliased, 1},
 
-    {"_FT.ADD", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2, 2},
-    {"_FT.AGGREGATE", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
+    {"_FT.ADD", MRCommand_Write | MRCommand_MultiKey | MRCommand_Aliased, 2},
+    {"_FT.AGGREGATE", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1},
 
     // index commands
-    {"_FT.CREATE", MRCommand_Write | MRCommand_SingleKey, 1, 1},
-    {"_FT.ALTER", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
-    {"_FT.DROP", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
-    {"_FT.INFO", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
-    {"_FT.TAGVALS", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1, 1},
+    {"_FT.CREATE", MRCommand_Write | MRCommand_SingleKey, 1},
+    {"_FT.ALTER", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1},
+    {"_FT.DROP", MRCommand_Write | MRCommand_SingleKey | MRCommand_Aliased, 1},
+    {"_FT.INFO", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1},
+    {"_FT.TAGVALS", MRCommand_Read | MRCommand_SingleKey | MRCommand_Aliased, 1},
 
     // Alias commands
-    {"_FT.ALIASADD", MRCommand_Write | MRCommand_SingleKey, 2, 2},
-    {"_FT.ALIASUPDATE", MRCommand_Write | MRCommand_SingleKey, 2, 2},
+    {"_FT.ALIASADD", MRCommand_Write | MRCommand_SingleKey, 2},
+    {"_FT.ALIASUPDATE", MRCommand_Write | MRCommand_SingleKey, 2},
     // Del is done using fanout/broadcast
 
     // Suggest commands
-    {"_FT.SUGADD", MRCommand_Write | MRCommand_SingleKey, 1, 1},
-    {"_FT.SUGGET", MRCommand_Read | MRCommand_SingleKey, 1, 1},
-    {"_FT.SUGLEN", MRCommand_Read | MRCommand_SingleKey, 1, 1},
-    {"_FT.SUGDEL", MRCommand_Write | MRCommand_SingleKey, 1, 1},
-    {"_FT.CURSOR", MRCommand_Read | MRCommand_SingleKey, 2, 2},
+    {"_FT.SUGADD", MRCommand_Write | MRCommand_SingleKey, 1},
+    {"_FT.SUGGET", MRCommand_Read | MRCommand_SingleKey, 1},
+    {"_FT.SUGLEN", MRCommand_Read | MRCommand_SingleKey, 1},
+    {"_FT.SUGDEL", MRCommand_Write | MRCommand_SingleKey, 1},
+    {"_FT.CURSOR", MRCommand_Read | MRCommand_SingleKey, 2},
 
     // Synonyms commands
-    {"_FT.SYNUPDATE", MRCommand_Write | MRCommand_NoKey, 1, -1},
-    {"_FT.SYNFORCEUPDATE", MRCommand_Write | MRCommand_NoKey, 1, -1},
+    {"_FT.SYNUPDATE", MRCommand_Write | MRCommand_NoKey, 1},
+    {"_FT.SYNFORCEUPDATE", MRCommand_Write | MRCommand_NoKey, 1},
 
     // Coordination commands - they are all read commands since they can be triggered from slaves
-    {"FT.ADD", MRCommand_Read | MRCommand_Coordination, -1, 2},
-    {"FT.SEARCH", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.AGGREGATE", MRCommand_Read | MRCommand_Coordination, -1, 1},
+    {"FT.ADD", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.SEARCH", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.AGGREGATE", MRCommand_Read | MRCommand_Coordination, -1},
 
-    {"FT.EXPLAIN", MRCommand_Read | MRCommand_Coordination, -1, 1},
+    {"FT.EXPLAIN", MRCommand_Read | MRCommand_Coordination, -1},
 
-    {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {REDISEARCH_MODULE_NAME".CLUSTERINFO", MRCommand_Read | MRCommand_Coordination, -1, -1},
-    {"FT.INFO", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.DEL", MRCommand_Read | MRCommand_Coordination, -1, 2},
-    {"FT.DROP", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.GET", MRCommand_Read | MRCommand_Coordination, -1, 2},
-    {"FT.MGET", MRCommand_Read | MRCommand_Coordination, -1, 2},
+    {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1},
+    {REDISEARCH_MODULE_NAME".CLUSTERINFO", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.INFO", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.DEL", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.DROP", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.GET", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.MGET", MRCommand_Read | MRCommand_Coordination, -1},
 
     // Auto complete coordination commands
-    {"FT.SUGADD", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.SUGGET", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.SUGDEL", MRCommand_Read | MRCommand_Coordination, -1, 1},
-    {"FT.SUGLEN", MRCommand_Read | MRCommand_Coordination, -1, 1},
+    {"FT.SUGADD", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.SUGGET", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.SUGDEL", MRCommand_Read | MRCommand_Coordination, -1},
+    {"FT.SUGLEN", MRCommand_Read | MRCommand_Coordination, -1},
 
-    {"KEYS", MRCommand_Read | MRCommand_NoKey, -1, -1},
-    {"INFO", MRCommand_Read | MRCommand_NoKey, -1, -1},
-    {"SCAN", MRCommand_Read | MRCommand_NoKey, -1, -1},
+    {"KEYS", MRCommand_Read | MRCommand_NoKey, -1},
+    {"INFO", MRCommand_Read | MRCommand_NoKey, -1},
+    {"SCAN", MRCommand_Read | MRCommand_NoKey, -1},
 
     // dictionary commands
-    {"_FT.DICTADD", MRCommand_Write | MRCommand_SingleKey, 1, 1},
-    {"_FT.DICTDEL", MRCommand_Write | MRCommand_SingleKey, 1, 1},
+    {"_FT.DICTADD", MRCommand_Write | MRCommand_SingleKey, 1},
+    {"_FT.DICTDEL", MRCommand_Write | MRCommand_SingleKey, 1},
 
     // spell check
-    {"_FT.SPELLCHECK", MRCommand_Write | MRCommand_NoKey, 1, -1},
+    {"_FT.SPELLCHECK", MRCommand_Write | MRCommand_NoKey, 1},
 
     // sentinel
     {NULL},
@@ -298,22 +292,6 @@ int MRCommand_GetShardingKey(MRCommand *cmd) {
   }
 
   return __commandConfig[cmd->id].keyPos;
-}
-
-int MRCommand_GetPartitioningKey(MRCommand *cmd) {
-  if (cmd->id < 0) {
-    return 1;  // default
-  }
-
-  return __commandConfig[cmd->id].partitionKeyPos;
-}
-
-/* Return 1 if the command should not be sharded (i.e a coordination command or system command) */
-int MRCommand_IsUnsharded(MRCommand *cmd) {
-  if (cmd->id < 0) {
-    return 0;  // default
-  }
-  return __commandConfig[cmd->id].keyPos <= 0;
 }
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx) {

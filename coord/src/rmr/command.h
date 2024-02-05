@@ -97,7 +97,6 @@ void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, con
                               size_t n);
 
 int MRCommand_GetShardingKey(MRCommand *cmd);
-int MRCommand_GetPartitioningKey(MRCommand *cmd);
 
 typedef enum {
   MRCommand_SingleKey = 0x01,
@@ -111,9 +110,6 @@ typedef enum {
 } MRCommandFlags;
 
 MRCommandFlags MRCommand_GetFlags(MRCommand *cmd);
-
-/* Return 1 if the command should not be sharded */
-int MRCommand_IsUnsharded(MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
