@@ -6,8 +6,10 @@ export DEBIAN_FRONTEND=noninteractive
 $MODE yum update -y
 $MODE yum groupinstall -y "Development Tools"
 $MODE yum remove -y gcc # remove gcc 7
-$MODE yum install -y wget git gcc10 gcc10-c++ python3
+$MODE yum install -y wget git gcc10 gcc10-c++ python3 which
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --slave /usr/bin/g++ g++ /usr/bin/gcc10-g++
+
+echo "gcc version: $(gcc --version)"
 # Install 'openss11' and make it the default so we will use it when linking.
 # Currently it is commented out and handled on 'sbin/setup'. This is because
 # 'sbin/setup' installs 'openssl-devel' which conflicts with 'openssl11-devel'.
