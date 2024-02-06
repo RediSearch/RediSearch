@@ -3,19 +3,19 @@ set -e
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
-get_profile_d() {
-	local d
+activate_venv() {
+	echo "copy ativation script to shell config"
 	if [[ $OS_TYPE == Darwin ]]; then
-		d="$HOME/.profile.d"
+		echo "source venv/bin/activate" >> ~/.bashrc
+		echo "source venv/bin/activate" >> ~/.zshrc
 	else
-		d="/etc/profile.d"
+		$MODE cp $PWD/venv/bin/activate $(get_profile_d)/activate_venv.sh
 	fi
-	echo "$d"
 }
 
 
 python3 -m venv venv
-$MODE cp $PWD/venv/bin/activate $(get_profile_d)/activate_venv.sh
+activate_venv
 source venv/bin/activate
 
 pip install --upgrade pip
