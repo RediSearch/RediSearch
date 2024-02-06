@@ -271,10 +271,6 @@ int MRClusterTopology_IsValid(MRClusterTopology *t) {
   return sum >= t->numSlots;
 }
 
-size_t MRCluster_NumShards(MRCluster *cl) {
-  return cl->topo ? cl->topo->numShards : 0;
-}
-
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);

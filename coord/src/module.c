@@ -1545,7 +1545,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MR_MapSingle(MR_CreateCtx(ctx, 0, NULL), singleReplyReducer, cmd);
+  MR_MapSingle(MR_CreateCtx(ctx, 0, NULL, NumShards), singleReplyReducer, cmd);
 
   return REDISMODULE_OK;
 }
@@ -1567,7 +1567,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
   MR_Fanout(mrctx, mergeArraysReducer, cmd, true);
   return REDISMODULE_OK;
 }
@@ -1593,7 +1593,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MRCommand_Insert(&cmd, 3, "FULLSCOREINFO", sizeof("FULLSCOREINFO") - 1);
 
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
   MR_Fanout(mrctx, is_resp3(ctx) ? spellCheckReducer_resp3 : spellCheckReducer_resp2, cmd, true);
   return REDISMODULE_OK;
 }
@@ -1623,7 +1623,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
 
   MR_Fanout(mrctx, allOKReducer, cmd, true);
   return REDISMODULE_OK;
@@ -1681,7 +1681,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  MR_Fanout(MR_CreateCtx(ctx, 0, NULL), uniqueStringsReducer, cmd, true);
+  MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
 
@@ -1700,7 +1700,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL);
+  struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
   MR_SetCoordinationStrategy(mctx, false); // send to all shards (not just the masters)
   MR_Fanout(mctx, InfoReplyReducer, cmd, true);
   return REDISMODULE_OK;
@@ -1800,8 +1800,8 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     sendRequiredFields(req, &cmd);
   }
 
-  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req);
-  MRCtx_SetProtocol(mrctx, protocol);
+  // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);

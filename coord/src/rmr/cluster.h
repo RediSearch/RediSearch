@@ -92,9 +92,6 @@ MRConn *MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd);
 int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
                           void *privdata);
 
-/* The number of shard instances in the cluster */
-size_t MRCluster_NumShards(MRCluster *cl);
-
 /* Asynchronously connect to all nodes in the cluster. This must be called before the io loop is
  * started */
 int MRCluster_ConnectAll(MRCluster *cl);
