@@ -14,7 +14,6 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "coord/src/config.h"
-#include "search_cluster.h"
 
 #include <stdio.h>
 #include <stdlib.h>

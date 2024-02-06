@@ -7,7 +7,6 @@
 #include "../config.h"
 #include "cluster.h"
 #include "redismodule.h"
-#include "search_cluster.h"
 #include "rmr.h"
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
@@ -120,10 +119,12 @@ err:
   return NULL;
 }
 
+extern size_t NumShards;
 void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    SearchCluster_EnsureSize(ctx, topo);
+    RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+    NumShards = topo->numShards;
     MR_UpdateTopology(topo);
   }
 }

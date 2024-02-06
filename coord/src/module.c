@@ -17,7 +17,6 @@
 #include "crc12_tags.h"
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
-#include "search_cluster.h"
 #include "config.h"
 #include "coord_module.h"
 #include "info_command.h"
@@ -47,6 +46,13 @@ extern RSConfig RSGlobalConfig;
 extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
+
+// Number of shards in the cluster. Hint we can read and modify from the main thread
+size_t NumShards = 0;
+
+static inline bool SearchCluster_Ready() {
+  return NumShards != 0;
+}
 
 // A reducer that just merges N sets of strings by chaining them into one big array with no
 // duplicates
@@ -1568,11 +1574,10 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Check that the cluster state is valid
-  size_t numSards = SearchCluster_Size();
-  if (numSards == 0) {
+  if (NumShards == 0) {
     // Cluster state is not ready
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (numSards == 1) {
+  } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return SpellCheckCommand(ctx, argv, argc);
   }
@@ -1601,7 +1606,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (SearchCluster_Size() == 1) {
+  } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     size_t len;
     const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
@@ -1629,10 +1634,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  size_t numSards = SearchCluster_Size();
-  if (numSards == 0) {
+  if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (numSards == 1) {
+  } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSAggregateCommand(ctx, argv, argc);
   }
@@ -1836,10 +1840,9 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  size_t numSards = SearchCluster_Size();
-  if (numSards == 0) {
+  if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (numSards == 1) {
+  } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSSearchCommand(ctx, argv, argc);
   }
@@ -1864,7 +1867,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (SearchCluster_Size() == 1) {
+  if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSProfileCommand(ctx, argv, argc);
   }
@@ -1910,7 +1913,8 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  SearchCluster_EnsureSize(ctx, topo);
+  RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  NumShards = topo->numShards;
 
   // send the topology to the cluster
   MR_UpdateTopology(topo);
@@ -1941,7 +1945,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);
   MR_Init(cl, clusterConfig.timeoutMS);
-  InitGlobalSearchCluster();
 
   return REDISMODULE_OK;
 }

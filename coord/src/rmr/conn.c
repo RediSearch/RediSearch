@@ -7,7 +7,6 @@
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
-#include "search_cluster.h"
 
 #include <uv.h>
 #include <signal.h>
@@ -205,9 +204,6 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
 
   int n = 0;
   dictIterator *it = dictGetIterator(m->map);
-  char *key;
-  tm_len_t len;
-  void *p;
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);

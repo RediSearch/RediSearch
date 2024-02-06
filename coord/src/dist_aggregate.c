@@ -7,7 +7,6 @@
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
-#include "search_cluster.h"
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
