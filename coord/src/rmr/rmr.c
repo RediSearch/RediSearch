@@ -332,11 +332,6 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   return REDIS_OK;
 }
 
-/* Return the active cluster's host count */
-size_t MR_NumHosts() {
-  return MRCluster_NumHosts(cluster_g);
-}
-
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateTopologyRequest(void *p) {
   MRCLuster_UpdateTopology(cluster_g, p);
@@ -479,7 +474,6 @@ struct MRIteratorCallbackCtx;
 typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 typedef struct MRIteratorCtx {
-  MRCluster *cluster;
   MRChannel *chan;
   MRIteratorCallback cb;
   int pending;    // Number of shards with more results (not depleted)
@@ -514,7 +508,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd) {
   ctx->cmd = *cmd;
-  return MRCluster_SendCommand(ctx->ic->cluster, true, cmd, mrIteratorRedisCB, ctx);
+  return MRCluster_SendCommand(cluster_g, true, cmd, mrIteratorRedisCB, ctx);
 }
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
@@ -568,14 +562,31 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
   return ctx->ic;
 }
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  return MRChannel_Push(ctx->ic->chan, rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  MRChannel_Push(ctx->ic->chan, rep);
 }
 
 void iterStartCb(void *p) {
   MRIterator *it = p;
+
+  size_t len = cluster_g->topo->numShards;
+  it->len = len;
+  it->ctx.pending = len;
+  it->ctx.inProcess = len; // Initially all commands are in process
+
+  MRIteratorCallbackCtx *initCmd = it->cbxs;
+  it->cbxs = rm_malloc(len * sizeof(*it->cbxs));
+  MRCommand *cmd = &initCmd->cmd;
+  for (size_t i = 0; i < len; i++) {
+    it->cbxs[i].ic = &it->ctx;
+    it->cbxs[i].cmd = MRCommand_Copy(cmd);
+    // Set each command to target a different shard
+    it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
+  }
+  rm_free(initCmd);
+
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(it->ctx.cluster, true, &it->cbxs[i].cmd,
+    if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       // fprintf(stderr, "Could not send command!\n");
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -587,7 +598,7 @@ void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
-      if (MRCluster_SendCommand(it->ctx.cluster, true, &it->cbxs[i].cmd,
+      if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
         // fprintf(stderr, "Could not send command!\n");
         MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -623,31 +634,20 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_Iterate(const MRCommand *cmd, SearchCluster *sc, MRIteratorCallback cb) {
+MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
 
-  MRIterator *ret = rm_malloc(sizeof(*ret));
-  size_t len = SearchCluster_Size(sc);
+  MRIterator *ret = rm_new(MRIterator);
+  // Initial initialization of the iterator.
+  // The rest of the initialization is done in the iterator start callback.
   *ret = (MRIterator){
-      .ctx =
-          {
-              .cluster = cluster_g,
-              .chan = MR_NewChannel(0),
-              .cb = cb,
-              .pending = 0,
-              .timedOut = 0,
-          },
-      .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
-      .len = len,
+    .ctx = {
+      .chan = MR_NewChannel(),
+      .cb = cb,
+    },
+    .cbxs = rm_new(MRIteratorCallbackCtx),
   };
-
-  for (size_t i = 0; i < len; i++) {
-    ret->cbxs[i].ic = &ret->ctx;
-    ret->cbxs[i].cmd = MRCommand_Copy(cmd);
-    ret->cbxs[i].cmd.targetSlot = SearchCluster_GetSlotByPartition(sc, i);
-  }
-
-  ret->ctx.pending = ret->len;
-  ret->ctx.inProcess = ret->len; // Initially all commands are in process
+  // Temporary copy of the command.
+  ret->cbxs->cmd = *cmd;
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;

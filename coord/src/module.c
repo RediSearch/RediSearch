@@ -1529,7 +1529,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -1551,7 +1551,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
   // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -1568,7 +1568,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Check that the cluster state is valid
-  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  size_t numSards = SearchCluster_Size();
   if (numSards == 0) {
     // Cluster state is not ready
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -1599,9 +1599,9 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   }
 
   // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (SearchCluster_Size(GetSearchCluster()) == 1) {
+  } else if (SearchCluster_Size() == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     size_t len;
     const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
@@ -1629,7 +1629,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  size_t numSards = SearchCluster_Size();
   if (numSards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (numSards == 1) {
@@ -1652,7 +1652,7 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
@@ -1664,7 +1664,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_WrongArity(ctx);
   }
   // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -1684,7 +1684,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
   // Check that the cluster state is valid
-  if (!SearchCluster_Ready(GetSearchCluster())) {
+  if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -1836,7 +1836,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  size_t numSards = SearchCluster_Size(GetSearchCluster());
+  size_t numSards = SearchCluster_Size();
   if (numSards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (numSards == 1) {
@@ -1864,7 +1864,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (SearchCluster_Size(GetSearchCluster()) == 1) {
+  if (SearchCluster_Size() == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSProfileCommand(ctx, argv, argc);
   }
@@ -1910,22 +1910,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
-  // If the cluster hash func or cluster slots has changed, set the new value
-  switch (topo->hashFunc) {
-    case MRHashFunc_CRC12:
-      PartitionCtx_SetSlotTable(&GetSearchCluster()->part, crc12_slot_table,
-                                MIN(4096, topo->numSlots));
-      break;
-    case MRHashFunc_CRC16:
-      PartitionCtx_SetSlotTable(&GetSearchCluster()->part, crc16_slot_table,
-                                MIN(16384, topo->numSlots));
-      break;
-    case MRHashFunc_None:
-    default:
-      // do nothing
-      break;
-  }
+  SearchCluster_EnsureSize(ctx, topo);
 
   // send the topology to the cluster
   MR_UpdateTopology(topo);
@@ -1938,24 +1923,8 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
-  /* Configure cluster injections */
-  ShardFunc sf;
-  const char **slotTable = NULL;
-  size_t tableSize = 0;
-
-  switch (clusterConfig.type) {
-    case ClusterType_RedisLabs:
-      sf = CRC12ShardFunc;
-      slotTable = crc12_slot_table;
-      tableSize = 4096;
-
-      break;
-    case ClusterType_RedisOSS:
-    default:
+  if (clusterConfig.type == ClusterType_RedisOSS) {
       InitRedisTopologyUpdater(ctx);
-      sf = CRC16ShardFunc;
-      slotTable = crc16_slot_table;
-      tableSize = 16384;
   }
 
   size_t num_connections_per_shard;
@@ -1970,9 +1939,9 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);
   MR_Init(cl, clusterConfig.timeoutMS);
-  InitGlobalSearchCluster(0, slotTable, tableSize);
+  InitGlobalSearchCluster();
 
   return REDISMODULE_OK;
 }

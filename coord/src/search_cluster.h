@@ -7,43 +7,15 @@
 
 #pragma once
 
-#include "rmr/command.h"
 #include "rmr/cluster.h"
-#include "partition.h"
 
 #include <stdint.h>
 
-/* A search cluster contains the configurations for partitioning and multiplexing commands */
-typedef struct SearchCluster {
-  size_t size;
-  int* shardsStartSlots;
-  PartitionCtx part;
-} SearchCluster;
+void InitGlobalSearchCluster();
 
-SearchCluster *GetSearchCluster();
+int SearchCluster_Ready();
+size_t SearchCluster_Size();
 
-/* Create a search cluster with a given number of partitions (size) and a partitioner.
- * TODO: This whole object is a bit redundant and adds nothing on top of the partitioner. Consider
- * consolidating the two  */
-SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize);
-void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize);
-
-void SearchCluster_Release(SearchCluster *sc);
-/* A command generator that multiplexes a command across multiple partitions by tagging it */
-typedef struct {
-  MRCommand *cmd;
-  char *keyAlias;
-  int keyOffset;
-  size_t offset;
-  SearchCluster *cluster;
-} SCCommandMuxIterator;
-
-int SearchCluster_Ready(SearchCluster *sc);
-size_t SearchCluster_Size(SearchCluster *sc);
-
-int SearchCluster_GetSlotByPartition(SearchCluster *sc, size_t partition);
 /* Make sure that if the cluster is unaware of its sizing, it will take the size from the topology
  */
-void SearchCluster_EnsureSize(RedisModuleCtx *ctx, SearchCluster *c, MRClusterTopology *topo);
-
-int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass);
+void SearchCluster_EnsureSize(RedisModuleCtx *ctx, MRClusterTopology *topo);

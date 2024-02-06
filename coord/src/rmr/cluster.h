@@ -61,10 +61,6 @@ void MRClusterNode_Free(MRClusterNode *n);
  * slot coverage is complete */
 int MRClusterTopology_IsValid(MRClusterTopology *t);
 
-/* A function that tells the cluster which shard to send a command to. should return -1 if not
- * applicable */
-typedef mr_slot_t (*ShardFunc)(MRCommand *cmd, mr_slot_t numSlots);
-
 /* A cluster has nodes and connections that can be used by the engine to send requests */
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
@@ -74,9 +70,6 @@ typedef struct {
   /* the current node, detected when updating the topology */
   MRClusterNode *myNode;
   MRClusterShard *myShard;
-  /* The sharding function, responsible for transforming keys into slots */
-  ShardFunc sf;
-
   /* map of nodes by ip:port */
   MRNodeMap *nodeMap;
 
@@ -99,12 +92,6 @@ MRConn *MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd);
 int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
                           void *privdata);
 
-/* The number of individual hosts (by IP address) in the cluster */
-size_t MRCluster_NumHosts(MRCluster *cl);
-
-/* The number of nodes in the cluster */
-size_t MRCluster_NumNodes(MRCluster *cl);
-
 /* The number of shard instances in the cluster */
 size_t MRCluster_NumShards(MRCluster *cl);
 
@@ -113,22 +100,10 @@ size_t MRCluster_NumShards(MRCluster *cl);
 int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, ShardFunc sharder);
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);
-
-mr_slot_t CRC16ShardFunc(MRCommand *cmd, mr_slot_t numSlots);
-mr_slot_t CRC12ShardFunc(MRCommand *cmd, mr_slot_t numSlots);
-
-typedef struct {
-  const char *base;
-  size_t baseLen;
-  const char *shard;
-  size_t shardLen;
-} MRKey;
-
-void MRKey_Parse(MRKey *key, const char *srckey, size_t srclen);
 
 void MRClust_Free(MRCluster *cl);

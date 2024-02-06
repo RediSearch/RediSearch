@@ -60,9 +60,8 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   dictRelease(nodesToDisconnect);
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf) {
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size) {
   MRCluster *cl = rm_new(MRCluster);
-  cl->sf = sf;
   cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
@@ -102,12 +101,80 @@ MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, MRClusterNode *myN
   return &sh->nodes[rand() % sh->numNodes];
 }
 
+typedef struct {
+  const char *base;
+  size_t baseLen;
+  const char *shard;
+  size_t shardLen;
+} MRKey;
+
+void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
+  mk->shard = mk->base = src;
+  mk->shardLen = mk->baseLen = srclen;
+
+  const char *endBrace = src + srclen - 1;
+  if (srclen < 3 || !*endBrace || *endBrace != '}') {
+    // printf("No closing brace found!\n");
+    return;
+  }
+
+  const char *beginBrace = endBrace;
+  while (beginBrace >= src && *beginBrace != '{') {
+    beginBrace--;
+  }
+
+  if (*beginBrace != '{') {
+    // printf("No open brace found!\n");
+    return;
+  }
+
+  mk->baseLen = beginBrace - src;
+  mk->shard = beginBrace + 1;
+  mk->shardLen = endBrace - mk->shard;
+  // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
+}
+
+static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
+  int pos = MRCommand_GetShardingKey(cmd);
+  if (pos < 0 || pos >= cmd->num) {
+    // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
+    return NULL;
+  }
+
+  size_t klen;
+  const char *k = MRCommand_ArgStringPtrLen(cmd, pos, &klen);
+  MRKey mk;
+  MRKey_Parse(&mk, k, klen);
+  *len = mk.shardLen;
+  return mk.shard;
+}
+
+
+static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRCluster *cl) {
+
+  if(cmd->targetSlot >= 0){
+    return cmd->targetSlot;
+  }
+
+  size_t len;
+  const char *k = MRGetShardKey(cmd, &len);
+  if (!k) return 0;
+  // Default to crc16
+  uint16_t crc = (cl->topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
+  return crc % cl->topo->numSlots;
+}
+
+// For testing
+mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl) {
+  return getSlotByCmd(cmd, cl);
+}
+
 MRConn* MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd) {
 
   if (!cl || !cl->topo) return NULL;
 
   /* Get the cluster slot from the sharder */
-  unsigned slot = cl->sf(cmd, cl->topo->numSlots);
+  unsigned slot = getSlotByCmd(cmd, cl);
 
   /* Get the shard from the slot map */
   MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
@@ -185,74 +252,6 @@ int MRCluster_ConnectAll(MRCluster *cl) {
   return MRConnManager_ConnectAll(&cl->mgr);
 }
 
-void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
-  mk->shard = mk->base = src;
-  mk->shardLen = mk->baseLen = srclen;
-
-  const char *endBrace = src + srclen - 1;
-  if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    // printf("No closing brace found!\n");
-    return;
-  }
-
-  const char *beginBrace = endBrace;
-  while (beginBrace >= src && *beginBrace != '{') {
-    beginBrace--;
-  }
-
-  if (*beginBrace != '{') {
-    // printf("No open brace found!\n");
-    return;
-  }
-
-  mk->baseLen = beginBrace - src;
-  mk->shard = beginBrace + 1;
-  mk->shardLen = endBrace - mk->shard;
-  // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
-}
-
-static const char *MRGetShardKey(MRCommand *cmd, size_t *len) {
-  int pos = MRCommand_GetShardingKey(cmd);
-  if (pos < 0 || pos >= cmd->num) {
-    // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
-    return NULL;
-  }
-
-  size_t klen;
-  const char *k = MRCommand_ArgStringPtrLen(cmd, pos, &klen);
-  MRKey mk;
-  MRKey_Parse(&mk, k, klen);
-  *len = mk.shardLen;
-  return mk.shard;
-}
-
-mr_slot_t CRC16ShardFunc(MRCommand *cmd, mr_slot_t numSlots) {
-
-  size_t len;
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
-  const char *k = MRGetShardKey(cmd, &len);
-  if (!k) return 0;
-  uint16_t crc = crc16(k, len);
-  return crc % numSlots;
-}
-
-mr_slot_t CRC12ShardFunc(MRCommand *cmd, mr_slot_t numSlots) {
-  size_t len;
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
-  const char *k = MRGetShardKey(cmd, &len);
-  if (!k) return 0;
-  uint16_t crc = crc12(k, len);
-  return crc % numSlots;
-}
-
 void MRClusterTopology_Free(MRClusterTopology *t) {
   for (int s = 0; s < t->numShards; s++) {
     for (int n = 0; n < t->shards[s].numNodes; n++) {
@@ -278,10 +277,7 @@ int MRClusterTopology_IsValid(MRClusterTopology *t) {
 }
 
 size_t MRCluster_NumShards(MRCluster *cl) {
-  if (cl->topo) {
-    return cl->topo->numShards;
-  }
-  return 0;
+  return cl->topo ? cl->topo->numShards : 0;
 }
 
 void MRClusterNode_Free(MRClusterNode *n) {
@@ -289,25 +285,12 @@ void MRClusterNode_Free(MRClusterNode *n) {
   rm_free((char *)n->id);
 }
 
-static ShardFunc selectHashFunc(MRHashFunc f) {
-  switch (f) {
-    case MRHashFunc_CRC12:
-      return CRC12ShardFunc;
-    case MRHashFunc_CRC16:
-      return CRC16ShardFunc;
-    default:
-      break;
-  }
-  return NULL;
-}
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
   if (!newTopo) return REDIS_ERR;
 
   // if the topology has updated, we update to the new one
-  if (newTopo->hashFunc != MRHashFunc_None) {
-    cl->sf = selectHashFunc(newTopo->hashFunc);
-  } else if (cl->topo) {
+  if (newTopo->hashFunc == MRHashFunc_None && cl->topo) {
     newTopo->hashFunc = cl->topo->hashFunc;
   }
 
@@ -319,14 +302,6 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
     MRClusterTopology_Free(old);
   }
   return REDIS_OK;
-}
-
-size_t MRCluster_NumHosts(MRCluster *cl) {
-  return cl->nodeMap ? MRNodeMap_NumHosts(cl->nodeMap) : 0;
-}
-
-size_t MRCluster_NumNodes(MRCluster *cl) {
-  return cl->nodeMap ? MRNodeMap_NumNodes(cl->nodeMap) : 0;
 }
 
 MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t capNodes) {

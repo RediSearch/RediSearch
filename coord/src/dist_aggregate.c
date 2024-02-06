@@ -240,7 +240,6 @@ typedef struct {
   size_t curIdx;
   MRIterator *it;
   MRCommand cmd;
-  SearchCluster *sc;
   AREQ *areq;
 
   // profile vars
@@ -465,7 +464,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, nc->sc, netCursorCallback);
+  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -499,11 +498,10 @@ static void rpnetFree(ResultProcessor *rp) {
   rm_free(rp);
 }
 
-static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
+static RPNet *RPNet_New(const MRCommand *cmd) {
   //  MRCommand_FPrint(stderr, &cmd);
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
-  nc->sc = sc;
   nc->areq = NULL;
   nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
@@ -580,10 +578,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_free(tmparr);
 }
 
-static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
-                             AREQDIST_UpstreamInfo *us) {
+static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd, sc);
+  RPNet *rpRoot = RPNet_New(xcmd);
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
@@ -612,7 +609,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
 
   // allocate memory for replies and update endProc if necessary
   if (IsProfile(r)) {
-    rpRoot->shardsProfile = rm_malloc(sizeof(*rpRoot->shardsProfile) * sc->size);
+    rpRoot->shardsProfile = rm_malloc(sizeof(*rpRoot->shardsProfile) * SearchCluster_Size());
     if (!found) {
       r->qiter.endProc = rpProfile;
     }
@@ -716,8 +713,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) goto err;
 
-  SearchCluster *sc = GetSearchCluster();
-
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
@@ -726,7 +721,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   xcmd.rootCommand = C_READ;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
-  buildDistRPChain(r, &xcmd, sc, &us);
+  buildDistRPChain(r, &xcmd, &us);
 
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 

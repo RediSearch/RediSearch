@@ -291,7 +291,7 @@ void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t 
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);
 }
 
-int MRCommand_GetShardingKey(MRCommand *cmd) {
+int MRCommand_GetShardingKey(const MRCommand *cmd) {
   if (cmd->id < 0) {
     return 1;  // default
   }

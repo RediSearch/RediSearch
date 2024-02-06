@@ -82,7 +82,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
 void MRCommand_WriteTaggedKey(MRCommand *cmd, int index, const char *newarg, const char *part,
                               size_t n);
 
-int MRCommand_GetShardingKey(MRCommand *cmd);
+int MRCommand_GetShardingKey(const MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 

@@ -123,7 +123,7 @@ err:
 void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
+    SearchCluster_EnsureSize(ctx, topo);
     MR_UpdateTopology(topo);
   }
 }

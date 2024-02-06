@@ -15,7 +15,6 @@
 
 struct MRCtx;
 struct RedisModuleCtx;
-struct SearchCluster;
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -82,13 +81,13 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-MRIterator *MR_Iterate(const MRCommand *cmd, struct SearchCluster *sc, MRIteratorCallback cb);
+MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
 
@@ -110,5 +109,3 @@ void MRIterator_Free(MRIterator *it);
 void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle);
 
 #endif // RMR_C__
-
-size_t MR_NumHosts();
