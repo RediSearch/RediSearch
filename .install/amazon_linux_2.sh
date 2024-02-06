@@ -8,7 +8,7 @@ $MODE yum update -y
 #$MODE yum remove -y gcc # remove gcc 7
 $MODE yum install -y http://mirror.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
 
-$MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync python3 unzip gnutls
+$MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync python3 unzip #gnutls
 
 source /opt/rh/devtoolset-11/enable
 
@@ -23,7 +23,5 @@ echo "gcc version: $(gcc --version)"
 # Once we remove the system setup we can uncomment those lines and install 'openssl11' and 'openssl11-devel'.
 # When we do this we should also remember to remove the 'openssl' and 'openssl-devel' two lines above.
 $MODE yum install -y openssl11 openssl11-devel
-$MODE ln -s /usr/lib64/pkgconfig/libssl11.pc /usr/lib64/pkgconfig/libssl.pc
-$MODE ln -s /usr/lib64/pkgconfig/libcrypto11.pc /usr/lib64/pkgconfig/libcrypto.pc
-$MODE ln -s /usr/lib64/pkgconfig/openssl11.pc /usr/lib64/pkgconfig/openssl.pc
+ln -s `which openssl11` /usr/bin/openssl
 source install_cmake.sh $MODE
