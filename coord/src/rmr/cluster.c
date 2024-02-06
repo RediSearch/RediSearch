@@ -258,19 +258,6 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
   rm_free(t);
 }
 
-int MRClusterTopology_IsValid(MRClusterTopology *t) {
-  if (!t || t->numShards <= 0 || t->numSlots <= 0) {
-    return 0;
-  }
-
-  mr_slot_t sum = 0;
-  for (size_t s = 0; s < t->numShards; s++) {
-    sum += 1 + t->shards[s].endSlot - t->shards[s].startSlot;
-  }
-
-  return sum >= t->numSlots;
-}
-
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);

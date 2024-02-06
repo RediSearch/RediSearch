@@ -53,8 +53,6 @@ void MRCommand_Free(MRCommand *cmd);
 MRCommand MR_NewCommandArgv(int argc, const char **argv);
 /* Variadic creation of a command from a list of strings */
 MRCommand MR_NewCommand(int argc, ...);
-/* Create a command from a list of strings */
-MRCommand MR_NewCommandFromStrings(int argc, char **argv);
 /* Create a command from a list of redis strings */
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
@@ -67,7 +65,6 @@ static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t
 }
 
 /** Copy from an argument of an existing command */
-void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx);
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
 void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n);

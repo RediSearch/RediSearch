@@ -92,7 +92,7 @@ struct mrCommandConf __commandConfig[] = {
     {NULL},
 };
 
-int _getCommandConfId(MRCommand *cmd) {
+static int _getCommandConfId(MRCommand *cmd) {
   cmd->id = -1;
   if (cmd->num == 0) {
     return 0;
@@ -157,7 +157,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
-  MRCommand cmd = {.num = argc};
+  MRCommand cmd;
   MRCommand_Init(&cmd, argc);
 
   for (int i = 0; i < argc; i++) {
@@ -197,16 +197,6 @@ MRCommand MR_NewCommand(int argc, ...) {
   return cmd;
 }
 
-MRCommand MR_NewCommandFromStrings(int argc, char **argv) {
-  MRCommand cmd;
-  MRCommand_Init(&cmd, argc);
-  for (size_t ii = 0; ii < argc; ++ii) {
-    assignCstr(&cmd, ii, argv[ii]);
-  }
-  _getCommandConfId(&cmd);
-  return cmd;
-}
-
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv) {
   MRCommand cmd;
   MRCommand_Init(&cmd, argc);
@@ -232,10 +222,6 @@ void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n) {
   memmove(cmd->lens + pos + 1, cmd->lens + pos, (oldNum - pos) * sizeof(size_t));
 
   assignStr(cmd, pos, s, n);
-}
-
-void MRCommand_AppendFrom(MRCommand *cmd, const MRCommand *srcCmd, size_t srcidx) {
-  MRCommand_Append(cmd, srcCmd->strs[srcidx], srcCmd->lens[srcidx]);
 }
 
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t n) {

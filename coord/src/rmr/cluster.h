@@ -57,10 +57,6 @@ void MRClusterTopology_Free(MRClusterTopology *t);
 
 void MRClusterNode_Free(MRClusterNode *n);
 
-/* Check the validity of the topology. A topology is considered valid if we have shards, and the
- * slot coverage is complete */
-int MRClusterTopology_IsValid(MRClusterTopology *t);
-
 /* A cluster has nodes and connections that can be used by the engine to send requests */
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
