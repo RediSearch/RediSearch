@@ -5,7 +5,7 @@ MODE=$1 # whether to install using sudo or not
 
 get_profile_d() {
 	local d
-	if [[ OS_TYPE == Darwin ]]; then
+	if [[ $OS_TYPE == Darwin ]]; then
 		d="$HOME/.profile.d"
 	else
 		d="/etc/profile.d"
