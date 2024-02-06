@@ -13,12 +13,9 @@ $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which g
     devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync
 
 source /opt/rh/devtoolset-11/enable
-echo "gcc version: $(gcc --version)"
 
 cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 bash
-
-echo "gcc version after bash: $(gcc --version)"
 
 # get a newer libstc++ library. The one that comes with the gcc version (6.0.19) will fail with
 # the error: `/usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found`

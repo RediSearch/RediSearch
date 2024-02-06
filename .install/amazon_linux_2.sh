@@ -4,10 +4,16 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
-$MODE yum groupinstall -y "Development Tools"
-$MODE yum remove -y gcc # remove gcc 7
-$MODE yum install -y wget git gcc10 gcc10-c++ python3 which
-$MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --slave /usr/bin/g++ g++ /usr/bin/gcc10-g++
+#$MODE yum groupinstall -y "Development Tools"
+#$MODE yum remove -y gcc # remove gcc 7
+$MODE yum install -y http://mirror.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
+
+$MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync
+
+source /opt/rh/devtoolset-11/enable
+
+cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
+bash
 
 echo "gcc version: $(gcc --version)"
 # Install 'openss11' and make it the default so we will use it when linking.
