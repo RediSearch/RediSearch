@@ -17,12 +17,14 @@ bash
 
 echo "gcc version: $(gcc --version)"
 # Install 'openss11' and make it the default so we will use it when linking.
-# Currently it is commented out and handled on 'sbin/setup'. This is because
-# 'sbin/setup' installs 'openssl-devel' which conflicts with 'openssl11-devel'.
+# Currently it is commented out and handled on 'sbin/setup'. This is becauses
 # So if we install 'openssl11-devel' here we will cause 'sbin/setup' to fail.
 # Once we remove the system setup we can uncomment those lines and install 'openssl11' and 'openssl11-devel'.
 # When we do this we should also remember to remove the 'openssl' and 'openssl-devel' two lines above.
 $MODE yum remove -y openssl-devel
 $MODE yum install -y openssl11 openssl11-devel
 ln -s `which openssl11` /usr/bin/openssl
+ln -s /usr/lib64/pkgconfig/libssl11.pc /usr/lib64/pkgconfig/libssl.pc
+ln -s /usr/lib64/pkgconfig/libcrypto11.pc /usr/lib64/pkgconfig/libcrypto.pc
+ln -s /usr/lib64/pkgconfig/openssl11.pc /usr/lib64/pkgconfig/openssl.pc
 source install_cmake.sh $MODE
