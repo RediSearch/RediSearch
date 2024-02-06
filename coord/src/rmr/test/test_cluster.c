@@ -109,7 +109,8 @@ static mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl) {
 void testShardingFunc() {
 
   MRCommand cmd = MR_NewCommand(2, "foo", "baz");
-  MRClusterTopology *topo = getTopology(4096, 1, NULL);
+  const char *host = "localhost:6379";
+  MRClusterTopology *topo = getTopology(4096, 1, &host);
   MRCluster *cl = MR_NewCluster(topo, 2);
   mr_slot_t shard = CRCShardFunc(&cmd, cl);
   mu_assert_int_eq(shard, 717);
