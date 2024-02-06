@@ -8,7 +8,7 @@ $MODE yum update -y
 #$MODE yum remove -y gcc # remove gcc 7
 $MODE yum install -y http://mirror.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
 
-$MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync python3 unzip
+$MODE yum install -y wget git which devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync python3 unzip gnutls
 
 source /opt/rh/devtoolset-11/enable
 
