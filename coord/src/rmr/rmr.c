@@ -639,10 +639,15 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
+  // We set `pending` and `inProcess` to 1 so we won't get the impression that we are done
+  // before the first command is sent. This is also technically correct since we know that we have
+  // at least ourselves to wait for.
   *ret = (MRIterator){
     .ctx = {
       .chan = MR_NewChannel(),
       .cb = cb,
+      .inProcess = 1,
+      .pending = 1,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
