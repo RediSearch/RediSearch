@@ -1658,6 +1658,9 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSCursorCommand(ctx, argv, argc);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc);
