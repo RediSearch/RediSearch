@@ -243,8 +243,7 @@ typedef struct {
   AREQ *areq;
 
   // profile vars
-  MRReply **shardsProfile;
-  int shardsProfileIdx;
+  arrayof(MRReply *) shardsProfile;
 } RPNet;
 
 static int getNextReply(RPNet *nc) {
@@ -350,7 +349,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
-          nc->shardsProfile[nc->shardsProfileIdx++] = root;
+          array_ensure_append_1(nc->shardsProfile, root);
         } else {
           // Check for a warning (resp3 only)
           MRReply *warning = MRReply_MapElement(rows, "warning");
@@ -484,12 +483,12 @@ static void rpnetFree(ResultProcessor *rp) {
   }
 
   if (nc->shardsProfile) {
-    for (size_t i = 0; i < nc->shardsProfileIdx; ++i) {
-      if (nc->shardsProfile[i] != nc->current.root) {
-        MRReply_Free(nc->shardsProfile[i]);
+    array_foreach(nc->shardsProfile, reply, {
+      if (reply != nc->current.root) {
+        MRReply_Free(reply);
       }
-    }
-    rm_free(nc->shardsProfile);
+    });
+    array_free(nc->shardsProfile);
   }
 
   MRReply_Free(nc->current.root);
@@ -503,7 +502,6 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd;
   nc->areq = NULL;
-  nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = rpnetNext_Start;
@@ -609,7 +607,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
   // allocate memory for replies and update endProc if necessary
   if (IsProfile(r)) {
-    rpRoot->shardsProfile = rm_malloc(sizeof(*rpRoot->shardsProfile) * SearchCluster_Size());
+    // 2 is just a starting size, as we most likely have more than 1 shard
+    rpRoot->shardsProfile = array_new(MRReply*, 2);
     if (!found) {
       r->qiter.endProc = rpProfile;
     }
@@ -629,9 +628,9 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
 
   // Print shards profile
   if (reply->resp3) {
-    PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+    PrintShardProfile_resp3(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
   } else {
-    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+    PrintShardProfile_resp2(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
   }
 
   RedisModule_Reply_MapEnd(reply); // Shards
