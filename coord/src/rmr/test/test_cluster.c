@@ -8,6 +8,8 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
+#include "crc16.h"
+#include "crc12.h"
 
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"
@@ -86,7 +88,23 @@ static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const c
   return topo;
 }
 
-mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl);
+static const char *GetShardKey(const MRCommand *cmd, size_t *len) {
+  *len = cmd->lens[1];
+  return cmd->strs[1];
+}
+static mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl) {
+
+  if(cmd->targetSlot >= 0){
+    return cmd->targetSlot;
+  }
+
+  size_t len;
+  const char *k = GetShardKey(cmd, &len);
+  if (!k) return 0;
+  // Default to crc16
+  uint16_t crc = (cl->topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
+  return crc % cl->topo->numSlots;
+}
 
 void testShardingFunc() {
 

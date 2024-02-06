@@ -164,11 +164,6 @@ static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRCluster *cl) {
   return crc % cl->topo->numSlots;
 }
 
-// For testing
-mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl) {
-  return getSlotByCmd(cmd, cl);
-}
-
 MRConn* MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd) {
 
   if (!cl || !cl->topo) return NULL;
