@@ -26,6 +26,8 @@ jobs:
     - name: Setup specific
       working-directory: .install
       run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+    - name: Setup common
+      run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
