@@ -28,6 +28,9 @@ if [[ $WITH_PASSPHRASE == 1 ]]; then
     echo -n $PHRASE > .passphrase
 fi
 
+# avoid "Cannot open file:crypto/rand/randfile.c:98:Filename=/github/home/.rnd" error
+# (knowm openssl11 bug)
+set RANDFILE=.rnd
 openssl genrsa $PASSOUT -out redis.key 2048
 openssl req \
     -new -sha256 \
