@@ -27,14 +27,12 @@ rm -f libstdc++.so.6  # remove the old symlink
 ln -s libstdc++.so.6.0.25 libstdc++.so.6
 cd -
 
-
 wget https://www.python.org/ftp/python/3.9.6/Python-3.9.6.tgz
 tar -xvf Python-3.9.6.tgz
 cd Python-3.9.6
 ./configure --enable-optimizations
 $MODE make altinstall
 update-alternatives --install /usr/bin/python3 python3 `which python3.9` 2
-# gcc
 
 cd -
 source install_cmake.sh $MODE
