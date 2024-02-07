@@ -5,6 +5,7 @@
  */
 
 #include "debug_commands.h"
+#include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -1113,27 +1114,28 @@ DEBUG_COMMAND(DeleteCursors) {
 }
 
 VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
-	size_t top_level = HNSW_INVALID_LEVEL;
 	int **neighbours_data = NULL;
-	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data,
-	                                                                        &top_level);
+	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
 	RedisModule_Reply reply = RedisModule_NewReply(ctx);
 	if  (res == VecSimDebugCommandCode_LabelNotExists){
 		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
 		return res;
 	}
-	RedisModule_ReplyWithArray(ctx, (long)top_level + 2);
+	START_POSTPONED_LEN_ARRAY(num_levels);
 	RedisModule_ReplyWithArray(ctx, 2);
 	RedisModule_ReplyWithSimpleString(ctx, "Doc id");
 	RedisModule_ReplyWithLongLong(ctx, (long long)doc_id);
-	for (int l = 0; l <= top_level; l++) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[l][0] + 1);
-		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", l);
-		for (size_t i = 0; i < neighbours_data[l][0]; i++) {
-			RedisModule_ReplyWithLongLong(ctx, neighbours_data[l][i+1]);
+
+	while (neighbours_data[(ARRAY_LEN_VAR(num_levels))]) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[ARRAY_LEN_VAR(num_levels)][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", ARRAY_LEN_VAR(num_levels));
+		for (size_t i = 0; i < neighbours_data[ARRAY_LEN_VAR(num_levels)][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[ARRAY_LEN_VAR(num_levels)][i + 1]);
 		}
+		(ARRAY_LEN_VAR(num_levels))++;
 	}
-	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data, top_level);
+	END_POSTPONED_LEN_ARRAY(num_levels+1);
+	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
 }
 
 DEBUG_COMMAND(dumpHNSWData) {
