@@ -11,6 +11,7 @@ mkdir -p $ROOT/bin/tls
 cd $ROOT/bin/tls
 
 [[ -f .generated && $(cat .generated) == $WITH_PASSPHRASE ]] && exit 0
+export RANDFILE=.rnd
 
 openssl genrsa -out ca.key 2048
 openssl req \
@@ -30,7 +31,6 @@ fi
 
 # avoid "Cannot open file:crypto/rand/randfile.c:98:Filename=/github/home/.rnd" error
 # (knowm openssl11 bug)
-export RANDFILE=.rnd
 openssl genrsa $PASSOUT -out redis.key 2048
 openssl req \
     -new -sha256 \
