@@ -87,7 +87,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
 }
 
 /* Get a connection from the connection pool. We select the next available connected connection with
- * a roundrobin selector */
+ * a round robin selector */
 static MRConn *MRConnPool_Get(MRConnPool *pool) {
   for (size_t i = 0; i < pool->num; i++) {
 
@@ -127,7 +127,7 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
-    MRConnPool *pool = dictGetVal(ptr );
+    MRConnPool *pool = dictGetVal(ptr);
     return MRConnPool_Get(pool);
   }
   return NULL;
@@ -477,7 +477,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     rm_free(ca_cert);
     if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
-      CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
+      CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);
