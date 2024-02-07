@@ -413,6 +413,13 @@ def testEmptyValueTags(env):
         expected = [0]
         cmd_assert(env, cmd, expected)
 
+        # Add a document that will be found by the suffix search
+        conn.execute_command('HSET', 'h2', 't', 'empty')
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{*pty}']
+        expected = [1, 'h2', ['t', 'empty']]
+        cmd_assert(env, cmd, expected)
+        conn.execute_command('DEL', 'h2')
+
         # -------------------- Combination with other fields -------------------
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{__empty}']
         expected = [1, 'h1', ['t', '']]
@@ -429,10 +436,10 @@ def testEmptyValueTags(env):
         cmd_assert(env, cmd, expected)
 
         # Non-empty union with another field
-        conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'Movie')
+        conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['love | @t:{__empty}', 'SORTBY', 'text', 'ASC']
         expected = [
-            2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'Movie']
+            2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'movie']
         ]
         cmd_assert(env, cmd, expected)
 
@@ -442,7 +449,7 @@ def testEmptyValueTags(env):
         expected = [
             ANY, \
             ['t', '', 'upper_t', ''], \
-            ['t', 'Movie', 'upper_t', 'MOVIE']
+            ['t', 'movie', 'upper_t', 'MOVIE']
         ]
         cmd_assert(env, cmd, expected)
 
@@ -451,7 +458,7 @@ def testEmptyValueTags(env):
         expected = [
             ANY, \
             ['t', '', 'text', 'hello'], \
-            ['t', 'Movie', 'text', 'love you']
+            ['t', 'movie', 'text', 'love you']
         ]
         cmd_assert(env, cmd, expected)
 
@@ -459,10 +466,35 @@ def testEmptyValueTags(env):
         cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
         expected = [
             ANY, \
-            ['t', 'Movie', 'text', 'love you'], \
+            ['t', 'movie', 'text', 'love you'], \
             ['t', '', 'text', 'hello']
         ]
         cmd_assert(env, cmd, expected)
+
+        # ------------------------------ GROUPBY -------------------------------
+        conn.execute_command('HSET', 'h3', 't', 'movie')
+        conn.execute_command('HSET', 'h4', 't', '')
+        cmd = f'FT.AGGREGATE {idx} * GROUPBY 1 @t REDUCE COUNT 0 AS count'.split(' ')
+        expected = [
+            ANY, \
+            ['t', '', 'count', '2'], \
+            ['t', 'movie', 'count', '2']
+        ]
+        cmd_assert(env, cmd, expected)
+
+        # --------------------------- SEPARATOR --------------------------------
+        # Remove added documents
+        for i in range(2, 5):
+            conn.execute_command('DEL', f'h{i}')
+
+        # Validate the separation of the TAG field doesn't register empty values
+        conn.execute_command('HSET', 'h5', 't', ', bar')
+        conn.execute_command('HSET', 'h6', 't', 'bat, ')
+        conn.execute_command('HSET', 'h7', 't', 'bat, , bat2')
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ["@t:{__empty}"]
+        expected = [ANY, 'h1', ['t', '', 'text', 'hello']]
+        cmd_assert(env, cmd, expected)
+
 
     # Create an index with a TAG field, that also indexes empty strings
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY', 'text', 'TEXT').ok()
@@ -477,12 +509,18 @@ def testEmptyValueTags(env):
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
-    # TODO: The below command doesn't work, as opposed to the one below. Make it flexible so it will work.
-    # env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE', 'EMPTY').ok()
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'EMPTY', 'SORTABLE', 'text', 'TEXT').ok()
     conn.execute_command('HSET', 'h1', 't', '')
 
     testHashIndex(env, conn, 'idx_sortable')
+    env.flush()
+
+    # --------------------------- WITHSUFFIXTRIE case --------------------------
+    # Create an index with a TAG field, that also indexes empty strings, while
+    # using a suffix trie
+    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'EMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
+    conn.execute_command('HSET', 'h1', 't', '')
+    testHashIndex(env, conn, 'idx_suffixtrie')
     env.flush()
 
     def testJSONIndex(env, idx):
@@ -501,7 +539,7 @@ def testEmptyValueTags(env):
     testJSONIndex(env, 'jidx')
 
     """
-    TODO: The following cases' behavior is to be defined:
+    The following cases' behavior is to be defined:
         - "tag:{*__empty}"
         - "tag:{__empty*}"
     """

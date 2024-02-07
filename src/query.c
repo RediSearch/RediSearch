@@ -1237,7 +1237,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   // Support for EMPTY TAG values (searched via the "__empty" token).
-  if (n->tn.str && strcmp(n->tn.str, "__empty") == 0 && FieldSpec_IndexesEmpty(fs)) {
+  if (FieldSpec_IndexesEmpty(fs) && n->tn.str && strcmp(n->tn.str, "__empty") == 0) {
     // Transform the query to an empty string query.
     rm_free(n->tn.str);
     n->tn.str = rm_strdup("");

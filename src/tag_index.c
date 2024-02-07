@@ -85,16 +85,6 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     // get the next token
     size_t toklen = 0;
     char *tok = TagIndex_SepString(sep, &p, &toklen);
-    // this means we're at the end
-    if (tok == NULL) {
-      if (pp == p && FieldSpec_IndexesEmpty(fs)) {
-        // The value is empty (i.e., empty string) and the field indexes such fields.
-        tok = rm_strdup(p);
-        *resArray = array_append(*resArray, tok);
-      }
-
-      break;
-    }
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
@@ -102,6 +92,15 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       *resArray = array_append(*resArray, tok);
+    } else {
+      // this means we're at the end
+      if (pp == p && FieldSpec_IndexesEmpty(fs)) {
+        // The value is empty (i.e., empty string) and the field indexes such fields.
+        tok = rm_strdup(p);
+        *resArray = array_append(*resArray, tok);
+      }
+
+      break;
     }
   }
   rm_free(pp);
@@ -169,8 +168,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     if (tok) {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
-      // TODO: Skip this if tok=''?
-      if (idx->suffix) { // add to suffix triemap if exist
+      if (idx->suffix && strlen(tok) > 0) { // add to suffix triemap if exist
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
