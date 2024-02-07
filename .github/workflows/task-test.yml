@@ -48,8 +48,6 @@ jobs:
       - name: Get Installation Mode
         id: mode
         run: |
-          echo "python --version: $(python --version)"
-          echo "python3 --version: $(python3 --version)"
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Deps checkout
         uses: actions/checkout@v3
@@ -62,31 +60,16 @@ jobs:
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-
-      # - name: Setup python
-      #   id: setup-python
-      #   uses: actions/setup-python@v5
-      #   with:
-      #     python-version: "3.x"
-
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
-      # - name: Setup (readies)
-      #   if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0' && inputs.env != 'macos-12'
-      #   run: ./sbin/setup
       - run: |
           echo "python version: $(python3 --version)"
           echo "gnu version: $(gcc --version)"
           echo "make version: $(make --version)"
       - name: Setup common
-        run: |
-          echo "python3 version: $(python3 --version)"
-          echo "which python3: $(which python3)"
-          echo "which python3.6: $(which python3.6)"
-          echo "which python3.7: $(which python3.7)"
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
