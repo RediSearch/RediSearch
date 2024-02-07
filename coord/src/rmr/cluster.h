@@ -13,7 +13,6 @@
 #include "endpoint.h"
 #include "command.h"
 #include "node.h"
-#include "node_map.h"
 
 typedef uint16_t mr_slot_t;
 
@@ -63,12 +62,6 @@ typedef struct {
   MRConnManager mgr;
   /* The latest topology of the cluster */
   MRClusterTopology *topo;
-  /* the current node, detected when updating the topology */
-  MRClusterNode *myNode;
-  MRClusterShard *myShard;
-  /* map of nodes by ip:port */
-  MRNodeMap *nodeMap;
-
 } MRCluster;
 
 int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);

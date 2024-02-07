@@ -203,7 +203,6 @@ bool MR_CurrentTopologyExists() {
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   mrctx->numReplied = 0;
-  mrctx->numExpected = 0;
 
   mrctx->numExpected =
       MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
