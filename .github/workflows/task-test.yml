@@ -66,6 +66,7 @@ jobs:
           submodules: recursive
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3

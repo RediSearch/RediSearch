@@ -8,6 +8,5 @@ $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ make wget git ope
     rsync unzip
 
 cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-bash
 
 source install_cmake.sh $MODE
