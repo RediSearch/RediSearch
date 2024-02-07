@@ -13,7 +13,6 @@ activate_venv() {
 	fi
 }
 
-
 python3 -m venv venv
 activate_venv
 source venv/bin/activate
@@ -24,10 +23,6 @@ echo "pip version: $(pip --version)"
 echo "pip path: $(which pip)"
 
 pip install -q -r tests/pytests/requirements.txt
-
-# These packages are needed to build the package
-# TODO: move to upload artifacts flow
-pip install -q -r .install/build_package_requirments.txt
 
 # List installed packages
 pip list
