@@ -363,15 +363,26 @@ def testTagAutoescaping(env):
     # Create sample data
     env.cmd('HSET', 'tag:1', 'tag', 'abc:1', 'id', '1')
     env.cmd('HSET', 'tag:2', 'tag', 'xyz:2', 'id', '2')
-    env.cmd('HSET', 'tag:3', 'tag', 'xyz:2,abc:1', 'id', '3') # add two tags
+    # two tags separated by comma
+    env.cmd('HSET', 'tag:3', 'tag', 'xyz:2,abc:1', 'id', '3')
     env.cmd('HSET', 'tag:4', 'tag', 'abc:1-xyz:2', 'id', '4')
     env.cmd('HSET', 'tag:5', 'tag', 'joe@mail.com', 'id', '5')
     env.cmd('HSET', 'tag:6', 'tag', 'tag with {brackets}', 'id', '6')
     env.cmd('HSET', 'tag:7', 'tag', 'abc:1|xyz:2', 'id', '7')
+    # tag with octal number: '_12\100' == '_12@'
+    env.cmd('HSET', 'tag:8', 'tag', '_12\100', 'id', '8')
+    env.cmd('HSET', 'tag:9', 'tag', '-99999', 'id', '9')
+    env.cmd('HSET', 'tag:10', 'tag', 'ab(12)', 'id', '10')
+    env.cmd('HSET', 'tag:11', 'tag', 'a|b-c d', 'id', '11')
+    # this test generates the tag: '_@12\\345'
+    env.cmd('HSET', 'tag:12', 'tag', '_@12\\345', 'id', '12')
     
     # Create index
     env.expect('FT.CREATE idx ON HASH PREFIX 1 tag: SCHEMA tag TAG SORTABLE id NUMERIC SORTABLE').ok()
     waitForIndex(env, 'idx')
+
+    # res = env.cmd('FT.TAGVALS', 'idx', 'tag')
+    # print(res)
 
     # Set default dialect to 5 because it supports the autoescaping
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
@@ -385,7 +396,37 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1|xyz:2}', 'NOCONTENT')
     expected_result = [1, 'tag:7']
     env.assertEqual(expected_result, res)
-    
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12\100}', 'NOCONTENT')
+    expected_result = [1, 'tag:8']
+    env.assertEqual(expected_result, res)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12@}', 'NOCONTENT')
+    expected_result = [1, 'tag:8']
+    env.assertEqual(expected_result, res)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_@12\\\\345}', 'NOCONTENT')
+    expected_result = [1, 'tag:12']
+    env.assertEqual(expected_result, res)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{ab(12)}', 'NOCONTENT')
+    expected_result = [1, 'tag:10']
+    env.assertEqual(expected_result, res)
+
+    # Test tag with '-'
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1-xyz:2}', 'NOCONTENT')
+    expected_result = [1, 'tag:4']
+    env.assertEqual(expected_result, res)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{-99999}', 'NOCONTENT')
+    expected_result = [1, 'tag:9']
+    env.assertEqual(expected_result, res)
+
+    # Test tag with '|' and ' '
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{a|b-c d}', 'NOCONTENT')
+    expected_result = [1, 'tag:11']
+    env.assertEqual(expected_result, res)
+
     # AND Operator (INTERSECT queries)
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} @tag:{xyz:2}', 'NOCONTENT')
     expected_result = [1, 'tag:3']
