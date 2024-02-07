@@ -452,3 +452,16 @@ def testTagAutoescaping(env):
     # Test exact match with brackets
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{tag with {brackets\\}}', 'NOCONTENT')
     expected_result = [1, 'tag:6']
+
+    # TODO: Support search with boosting
+    # Search with boosting  
+    # res = env.cmd('FT.SEARCH', 'idx', '@tag:{xyz:2}=>{$weight:5.0}', 'NOCONTENT', 
+    #               'SORTBY', 'id', 'ASC')
+    # expected_result = [2, 'tag:2', 'tag:3']
+    # env.assertEqual(expected_result, res)
+
+    # res = env.cmd('FT.SEARCH', 'idx',
+    #               '(@tag:{xyz:2} | @tag:{abc:1}) => { $weight: 5.0; }',
+    #               'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    # expected_result = [3, 'tag:1', 'tag:2', 'tag:3']
+    # env.assertEqual(expected_result, res)

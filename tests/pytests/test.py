@@ -1067,20 +1067,22 @@ def testSlopInOrderIssue1986(env):
 def testExact(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH',
                'schema', 'title', 'text', 'weight', 10.0, 'body', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields',
-               'title', 'hello world', 'body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-               'title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem').ok()
+    env.cmd('HSET', 'doc1', 'title', 'hello world',
+            'body', 'lorem ist ipsum')
+    env.cmd('HSET', 'doc2', 'title', 'hello another world',
+            'body', 'lorem ist ipsum lorem lorem')
 
-    res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim')
-    env.assertEqual(3, len(res))
-    env.assertEqual(1, res[0])
-    env.assertEqual("doc1", res[1])
+    for dialect in range(1,6):
+        env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(dialect)).ok()
+        res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim')
+        env.assertEqual(3, len(res))
+        env.assertEqual(1, res[0])
+        env.assertEqual("doc1", res[1])
 
-    res = env.cmd('ft.search', 'idx', "hello \"another world\"", 'verbatim')
-    env.assertEqual(3, len(res))
-    env.assertEqual(1, res[0])
-    env.assertEqual("doc2", res[1])
+        res = env.cmd('ft.search', 'idx', "hello \"another world\"", 'verbatim')
+        env.assertEqual(3, len(res))
+        env.assertEqual(1, res[0])
+        env.assertEqual("doc2", res[1])
 
 
 def testGeoErrors(env):
