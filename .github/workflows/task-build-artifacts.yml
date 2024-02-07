@@ -54,7 +54,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .install
-            tests/pytests/requirements.*
+            tests/pytests/requirements.txt
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
@@ -63,7 +63,6 @@ jobs:
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-
       - name: Setup common
         run: |
           .install/common_installations.sh ${{ steps.mode.outputs.mode }}
