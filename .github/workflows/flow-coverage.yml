@@ -24,7 +24,7 @@ jobs:
       run: |
         echo "mode=sudo" >> $GITHUB_OUTPUT
     - name: Setup specific
-      working-directory: setup/.install
+      working-directory: .install
       run: ./install_script.sh ${{ steps.mode.outputs.mode }}
     - name: Get Redis
       env:
