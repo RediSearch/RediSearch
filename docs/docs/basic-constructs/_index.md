@@ -5,7 +5,7 @@ description: Basic constructs for searching and querying Redis data
 weight: 2
 ---
 
-You can use Redis Stack as a powerful search and query engine. It allows you to create indexes and perform efficient queries on structured data, as well as text-based and vector similarity searches on unstructured data.
+You can use Redis Stack as a powerful search and query engine. It allows you to create indexes and perform efficient queries on structured data, as well as text-based and vector searches on unstructured data.
 
 This section introduces the basic constructs of querying and searching, and explains how to use them to build powerful search capabilities into your applications.
 
@@ -27,7 +27,7 @@ Fields that are not indexed will not contribute to search results. However, they
 
 ## Schema
 
-The index structure in defined by a schema. The schema defines how fields are stored and indexed. It specifies the type of each field and other important information.
+The index structure is defined by a schema. The schema defines how fields are stored and indexed. It specifies the type of each field and other important information.
 
 To create an index, you need to define the schema for your collection. Learn more about how to define the schema on the [schema definition](/docs/interact/search-and-query/basic-constructs/schema-definition/) page.
 

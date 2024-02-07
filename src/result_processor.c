@@ -11,7 +11,6 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
 #include "util/arr.h"
 
@@ -28,6 +27,14 @@ void QITR_Cleanup(QueryIterator *qitr) {
     }
     p = next;
   }
+}
+
+// Allocates a new SearchResult, and populates it with `r`'s data (takes
+// ownership as well)
+SearchResult *SearchResult_Copy(SearchResult *r) {
+  SearchResult *ret = rm_malloc(sizeof(*ret));
+  *ret = *r;
+  return ret;
 }
 
 void SearchResult_Clear(SearchResult *r) {
@@ -63,8 +70,6 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor - this should be used only if the spec
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
@@ -76,7 +81,6 @@ static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_statu
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
-  struct timespec timeout;  // milliseconds until timeout
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
@@ -85,7 +89,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
@@ -156,19 +160,13 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
-  ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
   ret->base.type = RP_INDEX;
   return &ret->base;
-}
-
-void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
-  RPIndexIterator *self = (RPIndexIterator *)base;
-  self->timeout = timeout;
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
@@ -355,6 +353,9 @@ typedef struct {
     size_t nkeys;
     uint64_t ascendMap;
   } fieldcmp;
+
+  // Whether a timeout warning needs to be propagated down the downstream
+  bool timedOut;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -370,7 +371,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return RS_RESULT_EOF;
+  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -393,8 +394,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
-  if (rc == RS_RESULT_EOF || (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    // Transition state:
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = rpsortNext_Yield;
+    return rpsortNext_Yield(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc != RS_RESULT_OK) {
@@ -832,8 +836,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SearchResult resToBuffer = {0};
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
-  while (rp->parent->resultLimit-- && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
-
+  while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
+    // Decrease the result limit after getting a result from the upstream
+    rp->parent->resultLimit--;
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
@@ -945,17 +950,16 @@ void RP_DumpChain(const ResultProcessor *rp) {
 
 typedef struct {
   ResultProcessor base;
-  double profileTime;
+  clock_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  clock_t rpStartTime = clock();
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += hires_clock_since_msec(&t0);
+  self->profileTime += clock() - rpStartTime;
   self->profileCount++;
   return rc;
 }
@@ -978,7 +982,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-double RPProfile_GetDurationMSec(ResultProcessor *rp) {
+clock_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }

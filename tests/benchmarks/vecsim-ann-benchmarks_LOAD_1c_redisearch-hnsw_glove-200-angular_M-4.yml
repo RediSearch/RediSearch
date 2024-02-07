@@ -2,15 +2,14 @@ version: 0.5
 name: "ann-benchmarks_LOAD_1c_redisearch-hnsw_glove-200-angular_M-4"
 metadata:
   component: "vecsim"
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 timeout_seconds: 1800
 setups:
   - oss-standalone
   - oss-cluster-03-primaries
   - oss-cluster-05-primaries
   - oss-cluster-09-primaries
+
 dbconfig:
   dataset_name: "hnsw__glove-200-angular_M-4"
 clientconfig:

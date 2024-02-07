@@ -33,9 +33,7 @@ help() {
 		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
-		CONFIG=cfg            Perform one of: concurrent_write, max_unsorted, 
-		                        union_iterator_heap, raw_docid, dialect_2,
-		                        (coordinator:) global_password, safemode, tls
+		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
 
 		TEST=name             Run specific test (e.g. test.py:test_name)
 		TESTFILE=file         Run tests listed in `file`
@@ -64,24 +62,23 @@ help() {
 		COV=1                 Run with coverage analysis
 		VG=1                  Run with Valgrind
 		VG_LEAKS=0            Do not detect leaks
-		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
+		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread)
 		BB=1                  Enable Python debugger (break using BB() in tests)
 		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
 		RLTEST=path|'view'    Take RLTest from repo path or from local view
 		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
+		LOG_LEVEL=<level>     Set log level (default: debug)
+		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
 
 		PARALLEL=1            Runs tests in parallel
 		SLOW=1                Do not test in parallel
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
-		PLATFORM_MODE=1       Implies NOFAIL & COLLECT_LOGS into STATFILE
 		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
-		NOFAIL=1              Do not fail on errors (always exit with 0)
-		STATFILE=file         Write test status (0|1) into `file`
 
 		LIST=1                List all tests and exit
 		ENV_ONLY=1            Just start environment, run no tests
@@ -94,7 +91,7 @@ help() {
 	END
 }
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
 traps() {
 	local func="$1"
@@ -127,7 +124,7 @@ stop() {
 
 traps 'stop' SIGINT
 
-#---------------------------------------------------------------------------------------------- 
+#----------------------------------------------------------------------------------------------
 
 setup_rltest() {
 	if [[ $RLTEST == view ]]; then
@@ -150,8 +147,14 @@ setup_rltest() {
 			echo "PYTHONPATH=$PYTHONPATH"
 		fi
 	fi
-	
-	RLTEST_ARGS+=" --enable-debug-command"
+
+	RLTEST_ARGS+=" --allow-unsafe"  # allow redis use debug and module command and change protected configs
+
+	LOG_LEVEL=${LOG_LEVEL:-debug}
+	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
+
+	TEST_TIMEOUT=${TEST_TIMEOUT:-300}
+	RLTEST_ARGS+=" --test-timeout $TEST_TIMEOUT"
 
 	if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
@@ -159,7 +162,7 @@ setup_rltest() {
 	if [[ $RLTEST_DEBUG == 1 ]]; then
 		RLTEST_ARGS+=" --debug-print"
 	fi
-	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 ]]; then
+	if [[ -n $RLTEST_LOG && $RLTEST_LOG != 1 && -z $RLTEST_PARALLEL_ARG ]]; then
 		RLTEST_ARGS+=" -s"
 	fi
 	if [[ $RLTEST_CONSOLE == 1 ]]; then
@@ -181,7 +184,7 @@ setup_clang_sanitizer() {
 	# for RLTest
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
-	
+
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 
@@ -219,8 +222,8 @@ setup_clang_sanitizer() {
 		fi
 
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
 		# :use_tls=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
@@ -466,7 +469,7 @@ run_tests() {
 	fi
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
-	
+
 	local E=0
 	if [[ $NOP != 1 ]]; then
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
@@ -509,6 +512,9 @@ PID=$$
 OS=$($READIES/bin/platform --os)
 ARCH=$($READIES/bin/platform --arch)
 OSNICK=$($READIES/bin/platform --osnick)
+
+# RLTest uses `fork` which might fail on macOS with the following variable set
+[[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 #---------------------------------------------------------------------------------- Tests scope
 
@@ -558,21 +564,10 @@ if [[ -n $TEST ]]; then
 	export RUST_BACKTRACE=1
 fi
 
-#-------------------------------------------------------------------------------- Platform Mode
-
-if [[ $PLATFORM_MODE == 1 ]]; then
-	CLEAR_LOGS=0
-	COLLECT_LOGS=1
-	NOFAIL=1
-fi
-STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #---------------------------------------------------------------------------------- Parallelism
 
 PARALLEL=${PARALLEL:-1}
-
-# due to Python "Can't pickle local object" problem in RLTest
-[[ $OS == macos ]] && PARALLEL=0
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
 
@@ -672,9 +667,7 @@ fi
 
 E=0
 
-if [[ $COV == 1 || -n $SAN || $VG == 1 ]]; then
-	MODARGS="${MODARGS}; timeout 0;"
-fi
+MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
 
 if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
@@ -687,20 +680,6 @@ if [[ -z $COORD ]]; then
 	fi
 
 	if [[ $QUICK != 1 ]]; then
-		if [[ -z $CONFIG || $CONFIG == concurrent_write ]]; then
-			{ (MODARGS="${MODARGS}; CONCURRENT_WRITE_MODE;" \
-				run_tests "with Concurrent write mode"); (( E |= $? )); } || true
-		fi
-
-		if [[ -z $CONFIG || $CONFIG == max_unsorted ]]; then
-			{ (MODARGS="${MODARGS}; _MAX_RESULTS_TO_UNSORTED_MODE 1;" \
-				run_tests "MAX_RESULTS_TO_UNSORTED_MODE=1"); (( E |= $? )); } || true
-		fi
-
-		if [[ -z $CONFIG || $CONFIG == union_iterator_heap ]]; then
-			{ (MODARGS="${MODARGS}; UNION_ITERATOR_HEAP 1;" \
-				run_tests "with Union iterator heap"); (( E |= $? )); } || true
-		fi
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			if [[ $COV != 1 ]]; then
@@ -717,52 +696,13 @@ if [[ -z $COORD ]]; then
 
 elif [[ $COORD == oss ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
-	
+
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
-  oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
+  	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
-	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
-		   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-	fi
-
-	if [[ $QUICK != 1 ]]; then
-		if [[ -z $CONFIG || $CONFIG == global_password ]]; then
-			if [[ $SAN != address || $FORCE_SAN == 1 ]]; then
-				{ (MODARGS="${MODARGS} PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-				   RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} --oss_password password" \
-				   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
-			fi
-		fi
-
-		if [[ -z $CONFIG || $CONFIG == safemode ]]; then
-			{ (MODARGS="${MODARGS} PARTITIONS AUTO SAFEMODE" RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args}" \
-			   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
-		fi
-
-		tls_args="--tls \
-			--tls-cert-file $ROOT/bin/tls/redis.crt \
-			--tls-key-file $ROOT/bin/tls/redis.key \
-			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
-			
-		redis_ver=$($REDIS_SERVER --version | cut -d= -f2 | cut -d" " -f1)
-		redis_major=$(echo "$redis_ver" | cut -d. -f1)
-		redis_minor=$(echo "$redis_ver" | cut -d. -f2)
-		if [[ $redis_major == 7 || $redis_major == 6 && $redis_minor == 2 ]]; then
-			PASSPHRASE=1
-			tls_args+=" --tls-passphrase foobar"
-		else
-			PASSPHRASE=0
-		fi
-
-		PASSPHRASE=$PASSPHRASE $ROOT/sbin/gen-test-certs
-		
-		if [[ -z $CONFIG || $CONFIG == tls ]]; then
-			{ (RLTEST_ARGS="${RLTEST_ARGS} ${oss_cluster_args} ${tls_args}" \
-			   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
-		fi
-	fi # QUICK
+	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
@@ -790,18 +730,6 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
 	echo "Test logs:"
 	du -ah --apparent-size bin/artifacts/tests
-fi
-
-if [[ -n $STATFILE ]]; then
-	mkdir -p "$(dirname "$STATFILE")"
-	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STATFILE || echo 1) )) || true
-	fi
-	echo $E > $STATFILE
-fi
-
-if [[ $NOFAIL == 1 ]]; then
-	exit 0
 fi
 
 exit $E

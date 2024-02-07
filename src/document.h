@@ -193,8 +193,8 @@ void Document_Clear(Document *doc);
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
 
 /**
  * Load all the fields into the document.
@@ -248,10 +248,6 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Don't block/unblock the client when indexing. This is the case when the
-// operation is being done from within the context of AOF
-#define ACTX_F_NOBLOCK 0x20
-
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
 
@@ -263,10 +259,7 @@ struct DocumentIndexer;
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document *doc;                   // Document which is being indexed
-  union {
-    RedisModuleBlockedClient *bc;  // Client
-    RedisSearchCtx *sctx;
-  } client;
+  RedisSearchCtx *sctx;
 
   IndexSpec *spec;
   char *specName;
@@ -308,8 +301,6 @@ typedef struct RSAddDocumentCtx {
   DocumentAddCompleted donecb;
   void *donecbData;
 } RSAddDocumentCtx;
-
-#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
 /**
  * Creates a new context used for adding documents. Once created, call

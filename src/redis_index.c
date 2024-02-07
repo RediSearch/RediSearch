@@ -119,7 +119,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 
   InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
   if (InvertedIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create inverted index type");
+    RedisModule_Log(ctx, "warning", "Could not create inverted index type");
     return REDISMODULE_ERR;
   }
 
@@ -208,6 +208,10 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
+}
+
+void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime) {
+  sctx->timeout = timeoutTime;
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
@@ -325,7 +329,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
   IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
   if (csx) {
-    ConcurrentSearch_AddKey(csx, IndexReader_OnReopen, ret, NULL);
+    ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
   }
   RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;

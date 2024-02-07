@@ -1,0 +1,17 @@
+name: Assigne the One in Shift for a New Issue
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  issues:
+    types: [opened, reopened]
+
+jobs:
+  Assign:
+    if: ${{ !contains(github.event.issue.labels.*.name, 'feature') }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Assign
+        run: gh issue edit ${{ github.event.issue.number }} --add-assignee ${{ vars.ISSUES_SHIFT_ASSIGNEE }} -R ${{ github.repository }}

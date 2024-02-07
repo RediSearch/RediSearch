@@ -469,10 +469,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
-  ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
-                           // results sorted by id as an optimization (this can be modified in the future).
   ri->NumEstimated = HR_NumEstimated;
-  ri->GetCriteriaTester = NULL; // TODO:remove from all project
   ri->LastDocId = HR_LastDocId;
   ri->Free = HybridIterator_Free;
   ri->Len = HR_Len;            // Not clear what is the definition of this, currently returns

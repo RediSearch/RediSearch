@@ -1,0 +1,69 @@
+name: Merge a pull request
+run-name: Validate ${{ github.ref_name }}
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  # This group identifies the PR by the tree ID of the head commit.
+  # TODO: Replace with PR number of branch name once GH adds it to the event context
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
+  cancel-in-progress: true
+
+# TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
+
+jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
+
+  test-linux:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+
+  test-macos:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-macos.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+
+  coverage:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-coverage.yml
+    secrets: inherit
+
+  sanitize:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-sanitizer.yml
+    secrets: inherit
+    with:
+      flow-config: '' # full sanitization
+
+  pr-validation:
+    needs:
+      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
+      - get-latest-redis-tag
+      - test-linux
+      - test-macos
+      - coverage
+      - sanitize
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

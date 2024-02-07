@@ -139,7 +139,7 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
   return iv;
 }
 
-/* Ecode a single docId into a specific tag value */
+/* Encode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -192,27 +192,8 @@ static void TagReader_OnReopen(void *privdata) {
         return;
       }
     }
-
-    // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-    if (ir->gcMarker == ir->idx->gcMarker) {
-      // no GC - we just go to the same offset we were at
-      size_t offset = ir->br.pos;
-      ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-      ir->br.pos = offset;
-    } else {
-      // if there has been a GC cycle on this key while we were asleep, the offset might not be
-      // valid anymore. This means that we need to seek to last docId we were at
-
-      // reset the state of the reader
-      t_docId lastId = ir->lastId;
-      ir->currentBlock = 0;
-      ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
-      ir->lastId = 0;
-
-      // seek to the previous last id
-      RSIndexResult *dummy = NULL;
-      IR_SkipTo(ir, lastId, &dummy);
-    }
+    // Use generic `OnReopen` callback for all readers
+    IndexReader_OnReopen(ir);
   }
 }
 
@@ -275,7 +256,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   return kdv->p;
 }
 
-/* Open the tag index in redis */
+/* Open the tag index */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   TagIndex *ret = NULL;
@@ -396,7 +377,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
   if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create attribute index type");
+    RedisModule_Log(ctx, "warning", "Could not create attribute index type");
     return REDISMODULE_ERR;
   }
 

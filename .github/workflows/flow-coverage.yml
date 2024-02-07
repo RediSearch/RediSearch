@@ -1,0 +1,35 @@
+name: Coverage analysis
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+
+env:
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0 # fetch all history for accurate results
+    - name: Setup
+      run: ./sbin/setup
+    - name: Get Redis
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: ./deps/readies/bin/getredis --with-github-token
+    - name: Build and test
+      run: make coverage QUICK=1 SHOW=1
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: bin/linux-x64-debug-cov/cov.info
+        fail_ci_if_error: true # Fail on upload errors
+        token: ${{ secrets.CODECOV_TOKEN }}

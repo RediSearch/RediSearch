@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-/* A search cluster contains the configuations for partitioning and multiplexing commands */
+/* A search cluster contains the configurations for partitioning and multiplexing commands */
 typedef struct {
   size_t size;
   int* shardsStartSlots;
@@ -30,7 +30,6 @@ SearchCluster NewSearchCluster(size_t size, const char **table, size_t tableSize
 void InitGlobalSearchCluster(size_t size, const char **table, size_t tableSize);
 
 void SearchCluster_Release(SearchCluster *sc);
-void GlobalSearchCluster_Release();
 /* A command generator that multiplexes a command across multiple partitions by tagging it */
 typedef struct {
   MRCommand *cmd;

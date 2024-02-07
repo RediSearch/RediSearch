@@ -12,28 +12,37 @@ def array_of_key_value_to_map(res):
 def assert_index_num_docs(env, idx, attr, num_docs):
   if not env.isCluster():
     res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
-    res = env.execute_command('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
-  
-  conn.execute_command('HSET', 'small', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
-  conn.execute_command('HSET', 'large', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
-  expected = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
-  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([1, 'small', expected])
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))', 'DIALECT', 3)
-  env.assertEqual(res[0], 2)
-  
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
+
+  small = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+  large = 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1), (2 2, 49 2, 49 49, 2 49, 2 2))' # contains hole
+  conn.execute_command('HSET', 'small', 'geom', small)
+  conn.execute_command('HSET', 'large', 'geom', large)
+
+  query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'small', ['geom', small]])
+  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
+
+  query = 'POLYGON((50 50, 50 99, 99 99, 99 50, 50 50))'
+  env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
+
+  query = 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
+  env.expect('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
 
 def testSanitySearchPointWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
-  
+
   point = 'POINT(10 10)'
   small = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
   large = 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))'
@@ -41,20 +50,20 @@ def testSanitySearchPointWithin(env):
   conn.execute_command('HSET', 'point', 'geom', point)
   conn.execute_command('HSET', 'small', 'geom', small)
   conn.execute_command('HSET', 'large', 'geom', large)
-  
+
   expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal(expected)
 
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 50, 50 50, 50 2, 2 2))', 'DIALECT', 3)
   env.assertEqual(res[0], 2)
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(50 50)', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POINT(50 50)', 'DIALECT', 3)
   env.assertEqual(res[0], 2)
-  
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
 
   conn.execute_command('HSET', 'point', 'geom', 'POINT(255, 255)')
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonWithin(env):
@@ -65,9 +74,9 @@ def testSanitySearchJsonWithin(env):
   conn.execute_command('JSON.SET', 'large', '$', '{"geom": "POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))"}')
   expected = ['$', '[{"geom":"POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}]']
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([1, 'small', expected])
-  
+
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
 def testSanitySearchJsonCombined(env):
@@ -77,7 +86,30 @@ def testSanitySearchJsonCombined(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((1 1, 1 100, 90 90, 100 1, 1 1))", "name": "Bart"}')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
-  
+
+
+def testSanitySearchHashIntersectsDisjoint(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+
+  wide = 'POLYGON((1 1, 1 200, 100 200, 100 1, 1 1))'
+  tall = 'POLYGON((1 1, 1 100, 200 100, 200 1, 1 1))'
+  conn.execute_command('HSET', 'wide', 'geom', wide)
+  conn.execute_command('HSET', 'tall', 'geom', tall)
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', wide, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', wide, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [0])
+
+  query = 'POLYGON((0 101, 0 150, 150 150, 150 101, 0 101))'
+  env.expect('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'wide', ['geom', wide]])
+  env.expect('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'tall', ['geom', tall]])
+
+  query = 'POLYGON((101 101, 101 150, 150 150, 150 101, 101 101))'
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
+
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @skip(asan=True)
@@ -87,16 +119,22 @@ def testWKTIngestError(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE $.name as name TEXT').ok()
 
+  def get_last_error():
+    return to_dict(index_info(env)['Index Errors'])['last indexing error']
   # Wrong keyword
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLIKON((1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Homer"}')
+  env.assertContains("Error indexing geoshape: Should start with 'POLYGON'", get_last_error())
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
+  env.assertContains("Error indexing geoshape: Expected '(' at '1'", get_last_error())
   # Too few coordinates (not a polygon)
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
+  env.assertContains("Error indexing geoshape: invalid geometry", get_last_error())
   # Zero coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
+  env.assertContains("Error indexing geoshape: attempting to create empty geometry", get_last_error())
 
-  
+
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
   # Missing Y coordinate
   conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((1 1, 1 , 100 100, 100 1, 1 1))", "name": "Moe"}')
@@ -106,9 +144,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
 
   # Indexing failures
-  res = env.cmd('FT.INFO', 'idx')
-  d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-  env.assertEqual(int(d['hash_indexing_failures']), 4)
+  env.assertEqual(index_info(env)['hash_indexing_failures'], 4)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
@@ -135,33 +171,33 @@ def testWKTQueryError(env):
   # Bad/missing param
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
-  
+
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
-  
+
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))')
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))')
   conn.execute_command('HSET', 'k3', 'geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))')
-  
+
   expected1 = ['geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))']
   expected2 = ['geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))']
   expected3 = ['geom', 'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))', 'geom2', 'POLYGON((1 1, 1 140, 140 140, 140 1, 1 1))']
-  
+
   # Dump < index
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([1, 'k1', expected1])
-  
+
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))')
   # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search after update
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([2, 'k1', expected1, 'k2', expected2]))
 
   if not SANITIZER:
@@ -189,7 +225,7 @@ def testSimpleUpdate(env):
   # Search within
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))', 'DIALECT', 3).equal([0])
   # Search contains
-  res = env.execute_command('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3)
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((2 2, 2 150, 150 150, 150 2, 2 2))', 'DIALECT', 3)
   env.assertEqual(sortResultByKeyName(res), sortResultByKeyName([1, 'k3', expected3]))
 
   # Delete field
@@ -207,7 +243,7 @@ def testSimpleUpdate(env):
 
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
-  
+
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOSHAPE', 'FLAT', 'geom2', 'GEOSHAPE', 'FLAT').ok()
   field1 = ['geom1',  'POLYGON((1 1, 1 200, 200 200, 200 1, 1 1))']
@@ -250,10 +286,10 @@ def testFieldUpdate(env):
 
 def testFtInfo(env):
   ''' Test FT.INFO on GEOSHAPE '''
-  
+
   conn = getConnectionByEnv(env)
   info_key_name = 'geoshapes_sz_mb'
-  
+
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))

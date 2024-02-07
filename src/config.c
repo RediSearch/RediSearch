@@ -19,49 +19,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 
-#define RETURN_ERROR(s) return REDISMODULE_ERR;
-#define RETURN_PARSE_ERROR(rc)                                    \
-  QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
-  return REDISMODULE_ERR;
-
-#define CHECK_RETURN_PARSE_ERROR(rc) \
-  if (rc != AC_OK) {                 \
-    RETURN_PARSE_ERROR(rc);          \
-  }
-
-#define RETURN_STATUS(rc)   \
-  if (rc == AC_OK) {        \
-    return REDISMODULE_OK;  \
-  } else {                  \
-    RETURN_PARSE_ERROR(rc); \
-  }
-
-
-#define CONFIG_GETTER(name) static sds name(const RSConfig *config)
-
-#define CONFIG_BOOLEAN_GETTER(name, var, invert) \
-  CONFIG_GETTER(name) {                          \
-    int cv = config->var;                        \
-    if (invert) {                                \
-      cv = !cv;                                  \
-    }                                            \
-    return sdsnew(cv ? "true" : "false");        \
-  }
-
-#define CONFIG_BOOLEAN_SETTER(name, var)                        \
-  CONFIG_SETTER(name) {                                         \
-    const char *tf;                                             \
-    int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
-    CHECK_RETURN_PARSE_ERROR(acrc);                             \
-    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
-      config->var = 1;                                          \
-    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
-      config->var = 0;                                          \
-    } else {                                                    \
-      acrc = AC_ERR_PARSE;                                      \
-    }                                                           \
-    RETURN_STATUS(acrc);                                        \
-  }
+#include "util/config_macros.h"
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
@@ -76,21 +34,6 @@ CONFIG_GETTER(getExtLoad) {
     return NULL;
   }
 }
-
-// SAFEMODE
-CONFIG_SETTER(setSafemode) {
-  config->concurrentMode = 0;
-  return REDISMODULE_OK;
-}
-
-CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
-
-CONFIG_SETTER(setConcurentWriteMode) {
-  config->concurrentMode = 1;
-  return REDISMODULE_OK;
-}
-
-CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
@@ -206,32 +149,6 @@ CONFIG_SETTER(setTimeout) {
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
-}
-
-// INDEX_THREADS
-CONFIG_SETTER(setIndexThreads) {
-  int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->poolSizeNoAuto = 1;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getIndexthreads) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->indexPoolSize);
-}
-
-// INDEX_THREADS
-CONFIG_SETTER(setSearchThreads) {
-  int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->poolSizeNoAuto = 1;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getSearchThreads) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->searchPoolSize);
 }
 
 #ifdef MT_BUILD
@@ -357,11 +274,6 @@ CONFIG_SETTER(setForkGcRetryInterval) {
   RETURN_STATUS(acrc);
 }
 
-CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxResultsToUnsortedMode, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
 CONFIG_SETTER(setMinUnionIteratorHeap) {
   int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -398,11 +310,6 @@ CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.for
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
 CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
-
-CONFIG_GETTER(getMaxResultsToUnsortedMode) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.maxResultsToUnsortedMode);
-}
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
@@ -606,6 +513,10 @@ CONFIG_GETTER(getBGIndexSleepGap) {
   return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
 }
 
+// _PRIORITIZE_INTERSECT_UNION_CHILDREN
+CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
+CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -628,12 +539,6 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();
   }
 
-  if (getenv("RS_MIN_THREADS")) {
-    printf("Setting thread pool sizes to 1\n");
-    RSGlobalConfig.searchPoolSize = 1;
-    RSGlobalConfig.indexPoolSize = 1;
-    RSGlobalConfig.poolSizeNoAuto = 1;
-  }
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   while (!AC_IsAtEnd(&ac)) {
@@ -667,17 +572,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setExtLoad,
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "SAFEMODE",
-         .helpText =
-             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
-         .setValue = setSafemode,
-         .getValue = getSafemode,
-         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "CONCURRENT_WRITE_MODE",
-         .helpText = "Use multi threads for write operations.",
-         .setValue = setConcurentWriteMode,
-         .getValue = getConcurentWriteMode,
-         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "NOGC",
          .helpText = "Disable garbage collection (for this process)",
          .setValue = setNoGc,
@@ -717,19 +611,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
-        {.name = "INDEX_THREADS",
-         .helpText = "Create at most this number of background indexing threads (will not "
-                     "necessarily parallelize indexing)",
-         .setValue = setIndexThreads,
-         .getValue = getIndexthreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "SEARCH_THREADS",
-         .helpText = "Create at most this number of search threads (not, will not "
-                     "necessarily parallelize search)",
-         .setValue = setSearchThreads,
-         .getValue = getSearchThreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
-        },
 #ifdef MT_BUILD
         {.name = "WORKER_THREADS",
          .helpText = "Create at most this number of search threads",
@@ -806,13 +687,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "clean empty nodes from numeric tree",
          .setValue = set_ForkGCCleanNumericEmptyNodes,
          .getValue = get_ForkGCCleanNumericEmptyNodes},
-        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
-         .helpText = "max results for union interator in which the interator will switch to "
-                     "unsorted mode, should be used for debug only.",
-         .setValue = setMaxResultsToUnsortedMode,
-         .getValue = getMaxResultsToUnsortedMode},
         {.name = "UNION_ITERATOR_HEAP",
-         .helpText = "minimum number of interators in a union from which the interator will"
+         .helpText = "minimum number of iterators in a union from which the interator will"
                      "switch to heap based implementation.",
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
@@ -880,6 +756,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setBGIndexSleepGap,
          .getValue = getBGIndexSleepGap,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "_PRIORITIZE_INTERSECT_UNION_CHILDREN",
+         .helpText = "Intersection iterator orders the children iterators by their relative estimated"
+                     " number of results in ascending order, so that if we see first iterators with"
+                     " a lower count of results we will skip a larger number of results, which"
+                     " translates into faster iteration. If this flag is set, we use this"
+                     " optimization in a way where union iterators are being factorize by the number"
+                     " of their own children, so that we sort by the number of children times the "
+                     "overall estimated number of results instead.",
+         .setValue = set_PrioritizeIntersectUnionChildren,
+         .getValue = get_PrioritizeIntersectUnionChildren},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -893,7 +779,6 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
@@ -907,8 +792,6 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
-  ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
-  ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
   if (config->extLoad) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
@@ -999,7 +882,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "runtime_configurations");
 
-  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
   if (RSGlobalConfig.extLoad != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
   }
@@ -1017,8 +899,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
   RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
   RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }

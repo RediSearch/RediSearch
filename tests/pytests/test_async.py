@@ -9,30 +9,28 @@ from common import getConnectionByEnv, waitForIndex, create_np_array_typed
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
-    r = env
     N = 1000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe')
         env.assertEqual(res, 1)
 
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
-    waitForIndex(r, 'idx')
-    res = r.execute_command('ft.search', 'idx', 'doe', 'nocontent')
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    waitForIndex(env, 'idx')
+    res = env.cmd('ft.search', 'idx', 'doe', 'nocontent')
     env.assertEqual(N, res[0])
 
 def testAlterIndex(env):
     conn = getConnectionByEnv(env)
-    r = env
     N = 10000
     for i in range(N):
         res = conn.execute_command('hset', 'foo:%d' % i, 'name', 'john doe', 'age', str(10 + i))
         env.assertEqual(res, 2)
 
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     env.cmd('ft.alter', 'idx', 'schema', 'add', 'age', 'numeric')
     # note the two background scans
-    waitForIndex(r, 'idx')
-    res = r.execute_command('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
+    waitForIndex(env, 'idx')
+    res = env.cmd('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
     env.assertEqual(N, res[0])
 
 def testDeleteIndex(env):
@@ -75,7 +73,6 @@ def test_eval_node_errors_async():
     conn = getConnectionByEnv(env)
     dim = 1000
 
-    async_err_prefix = "The following error was caught upon running the query asynchronously: "
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TEXT', 'WITHSUFFIXTRIE', 'g', 'GEO', 'num', 'NUMERIC',
                'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     waitForIndex(env, 'idx')
@@ -87,18 +84,18 @@ def test_eval_node_errors_async():
 
     # Test various scenarios where evaluating the AST should raise an error,
     # and validate that it was caught from the BG thread
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError()\
-        .contains(f"{async_err_prefix}Invalid GeoFilter unit")
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error()\
+        .contains("Invalid GeoFilter unit")
     env.expect('ft.search', 'idx', '@foo:*ell*', 'NOCONTENT').error() \
-        .contains(f'{async_err_prefix}Contains query on fields without WITHSUFFIXTRIE support')
+        .contains('Contains query on fields without WITHSUFFIXTRIE support')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error()\
-        .contains(f'{async_err_prefix}Error parsing vector similarity query: query vector blob size (7) does not match'
+        .contains('Error parsing vector similarity query: query vector blob size (7) does not match'
                   f' index\'s expected size ({dim*4}).')
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10000000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_docs,
                'PARAMS', 2, 'vec_param', create_np_array_typed([0]*dim).tobytes(),
-               'TIMEOUT', 1).error().equal(f'{async_err_prefix}Timeout limit was reached')
+               'TIMEOUT', 1).error().equal('Timeout limit was reached')
 
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',
                create_np_array_typed([0]*dim).tobytes()).error()\
-        .contains(f'{async_err_prefix}Property `v` already exists in schema')
+        .contains(f'Property `v` already exists in schema')

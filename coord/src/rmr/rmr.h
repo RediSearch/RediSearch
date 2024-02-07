@@ -31,23 +31,25 @@ void MR_SetCoordinationStrategy(struct MRCtx *ctx, MRCoordinationStrategy strate
 
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS);
-/* Cleanup used resources at exit */
-void MR_Destroy();
 
 /* Set a new topology for the cluster */
-int MR_UpdateTopology(MRClusterTopology *newTopology);
+void MR_UpdateTopology(MRClusterTopology *newTopology);
 
 /* Get the current cluster topology */
-MRClusterTopology *MR_GetCurrentTopology();
+bool MR_CurrentTopologyExists();
+
+/* Get the current cluster topology connectivity status */
+int MR_CheckTopologyConnections(bool mastersOnly);
+
+void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
+
+void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 /* Return our current node as detected by cluster state calls */
 MRClusterNode *MR_GetMyNode();
 
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
-
-/* The request duration in microsecnds, relevant only on the reducer */
-int64_t MR_RequestDuration(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
@@ -73,9 +75,10 @@ extern void *MRITERATOR_DONE;
 
 #ifndef RMR_C__
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
+typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
-typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -83,15 +86,27 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb, void *privdata);
+MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb);
+
+MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
+
+MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
 
 int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
+
+void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
+
+void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd);
+
+MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
 void MRIterator_Free(MRIterator *it);
 

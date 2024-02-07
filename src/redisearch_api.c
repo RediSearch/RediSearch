@@ -355,8 +355,8 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   }
 
   options |= DOCUMENT_ADD_NOSAVE;
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
+  QueryError_ClearError(&status);
   rm_free(d);
 
   RWLOCK_RELEASE();
@@ -781,11 +781,6 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 }
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
-  if (num == 0) {
-    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
-  } else {
-    RSGlobalConfig.iteratorsConfigParams.maxResultsToUnsortedMode = num;
-  }
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
@@ -871,7 +866,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
-  info->indexingFailures = sp->stats.indexingFailures;
+  info->indexingFailures = sp->stats.indexError.error_count;
 
   if (sp->gc) {
     // LLAPI always uses ForkGC

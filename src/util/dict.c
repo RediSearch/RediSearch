@@ -58,45 +58,45 @@
 #include <assert.h>
 #include "../rmalloc.h"
 
-static uint64_t stringsHashFunction(const void *key){
+uint64_t stringsHashFunction(const void *key){
     return dictGenHashFunction(key, strlen((char*)key));
 }
 
-static uint64_t redisStringsHashFunction(const void *key){
+uint64_t redisStringsHashFunction(const void *key){
   const RedisModuleString* keyStr = key;
   size_t len;
   const char* str = RedisModule_StringPtrLen(keyStr, &len);
   return dictGenHashFunction(str, len);
 }
 
-static int stringsKeyCompare(void *privdata, const void *key1, const void *key2){
+int stringsKeyCompare(void *privdata, const void *key1, const void *key2){
     const char* strKey1 = key1;
     const char* strKey2 = key2;
 
     return strcmp(strKey1, strKey2) == 0;
 }
 
-static int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2){
+int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2){
     const RedisModuleString* strKey1 = key1;
     const RedisModuleString* strKey2 = key2;
 
     return RedisModule_StringCompare((RedisModuleString*)strKey1, (RedisModuleString*)strKey2) == 0;
 }
 
-static void stringsKeyDestructor(void *privdata, void *key){
+void stringsKeyDestructor(void *privdata, void *key){
     rm_free(key);
 }
 
-static void redisStringsKeyDestructor(void *privdata, void *key){
+void redisStringsKeyDestructor(void *privdata, void *key){
   const RedisModuleString* keyStr = key;
   RedisModule_FreeString(NULL, (RedisModuleString*)keyStr);
 }
 
-static void* stringsKeyDup(void *privdata, const void *key){
+void* stringsKeyDup(void *privdata, const void *key){
     return rm_strdup((char*)key);
 }
 
-static void* redisStringsKeyDup(void *privdata, const void *key){
+void* redisStringsKeyDup(void *privdata, const void *key){
   const RedisModuleString* keyStr = key;
   RedisModule_RetainString(NULL, (RedisModuleString*)keyStr);
   return (void*)key;

@@ -32,11 +32,11 @@ def testExt(env):
     N = 100
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
     for i in range(N):
-        env.assertOk(env.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                          'f', 'hello world'))
-    res = env.execute_command('ft.search', 'idx', 'hello world')
+    res = env.cmd('ft.search', 'idx', 'hello world')
     env.assertEqual(N, res[0])
-    res = env.execute_command('ft.search', 'idx', 'hello world', 'scorer', 'filterout_scorer')
+    res = env.cmd('ft.search', 'idx', 'hello world', 'scorer', 'filterout_scorer')
     env.assertEqual(0, res[0])
 
     info = info_modules_to_dict(env)

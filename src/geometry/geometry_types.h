@@ -35,4 +35,6 @@ typedef enum {
 typedef enum QueryType {
   CONTAINS,
   WITHIN,
+  DISJOINT,
+  INTERSECTS,
 } QueryType;

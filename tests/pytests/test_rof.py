@@ -34,6 +34,6 @@ def testRoF(env):
   q = 100000
   createRdb(env, q)
 
-  for _ in env.retry_with_rdb_reload():
+  for _ in env.reloadingIterator():
     env.expect('ft.search rof * limit 0 0').equal([q])
 

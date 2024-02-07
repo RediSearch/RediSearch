@@ -1,6 +1,6 @@
 import os.path
 from includes import *
-from common import waitForIndex,toSortedFlatList
+from common import waitForIndex,toSortedFlatList, skip
 
 
 GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../ctests/genesis.txt'
@@ -67,7 +67,7 @@ def testPrefixExpansion(env):
     possibilities = [[1, 'gen1', ['txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
                      [1, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
                      [1, 'gen1', ['txt', '49:3} Reuben, thou [art] my firstborn, my might, and the <b>beginning of</b> my strength, the excellency of dignity, and the excellency... ']]]
-    env.assertIn(res, possibilities)
+    env.assertContains(res, possibilities)
 
 def testSummarizationMultiField(env):
     p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
@@ -92,7 +92,7 @@ def testSummarizationMultiField(env):
     env.assertEqual('redis', res[1])
     for term in ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2',
                  'dataset in memory. Versions... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']:
-        env.assertIn(term, res[2])
+        env.assertContains(term, res[2])
 
 
 def testSummarizationDisabled(env):
@@ -110,8 +110,8 @@ def testSummarizationDisabled(env):
         res = env.cmd('FT.SEARCH', 'idx2', 'hello',
                        'SUMMARIZE', 'FIELDS', 1, 'body')
 
+@skip()
 def testSummarizationNoSave(env):
-    env.skip()
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE',
@@ -159,7 +159,7 @@ def testOverflow1(env):
     for term in ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level',
                  'Parents strongly cautioned. May be unsuitable for children ages 14 and under.',
                  'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']:
-        env.assertIn(term, res[2])
+        env.assertContains(term, res[2])
 
 def testIssue364(env):
     # FT.CREATE testset "SCHEMA" "permit_timestamp" "NUMERIC" "SORTABLE" "job_category" "TEXT" "NOSTEM" "address" "TEXT" "NOSTEM"  "neighbourhood" "TAG" "SORTABLE" "description" "TEXT"  "building_type" "TEXT" "WEIGHT" "20" "NOSTEM" "SORTABLE"     "work_type" "TEXT" "NOSTEM" "SORTABLE"     "floor_area" "NUMERIC" "SORTABLE"     "construction_value" "NUMERIC" "SORTABLE"     "zoning" "TAG"     "units_added" "NUMERIC" "SORTABLE"     "location" "GEO"
