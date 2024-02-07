@@ -19,8 +19,13 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 0 # fetch all history for accurate results
-    - name: Setup
-      run: ./sbin/setup
+    - name: Get Installation Mode
+      id: mode
+      run: |
+        echo "mode=sudo" >> $GITHUB_OUTPUT
+    - name: Setup specific
+      working-directory: setup/.install
+      run: ./install_script.sh ${{ steps.mode.outputs.mode }}
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
