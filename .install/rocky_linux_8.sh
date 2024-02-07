@@ -20,6 +20,5 @@ $MODE dnf install -y gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ gcc-toolset-11-li
     bzip2-devel libffi-devel zlib-devel tar xz which rsync
 
 cp /opt/rh/gcc-toolset-11/enable /etc/profile.d/gcc-toolset-11.sh
-bash
 
 source install_cmake.sh $MODE
