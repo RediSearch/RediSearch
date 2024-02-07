@@ -11,7 +11,7 @@ mkdir -p $ROOT/bin/tls
 cd $ROOT/bin/tls
 
 [[ -f .generated && $(cat .generated) == $WITH_PASSPHRASE ]] && exit 0
-export RANDFILE=.rnd
+touch ~/.rnd
 
 openssl genrsa -out ca.key 2048
 openssl req \
