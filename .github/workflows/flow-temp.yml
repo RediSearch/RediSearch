@@ -30,14 +30,14 @@ jobs:
   #     platform: "amazonlinux:2"
   #     test-config: "TEST=test:test_with_tls"
 
-  test-ubuntu18:
+  test-debian:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      platform: "ubuntu:bionic"
+      platform: "debian:bullseye"
 
   # test-macos:
   #   uses: ./.github/workflows/flow-macos.yml
