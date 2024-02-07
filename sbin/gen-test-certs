@@ -30,7 +30,7 @@ fi
 
 # avoid "Cannot open file:crypto/rand/randfile.c:98:Filename=/github/home/.rnd" error
 # (knowm openssl11 bug)
-set RANDFILE=.rnd
+export RANDFILE=.rnd
 openssl genrsa $PASSOUT -out redis.key 2048
 openssl req \
     -new -sha256 \
