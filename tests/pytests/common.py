@@ -597,3 +597,7 @@ def get_TLS_args():
     passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
+
+def cmd_assert(env, cmd, res):
+    db_res = env.cmd(*cmd)
+    env.assertEqual(db_res, res)

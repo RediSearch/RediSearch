@@ -44,7 +44,7 @@ extern "C" {
  *
  * 4. The index is much simpler and more compressed: We do not store frequencies, offset vectors of
  * field flags.
- *    The index contains only docuent ids encoded as deltas. This means that an entry in a tag index
+ *    The index contains only document ids encoded as deltas. This means that an entry in a tag index
  * is usually
  *    one or two bytes long. This makes them very memory efficient and fast.
  *
@@ -120,7 +120,7 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen);
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */
-int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata);
+int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
   array_foreach(s, tmpv, { rm_free(tmpv); });

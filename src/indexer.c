@@ -299,6 +299,8 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
+    // TODO: We enter here even when we don't have text fields, and just leave
+    // immediately. Avoid this. Maybe using fwIdx->terms->root != NULL.
     writeCurEntries(indexer, aCtx, &ctx);
   }
 
