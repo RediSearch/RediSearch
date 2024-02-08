@@ -168,7 +168,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     if (tok) {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
-      if (idx->suffix && strlen(tok) > 0) { // add to suffix triemap if exist
+      if (idx->suffix && (*tok != '\0')) { // add to suffix triemap
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }

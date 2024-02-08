@@ -376,6 +376,21 @@ def testEmptyValueTags(env):
         expected = [0]
         cmd_assert(env, cmd, expected)
 
+        # ----------- Handling a document with the "__empty" value -------------
+        env.cmd('FT.CREATE', 'temp_idx', 'SCHEMA', 't', 'TAG')
+        conn.execute_command('HSET', 'h_empty', 't', '__empty')
+        res = env.cmd('FT.SEARCH', 'temp_idx', '@t:{__empty}', 'NOCONTENT')
+        env.assertEqual(res, [1, 'h_empty'])
+
+        # Make sure the index that does index empty TAG values doesn't find the
+        # above doc.
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty}', 'NOCONTENT']
+        expected = [1, 'h1']
+        cmd_assert(env, cmd, expected)
+
+        env.cmd('FT.DROPINDEX', 'temp_idx')
+        conn.execute_command('DEL', 'h_empty')
+
         # ------------------------------ Negation ------------------------------
         # Search for a negation of a non-empty value, make sure the document is
         # returned
@@ -496,7 +511,8 @@ def testEmptyValueTags(env):
         cmd_assert(env, cmd, expected)
 
 
-    # Create an index with a TAG field, that also indexes empty strings
+    # Create an index with a TAG field, that also indexes empty strings, another
+    # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY', 'text', 'TEXT').ok()
 
     # Create a document with an empty field, corresponding to the TAG field of
@@ -523,23 +539,34 @@ def testEmptyValueTags(env):
     testHashIndex(env, conn, 'idx_suffixtrie')
     env.flush()
 
+    # ---------------------------------- JSON ----------------------------------
+
     def testJSONIndex(env, idx):
         # Search for a single document, via its indexed empty value
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty}']
         expected = [1, 'j1', ['$', '{"t":""}']]
         cmd_assert(env, cmd, expected)
 
-        # More cases: TBD
-
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'EMPTY').ok()
     # Create a document with an empty field, corresponding to the TAG field of
     # the index.
-    empty_j = {'t': ''}
+    empty_j = {
+        't': ''
+        }
     env.expect('JSON.SET', 'j1', '$', json.dumps(empty_j)).equal('OK')
     testJSONIndex(env, 'jidx')
+    env.flush()
+
+    # Empty value in an array
+    env.expect('JSON.SET', 'j1', '$', '{"arr":["a", "", "c"]}').equal('OK')
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'EMPTY').ok()
+    cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
+    expected = [1, 'j1', ['$', '{"arr":["a","","c"]}']]
+    cmd_assert(env, cmd, expected)
 
     """
     The following cases' behavior is to be defined:
         - "tag:{*__empty}"
         - "tag:{__empty*}"
+        - Currently we don't index such values as empty: ",a", "a,", "a,,b". Add if wanted.
     """
