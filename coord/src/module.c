@@ -2214,7 +2214,6 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
