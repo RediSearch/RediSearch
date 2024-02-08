@@ -90,7 +90,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_Set(reply);
       RedisModule_Reply_SetEnd(reply);
     } else {
-      RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perfrom query");
+      RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perform query");
     }
     goto cleanup;
   }
@@ -193,7 +193,7 @@ int allOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   if (count == 0) {
-    RedisModule_Reply_Error(reply, "Could not distribute comand");
+    RedisModule_Reply_Error(reply, "Could not distribute command");
     goto end;
   }
 
@@ -270,7 +270,7 @@ typedef struct{
   searchRequestCtx *searchCtx;
   heap_t *pq;
   size_t totalReplies;
-  bool errorOccured;
+  bool errorOccurred;
   searchReplyOffsets offsets;
 
   processReplyCB processReply;
@@ -900,7 +900,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
     }                                                     \
   } while (0);
 
-static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
+static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
     if (heap_count(knnCtx->pq) < knnCtx->k) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
@@ -929,7 +929,7 @@ static void proccessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, d
     }
 }
 
-static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   if (arr == NULL) {
     return;
   }
@@ -978,7 +978,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
       }
       double d;
       GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
-      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
+      ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
     processResultFormat(&req->format, arr);
 
@@ -992,7 +992,7 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
         RedisModule_Log(
             ctx, "warning",
             "got a bad reply from redisearch, reply contains less parameters then expected");
-        rCtx->errorOccured = true;
+        rCtx->errorOccurred = true;
         break;
       }
       res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
@@ -1005,13 +1005,13 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
       double d;
       GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
-      proccessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
+      ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
   }
   return;
 
 error:
-  rCtx->errorOccured = true;
+  rCtx->errorOccurred = true;
   // invalid result - usually means something is off with the response, and we should just
   // quit this response
   rCtx->cachedResult = res;
@@ -1020,7 +1020,7 @@ error:
 static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
   if (!res || !res->id) {
     RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
-    rCtx->errorOccured = true;
+    rCtx->errorOccurred = true;
     // invalid result - usually means something is off with the response, and we should just
     // quit this response
     rCtx->cachedResult = res;
@@ -1080,13 +1080,13 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
-      rCtx->errorOccured = true;
+      rCtx->errorOccurred = true;
       return;
     }
     rCtx->totalReplies += MRReply_Integer(total_results);
     MRReply *results = MRReply_MapElement(arr, "results");
     if (!results) {
-      rCtx->errorOccured = true;
+      rCtx->errorOccurred = true;
       return;
     }
     size_t len = MRReply_Length(results);
@@ -1113,7 +1113,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
       if (j + step > len) {
         RedisModule_Log(ctx, "warning",
           "got a bad reply from redisearch, reply contains less parameters then expected");
-        rCtx->errorOccured = true;
+        rCtx->errorOccurred = true;
         break;
       }
       searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
@@ -1343,7 +1343,7 @@ void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **repl
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProccesTime) {
+                               clock_t totalTime, clock_t postProcessTime) {
   bool has_map = RedisModule_HasMap(reply);
   RedisModule_Reply_Map(reply); // root
     // print results
@@ -1367,14 +1367,14 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
       RedisModule_ReplyKV_Map(reply, "Coordinator");
         // search cmd only do the heap so there is no parsing time
         RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
       RedisModule_Reply_MapEnd(reply);
     } else {
       RedisModule_Reply_SimpleString(reply, "Coordinator");
       RedisModule_Reply_Array(reply);
         // search cmd only do the heap so there is no parsing time
         RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Proccessing time", (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -1407,7 +1407,7 @@ static bool should_return_timeout_error(searchRequestCtx *req) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccessTime;
+  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -1427,7 +1427,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
-      rCtx.errorOccured = true;
+      rCtx.errorOccurred = true;
       rCtx.lastError = curr_rep;
       if (should_return_error(curr_rep)) {
         res = MR_ReplyWithMRReply(reply, curr_rep);
@@ -1460,7 +1460,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         if (knnCtx->knn.shouldSort) {
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-          rCtx.processReply = (processReplyCB) proccessKNNSearchReply;
+          rCtx.processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }
       } else if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_SORTBY) {
@@ -1489,7 +1489,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     rm_free(rCtx.cachedResult);
   }
 
-  if (rCtx.errorOccured && !rCtx.lastError) {
+  if (rCtx.errorOccurred && !rCtx.lastError) {
     RedisModule_Reply_Error(reply, "could not parse redisearch results");
     goto cleanup;
   }
@@ -1499,8 +1499,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     sendSearchResults(reply, &rCtx);
     RedisModule_Reply_MapEnd(reply);
   } else {
-    postProccessTime = clock();
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, postProccessTime);
+    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
   }
 
 cleanup:
@@ -1748,9 +1747,9 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   if(req->requiredFields) {
     MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
     int numberOfFields = array_len(req->requiredFields);
-    char snum[8] = {0};
-    sprintf(snum, "%d", numberOfFields);
-    MRCommand_Append(cmd, snum, strlen(snum));
+    char snum[8];
+    int len = sprintf(snum, "%d", numberOfFields);
+    MRCommand_Append(cmd, snum, len);
     for(size_t i = 0; i < numberOfFields; i++) {
         MRCommand_Append(cmd, req->requiredFields[i], strlen(req->requiredFields[i]));
     }
