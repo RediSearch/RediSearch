@@ -7,7 +7,7 @@ CFLAGS ?= -g -fPIC -O3 -std=gnu99 -Wall -Wno-unused-function
 CFLAGS += -I$(RM_INCLUDE_DIR)
 CC=gcc
 
-OBJS=util.o strings.o sds.o vector.o alloc.o periodic.o cmdparse.o
+OBJS=util.o strings.o sds.o vector.o alloc.o cmdparse.o
 
 all: librmutil.a
 
@@ -22,15 +22,10 @@ test_vector: test_vector.o vector.o
 	@(sh -c ./$@)
 .PHONY: test_vector
 
-test_periodic: test_periodic.o periodic.o
-	$(CC) -Wall -o $@ $^ -lc -lpthread -O0
-	@(sh -c ./$@)
-.PHONY: test_periodic
-
 test_cmdparse: test_cmdparse.o cmdparse.o
 	$(CC) -Wall -o $@ $^ -lc -lpthread -O0
 	@(sh -c ./$@)
 
 .PHONY: test_cmdparse
-test: test_periodic test_vector
+test: test_vector
 .PHONY: test

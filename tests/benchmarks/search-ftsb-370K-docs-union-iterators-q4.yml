@@ -1,9 +1,7 @@
 name: "search-ftsb-370K-docs-union-iterators-q4"
 description: "
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

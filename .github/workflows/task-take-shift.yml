@@ -1,0 +1,17 @@
+name: Take the Shift
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_dispatch:
+    inputs:
+      assignee:
+        description: 'Assignee to take the shift. Default (when empty) is the actor of the event (you).'
+
+jobs:
+  take:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+    steps:
+      - run: gh variable set ISSUES_SHIFT_ASSIGNEE -R ${{ github.repository }} -b ${{ inputs.assignee || github.actor }}

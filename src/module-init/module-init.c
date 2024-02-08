@@ -189,6 +189,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");
 
+  // Init cursors mechanism
+  CursorList_Init(&g_CursorsList, false);
+  CursorList_Init(&g_CursorsListCoord, true);
+
 #ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
@@ -202,14 +206,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       return REDISMODULE_ERR;
     }
     if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
-      // Initialize the threads if the module configuration states that worker threads
-      // should always be active.
-      workersThreadPool_InitPool();
+      // If the module configuration states that worker threads should always be active,
+      // we log about the threadpool creation.
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
       DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
              " when possible", RSGlobalConfig.privilegedThreadsNum);
     } else {
-      // Otherwise, threads are not active, and we're performing inplace writes.
+      // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
       // VSS lib is async by default.
       VecSim_SetWriteMode(VecSim_WriteInPlace);
     }
@@ -220,10 +223,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);
   }
-
-  // Init cursors mechanism
-  CursorList_Init(&g_CursorsList, false);
-  CursorList_Init(&g_CursorsListCoord, true);
 
   IndexAlias_InitGlobal();
 

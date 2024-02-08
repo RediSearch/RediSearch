@@ -231,7 +231,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
-          trimUnionIterator(root, 0, opt->limit, opt->asc, true);
+          trimUnionIterator(root, 0, opt->limit, opt->asc);
         }
       } else {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);

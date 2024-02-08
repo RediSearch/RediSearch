@@ -139,7 +139,7 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
   return iv;
 }
 
-/* Ecode a single docId into a specific tag value */
+/* Encode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -256,7 +256,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   return kdv->p;
 }
 
-/* Open the tag index in redis */
+/* Open the tag index */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   TagIndex *ret = NULL;
@@ -377,7 +377,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
   if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create attribute index type");
+    RedisModule_Log(ctx, "warning", "Could not create attribute index type");
     return REDISMODULE_ERR;
   }
 

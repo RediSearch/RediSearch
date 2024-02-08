@@ -41,12 +41,6 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
-void workersThreadPool_InitPool() {
-  assert(_workers_thpool != NULL);
-
-  redisearch_thpool_init(_workers_thpool);
-}
-
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
   assert(_workers_thpool != NULL);
@@ -80,19 +74,20 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
 }
 
 void workersThreadPool_Terminate(void) {
-  redisearch_thpool_terminate_threads(_workers_thpool);
+  redisearch_thpool_terminate_reset_threads(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
 }
 
-void workersThreadPool_InitIfRequired() {
-  if(USE_BURST_THREADS()) {
-    // Initialize the thread pool temporarily for fast RDB loading of vector index (if needed).
+void workersThreadPool_Activate() {
+  if (USE_BURST_THREADS()) { /* Configure here anything that needs to know it can use the thread pool */
+    // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
     VecSim_SetWriteMode(VecSim_WriteAsync);
-    workersThreadPool_InitPool();
-    RedisModule_Log(RSDummyContext, "notice", "Created workers threadpool of size %lu",
+
+    // Finally, log that we've enabled the thread pool.
+    RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu",
                     RSGlobalConfig.numWorkerThreads);
   }
 }
@@ -125,6 +120,43 @@ void workersThreadPool_SetTerminationWhenEmpty() {
                     " pending jobs are done",
                     RSGlobalConfig.numWorkerThreads);
   }
+}
+
+/********************************************* for debugging **********************************/
+
+int workerThreadPool_isPaused() {
+  return redisearch_thpool_paused(_workers_thpool);
+}
+
+int workersThreadPool_pause() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 || workerThreadPool_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_terminate_pause_threads(_workers_thpool);
+  return REDISMODULE_OK;
+}
+
+int workersThreadPool_resume() {
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 || !workerThreadPool_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_resume_threads(_workers_thpool);
+  return REDISMODULE_OK;
+}
+
+thpool_stats workersThreadPool_getStats() {
+  thpool_stats stats = {0};
+  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {
+    return stats;
+  }
+  return redisearch_thpool_get_stats(_workers_thpool);
+}
+
+void workersThreadPool_wait() {
+  if (!_workers_thpool || workerThreadPool_isPaused()) {
+    return;
+  }
+  redisearch_thpool_wait(_workers_thpool);
 }
 
 #endif // MT_BUILD

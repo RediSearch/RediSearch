@@ -319,18 +319,19 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 }
 
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-
-  QueryNode *ret = NULL;
-
   enum QueryType query_type;
   if (!strncasecmp(predicate, "WITHIN", len)) {
     query_type = WITHIN;
   } else if (!strncasecmp(predicate, "CONTAINS", len)) {
     query_type = CONTAINS;
+  } else if (!strncasecmp(predicate, "DISJOINT", len)) {
+    query_type = DISJOINT;
+  } else if (!strncasecmp(predicate, "INTERSECTS", len)) {
+    query_type = INTERSECTS;
   } else {
     return NULL;
   }
-  ret = NewQueryNode(QN_GEOMETRY);
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
@@ -838,17 +839,15 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
-  QueryNotNode *node = &qn->inverted;
 
   return NewNotIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight);
+                        q->docTable->maxDocId, qn->opts.weight, q->sctx->timeout);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_OPTIONAL) {
     return NULL;
   }
-  QueryOptionalNode *node = &qn->opt;
 
   return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
                              q->docTable->maxDocId, qn->opts.weight);
@@ -1385,17 +1384,17 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
+int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
+               const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
-    dst->query = rm_strndup(q, n);
-    dst->nquery = n;
+    dst->query = rm_strndup(qstr, len);
+    dst->nquery = len;
   }
   QueryParseCtx qpCtx = {// force multiline
                          .raw = dst->query,
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
-                         .opts = opts,
+                         .opts = sopts,
                          .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL

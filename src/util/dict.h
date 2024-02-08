@@ -193,4 +193,18 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapRedisStrings;
 
+/* Dict type functions */
+uint64_t stringsHashFunction(const void *key);
+uint64_t redisStringsHashFunction(const void *key);
+
+int stringsKeyCompare(void *privdata, const void *key1, const void *key2);
+int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2);
+
+void stringsKeyDestructor(void *privdata, void *key);
+void redisStringsKeyDestructor(void *privdata, void *key);
+
+void* stringsKeyDup(void *privdata, const void *key);
+void* redisStringsKeyDup(void *privdata, const void *key);
+
+
 #endif /* __DICT_H */

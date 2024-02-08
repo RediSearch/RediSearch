@@ -3,11 +3,9 @@ from common import *
 import bz2
 import json
 import unittest
-
-
+from datetime import datetime, timezone
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
-
 
 def add_values(env, number_of_iterations=1):
     env.cmd('FT.CREATE', 'games', 'ON', 'HASH',
@@ -177,7 +175,7 @@ class TestAggregate():
     def testTimeFunctions(self):
         cmd = ['FT.AGGREGATE', 'games', '*',
 
-               'APPLY', '1517417144', 'AS', 'dt',
+               'APPLY', ANY, 'AS', 'dt',
                'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
                'APPLY', 'day(@dt)', 'AS', 'day',
                'APPLY', 'hour(@dt)', 'AS', 'hour',
@@ -189,9 +187,41 @@ class TestAggregate():
                'APPLY', 'year(@dt)', 'AS', 'year',
 
                'LIMIT', '0', '1']
-        res = self.env.cmd(*cmd)
-        self.env.assertEqual([1, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
-                                       'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
+
+        def expected(date: datetime):
+            return [1, ['dt', str(int(date.timestamp())),
+                        'timefmt', date.strftime('%FT%TZ'),
+                        'day', str(int(date.replace(hour=0, minute=0, second=0).timestamp())),
+                        'hour', str(int(date.replace(minute=0, second=0).timestamp())),
+                        'minute', str(int(date.replace(second=0).timestamp())),
+                        'month', str(int(date.replace(day=1, hour=0, minute=0, second=0).timestamp())),
+                        'dayofweek', str(date.isoweekday()),
+                        'dayofmonth', str(date.day),
+                        'dayofyear', str(date.timetuple().tm_yday - 1), # Python tm_yday is 1-based, while C tm_yday is 0-based
+                        'year', str(date.year)]]
+
+        date = datetime(2018, 1, 31, 16, 45, 44, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1517417144) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test a date in January 2024, which is a leap year (before the leap day)
+        date = datetime(2024, 1, 26, 18, 37, 38, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1706294258) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test the leap day in 2024
+        date = datetime(2024, 2, 29, 18, 16, 39, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1709230599) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
+
+        # Test a date in March 2024, which is a leap year (after the leap day)
+        date = datetime(2024, 3, 26, 18, 37, 38, tzinfo=timezone.utc)
+        cmd[4] = int(date.timestamp())
+        self.env.assertEqual(cmd[4], 1711478258) # Sanity check
+        self.env.expect(*cmd).equal(expected(date))
 
     def testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
@@ -652,9 +682,6 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertNotEqual(cursor, 0)
-        if SANITIZER or CODE_COVERAGE:
-            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
-            self.env.cmd('ft.cursor', 'del', 'games', cursor)
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -982,20 +1009,6 @@ def testResultCounter(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
-def populate_db(env):
-    """Creates an index and populates the database"""
-    conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
-    nshards = env.shardsCount
-    num_docs = 10000 * nshards
-    pipeline = conn.pipeline(transaction=False)
-    for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset (i, 't1', str(t1))
-        if i % 1000 == 0:
-            pipeline.execute()
-            pipeline = conn.pipeline(transaction=False)
-    pipeline.execute()
-
 def aggregate_test(protocol=2):
     if VALGRIND:
         # You don't want to run this under valgrind, it will take forever
@@ -1006,19 +1019,19 @@ def aggregate_test(protocol=2):
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
 
-    populate_db(env)
+    populate_db(env, numeric=True)
 
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@numeric1', '@__key', 'APPLY',
+        '@numeric1 ^ @numeric1', 'AS', 't1exp', 'groupby', '2', '@numeric1', '@t1exp', 'REDUCE',
+        'tolist', '1', '@__key', 'AS', 'keys', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
-    if protocol == 2:
-        env.assertEqual(res, ['Timeout limit was reached'])
-    else:
-        env.assertEqual(res['error'], ['Timeout limit was reached'])
+    # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
+    # should return a timeout (rather than results)
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@numeric1', 'TIMEOUT', '1'
+    ).error().contains('Timeout limit was reached')
 
 def test_aggregate_timeout_resp2():
     aggregate_test(protocol=2)

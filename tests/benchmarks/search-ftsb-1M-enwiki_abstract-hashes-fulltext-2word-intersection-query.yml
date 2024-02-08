@@ -12,9 +12,7 @@ description: "
              cd scripts/datagen_redisearch/enwiki_abstract
              python3 ftsb_generate_enwiki_abstract.py --query-choices 2word-intersection-query --doc-limit 1000000 --upload-artifacts-s3-uncompressed
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

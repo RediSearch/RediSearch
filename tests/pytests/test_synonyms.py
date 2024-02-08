@@ -1,5 +1,5 @@
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 
 def testBasicSynonymsUseCase(env):
@@ -111,12 +111,7 @@ def testSynonymDumpWorngArity(env):
     env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
-    exceptionStr = None
-    try:
-        env.cmd('ft.syndump', 'idx')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'Unknown index name')
+    env.expect('ft.syndump', 'idx').error().equal('Unknown index name')
 
 def testSynonymsRdb(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -135,7 +130,7 @@ def testTwoSynonymsSearch(env):
                                     'body', 'another test').ok()
 
     res = env.cmd('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
-    # synonyms are applied from the moment they were added, previuse docs are not reindexed
+    # synonyms are applied from the moment they were added, previous docs are not reindexed
     env.assertEqual(res[0:2], [1, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'he is a boy child boy', 'body', 'another test']))
 
@@ -182,3 +177,11 @@ def testSkipInitialIndex(env):
 
     env.expect('FT.SEARCH idx1 @foo:xyz').equal([1, 'doc1', ['foo', 'bar']])
     env.expect('FT.SEARCH idx2 @foo:xyz').equal([0])
+
+def testDoubleDefinition(env):
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
+    # Add the same synonym twice
+    env.expect('FT.SYNUPDATE idx foo bar').ok()
+    env.expect('FT.SYNUPDATE idx foo bar').ok()
+    # Ensure it's only added once
+    env.expect('FT.SYNDUMP idx').equal(['bar', ['foo']])

@@ -45,18 +45,12 @@
 
 extern RSConfig RSGlobalConfig;
 
-int redisMajorVesion = 0;
-int redisMinorVesion = 0;
-int redisPatchVesion = 0;
-//REDISMODULE_INIT_SYMBOLS();
-
 extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
 // forward declaration
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies);
-RSValue *MRReply_ToValue(MRReply *r, RSValueType convertType);
 
 // A reducer that just chains the replies from a map request
 
@@ -91,9 +85,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
-        char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -397,6 +391,8 @@ typedef struct{
   postProcessReplyCB postProcess;
   specialCaseCtx* reduceSpecialCaseCtxKnn;
   specialCaseCtx* reduceSpecialCaseCtxSortby;
+
+  MRReply *warning;
 } searchReducerCtx;
 
 typedef struct {
@@ -581,6 +577,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = rm_malloc(sizeof *req);
 
+  req->initClock = clock();
+
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -678,6 +676,20 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     }
   }
 
+  // Get timeout parameter, if set in the command
+  argIndex = RMUtil_ArgIndex("TIMEOUT", argv, argc);
+  if (argIndex > -1) {
+    argIndex++;
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv+argIndex, argc-argIndex);
+    if (parseTimeout(&req->timeout, &ac, status)) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+  } else {
+    req->timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  }
+
   return req;
 }
 
@@ -764,7 +776,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
     res->id = NULL;
     return res;
   }
-  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+  res->id = (char*)MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -826,7 +838,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  res->id = MRReply_String(result_id, &res->idLen);
+  res->id = (char*)MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -1036,8 +1048,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->errorOccured = true;
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1052,14 +1062,11 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
   specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      // TODO: Probably only in later PR - Report only the error if the timeout
-      // policy is FAIL. Otherwise - return the results as well.
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *results = MRReply_MapElement(arr, "results");
@@ -1091,18 +1098,6 @@ static void proccessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMo
 
   } else {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Remove len check once we regularize all error reports to be errors! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     int step = rCtx->offsets.step;
     int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
@@ -1177,7 +1172,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     return;
   }
   if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    rCtx->lastError = arr;
     return;
   }
 
@@ -1191,13 +1185,11 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
   if (resp3) // RESP3
   {
-    MRReply *err = MRReply_MapElement(arr, "error");
-    RS_LOG_ASSERT(err && MRReply_Type(err) == MR_REPLY_ARRAY, "invalid error record");
-    if (MRReply_Length(err) > 0) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
+    // Check for a warning
+    MRReply *warning = MRReply_MapElement(arr, "warning");
+    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
+    if (!rCtx->warning && MRReply_Length(warning) > 0) {
+      rCtx->warning = warning;
     }
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
@@ -1223,18 +1215,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
   else // RESP2
   {
     size_t len = MRReply_Length(arr);
-
-    // TODO: Check only error once we regularize all error reports! (MOD-5965)
-    // Check for errors
-    int type = MRReply_Type(MRReply_ArrayElement(arr, 0));
-    if (type == MR_REPLY_ERROR
-        || (len == 1 && type == MR_REPLY_STATUS
-            && strcmp(MRReply_String(MRReply_ArrayElement(arr, 0), NULL), "Timeout limit was reached") == 0)) {
-      rCtx->errorOccured = true;
-      rCtx->lastError = arr;
-      // TODO: Probably only in later PR - Return only if timeout policy is FAIL. Otherwise - return the results as well.
-      return;
-    }
 
     // first element is the total count
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
@@ -1325,10 +1305,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       RedisModule_Reply_EmptyArray(reply);
     }
 
-    RedisModule_Reply_SimpleString(reply, "error"); // >errors
-    if (rCtx->lastError) {
-      MRReply *err = MRReply_MapElement(rCtx->lastError, "error");
-      MR_ReplyWithMRReply(reply, err);
+    RedisModule_Reply_SimpleString(reply, "warning"); // >warning
+    if (rCtx->warning) {
+      MR_ReplyWithMRReply(reply, rCtx->warning);
     } else {
       RedisModule_Reply_EmptyArray(reply);
     }
@@ -1432,7 +1411,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, int isSearch) {
+void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
@@ -1452,16 +1431,26 @@ void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **repl
   }
 }
 
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies) {
+void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     char *shard_i;
     rm_asprintf(&shard_i, "Shard #%d", i + 1);
     RedisModule_Reply_SimpleString(reply, shard_i);
     rm_free(shard_i);
 
-    MRReply *profile = MRReply_MapElement(replies[i], "profile");
+    MRReply *profile;
+    if (!isSearch) {
+      // On aggregate commands, take the results from the response (second component is the cursor-id)
+      MRReply *results = MRReply_ArrayElement(replies[i], 0);
+      profile = MRReply_MapElement(results, "profile");
+    } else {
+      profile = MRReply_MapElement(replies[i], "profile");
+    }
+
     if (profile) {
       MR_ReplyWithMRReply(reply, profile);
+    } else {
+      RedisModule_Reply_SimpleString(reply, "None");
     }
   }
 }
@@ -1482,9 +1471,9 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     }
 
     if (has_map) {
-      PrintShardProfile_resp3(reply, count, replies);
+      PrintShardProfile_resp3(reply, count, replies, true);
 	} else {
-      PrintShardProfile_resp2(reply, count, replies, 1);
+      PrintShardProfile_resp2(reply, count, replies, true);
     }
 
     // print coordinator stats
@@ -1517,6 +1506,20 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
+static bool should_return_error(MRReply *reply) {
+  // TODO: Replace third condition with a var instead of hard-coded string
+  const char *errStr = MRReply_String(reply, NULL);
+  return (!errStr
+          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+          || strcmp(errStr, "Timeout limit was reached"));
+}
+
+static bool should_return_timeout_error(searchRequestCtx *req) {
+  return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+         && req->timeout != 0
+         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+}
+
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   clock_t postProccessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
@@ -1533,9 +1536,18 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     goto cleanup;
   }
 
-  if (MRReply_Type(*replies) == MR_REPLY_ERROR) {
-    res = MR_ReplyWithMRReply(reply, *replies);
-    goto cleanup;
+  // Traverse the replies, check for early bail-out which we want for all errors
+  // but timeout+non-strict timeout policy.
+  for (int i = 0; i < count; i++) {
+    MRReply *curr_rep = replies[i];
+    if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
+      rCtx.errorOccured = true;
+      rCtx.lastError = curr_rep;
+      if (should_return_error(curr_rep)) {
+        res = MR_ReplyWithMRReply(reply, curr_rep);
+        goto cleanup;
+      }
+    }
   }
 
   rCtx.searchCtx = req;
@@ -1579,21 +1591,20 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
       mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
     }
     rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+
+    // If we timed out on strict timeout policy, return a timeout error
+    if (should_return_timeout_error(req)) {
+      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+      goto cleanup;
+    }
   }
 
   if (rCtx.cachedResult) {
     rm_free(rCtx.cachedResult);
   }
 
-  // If we didn't get any results and we got an error - return it.
-  // If some shards returned results and some errors - we prefer to show the results we got an not
-  // return an error. This might change in the future
-  if (rCtx.totalReplies == 0 && (rCtx.lastError != NULL || rCtx.errorOccured)) {
-    if (rCtx.lastError) {
-      MR_ReplyWithMRReply(reply, rCtx.lastError);
-    } else {
-      RedisModule_Reply_Error(reply, "could not parse redisearch results");
-    }
+  if (rCtx.errorOccured && !rCtx.lastError) {
+    RedisModule_Reply_Error(reply, "could not parse redisearch results");
     goto cleanup;
   }
 
@@ -1617,10 +1628,16 @@ cleanup:
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
   }
 
-  searchRequestCtx_Free(req);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, mc);
+  RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(ctx);
+  // We could pass `mc` to the unblock function to perform the next 3 cleanup steps, but
+  // this way we free the memory from the background after the client is unblocked,
+  // which is a bit more efficient.
+  // The unblocking callback also replies with error if there was 0 replies from the shards,
+  // and since we already replied with error in this case (in the beginning of this function),
+  // we can't pass `mc` to the unblock function.
+  searchRequestCtx_Free(req);
   MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
@@ -1629,7 +1646,6 @@ cleanup:
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
-  bool resp3 = is_resp3(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
 
@@ -1645,7 +1661,6 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1693,21 +1708,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  int partPos = MRCommand_GetPartitioningKey(&cmd);
-//
-//  /* Rewrite the sharding key based on the partitioning key */
-//  if (partPos > 0) {
-//    SearchCluster_RewriteCommand(GetSearchCluster(), &cmd, partPos);
-//  }
-//
-//  /* Rewrite the partitioning key as well */
-//
-//  if (MRCommand_GetFlags(&cmd) & MRCommand_MultiKey) {
-//    if (partPos > 0) {
-//      SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, partPos, partPos);
-//    }
-//  }
-  // MRCommand_Print(&cmd);
+
   MR_MapSingle(MR_CreateCtx(ctx, 0, NULL), singleReplyReducer, cmd);
 
   return REDISMODULE_OK;
@@ -1729,9 +1730,6 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetProtocol(&cmd, ctx);
   /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
-//  for (int i = 2; i < argc; i++) {
-//    SearchCluster_RewriteCommandArg(GetSearchCluster(), &cmd, i, i);
-//  }
 
   MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL);
@@ -1907,6 +1905,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -1920,7 +1919,6 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  // MR_UpdateTopology(ctx);
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2094,16 +2092,29 @@ static void DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
-static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// If the client is unblocked with a private data, we have to free it.
+// This currently happens only when the client is unblocked without calling its reduce function,
+// because we expect 0 replies. This function handles this case as well.
+static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (mrctx) {
+    if (MRCtx_GetNumReplied(mrctx) == 0) {
+      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+    }
+    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
+    MR_requestCompleted();
+    MRCtx_Free(mrctx);
+  }
+}
 
-  bool resp3 = is_resp3(ctx);
+static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -2139,154 +2150,23 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
-
-  // Report hash func
-  MRClusterTopology *topo = MR_GetCurrentTopology();
-  const char *hash_func_str;
-  switch (topo ? topo->hashFunc : MRHashFunc_None) {
-  case MRHashFunc_CRC12:
-    hash_func_str = MRHASHFUNC_CRC12_STR;
-    break;
-  case MRHashFunc_CRC16:
-    hash_func_str = MRHASHFUNC_CRC16_STR;
-    break;
-  default:
-    hash_func_str = "n/a";
-    break;
+  if (MR_CurrentTopologyExists()) {
+    // If we have a topology, we must read it from the uv thread
+    MR_uvReplyClusterInfo(ctx);
+  } else {
+    // If we don't have a topology, we can reply immediately
+    MR_ReplyClusterInfo(ctx, NULL);
   }
-
-  //-------------------------------------------------------------------------------------------
-  if (has_map) // RESP3 variant
-  {
-    //reply->resp3 = false;
-    RedisModule_Reply_Map(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    if (!topo) {
-      RedisModule_ReplyKV_Null(reply, "slots");
-      RedisModule_Reply_MapEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    if (reply->resp3) {
-      RedisModule_ReplyKV_Array(reply, "slots"); // >slots
-      for (int i = 0; i < topo->numShards; i++) {
-        MRClusterShard *sh = &topo->shards[i];
-
-        RedisModule_Reply_Map(reply); // >>(shards)
-        RedisModule_ReplyKV_LongLong(reply, "start", sh->startSlot);
-        RedisModule_ReplyKV_LongLong(reply, "end", sh->endSlot);
-
-        RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
-        for (int j = 0; j < sh->numNodes; j++) {
-          MRClusterNode *node = &sh->nodes[j];
-          RedisModule_Reply_Map(reply); // >>>>(node)
-
-          RedisModule_ReplyKV_SimpleString(reply, "id", node->id);
-          RedisModule_ReplyKV_SimpleString(reply, "host", node->endpoint.host);
-          RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModuleString *role = RedisModule_CreateStringPrintf(ctx, "%s%s",
-            node->flags & MRNode_Master ? "master " : "slave ", node->flags & MRNode_Self ? "self" : "");
-          RedisModule_ReplyKV_String(reply, "role", role);
-
-          RedisModule_Reply_MapEnd(reply); // >>>>(node)
-        }
-        RedisModule_Reply_ArrayEnd(reply); // >>>nodes
-
-        RedisModule_Reply_MapEnd(reply); // >>(shards)
-      }
-      RedisModule_Reply_ArrayEnd(reply); // >slots
-
-    } else {
-    }
-
-    RedisModule_Reply_MapEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-  else // ! has_map (RESP2 variant)
-  {
-    RedisModule_Reply_Array(reply); // root
-
-    RedisModule_ReplyKV_LongLong(reply, "num_partitions", GetSearchCluster()->size);
-    RedisModule_ReplyKV_SimpleString(reply, "cluster_type",
-                                     clusterConfig.type == ClusterType_RedisLabs ? "redislabs" : "redis_oss");
-
-    RedisModule_ReplyKV_SimpleString(reply, "hash_func", hash_func_str);
-
-    // Report topology
-    // Report topology
-    RedisModule_ReplyKV_LongLong(reply, "num_slots", topo ? (long long)topo->numSlots : 0);
-
-    RedisModule_Reply_SimpleString(reply, "slots");
-
-    if (!topo) {
-      RedisModule_Reply_Null(reply);
-      RedisModule_Reply_ArrayEnd(reply); // root
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-
-    for (int i = 0; i < topo->numShards; i++) {
-      MRClusterShard *sh = &topo->shards[i];
-      RedisModule_Reply_Array(reply); // >shards
-
-      RedisModule_Reply_LongLong(reply, sh->startSlot);
-      RedisModule_Reply_LongLong(reply, sh->endSlot);
-      for (int j = 0; j < sh->numNodes; j++) {
-        MRClusterNode *node = &sh->nodes[j];
-        RedisModule_Reply_Array(reply); // >>node
-          RedisModule_Reply_SimpleString(reply, node->id);
-          RedisModule_Reply_SimpleString(reply, node->endpoint.host);
-          RedisModule_Reply_LongLong(reply, node->endpoint.port);
-          RedisModule_Reply_Stringf(reply, "%s%s",
-                                    node->flags & MRNode_Master ? "master " : "slave ",
-                                    node->flags & MRNode_Self ? "self" : "");
-        RedisModule_Reply_ArrayEnd(reply); // >>node
-      }
-
-      RedisModule_Reply_ArrayEnd(reply); // >shards
-    }
-
-    RedisModule_Reply_ArrayEnd(reply); // root
-  }
-  //-------------------------------------------------------------------------------------------
-
-  RedisModule_EndReply(reply);
   return REDISMODULE_OK;
-}
-
-int UnsuportedOnCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Command not supported on cluster");
 }
 
 // A special command for redis cluster OSS, that refreshes the cluster state
 int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  RS_AutoMemory(ctx);
-  MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
-
-  SearchCluster_EnsureSize(ctx, GetSearchCluster(), topo);
-
-  MR_UpdateTopology(topo);
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
+  UpdateTopology(ctx);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
@@ -2311,28 +2191,18 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // send the topology to the cluster
-  if (MR_UpdateTopology(topo) != REDISMODULE_OK) {
-    // failed update
-    MRClusterTopology_Free(topo);
-    return RedisModule_ReplyWithError(ctx, "Error updating the topology");
-  }
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
+  MR_UpdateTopology(topo);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /* Perform basic configurations and init all threads and global structures */
 static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Log(ctx, "notice",
-                  "Cluster configuration: %ld partitions, type: %d, coordinator timeout: %dms",
-                  clusterConfig.numPartitions, clusterConfig.type, clusterConfig.timeoutMS);
+                  "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
+                  clusterConfig.type, clusterConfig.timeoutMS);
 
   /* Configure cluster injections */
   ShardFunc sf;
-
-  MRClusterTopology *initialTopology = NULL;
-
   const char **slotTable = NULL;
   size_t tableSize = 0;
 
@@ -2345,11 +2215,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       break;
     case ClusterType_RedisOSS:
     default:
-      // init the redis topology updater loop
-      if (InitRedisTopologyUpdater() == REDIS_ERR) {
-        RedisModule_Log(ctx, "warning", "Could not init redis cluster topology updater. Aborting");
-        return REDISMODULE_ERR;
-      }
+      InitRedisTopologyUpdater(ctx);
       sf = CRC16ShardFunc;
       slotTable = crc16_slot_table;
       tableSize = 16384;
@@ -2359,17 +2225,17 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
   } else {
-    #ifdef MT_BUILD
     // default
+    #ifdef MT_BUILD
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
     #else
     num_connections_per_shard = 1;
     #endif
   }
 
-  MRCluster *cl = MR_NewCluster(initialTopology, num_connections_per_shard, sf, 2);
+  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, sf);
   MR_Init(cl, clusterConfig.timeoutMS);
-  InitGlobalSearchCluster(clusterConfig.numPartitions, slotTable, tableSize);
+  InitGlobalSearchCluster(0, slotTable, tableSize);
 
   return REDISMODULE_OK;
 }
@@ -2407,20 +2273,6 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
     return REDISMODULE_ERR;                                           \
   }
 
-static void getRedisVersion() {
-  RedisModuleCallReply *reply = RedisModule_Call(RSDummyContext, "info", "c", "server");
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
-
-  int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisMajorVesion, &redisMinorVesion,
-                 &redisPatchVesion);
-
-  assert(n == 3);
-
-  RedisModule_FreeCallReply(reply);
-}
-
 /**
  * A wrapper function to override hiredis allocators with redis allocators.
  * It should be called after RedisModule_Init.
@@ -2437,19 +2289,10 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
-
-static void Coordinator_CleanupModule(void) {
-  MR_Destroy();
-  GlobalSearchCluster_Release();
-}
-
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-  RedisModule_Log(ctx, "notice", "%s", "Begin releasing Coordinator resources on shutdown");
-  Coordinator_CleanupModule();
-  RedisModule_Log(ctx, "notice", "%s", "End releasing Coordinator resources");
 }
 
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
@@ -2477,10 +2320,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
-  getRedisVersion();
-  RedisModule_Log(ctx, "notice", "redis version observed by redisearch : %d.%d.%d",
-                  redisMajorVesion, redisMinorVesion, redisPatchVesion);
-
   // Chain the config into RediSearch's global config and set the default values
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
@@ -2498,7 +2337,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init the aggregation thread pool
-  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(RSGlobalConfig.coordinatorPoolSize);
+  DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
@@ -2550,7 +2389,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.DELETE", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.BROADCAST", SafeCmd(BroadcastCommand), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1));

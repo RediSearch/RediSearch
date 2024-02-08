@@ -1,14 +1,18 @@
-[![Release](https://img.shields.io/github/v/release/redisearch/redisearch.svg?sort=semver)](https://github.com/RediSearch/RediSearch/releases)
-[![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
 [![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
+[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
+[![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
+
+[![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?sort=semver&label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
+
+[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?sort=semver&filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6)
+
 
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
-[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
-[![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
-
-<img src="https://redis.io/docs/stack/search/img/logo.svg" alt="logo" width="300"/>
+<picture>
+<img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
+</picture>
 
 ## Overview
 

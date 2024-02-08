@@ -18,9 +18,6 @@ struct RLookupKey; // Forward declaration
 #define INDEXREAD_NOTFOUND 2
 #define INDEXREAD_TIMEOUT 3
 
-#define MODE_SORTED 0
-#define MODE_UNSORTED 1
-
 enum iteratorType {
   READ_ITERATOR,
   HYBRID_ITERATOR,
@@ -37,11 +34,6 @@ enum iteratorType {
   MAX_ITERATOR,
 };
 
-typedef struct IndexCriteriaTester {
-  int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
-  void (*Free)(struct IndexCriteriaTester *ct);
-} IndexCriteriaTester;
-
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
@@ -57,8 +49,6 @@ typedef struct indexIterator {
   // Cached value - used if Current() is not set
   RSIndexResult *current;
 
-  int mode;
-
   enum iteratorType type;
 
   // Used if the iterator yields some value.
@@ -66,8 +56,6 @@ typedef struct indexIterator {
   struct RLookupKey *ownKey;
 
   size_t (*NumEstimated)(void *ctx);
-
-  IndexCriteriaTester *(*GetCriteriaTester)(void *ctx);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */
@@ -94,7 +82,7 @@ typedef struct indexIterator {
    * of data consistency issues due to multi threading */
   void (*Abort)(void *ctx);
 
-  /* Rewinde the iterator to the beginning and reset its state */
+  /* Rewind the iterator to the beginning and reset its state */
   void (*Rewind)(void *ctx);
 } IndexIterator;
 
@@ -116,8 +104,6 @@ typedef struct indexIterator {
 #define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
 #define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
 #define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
-#define IITER_GET_CRITERIA_TESTER(ii) \
-  ((ii)->GetCriteriaTester ? (ii)->GetCriteriaTester((ii)->ctx) : NULL)
 
 #define IITER_SET_EOF(ii) (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
