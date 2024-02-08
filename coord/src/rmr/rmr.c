@@ -422,7 +422,6 @@ typedef struct MRIterator {
 } MRIterator;
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
-void MRIterator_Free(MRIterator *it);
 
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;

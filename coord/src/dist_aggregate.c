@@ -479,6 +479,7 @@ static void rpnetFree(ResultProcessor *rp) {
   // them...
   if (nc->it) {
     MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
+    MRIterator_Free(nc->it);
   }
 
   if (nc->shardsProfile) {
@@ -491,15 +492,14 @@ static void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
+  MRCommand_Free(&nc->cmd);
 
-  if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);
 }
 
 static RPNet *RPNet_New(const MRCommand *cmd) {
-  //  MRCommand_FPrint(stderr, &cmd);
   RPNet *nc = rm_calloc(1, sizeof(*nc));
-  nc->cmd = *cmd;
+  nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
@@ -577,7 +577,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd);
+  RPNet *rpRoot = RPNet_New(xcmd); // This will take ownership of the command
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
