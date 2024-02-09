@@ -574,8 +574,9 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .ctx = {
       .chan = MR_NewChannel(),
       .cb = cb,
-      .inProcess = 1,
       .pending = 1,
+      .inProcess = 1,
+      .timedOut = 0,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
