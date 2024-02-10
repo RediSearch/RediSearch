@@ -6,8 +6,8 @@
 #define RP                               6
 #define RB                               7
 #define RSQB                             8
-#define TERM                             9
-#define UNESCAPED_TAG                   10
+#define UNESCAPED_TAG                    9
+#define TERM                            10
 #define QUOTE                           11
 #define LP                              12
 #define LB                              13

@@ -18,8 +18,8 @@
 
 %left RP RB RSQB.
 
-%left TERM.
 %left UNESCAPED_TAG.
+%left TERM.
 %left QUOTE.
 %left LP LB LSQB.
 
@@ -58,8 +58,8 @@
 
 %syntax_error {
   QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-    "_Token: Syntax error at offset %d near %.*s type:%d",
-    TOKEN.pos, TOKEN.len, TOKEN.s, TOKEN.type);
+    "Syntax error at offset %d near %.*s",
+    TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
 %include {
@@ -178,6 +178,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
+
+%type tag_list { QueryNode *}
+%destructor tag_list { QueryNode_Free($$); }
 
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
@@ -714,18 +717,44 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 
 
 /////////////////////////////////////////////////////////////////
-// Tag - curly brackets limiting unescaped single tag
+// Tag Lists - curly braces separated lists of words
 /////////////////////////////////////////////////////////////////
 
-// FT.SEARCH idx "@a_tag:{joe@mail.com}"
-// brackets are part of UNESCAPED_TAG
-expr(A) ::= modifier(B) COLON UNESCAPED_TAG(C) . {
-  // Tag field names must be case sensitive, we can't do rm_strdupcase
-  char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen((char*)s, B.len);
+expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
+    if (!C) {
+        A = NULL;
+    } else {
+      // Tag field names must be case sensitive, we can't do rm_strdupcase
+        char *s = rm_strndup(B.s, B.len);
+        size_t slen = unescapen((char*)s, B.len);
 
-  A = NewTagNode(s, slen);
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+        A = NewTagNode(s, slen);
+        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
+
+        // Set the children count on C to 0 so they won't get recursively free'd
+        QueryNode_ClearChildren(C, 0);
+        QueryNode_Free(C);
+    }
+}
+
+tag_list(A) ::= param_term_case(B) . [TAGLIST] {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+}
+
+tag_list(A) ::= affix(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+}
+
+tag_list(A) ::= verbatim(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+}
+
+tag_list(A) ::= termlist(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1013,6 +1042,10 @@ term(A) ::= NUMBER(B) . {
 }
 
 term(A) ::= SIZE(B). {
+  A = B;
+}
+
+term(A) ::= UNESCAPED_TAG(B) . {
   A = B;
 }
 

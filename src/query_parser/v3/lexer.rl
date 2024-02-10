@@ -51,22 +51,41 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0;
-unescaped_tag = lb . (((any - ( escape | rb ) ) | escape.escape | escape.rb) | '_' )+ . rb $0;
-term = (unescaped_tag | escaped_term);
-fieldname = escaped_term $ 1;
+escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $0;
+
+# these are the punctuations that are not valid in a tag,
+# they have an especial meaning and need to be escaped
+tag_invalid_punct = (rb | star | escape | '$');
+
+token_separators = ( '!' | '"' | '#' | '$' | '%' | '&' | squote | '(' | ')' |
+                    star |'+' | '-' | '.' | '/' | ':' | ';' | '<' | '=' | '>' |
+                    '?' | '@' | '[' | escape | ']' | '^' | '`' | '{' | '}' |
+                    '~' | '|' | ',' );
+valid_punct =  token_separators - tag_invalid_punct;
+invalid_punct = punct - valid_punct;
+
 mod = '@'.escaped_term $ 1;
-attr = '$'.term $ 1;
-contains = (star.term.star | star.number.star | star.attr.star) $1;
-prefix = (term.star | number.star | attr.star) $1;
-suffix = (star.term | star.number | star.attr) $1;
+attr = '$'.escaped_term $ 1;
+single_tag = ( (any - ( invalid_punct | tag_invalid_punct) ) | (escape (tag_invalid_punct)) | '_' )+ $4;
+
+contains = (star.escaped_term.star | star.number.star | star.attr.star) $1;
+prefix = (escaped_term.star | number.star | attr.star) $1;
+suffix = (star.escaped_term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
-verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
+verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $4;
+
+assign_attr = arrow lb attr colon escaped_term rb $4;
+
+contains_tag = colon lb star.single_tag.star :>> rb $1;
+prefix_tag = colon lb single_tag.star :>> rb $1;
+suffix_tag = colon lb star.single_tag :>> rb $1;
+unescaped_tag = colon lb single_tag :>> rb $1;
+
 
 main := |*
 
-  size => { 
+  size => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -78,7 +97,7 @@ main := |*
     }
   };
 
-  number => { 
+  number => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -129,7 +148,8 @@ main := |*
       fbreak;
     }
   };
-  inf => { 
+
+  inf => {
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
@@ -139,16 +159,16 @@ main := |*
       fbreak;
     }
   };
-  
+
   quote => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, QUOTE, tok, q);  
+    RSQuery_Parse_v3(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  or => { 
+  or => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, OR, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -156,7 +176,7 @@ main := |*
     }
   };
 
-  lp => { 
+  lp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -164,7 +184,7 @@ main := |*
     }
   };
 
-  rp => { 
+  rp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -172,7 +192,7 @@ main := |*
     }
   };
 
-  lb => { 
+  lb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -180,7 +200,7 @@ main := |*
     }
   };
 
-  rb => { 
+  rb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -188,7 +208,7 @@ main := |*
     }
   };
 
-  colon => { 
+  colon => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, COLON, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -196,7 +216,7 @@ main := |*
     }
   };
 
-  semicolon => { 
+  semicolon => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, SEMICOLON, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -204,17 +224,17 @@ main := |*
     }
   };
 
-  minus =>  { 
+  minus =>  {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, MINUS, tok, q);  
+    RSQuery_Parse_v3(pParser, MINUS, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  tilde => { 
+  tilde => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, TILDE, tok, q);  
+    RSQuery_Parse_v3(pParser, TILDE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -236,20 +256,20 @@ main := |*
     }
   };
 
-  lsqb => { 
+  lsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, LSQB, tok, q);  
+    RSQuery_Parse_v3(pParser, LSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    }  
+    }
   };
 
-  rsqb => { 
+  rsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, RSQB, tok, q);   
+    RSQuery_Parse_v3(pParser, RSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    } 
+    }
   };
   space;
   punct;
@@ -267,22 +287,162 @@ main := |*
   };
 
   unescaped_tag => {
-    tok.len = te-(ts + 2);
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
     tok.s = ts + 1;
     tok.numval = 0;
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, UNESCAPED_TAG, tok, q);
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    if(*(ts + 2) == 'w' && *(ts + 3) == '\'') {
+      int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+      tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+      tok.len = te - (ts + 6 + is_attr);
+      tok.s = ts + 4 + is_attr;
+      tok.pos = tok.s - q->raw;
+      tok.numval = 0;
+      RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
+    } else {
+      tok.len = te - (ts + 3);
+      tok.s = ts + 2;
+      tok.numval = 0;
+      tok.pos = tok.s - q->raw;
+      tok.type = QT_TERM;
+      RSQuery_Parse_v3(pParser, UNESCAPED_TAG, tok, q);
+    }
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+  };
+
+  suffix_tag => {
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = ts + 1;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 3 + is_attr) - 1;
+    tok.s = ts + 3 + is_attr;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  fieldname => {
-    tok.len = te-ts;
+  prefix_tag => {
+    tok.len = 1;
     tok.s = ts;
+    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = ts + 1;
     tok.numval = 0;
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, TERM, tok, q);
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 2) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 2 + is_attr) - 2;
+    tok.s = ts + 2 + is_attr;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, PREFIX, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  contains_tag => {
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = ts + 2;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 3 + is_attr) - 2;
+    tok.s = ts + 3 + is_attr;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.numval = 0;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -352,7 +512,7 @@ main := |*
       fbreak;
     }
   };
-  
+
 *|;
 }%%
 
@@ -366,14 +526,14 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   const char* te = q->raw + q->len;
   %% write init;
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
-  
+
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;
   const char* pe = q->raw + q->len;
   const char* eof = pe;
-  
+
   %% write exec;
-  
+
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v3(pParser, 0, tok, q);
   }

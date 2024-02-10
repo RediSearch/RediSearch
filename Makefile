@@ -349,10 +349,8 @@ parsers:
 ifeq ($(FORCE),1)
 	$(SHOW)cd src/aggregate/expr ;\
 	rm -f lexer.c parser.c
-	$(SHOW)cd src/query_parser/v1 ;\
-	rm -f lexer.c parser.c
-	$(SHOW)cd src/query_parser/v2 ;\
-	rm -f lexer.c parser.c
+	$(SHOW)$(MAKE) -C src/query_parser/v1 clean
+	$(SHOW)$(MAKE) -C src/query_parser/v2 clean
 	$(SHOW)$(MAKE) -C src/query_parser/v3 clean
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
