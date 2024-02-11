@@ -41,7 +41,7 @@ on:
 env:
   AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
   AWS_INSTANCE_TYPE: t4g.medium
-  TAGS: |
+  TAGS: | # Make sure there is no trailing comma!
     [
       {"Key": "Name",         "Value": "redisearch-ci-runner"},
       {"Key": "Environment",  "Value": "CI"},

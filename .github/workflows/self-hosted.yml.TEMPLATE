@@ -17,14 +17,14 @@ on:
 env:
   AWS_IMAGE_ID: ami-XXXXXXXXXXXXX
   AWS_INSTANCE_TYPE: XX.XXX
-  TAGS: |
+  TAGS: | # Make sure there is no trailing comma!
     [
       {"Key": "Name",         "Value": "redisearch-ci-runner"},
       {"Key": "Environment",  "Value": "CI"},
       {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
       {"Key": "Container",    "Value": "${{ inputs.container }}"},
       {"Key": "Owner",        "Value": "${{ github.actor }}"},
-      {"Key": "Project",      "Value": "${{ github.repository }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"}
     ]
 
 jobs:
