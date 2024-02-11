@@ -22,12 +22,13 @@ source ~/.bash_profile
 pyenv install $PYTHON_VER
 pyenv global $PYTHON_VER
 
-# install gcc
+# install gcc and git
 cd -
 $MODE apt install -yqq software-properties-common
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
+$MODE add-apt-repository ppa:git-core/ppa -y
 $MODE apt update
-$MODE apt install -yqq gcc-9 g++-9
+$MODE apt install -yqq gcc-9 g++-9 git
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
 
 source install_cmake.sh $MODE
