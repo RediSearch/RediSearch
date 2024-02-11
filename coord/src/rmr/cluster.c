@@ -122,7 +122,7 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
 
 static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
   int pos = MRCommand_GetShardingKey(cmd);
-  if (pos < 0 || pos >= cmd->num) {
+  if (pos >= cmd->num) {
     // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
     return NULL;
   }

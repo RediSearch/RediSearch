@@ -40,7 +40,9 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   MRCommand newCmd;
   char buf[128];
   sprintf(buf, "%lld", cursorId);
-  int shardingKey = MRCommand_GetShardingKey(cmd);
+  // AGGREGATE commands has the sharding key at position 1,
+  // while CURSOR READ/DEL commands has it at position 2
+  int shardingKey = cmd->rootCommand == C_AGG ? 1 : 2;
   const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
   // If we timed out and not in cursor mode, we want to send the shard a DEL
   // command instead of a READ command (here we know it has more results)
@@ -158,7 +160,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRIteratorCallback_ProcessDone(ctx);
   } else {
     // resend command
-    if (MRIteratorCallback_ResendCommand(ctx, cmd) == REDIS_ERR) {
+    if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
       MRIteratorCallback_Done(ctx, 1);
       rc = REDIS_ERR;
     }
@@ -716,7 +718,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
-  xcmd.rootCommand = C_READ;  // Response is equivalent to a `CURSOR READ` response
+  xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us);

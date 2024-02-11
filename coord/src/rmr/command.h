@@ -13,7 +13,7 @@
 #include <assert.h>
 #include <stdbool.h>
 
-typedef enum { C_READ = 0, C_DEL = 1 } MRRootCommand;
+typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
@@ -23,9 +23,6 @@ typedef struct {
 
   /* Number of arguments */
   uint32_t num;
-
-  /* Internal id used to get the command configuration */
-  int id;
 
   /* if not -1, this value indicate to which slot the command should be sent */
   int targetSlot;
@@ -59,7 +56,7 @@ MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);
   if (len) {
-    *len = cmd->lens[idx];
+    *len = cmd->lens[idx];sizeof(MRCommand);
   }
   return cmd->strs[idx];
 }

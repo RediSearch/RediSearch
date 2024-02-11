@@ -202,7 +202,6 @@ bool MR_CurrentTopologyExists() {
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
-  mrctx->numReplied = 0;
 
   mrctx->numExpected =
       MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
@@ -217,12 +216,9 @@ static void uvFanoutRequest(void *p) {
 
 static void uvMapRequest(void *p) {
   MRCtx *mrctx = p;
-  mrctx->numReplied = 0;
-  mrctx->numExpected = 0;
 
-  if (MRCluster_SendCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx) == REDIS_OK) {
-    mrctx->numExpected++;
-  }
+  int rc = MRCluster_SendCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
+  mrctx->numExpected = (rc == REDIS_OK) ? 1 : 0;
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
@@ -434,9 +430,8 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   }
 }
 
-int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd) {
-  ctx->cmd = *cmd;
-  return MRCluster_SendCommand(cluster_g, true, cmd, mrIteratorRedisCB, ctx);
+int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
+  return MRCluster_SendCommand(cluster_g, true, &ctx->cmd, mrIteratorRedisCB, ctx);
 }
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads

@@ -94,7 +94,7 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
-int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd);
+int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
