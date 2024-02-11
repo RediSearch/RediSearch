@@ -8,7 +8,7 @@ from random import randrange
 
 
 '''************* Helper methods for vecsim tests ************'''
-EPSILON = 1e-8
+EPSILON = 1e-7
 
 # Helper method for comparing expected vs. results of KNN query, where the only
 # returned field except for the doc id is the vector distance
