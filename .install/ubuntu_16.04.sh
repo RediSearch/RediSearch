@@ -30,5 +30,4 @@ $MODE apt update
 $MODE apt install -yqq gcc-9 g++-9
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
 
-
 source install_cmake.sh $MODE
