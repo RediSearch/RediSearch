@@ -129,7 +129,6 @@ def test_sanity_cosine():
                 assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
                 if i==1:  # range query can use only query attributes as score field syntax
                     range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILON
-                    print(f"range dist = {range_dist}")
                     actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob {score_field_syntax}', 'PARAMS', '2',
                                             'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                     assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
