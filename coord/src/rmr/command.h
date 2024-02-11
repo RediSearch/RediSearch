@@ -56,7 +56,7 @@ MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
   // assert(idx < cmd->num);
   if (len) {
-    *len = cmd->lens[idx];sizeof(MRCommand);
+    *len = cmd->lens[idx];
   }
   return cmd->strs[idx];
 }
