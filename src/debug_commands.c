@@ -1136,6 +1136,7 @@ VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_
 	}
 	END_POSTPONED_LEN_ARRAY(num_levels+1);
 	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+	RedisModule_EndReply(&reply);
 }
 
 DEBUG_COMMAND(dumpHNSWData) {
