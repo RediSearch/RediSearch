@@ -1529,7 +1529,7 @@ cleanup:
 }
 
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
-// If needed for more commands, make sure to `MRCommand_GetShardingKey` is implemented for them.
+// If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
 int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (argc < 2) {
