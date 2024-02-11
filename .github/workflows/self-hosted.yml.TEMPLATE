@@ -17,6 +17,15 @@ on:
 env:
   AWS_IMAGE_ID: ami-XXXXXXXXXXXXX
   AWS_INSTANCE_TYPE: XX.XXX
+  TAGS: |
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "Container",    "Value": "${{ inputs.container }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"},
+    ]
 
 jobs:
   start-runner:
@@ -42,6 +51,7 @@ jobs:
           ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
           subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
           security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
+          aws-resource-tags: ${{ env.TAGS }}
 
   run:
     needs: start-runner # required to start the main job when the runner is ready
