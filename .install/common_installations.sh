@@ -4,7 +4,7 @@ OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
 python3 -m venv venv
-echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
+echo "$MODE source $PWD/venv/bin/activate" >> ~/.bash_profile
 source venv/bin/activate
 
 pip install --upgrade pip
