@@ -11,9 +11,8 @@
 #include "rmalloc.h"
 
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
-
-  ep->host = NULL;
-  ep->auth = NULL;
+  // zero out the endpoint, assuming it's uninitialized. This is important for freeing it later.
+  memset(ep, 0, sizeof(*ep));
 
   // see if we have an auth password
   char *at = strchr(addr, '@');
@@ -28,8 +27,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
       ++addr; // skip the ipv6 opener '['
   }
 
-  char *colon = strrchr(addr, ':');
-
+  char *colon = strrchr(addr, ':'); // look for the last colon
   if (!colon) {
     MREndpoint_Free(ep);
     return REDIS_ERR;
