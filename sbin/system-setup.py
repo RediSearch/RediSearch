@@ -80,11 +80,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake")
         self.run(f"{READIES}/bin/getclang --force --modern")
         # self.install("boost")
-        self.pip_install(f"-r {ROOT}/tests/pytests/requirements.macos.txt")
         # self.run(f"{self.python} {READIES}/bin/getredis -v 6 --force")
-
-    def linux_last(self):
-        self.pip_install(f"-r {ROOT}/tests/pytests/requirements.linux.txt")
 
     def common_last(self):
         self.run(f"{self.python} {READIES}/bin/getcmake --usr", sudo=self.os != 'macos')
