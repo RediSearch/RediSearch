@@ -40,10 +40,9 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   MRCommand newCmd;
   char buf[128];
   sprintf(buf, "%lld", cursorId);
-  // AGGREGATE commands has the sharding key at position 1,
+  // AGGREGATE commands has the index name at position 1
   // while CURSOR READ/DEL commands has it at position 2
-  int shardingKey = cmd->rootCommand == C_AGG ? 1 : 2;
-  const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
+  const char *idx = MRCommand_ArgStringPtrLen(cmd, cmd->rootCommand == C_AGG ? 1 : 2, NULL);
   // If we timed out and not in cursor mode, we want to send the shard a DEL
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {

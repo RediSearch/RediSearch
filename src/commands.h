@@ -43,12 +43,16 @@
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"  // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
 
+// Suggestion commands are key-bounded, but gets redirection for OSS cluster.
+// So on standalone and enterprise, we need only the local `FT.` variations,
+// but on OSS cluster we need both the local and the remote variations, and
+// have the local variations with `_FT.` prefix.
 #define RS_SUGADD_CMD RS_CMD_WRITE_PREFIX ".SUGADD"
 #define RS_SUGGET_CMD RS_CMD_WRITE_PREFIX ".SUGGET"
 #define RS_SUGDEL_CMD RS_CMD_WRITE_PREFIX ".SUGDEL"
 #define RS_SUGLEN_CMD RS_CMD_WRITE_PREFIX ".SUGLEN"
 
-// read commands that are always in place
+// read commands that are always performed locally
 #define RS_EXPLAIN_CMD "FT.EXPLAIN"
 #define RS_EXPLAINCLI_CMD "FT.EXPLAINCLI"
 #define RS_DICT_DUMP "FT.DICTDUMP"
