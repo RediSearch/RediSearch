@@ -1094,14 +1094,14 @@ workflows:
       # - build-macos-x64-coordinator:
       #     <<: *on-version-tags
       #     context: common
-      # - build-macos-m1-search:
-      #     context: common
-      #     <<: *on-version-tags
-      #     # Avoid persist conflict with build-macos-m1-coordinator
-      #     upload: "no"
-      # - build-macos-m1-coordinator:
-      #     context: common
-      #     <<: *on-version-tags
+      - build-macos-m1-search:
+          context: common
+          <<: *on-version-tags
+          # Avoid persist conflict with build-macos-m1-coordinator
+          upload: "no"
+      - build-macos-m1-coordinator:
+          context: common
+          <<: *on-version-tags
       # - coverage:
       #     <<: *always
       # - sanitize:
