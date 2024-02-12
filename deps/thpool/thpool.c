@@ -185,6 +185,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 static void redisearch_thpool_verify_init(struct redisearch_thpool_t* thpool_p) {
   if (thpool_p->state != THPOOL_UNINITIALIZED) return; // Already initialized or should be kept dead
   thpool_p->state = THPOOL_KEEP_ALIVE;
+  thpool_p->jobqueue.should_run = true;
 
   /* Thread init */
   for (size_t n = 0; n < thpool_p->total_threads_count; n++) {
