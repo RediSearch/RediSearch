@@ -46,7 +46,7 @@ env:
       {"Key": "Name",         "Value": "redisearch-ci-runner"},
       {"Key": "Environment",  "Value": "CI"},
       {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
-      {"Key": "PR",           "Value": "${{ github.event.pull_request.number }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
       {"Key": "Container",    "Value": "${{ inputs.container }}"},
       {"Key": "Owner",        "Value": "${{ github.actor }}"},
       {"Key": "Project",      "Value": "${{ github.repository }}"}
