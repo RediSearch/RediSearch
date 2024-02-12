@@ -361,155 +361,167 @@ def testEmptyTagLeak(env):
 
 def testTagAutoescaping(env):
     # Create sample data
-    env.cmd('HSET', 'tag:1', 'tag', 'abc:1', 'id', '1')
-    env.cmd('HSET', 'tag:2', 'tag', 'xyz:2', 'id', '2')
+    env.cmd('HSET', '{doc}:1', 'tag', 'abc:1', 'id', '1')
+    env.cmd('HSET', '{doc}:2', 'tag', 'xyz:2', 'id', '2')
     # two tags separated by comma
-    env.cmd('HSET', 'tag:3', 'tag', 'xyz:2,abc:1', 'id', '3')
-    env.cmd('HSET', 'tag:4', 'tag', 'abc:1-xyz:2', 'id', '4')
-    env.cmd('HSET', 'tag:5', 'tag', 'joe@mail.com', 'id', '5')
-    env.cmd('HSET', 'tag:6', 'tag', 'tag with {brackets}', 'id', '6')
-    env.cmd('HSET', 'tag:7', 'tag', 'abc:1|xyz:2', 'id', '7')
+    env.cmd('HSET', '{doc}:3', 'tag', 'xyz:2,abc:1', 'id', '3')
+    env.cmd('HSET', '{doc}:4', 'tag', 'abc:1-xyz:2', 'id', '4')
+    env.cmd('HSET', '{doc}:5', 'tag', 'joe@mail.com', 'id', '5')
+    env.cmd('HSET', '{doc}:6', 'tag', 'tag with {brackets}', 'id', '6')
+    env.cmd('HSET', '{doc}:7', 'tag', 'abc:1|xyz:2', 'id', '7')
     # tag with octal number: '_12\100' == '_12@'
-    env.cmd('HSET', 'tag:8', 'tag', '_12\100', 'id', '8')
-    env.cmd('HSET', 'tag:9', 'tag', '-99999', 'id', '9')
-    env.cmd('HSET', 'tag:10', 'tag', 'ab(12)', 'id', '10')
-    env.cmd('HSET', 'tag:11', 'tag', 'a|b-c d', 'id', '11')
+    env.cmd('HSET', '{doc}:8', 'tag', '_12\100', 'id', '8')
+    env.cmd('HSET', '{doc}:9', 'tag', '-99999', 'id', '9')
+    env.cmd('HSET', '{doc}:10', 'tag', 'ab(12)', 'id', '10')
+    env.cmd('HSET', '{doc}:11', 'tag', 'a|b-c d', 'id', '11')
     # this test generates the tag: '_@12\\345'
-    env.cmd('HSET', 'tag:12', 'tag', '_@12\\345', 'id', '12')
+    env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
     
     # Create index
-    env.expect('FT.CREATE idx ON HASH PREFIX 1 tag: SCHEMA tag TAG SORTABLE id NUMERIC SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
+               'NUMERIC', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
-
-    # res = env.cmd('FT.TAGVALS', 'idx', 'tag')
-    # print(res)
-
-    # Set default dialect to 5 because it supports the autoescaping
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
 
     # Test exact match    
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1}', 'NOCONTENT',
-                  'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, 'tag:1', 'tag:3'])
+                  'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1|xyz:2}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:7'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1|xyz:2}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:7'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12\100}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:8'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12\100}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:8'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12@}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:8'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12@}', 'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:8'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_@12\\\\345}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:12'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_@12\\\\345}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:12'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{ab(12)}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:10'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{ab(12)}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:10'])
 
     # Test tag with '-'
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1-xyz:2}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:4'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1-xyz:2}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:4'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{-99999}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:9'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{-99999}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:9'])
 
     # Test tag with '|' and ' '
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{a|b-c d}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:11'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{a|b-c d}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:11'])
 
     # AND Operator (INTERSECT queries)
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} @tag:{xyz:2}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:3'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} @tag:{xyz:2}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:3'])
 
     # Negation Queries (using dash "-")
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} -@tag:{xyz:2}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:1'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} -@tag:{xyz:2}', 'NOCONTENT',
+                  'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:1'])
 
     # OR Operator (UNION queries)
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1-xyz:2} | @tag:{joe@mail.com}',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, 'tag:4', 'tag:5'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [2, '{doc}:4', '{doc}:5'])
 
     # Optional Queries (using tiled "~")
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1} ~@tag:{xyz:2}',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, 'tag:1', 'tag:3'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
 
     # Test exact match with brackets
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{tag with {brackets\\}}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:6'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{tag with {brackets\\}}',
+                  'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:6'])
+
 
     # Search with attributes
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{xyz:2}=>{$weight:5.0}', 'NOCONTENT', 
-                  'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, 'tag:2', 'tag:3'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{xyz:2}=>{$weight:5.0}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [2, '{doc}:2', '{doc}:3'])
+
 
     res = env.cmd('FT.SEARCH', 'idx',
                   '(@tag:{xyz:2} | @tag:{abc:1}) => { $weight: 5.0; }',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    expected_result = [3, 'tag:1', 'tag:2', 'tag:3']
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
+
     env.assertEqual(expected_result, res)
 
     res = env.cmd('FT.SEARCH', 'idx', 
                   '((@tag:{xyz:2}  @tag:{abc:1}) | @tag1:{val:3} (@tag2:{joe@mail.com} => { $weight:0.3 } )) => { $weight:0.2 }',
-                  'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:3'])
+                  'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:3'])
+
 
     # Test prefix
-    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc\\*yxv*}')
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc\\*yxv*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc*yxv*}\n}\n')
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc:?\\*yxv*}=>{$weight:3.4}',
-                  'PARAMS', '2', 'abc', 'hello')
+                  'PARAMS', '2', 'abc', 'hello', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc:?*yxv*}\n} => { $weight: 3.4; }\n')
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc:?*}=>{$weight:3.4}',
-                  'PARAMS', '2', 'abc', 'hello')
+                  'PARAMS', '2', 'abc', 'hello', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc:?*}\n} => { $weight: 3.4; }\n')
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{$abc*}=>{$weight:3.4}',
-                  'PARAMS', '2', 'abc', 'hello')
+                  'PARAMS', '2', 'abc', 'hello', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{hello*}\n} => { $weight: 3.4; }\n')
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:*}=>{$weight:3.4}',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [4, 'tag:1', 'tag:3', 'tag:4', 'tag:7'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [4, '{doc}:1', '{doc}:3', '{doc}:4', '{doc}:7'])
+
 
     # Test suffix
-    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv}')
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  SUFFIX{*abc*yxv}\n}\n')
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*xyz:2}=>{$weight:3.4}',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [4, 'tag:2', 'tag:3', 'tag:4', 'tag:7'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
+
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param}',
                   'PARAMS', '2', 'param', 'xyz:2',
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [4, 'tag:2', 'tag:3', 'tag:4', 'tag:7'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
 
     # Test contains
-    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv:*}')
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv:*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  INFIX{*abc*yxv:*}\n}\n')
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*@mail.*}=>{$weight:3.4}',
-                  'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:5'])
+                  'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:5'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param*}=>{$weight:3.4}',
-                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
-    env.assertEqual(res, [1, 'tag:5'])
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:5'])
 
     # Test wildcard
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
-                  'PARAMS', '2', 'param', 'hello world')
+                  'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{      w'foo*:-;bar?' }",
-                  'PARAMS', '2', 'param', 'hello world')
+                  'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n}\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4}",
-                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, 'tag:4', 'tag:7'])
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
+    env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
