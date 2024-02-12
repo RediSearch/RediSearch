@@ -28,6 +28,7 @@ RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
     'short-reads/redisearch_2.8.0.rdb.zip',
     'short-reads/redisearch_2.8.4.rdb.zip',
+    'short-reads/redisearch_2.8.12_rejson_2.0.0.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -40,6 +41,7 @@ RDBS_EXPECTED_INDICES = [
                          ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
                         ]
 
 RDBS = []
@@ -188,6 +190,8 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
+                       get_identifier('field6', isHash), 'as', 'f6', 'tag', 'empty',
+                       get_identifier('field6', isHash), 'as', 'f7', 'tag', 'empty', 'SORTABLE',
                        
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
@@ -212,12 +216,12 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
     # Add keys
     for i in range(1, num_keys + 1):
         if isHash:
-            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3)]
-            env.assertEqual(conn.execute_command(*cmd), 2)
+            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3), 'field6', '', 'field7', '']
+            env.assertEqual(conn.execute_command(*cmd), 4)
         else:
-            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
+            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'", "field6":"", "field7":""}']
             env.assertOk(conn.execute_command(*cmd))
-    
+
     for i in range(num_keys + 1, num_keys + num_geometry_keys + 1):
         geom_wkt = get_polygon(int(rand_num(3)), int(rand_num(3)), i)
         if isHash:
@@ -238,7 +242,7 @@ def _testCreateIndexRdbFilesWithJSON(env):
     if OS == 'macos':
         env.skip()
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
-    create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
+    create_indices(env, 'redisearch_2.8.12_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
 def _testCreateIndexRdbFilesWithGeometry(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -290,9 +294,6 @@ class Connection(object):
 
     def read(self, bytes):
         return self.decoder(self.sockf.read(bytes))
-
-    def read(self, size):
-        return self.decoder(self.sockf.read(size))
 
     def read_at_most(self, bytes, timeout=0.01):
         self.sock.settimeout(timeout)
