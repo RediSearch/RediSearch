@@ -1119,6 +1119,7 @@ VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_
 	RedisModule_Reply reply = RedisModule_NewReply(ctx);
 	if  (res == VecSimDebugCommandCode_LabelNotExists){
 		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+		RedisModule_EndReply(&reply);
 		return res;
 	}
 	START_POSTPONED_LEN_ARRAY(num_levels);
