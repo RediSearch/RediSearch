@@ -522,12 +522,12 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-
-  FGC_childCollectTerms(gc, &sctx);
-  FGC_childCollectNumeric(gc, &sctx);
-  FGC_childCollectTags(gc, &sctx);
-
+	RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
+	RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+	FGC_childCollectTerms(gc, &sctx);
+	FGC_childCollectNumeric(gc, &sctx);
+	FGC_childCollectTags(gc, &sctx);
+	RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
 }
 
 typedef struct {
