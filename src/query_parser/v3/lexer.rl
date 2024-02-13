@@ -51,7 +51,7 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $0;
+escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | '?')+ $0;
 
 # these are the punctuations that are not valid in a tag, they have an especial
 # meaning and need to be escaped to be considered as part of a tag
