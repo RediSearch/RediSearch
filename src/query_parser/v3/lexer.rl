@@ -153,7 +153,6 @@ main := |*
   };
 
   inf => {
-    printf("Nafraf: inf\n");
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
@@ -280,7 +279,6 @@ main := |*
   cntrl;
 
   escaped_term => {
-    printf("Nafraf: escaped_term\n");
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
@@ -292,7 +290,6 @@ main := |*
   };
 
   unescaped_tag => {
-    printf("Nafraf: unescaped_tag\n");
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
