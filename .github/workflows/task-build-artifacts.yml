@@ -64,10 +64,9 @@ jobs:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: Setup common
-        run: |
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-          pip install -q -r .install/build_package_requirments.txt
-
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+      - name: install build artifacts req
+        run: pip install -q -r .install/build_package_requirments.txt
       # Get Redis
       - name: Get Redis
         uses: actions/checkout@v3
