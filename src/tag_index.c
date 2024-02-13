@@ -32,21 +32,40 @@ TagIndex *NewTagIndex() {
 }
 
 /* read the next token from the string */
-char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
+char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty) {
 
   char *start = *s;
 
-  // find the first none space and none separator char
-  while (*start && (isspace(*start) || *start == sep)) {
-    start++;
+  if (!indexEmpty) {
+    // find the first none space and none separator char
+    while (*start && (isspace(*start) || *start == sep)) {
+      start++;
+    }
+  } else {
+    // We wish to index empty strings as well as non-empty strings, while
+    // trimming the spaces if found.
+    bool found_space = isspace(*start);
+    while (isspace(*start)) {
+      start++;
+    }
+
+    // If we found an empty value, and we wish to index it, return it.
+    if (*start == sep) {
+      *s = ++start;
+      return "";
+    } else if (*start == '\0' && found_space) {
+      *s = start;
+      return "";
+    }
   }
 
   if (*start == '\0') {
-    // no token found
+    // Done
     *s = start;
     return NULL;
   }
 
+  // Non-empty term
   char *end = start;
   char *lastChar = start;
   for (; *end; ++end) {
@@ -69,6 +88,7 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
 static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resArray) {
   char sep = fs->tagOpts.tagSep;
   TagFieldFlags flags = fs->tagOpts.tagFlags;
+  bool indexEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
@@ -79,13 +99,16 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     return REDISMODULE_OK;
   }
 
+  char *tok;
   char *p;
   char *pp = p = rm_strdup(str);
+  bool last_is_sep = *(p + strlen(p) - 1) == sep;
   while (p) {
     // get the next token
     size_t toklen = 0;
-    char *tok = TagIndex_SepString(sep, &p, &toklen);
-    if (toklen > 0) {
+    tok = TagIndex_SepString(sep, &p, &toklen, indexEmpty);
+
+    if (tok) {
       // lowercase the string (TODO: non latin lowercase)
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
         tok = strtolower(tok);
@@ -93,16 +116,18 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       *resArray = array_append(*resArray, tok);
     } else {
-      // this means we're at the end
-      if (pp == p && FieldSpec_IndexesEmpty(fs)) {
-        // The value is empty (i.e., empty string) and the field indexes such fields.
-        tok = rm_strdup(p);
-        *resArray = array_append(*resArray, tok);
-      }
-
       break;
     }
   }
+
+  // If the field indexes empty fields, index the case of an empty field, or a
+  // field that ends with a separator as well.
+  if (indexEmpty) {
+    if (p == pp || last_is_sep)
+    tok = rm_strdup("");
+    *resArray = array_append(*resArray, tok);
+  }
+
   rm_free(pp);
   return REDISMODULE_OK;
 }
@@ -122,8 +147,13 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
-    for (int i = 0; i < data->arrayLen; i++) {
-      tokenizeTagString(data->multiVal[i], fs, &arr);
+    if (FieldSpec_IndexesEmpty(fs) && data->arrayLen == 0) {
+      // We wish to index empty JSON arrays as empty fields
+      arr = array_append(arr, rm_strdup(""));
+    } else {
+      for (int i = 0; i < data->arrayLen; i++) {
+        tokenizeTagString(data->multiVal[i], fs, &arr);
+      }
     }
     break;
   case FLD_VAR_T_NULL:
