@@ -429,7 +429,6 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   RedisModuleCallReply *rep;
-  RedisModule_Assert(!isCrdt);
   if (!isCrdt) {
     rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   } else {
