@@ -483,19 +483,18 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 
 //---------------------------------------------------------------------------------------------
 
-/** Don't consult the alias table when retrieving the index */
-#define INDEXSPEC_LOAD_NOALIAS 0x01
-/** The name of the index is in the format of a redis string */
-#define INDEXSPEC_LOAD_KEY_RSTRING 0x02
-
-#define INDEXSPEC_LOAD_NOTIMERUPDATE 0x04
+typedef enum {
+  INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
+  INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
+  INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+} IndexLoadOptionsFlags;
 
 typedef struct {
   union {
-    const char *cstring;
-    RedisModuleString *rstring;
-  } name;
-  uint32_t flags;
+    const char *nameC;
+    RedisModuleString *nameR;
+  };
+  IndexLoadOptionsFlags flags;
 } IndexLoadOptions;
 
 //---------------------------------------------------------------------------------------------

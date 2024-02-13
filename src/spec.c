@@ -1471,16 +1471,16 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name) {
-  IndexLoadOptions lopts = {.name = {.cstring = name}};
+  IndexLoadOptions lopts = {.nameC = name};
   return IndexSpec_LoadUnsafeEx(ctx, &lopts);
 }
 
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-    ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
+    ixname = RedisModule_StringPtrLen(options->nameR, NULL);
   } else {
-    ixname = options->name.cstring;
+    ixname = options->nameC;
   }
 
   StrongRef spec_ref = {dictFetchValue(specDict_g, ixname)};

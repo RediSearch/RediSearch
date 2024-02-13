@@ -180,7 +180,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 
 // DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
+  IndexLoadOptions loadOpts = {.nameC = indexName};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -429,6 +429,7 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   RedisModuleCallReply *rep;
+  RedisModule_Assert(!isCrdt);
   if (!isCrdt) {
     rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   } else {

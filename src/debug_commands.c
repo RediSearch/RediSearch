@@ -741,7 +741,7 @@ DEBUG_COMMAND(ttl) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)},
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
@@ -768,7 +768,7 @@ DEBUG_COMMAND(ttlPause) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)},
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
@@ -800,7 +800,7 @@ DEBUG_COMMAND(ttlExpire) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)},
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
