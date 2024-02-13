@@ -82,9 +82,29 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 5).contains("{K=10 nearest vector")
 
-    env.expect('FT.EXPLAIN', 'idx', '@tag:{a-b-*}', 'DIALECT', 1).error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@tag:{a-b-*}', 'DIALECT', 2).error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@tag:{a-b-*}', 'DIALECT', 5).contains('TAG:@tag {\n  PREFIX{a-b-*}\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@title:{a-b-*}', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{a-b-*}', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{a-b-*}', 'DIALECT', 5).contains('TAG:@title {\n  PREFIX{a-b-*}\n}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-*}', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-*}', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-*}', 'DIALECT', 5).contains('TAG:@title {\n  INFIX{*a-b-*}\n}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-}', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-}', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{*a-b-}', 'DIALECT', 5).contains('TAG:@title {\n  SUFFIX{*a-b-}\n}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '@tag:{a b}', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@tag:{a b}', 'DIALECT', 2).contains('TAG:@tag {\n  INTERSECT {\n    a\n    b\n  }\n}\n')
