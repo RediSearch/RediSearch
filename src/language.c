@@ -66,7 +66,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_IRISH:       ret = "irish";      break;
     case  RS_LANG_ITALIAN:     ret = "italian";    break;
     case  RS_LANG_LITHUANIAN:  ret = "lithuanian"; break;
-    case  RS_LANG_NEPALI:      ret = "napali";     break;
+    case  RS_LANG_NEPALI:      ret = "nepali";     break;
     case  RS_LANG_NORWEGIAN:   ret = "norwegian";  break;
     case  RS_LANG_PORTUGUESE:  ret = "portuguese"; break;
     case  RS_LANG_ROMANIAN:    ret = "romanian";   break;
