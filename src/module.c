@@ -681,7 +681,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   IndexLoadOptions loadOpts = {
-      .name = {.rstring = argv[2]},
+      .nameR = argv[2],
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -725,7 +725,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
+  IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -746,7 +746,7 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
+  IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   if (!StrongRef_Get(ref)) {
@@ -761,7 +761,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   QueryError status = {0};
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
+  IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
