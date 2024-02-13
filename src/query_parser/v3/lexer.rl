@@ -80,8 +80,8 @@ assign_attr = arrow lb attr colon escaped_term rb $4;
 contains_tag = colon lb star.single_tag.star :>> rb $1;
 prefix_tag = colon lb single_tag.star :>> rb $1;
 suffix_tag = colon lb star.single_tag :>> rb $1;
-unescaped_tag = (colon lb single_tag :>> rb $1) 
-              | (colon lb escape wildcard :>> rb $1) 
+unescaped_tag = (colon lb single_tag :>> rb $1)
+              | (colon lb escape wildcard :>> rb $1)
               | (colon lb escape 'w' single_tag :>> rb $1);
 wildcard_tag = colon lb wildcard :>> rb $4;
 wildcard_txt = colon lp wildcard :>> rp $4;

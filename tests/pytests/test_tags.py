@@ -548,16 +548,6 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}", 'DIALECT', 5)
-    env.assertEqual(res, "TAG:@tag {\n  \\w'?*1'\n}\n")
-
-    # TODO: the format in the cluster tests is different
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
-    if not env.isCluster():
-        env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
-    else:
-        env.assertEqual(res, "TAG:@tag {\n  w\\'???1a\n}\n")
-
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
                   'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
@@ -569,6 +559,20 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
+
+    # Test escaped wildcards which become tags
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}", 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  \\w'?*1'\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w-:abc}", 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  \\w-:abc\n}\n")
+
+    # TODO: the format in the cluster tests is different
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
+    if not env.isCluster():
+        env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
+    else:
+        env.assertEqual(res, "TAG:@tag {\n  w\\'???1a\n}\n")
 
     # invalid syntax
     with env.assertResponseError(contained='Syntax error'):
