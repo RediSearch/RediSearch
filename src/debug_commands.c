@@ -620,15 +620,11 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 }
 
 static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define REPLY "DONE"
-  RedisModule_ReplyWithStringBuffer(ctx, REPLY, strlen(REPLY));
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
 static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define ERROR_REPLY "INVOCATION FAILED"
-  RedisModule_ReplyWithError(ctx, ERROR_REPLY);
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithError(ctx, "INVOCATION FAILED");
 }
 
 // FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
@@ -641,7 +637,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc == 2) {
     RedisModule_StringToLongLong(argv[1], &timeout);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -657,7 +653,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -671,7 +667,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -688,7 +684,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -745,9 +741,8 @@ DEBUG_COMMAND(ttl) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -773,8 +768,8 @@ DEBUG_COMMAND(ttlPause) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -805,8 +800,8 @@ DEBUG_COMMAND(ttlExpire) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
   IndexSpec *sp = StrongRef_Get(ref);
