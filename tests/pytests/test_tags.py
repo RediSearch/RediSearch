@@ -446,7 +446,6 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:6'])
 
-
     # Search with attributes
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{xyz:2}=>{$weight:5.0}',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
@@ -465,8 +464,17 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:3'])
 
-
     # Test prefix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{a-b-c*}', 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  PREFIX{a-b-c*}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{a-b-c\\*}', 'DIALECT', 5)
+    # TODO: the format in the cluster test is different
+    if not env.isCluster():    
+        env.assertEqual(res, 'TAG:@tag {\n  a-b-c*\n}\n')
+    else:
+        env.assertEqual(res, 'TAG:@tag {\n  a-b-c\\*\n}\n')
+    
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc\\*yxv*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc*yxv*}\n}\n')
 
@@ -488,6 +496,16 @@ def testTagAutoescaping(env):
 
 
     # Test suffix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*a-b-c}', 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  SUFFIX{*a-b-c}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{\\*a-b-c}', 'DIALECT', 5)
+    # TODO: the format in the cluster tests is different
+    if not env.isCluster():
+        env.assertEqual(res, 'TAG:@tag {\n  *a-b-c\n}\n')
+    else:
+        env.assertEqual(res, 'TAG:@tag {\n  \\*a-b-c\n}\n')
+
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  SUFFIX{*abc*yxv}\n}\n')
 
@@ -501,7 +519,17 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
 
-    # Test contains
+    # Test infix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*a-b-c*}', 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  INFIX{*a-b-c*}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{\\*a-b-c\\*}', 'DIALECT', 5)
+    # TODO: the format in the cluster tests is different
+    if not env.isCluster():
+        env.assertEqual(res, 'TAG:@tag {\n  *a-b-c*\n}\n')
+    else:
+        env.assertEqual(res, 'TAG:@tag {\n  \\*a-b-c\\*\n}\n')
+
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv:*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  INFIX{*abc*yxv:*}\n}\n')
 
@@ -514,14 +542,30 @@ def testTagAutoescaping(env):
     env.assertEqual(res, [1, '{doc}:5'])
 
     # Test wildcard
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}", 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}", 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  \\w'?*1'\n}\n")
+    
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
                   'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{      w'foo*:-;bar?' }",
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'foo*:-;bar?'}",
                   'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n}\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
+
+    # invalid syntax
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.EXPLAIN', 'idx', "@tag:{ w'?*1'}", 'DIALECT', 5)
+        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1' }", 'DIALECT', 5)
+        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?1'}", 'DIALECT', 5)
+        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?*1'}", 'DIALECT', 5)
+        env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1\\}', 'DIALECT', 5)
+        
+        
