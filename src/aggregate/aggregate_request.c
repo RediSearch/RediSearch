@@ -568,7 +568,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = RSLanguage_Find(languageStr, 0);
+  // if language is NULL, set it to UNDEFINED and it will be updated later,
+  // taking the index language
+  if(languageStr == NULL) {
+    searchOpts->language = RS_LANG_INDEX_DEFAULT;
+  } else {
+    searchOpts->language = RSLanguage_Find(languageStr, 0);
+  }
 
   if (AC_IsInitialized(&returnFields)) {
     if(!ensureSimpleMode(req)) {
@@ -986,10 +992,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if (opts->language == RS_LANG_UNSUPPORTED) {
+  if (opts->language == RS_LANG_INDEX_DEFAULT) {
+    opts->language = index->rule->lang_default;
+  } else if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;
   }
+
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
