@@ -1131,10 +1131,6 @@ workflows:
     when:
       << pipeline.parameters.run_default_flow >>
     jobs:
-  default-flow:
-    when:
-      << pipeline.parameters.run_default_flow >>
-    jobs:
       # - build-linux-debian:
       #     <<: *not-on-integ-branch
       # - build-linux-arm-ubuntu:
