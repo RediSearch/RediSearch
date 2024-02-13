@@ -1090,6 +1090,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
 FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
+  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent start applying changes");
 
 #define COLLECT_FROM_CHILD(e)               \
   while ((status = (e)) == FGC_COLLECTED) { \
@@ -1101,6 +1102,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
+  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
 
   return status;
 }
