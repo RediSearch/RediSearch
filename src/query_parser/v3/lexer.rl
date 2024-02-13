@@ -411,6 +411,10 @@ main := |*
     tok.s = ts + 3 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and suffix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
     RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
@@ -449,6 +453,10 @@ main := |*
     tok.s = ts + 2 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and prefix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
@@ -487,6 +495,10 @@ main := |*
     tok.s = ts + 3 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and contains
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;

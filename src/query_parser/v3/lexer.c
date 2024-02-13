@@ -28,7 +28,7 @@ void *RSQuery_ParseAlloc_v3(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 
-/* #line 600 "lexer.rl" */
+/* #line 612 "lexer.rl" */
 
 
 
@@ -301,7 +301,7 @@ static const int query_error = -1;
 static const int query_en_main = 50;
 
 
-/* #line 603 "lexer.rl" */
+/* #line 615 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v3(rm_malloc);
@@ -318,7 +318,7 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
 	act = 0;
 	}
 
-/* #line 611 "lexer.rl" */
+/* #line 623 "lexer.rl" */
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
 
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -465,11 +465,11 @@ _eof_trans:
 	{act = 26;}
 	break;
 	case 15:
-/* #line 429 "lexer.rl" */
+/* #line 433 "lexer.rl" */
 	{act = 29;}
 	break;
 	case 16:
-/* #line 518 "lexer.rl" */
+/* #line 530 "lexer.rl" */
 	{act = 32;}
 	break;
 	case 17:
@@ -747,6 +747,10 @@ _eof_trans:
     tok.s = ts + 3 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and suffix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      {p++; goto _out; }
+    }
     RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -763,7 +767,7 @@ _eof_trans:
   }}
 	break;
 	case 36:
-/* #line 429 "lexer.rl" */
+/* #line 433 "lexer.rl" */
 	{te = p+1;{
     tok.len = 1;
     tok.s = ts;
@@ -787,6 +791,10 @@ _eof_trans:
     tok.s = ts + 2 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and prefix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      {p++; goto _out; }
+    }
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -803,7 +811,7 @@ _eof_trans:
   }}
 	break;
 	case 37:
-/* #line 467 "lexer.rl" */
+/* #line 475 "lexer.rl" */
 	{te = p+1;{
     tok.len = 1;
     tok.s = ts;
@@ -827,6 +835,10 @@ _eof_trans:
     tok.s = ts + 3 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and contains
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      {p++; goto _out; }
+    }
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -843,7 +855,7 @@ _eof_trans:
   }}
 	break;
 	case 38:
-/* #line 505 "lexer.rl" */
+/* #line 517 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -858,7 +870,7 @@ _eof_trans:
   }}
 	break;
 	case 39:
-/* #line 531 "lexer.rl" */
+/* #line 543 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -873,7 +885,7 @@ _eof_trans:
   }}
 	break;
 	case 40:
-/* #line 544 "lexer.rl" */
+/* #line 556 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -888,7 +900,7 @@ _eof_trans:
   }}
 	break;
 	case 41:
-/* #line 557 "lexer.rl" */
+/* #line 569 "lexer.rl" */
 	{te = p+1;{
     tok.len = 1;
     tok.s = ts;
@@ -1082,7 +1094,7 @@ _eof_trans:
   }}
 	break;
 	case 52:
-/* #line 518 "lexer.rl" */
+/* #line 530 "lexer.rl" */
 	{te = p;p--;{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1135,7 +1147,7 @@ _eof_trans:
 	{{p = ((te))-1;}}
 	break;
 	case 57:
-/* #line 518 "lexer.rl" */
+/* #line 530 "lexer.rl" */
 	{{p = ((te))-1;}{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1335,6 +1347,10 @@ _eof_trans:
     tok.s = ts + 2 + is_attr;
     tok.numval = 0;
     tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and prefix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      {p++; goto _out; }
+    }
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
@@ -1370,7 +1386,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 1374 "lexer.c" */
+/* #line 1390 "lexer.c" */
 		}
 	}
 
@@ -1383,7 +1399,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 1387 "lexer.c" */
+/* #line 1403 "lexer.c" */
 		}
 	}
 
@@ -1401,7 +1417,7 @@ _again:
 	_out: {}
 	}
 
-/* #line 619 "lexer.rl" */
+/* #line 631 "lexer.rl" */
 
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v3(pParser, 0, tok, q);
