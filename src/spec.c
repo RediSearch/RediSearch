@@ -1471,10 +1471,8 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
-  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
-                            .name = {.cstring = name}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name) {
+  IndexLoadOptions lopts = {.name = {.cstring = name}};
   return IndexSpec_LoadUnsafeEx(ctx, &lopts);
 }
 
