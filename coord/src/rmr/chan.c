@@ -23,7 +23,6 @@ typedef struct MRChannel {
   chanItem *head;
   chanItem *tail;
   size_t size;
-  size_t maxSize;
   volatile int open;
   pthread_mutex_t lock;
   pthread_cond_t cond;
@@ -34,13 +33,12 @@ typedef struct MRChannel {
 #include "chan.h"
 #include "rmalloc.h"
 
-MRChannel *MR_NewChannel(size_t max) {
+MRChannel *MR_NewChannel() {
   MRChannel *chan = rm_malloc(sizeof(*chan));
   *chan = (MRChannel){
       .head = NULL,
       .tail = NULL,
       .size = 0,
-      .maxSize = max,
       .open = 1,
   };
   pthread_cond_init(&chan->cond, NULL);
@@ -75,18 +73,11 @@ size_t MRChannel_Size(MRChannel *chan) {
   return ret;
 }
 
-size_t MRChannel_MaxSize(MRChannel *chan) {
-  pthread_mutex_lock(&chan->lock);
-  size_t ret = chan->maxSize;
-  pthread_mutex_unlock(&chan->lock);
-  return ret;
-}
-
 int MRChannel_Push(MRChannel *chan, void *ptr) {
 
   pthread_mutex_lock(&chan->lock);
   int rc = 1;
-  if (!chan->open || (chan->maxSize > 0 && chan->size == chan->maxSize)) {
+  if (!chan->open) {
     rc = 0;
     goto end;
   }

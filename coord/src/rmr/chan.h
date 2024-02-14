@@ -15,7 +15,7 @@ typedef struct MRChannel MRChannel;
 
 extern void *MRCHANNEL_CLOSED;
 
-MRChannel *MR_NewChannel(size_t max);
+MRChannel *MR_NewChannel();
 int MRChannel_Push(MRChannel *chan, void *ptr);
 /* Pop an item, wait indefinitely or until the channel is closed for an item.
  * Return MRCHANNEL_CLOSED if the channel is closed*/
@@ -30,5 +30,4 @@ void MRChannel_WaitClose(MRChannel *chan);
 
 void MRChannel_Close(MRChannel *chan);
 size_t MRChannel_Size(MRChannel *chan);
-size_t MRChannel_MaxSize(MRChannel *chan);
 void MRChannel_Free(MRChannel *chan);
