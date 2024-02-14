@@ -363,3 +363,19 @@ def testEmptyTagLeak(env):
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+def test_empty_suffix_withsuffixtrie(env):
+    """Tests that we don't leak when we search for a suffix with no entries in
+    a TAG field indexed with the `WITHSUFFIXTRIE` optimization."""
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    # Populate with some data, so the query-iterator construction won't return early.
+    conn.execute_command('HSET', 'h1', 't', '')
+
+    # Search for a suffix with no entries
+    cmd = 'FT.SEARCH idx_suffixtrie @t:{*pty}'.split(' ')
+    expected = [0]
+    res = env.cmd(*cmd)
+    env.assertEqual(res, expected)
