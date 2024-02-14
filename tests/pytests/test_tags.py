@@ -593,5 +593,6 @@ def testTagAutoescaping(env):
         env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'*}", 'DIALECT', 5)
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'}", 'DIALECT', 5)
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}", 'DIALECT', 5)
+        env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}", 'DIALECT', 5)
         
         

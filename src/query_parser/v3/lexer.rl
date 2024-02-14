@@ -81,7 +81,6 @@ contains_tag = colon lb star.single_tag.star rb $1;
 prefix_tag = colon lb single_tag.star rb $1;
 suffix_tag = colon lb star.single_tag rb $1;
 unescaped_tag = colon lb ( single_tag | escape wildcard | escape 'w' single_tag) rb $1;
-# unescaped_tag_w = colon lb escape.'w'.single_tag rb $1;
 wildcard_tag = colon lb wildcard rb $1;
 wildcard_txt = colon lp wildcard rp $1;
 

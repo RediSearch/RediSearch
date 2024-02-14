@@ -118,6 +118,10 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', "@t1:(w'abc?')", 'DIALECT', 2).contains('@t1:WILDCARD{abc?}')
     env.expect('FT.EXPLAIN', 'idx', "@t1:(w'abc?')", 'DIALECT', 5).contains('@t1:WILDCARD{abc?}')
 
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 1).contains('@t1:INTERSECT {\n  @t1:SUFFIX')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 2).contains('@t1:INTERSECT {\n  @t1:SUFFIX')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 5).error().contains('Syntax error')
+
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     set_max_dialect(env)
