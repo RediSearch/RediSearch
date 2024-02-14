@@ -201,7 +201,7 @@ def test_coord_profile():
                                                     {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}
       for i in range(1, env.shardsCount + 1)
     }
-    shards_exp['Coordinator'] = {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}
+    shards_exp['Coordinator'] = {'Total Coordinator time': ANY, 'Post Processing time': ANY}
     exp = {
       'attributes': [],
       'warning': [],
