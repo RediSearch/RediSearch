@@ -593,11 +593,11 @@ static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job*
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
-static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id) {
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t cur_thread_ticket) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
 
-  if (thread_id < priority_queue_p->n_privileged_threads) {
+  if (cur_thread_ticket < priority_queue_p->n_privileged_threads) {
     // This is a privileged thread id, try taking from the high priority queue.
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
     // If the higher priority queue is empty, pull from the low priority queue.
