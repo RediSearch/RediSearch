@@ -440,13 +440,13 @@ static void* thread_do(struct thread* thread_p) {
     if (thpool_p->state & (THPOOL_KEEP_ALIVE | THPOOL_TERMINATE_WHEN_EMPTY)) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
-      thpool_p->num_threads_working++;
+      size_t iter_id = thpool_p->num_threads_working++;
       pthread_mutex_unlock(&thpool_p->thcount_lock);
 
       /* Read job from queue and execute it */
       void (*func_buff)(void*);
       void* arg_buff;
-      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue, iter_id);
       if (job_p) {
         func_buff = job_p->function;
         arg_buff = job_p->arg;
