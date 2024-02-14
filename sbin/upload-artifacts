@@ -125,12 +125,12 @@ s3_upload() {
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
-		files=$(ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz)
+		files=$(ls ${prefix}.*${PLATFORM}*.zip)
 		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
 	else
-		files=$(ls ${prefix}.*.zip ${prefix}.*.tgz)
+		files=$(ls ${prefix}.*.zip)
 		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
