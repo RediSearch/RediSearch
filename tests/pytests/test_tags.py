@@ -634,3 +634,10 @@ def testInvalidSyntax(env):
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @t1:({) DIALECT 5")
 
+    # test punct character
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.explaincli idx @t1:> DIALECT 5")
+
+    # test cntrl character
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.explaincli idx @t1:\10 DIALECT 5")
