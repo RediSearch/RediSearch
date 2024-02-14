@@ -22,6 +22,7 @@ dim = 128
 vecs_file = f"vectors_n_{n_vectors}.npy"
 
 def generate_and_store_random_vectors(n_vectors):
+    print(f"generating random vectors, saving to {vecs_file}")
     with open(vecs_file, 'wb') as f:
         for i in range(n_vectors):
             vector = np.array(np.random.rand(dim), dtype=np.float32)
@@ -99,8 +100,11 @@ def run_queries(n_clients, stop_run, key):
 
 
 if __name__ == '__main__':
-    if os.path.exists('vectors.pkl') == False:
+    if os.path.exists(vecs_file) == False:
         generate_and_store_random_vectors(n_vectors)
+    else:
+        print(f"{vecs_file} exists, skipping generation of random vectors...")
+
     # Fresh start
     redis_conn.flushall()
     #
@@ -110,12 +114,12 @@ if __name__ == '__main__':
     load_vectors(n_vectors, 5, key)
 
     # querying data for 1m
-    # stop = Value('i', 0)
-    # t = Process(target=run_queries, args=(5, stop, key))
-    # t.start()
-    # time.sleep(5)
-    # stop.value = 1
-    # t.join()
+    stop = Value('i', 0)
+    t = Process(target=run_queries, args=(5, stop, key))
+    t.start()
+    time.sleep(5)
+    stop.value = 1
+    t.join()
     # #
     # # # Scenario 2 - updating data
     # # key = 'scenario_2'
