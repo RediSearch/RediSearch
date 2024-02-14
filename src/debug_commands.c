@@ -1122,20 +1122,19 @@ VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_
 		RedisModule_EndReply(&reply);
 		return res;
 	}
-	START_POSTPONED_LEN_ARRAY(num_levels);
-	RedisModule_ReplyWithArray(ctx, 2);
-	RedisModule_ReplyWithSimpleString(ctx, "Doc id");
-	RedisModule_ReplyWithLongLong(ctx, (long long)doc_id);
+	START_POSTPONED_LEN_ARRAY(response);
+	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
-	while (neighbours_data[(ARRAY_LEN_VAR(num_levels))]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[ARRAY_LEN_VAR(num_levels)][0] + 1);
-		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", ARRAY_LEN_VAR(num_levels));
-		for (size_t i = 0; i < neighbours_data[ARRAY_LEN_VAR(num_levels)][0]; i++) {
-			RedisModule_ReplyWithLongLong(ctx, neighbours_data[ARRAY_LEN_VAR(num_levels)][i + 1]);
+	size_t num_levels = 0;
+	while (neighbours_data[num_levels]) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[num_levels][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", num_levels);
+		for (size_t i = 0; i < neighbours_data[num_levels][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[num_levels][i + 1]);
 		}
-		(ARRAY_LEN_VAR(num_levels))++;
+		num_levels++; ARRAY_LEN_VAR(response)++;
 	}
-	END_POSTPONED_LEN_ARRAY(num_levels+1);
+	END_POSTPONED_LEN_ARRAY(response);
 	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
 	RedisModule_EndReply(&reply);
 }
@@ -1168,6 +1167,10 @@ DEBUG_COMMAND(dumpHNSWData) {
 	  size_t key_len;
 	  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
 	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+	  if (doc_id == 0) {
+		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+		  goto cleanup;
+	  }
 	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
 	  goto cleanup;
   }

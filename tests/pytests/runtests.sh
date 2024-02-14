@@ -542,7 +542,6 @@ if [[ $RLEC != 1 ]]; then
 fi
 
 SHARDS=${SHARDS:-3}
-[[ -z $COORD ]] && SHARDS=1
 
 #------------------------------------------------------------------------------------ Debugging
 
@@ -571,7 +570,7 @@ fi
 PARALLEL=${PARALLEL:-1}
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
-
+[[ -z $COORD ]] && SHARDS=1
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
 		parallel="$(($($READIES/bin/nproc) / $SHARDS)) "

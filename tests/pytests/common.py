@@ -232,9 +232,6 @@ def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
 
 
-def dumpHNSW(env, keys):
-    return [run_command_on_all_shards(env, key) for key in keys]
-
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
