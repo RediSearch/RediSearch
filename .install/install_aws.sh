@@ -8,7 +8,7 @@ then
     curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
     $MODE installer -pkg AWSCLIV2.pkg -target /
 else
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "awscliv2.zip"
+    wget -O awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip
     unzip awscliv2.zip
     $MODE ./aws/install
 fi
