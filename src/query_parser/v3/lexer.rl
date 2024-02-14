@@ -553,11 +553,7 @@ main := |*
       fbreak;
     }
 
-    tok.len = te - (ts + 3);
-    tok.s = ts + 2;
-    
     int is_attr = (*(ts + 4) == '$') ? 1 : 0;
-
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
     tok.len = te - (ts + 6 + is_attr);
     tok.s = ts + 4 + is_attr;

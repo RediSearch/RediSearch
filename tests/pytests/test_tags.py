@@ -552,11 +552,12 @@ def testTagAutoescaping(env):
                   'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'foo*:-;bar?'}",
+    res = env.cmd('FT.EXPLAIN', 'idx',
+                  "@tag1:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
                   'PARAMS', '2', 'param', 'hello world', 'DIALECT', 5)
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n}\n")
+    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
 
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4}",
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
 
@@ -584,20 +585,52 @@ def testTagAutoescaping(env):
         env.assertEqual(res, "TAG:@tag {\n  w\\'???1a\n}\n")
 
 
-def testInvalidTags(env):
-    # invalid syntax
+def testInvalidSyntax(env):
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
+               'NUMERIC', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{ w'?*1'}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1' }", 'DIALECT', 5)
-        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?1'}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?*1'}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1\\}', 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'*}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}", 'DIALECT', 5)
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}", 'DIALECT', 5)
+    
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @tag:{w'-abc*} DIALECT 5")
+
+    with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})", 'DIALECT', 5)
-        env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})", 'DIALECT', 5)
-        env.cmd("FT.SEARCH idx \"@tag:{*w'-abc*}\" DIALECT 5")
-        
-        
+         
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}' DIALECT 5")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:(%) DIALECT 5")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:(|) DIALECT 5")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:({) DIALECT 5")
+

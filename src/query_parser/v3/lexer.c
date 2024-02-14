@@ -28,7 +28,7 @@ void *RSQuery_ParseAlloc_v3(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 
-/* #line 581 "lexer.rl" */
+/* #line 577 "lexer.rl" */
 
 
 
@@ -305,7 +305,7 @@ static const int query_error = -1;
 static const int query_en_main = 50;
 
 
-/* #line 584 "lexer.rl" */
+/* #line 580 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v3(rm_malloc);
@@ -322,7 +322,7 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
 	act = 0;
 	}
 
-/* #line 592 "lexer.rl" */
+/* #line 588 "lexer.rl" */
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
 
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -490,7 +490,6 @@ _eof_trans:
 	break;
 	case 18:
 /* #line 153 "lexer.rl" */
-printf("INFINITY case te = p+1;\n");
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -895,11 +894,7 @@ printf("INFINITY case te = p+1;\n");
       {p++; goto _out; }
     }
 
-    tok.len = te - (ts + 3);
-    tok.s = ts + 2;
-    
     int is_attr = (*(ts + 4) == '$') ? 1 : 0;
-
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
     tok.len = te - (ts + 6 + is_attr);
     tok.s = ts + 4 + is_attr;
@@ -961,7 +956,6 @@ printf("INFINITY case te = p+1;\n");
 	break;
 	case 45:
 /* #line 153 "lexer.rl" */
-  printf("INFINITY case 45 te = p;p--;\n");
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1084,7 +1078,6 @@ printf("INFINITY case te = p+1;\n");
 	break;
 	case 53:
 /* #line 101 "lexer.rl" */
-  printf("NUMBER case 53 p = ((te))-1;\n");
 	{{p = ((te))-1;}{
     tok.s = ts;
     tok.len = te-ts;
@@ -1153,7 +1146,6 @@ printf("INFINITY case te = p+1;\n");
   }
 	break;
 	case 2:
-  printf("case 2  NUMBER {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.s = ts;
     tok.len = te-ts;
@@ -1200,7 +1192,6 @@ printf("INFINITY case te = p+1;\n");
   }
 	break;
 	case 7:
-  printf("INFINITY {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1222,7 +1213,6 @@ printf("INFINITY case te = p+1;\n");
   }
 	break;
 	case 16:
-  printf("MINUS case 16 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, MINUS, tok, q);
@@ -1253,7 +1243,6 @@ printf("INFINITY case te = p+1;\n");
   }
 	break;
 	case 26:
-  printf("case 26 %s\n", tok.s);
 	{{p = ((te))-1;}
     tok.numval = 0;
     tok.len = 1;
@@ -1274,7 +1263,6 @@ printf("INFINITY case te = p+1;\n");
     tok.s = ts + 2;
 
     if(tok.s[0] == 'w' && tok.s[1] == '\'' && tok.s[tok.len-1] == '\'') {
-      printf("WILDCARD in case 26\n");
       int is_attr = (*(ts + 4) == '$') ? 1 : 0;
       tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
       tok.len = te - (ts + 6 + is_attr);
@@ -1301,7 +1289,6 @@ printf("INFINITY case te = p+1;\n");
   }
 	break;
 	case 29:
-  printf("PREFIX case 29 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.numval = 0;
     tok.len = 1;
@@ -1361,7 +1348,7 @@ printf("INFINITY case te = p+1;\n");
 	}
 	}
 	break;
-/* #line 1356 "lexer.c" */
+/* #line 1352 "lexer.c" */
 		}
 	}
 
@@ -1374,7 +1361,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 1369 "lexer.c" */
+/* #line 1365 "lexer.c" */
 		}
 	}
 
@@ -1392,7 +1379,7 @@ _again:
 	_out: {}
 	}
 
-/* #line 600 "lexer.rl" */
+/* #line 596 "lexer.rl" */
 
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v3(pParser, 0, tok, q);
