@@ -1530,6 +1530,7 @@ cleanup:
 
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
 // If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
+// Notice that only OSS cluster should deal with such redirections.
 int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (argc < 2) {
@@ -2074,11 +2075,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RedisModule_CreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1));
 
   // Deprecated commands. Grouped here for easy tracking
-  // TODO: add deprecation warning? per-use or on load only?
-  RM_TRY(RedisModule_CreateCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1));
   if (RSBuildType_g == RSBuildType_OSS) {
+    RM_TRY(RedisModule_CreateCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1));
