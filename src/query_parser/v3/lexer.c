@@ -28,7 +28,7 @@ void *RSQuery_ParseAlloc_v3(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 
-/* #line 583 "lexer.rl" */
+/* #line 582 "lexer.rl" */
 
 
 
@@ -305,7 +305,7 @@ static const int query_error = -1;
 static const int query_en_main = 50;
 
 
-/* #line 586 "lexer.rl" */
+/* #line 585 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v3(rm_malloc);
@@ -322,7 +322,7 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
 	act = 0;
 	}
 
-/* #line 594 "lexer.rl" */
+/* #line 593 "lexer.rl" */
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
 
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -421,63 +421,63 @@ _eof_trans:
 	{te = p+1;}
 	break;
 	case 3:
-/* #line 91 "lexer.rl" */
+/* #line 90 "lexer.rl" */
 	{act = 1;}
 	break;
 	case 4:
-/* #line 103 "lexer.rl" */
+/* #line 102 "lexer.rl" */
 	{act = 2;}
 	break;
 	case 5:
-/* #line 115 "lexer.rl" */
+/* #line 114 "lexer.rl" */
 	{act = 3;}
 	break;
 	case 6:
-/* #line 125 "lexer.rl" */
+/* #line 124 "lexer.rl" */
 	{act = 4;}
 	break;
 	case 7:
-/* #line 145 "lexer.rl" */
+/* #line 144 "lexer.rl" */
 	{act = 6;}
 	break;
 	case 8:
-/* #line 155 "lexer.rl" */
+/* #line 154 "lexer.rl" */
 	{act = 7;}
 	break;
 	case 9:
-/* #line 214 "lexer.rl" */
+/* #line 213 "lexer.rl" */
 	{act = 14;}
 	break;
 	case 10:
-/* #line 230 "lexer.rl" */
+/* #line 229 "lexer.rl" */
 	{act = 16;}
 	break;
 	case 11:
-/* #line 246 "lexer.rl" */
+/* #line 245 "lexer.rl" */
 	{act = 18;}
 	break;
 	case 12:
-/* #line 278 "lexer.rl" */
+/* #line 277 "lexer.rl" */
 	{act = 23;}
 	break;
 	case 13:
-/* #line 281 "lexer.rl" */
+/* #line 280 "lexer.rl" */
 	{act = 25;}
 	break;
 	case 14:
-/* #line 292 "lexer.rl" */
+/* #line 291 "lexer.rl" */
 	{act = 26;}
 	break;
 	case 15:
-/* #line 412 "lexer.rl" */
+/* #line 411 "lexer.rl" */
 	{act = 29;}
 	break;
 	case 16:
-/* #line 503 "lexer.rl" */
+/* #line 502 "lexer.rl" */
 	{act = 32;}
 	break;
 	case 17:
-/* #line 135 "lexer.rl" */
+/* #line 134 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -489,7 +489,7 @@ _eof_trans:
   }}
 	break;
 	case 18:
-/* #line 155 "lexer.rl" */
+/* #line 154 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -502,7 +502,7 @@ _eof_trans:
   }}
 	break;
 	case 19:
-/* #line 166 "lexer.rl" */
+/* #line 165 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, QUOTE, tok, q);
@@ -512,7 +512,7 @@ _eof_trans:
   }}
 	break;
 	case 20:
-/* #line 174 "lexer.rl" */
+/* #line 173 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, OR, tok, q);
@@ -522,7 +522,7 @@ _eof_trans:
   }}
 	break;
 	case 21:
-/* #line 182 "lexer.rl" */
+/* #line 181 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LP, tok, q);
@@ -532,7 +532,7 @@ _eof_trans:
   }}
 	break;
 	case 22:
-/* #line 190 "lexer.rl" */
+/* #line 189 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RP, tok, q);
@@ -542,7 +542,7 @@ _eof_trans:
   }}
 	break;
 	case 23:
-/* #line 198 "lexer.rl" */
+/* #line 197 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
@@ -552,7 +552,7 @@ _eof_trans:
   }}
 	break;
 	case 24:
-/* #line 206 "lexer.rl" */
+/* #line 205 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RB, tok, q);
@@ -562,7 +562,7 @@ _eof_trans:
   }}
 	break;
 	case 25:
-/* #line 222 "lexer.rl" */
+/* #line 221 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, SEMICOLON, tok, q);
@@ -572,7 +572,7 @@ _eof_trans:
   }}
 	break;
 	case 26:
-/* #line 238 "lexer.rl" */
+/* #line 237 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, TILDE, tok, q);
@@ -582,7 +582,7 @@ _eof_trans:
   }}
 	break;
 	case 27:
-/* #line 254 "lexer.rl" */
+/* #line 253 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, PERCENT, tok, q);
@@ -592,7 +592,7 @@ _eof_trans:
   }}
 	break;
 	case 28:
-/* #line 262 "lexer.rl" */
+/* #line 261 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LSQB, tok, q);
@@ -602,7 +602,7 @@ _eof_trans:
   }}
 	break;
 	case 29:
-/* #line 270 "lexer.rl" */
+/* #line 269 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RSQB, tok, q);
@@ -612,19 +612,19 @@ _eof_trans:
   }}
 	break;
 	case 30:
-/* #line 277 "lexer.rl" */
+/* #line 276 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 31:
-/* #line 278 "lexer.rl" */
+/* #line 277 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 32:
-/* #line 279 "lexer.rl" */
+/* #line 278 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 33:
-/* #line 292 "lexer.rl" */
+/* #line 291 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -671,7 +671,7 @@ _eof_trans:
   }}
 	break;
 	case 34:
-/* #line 337 "lexer.rl" */
+/* #line 336 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -709,7 +709,7 @@ _eof_trans:
   }}
 	break;
 	case 35:
-/* #line 373 "lexer.rl" */
+/* #line 372 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -750,7 +750,7 @@ _eof_trans:
   }}
 	break;
 	case 36:
-/* #line 412 "lexer.rl" */
+/* #line 411 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -791,7 +791,7 @@ _eof_trans:
   }}
 	break;
 	case 37:
-/* #line 451 "lexer.rl" */
+/* #line 450 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -832,7 +832,7 @@ _eof_trans:
   }}
 	break;
 	case 38:
-/* #line 490 "lexer.rl" */
+/* #line 489 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -847,7 +847,7 @@ _eof_trans:
   }}
 	break;
 	case 39:
-/* #line 516 "lexer.rl" */
+/* #line 515 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -862,7 +862,7 @@ _eof_trans:
   }}
 	break;
 	case 40:
-/* #line 529 "lexer.rl" */
+/* #line 528 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -877,7 +877,7 @@ _eof_trans:
   }}
 	break;
 	case 41:
-/* #line 542 "lexer.rl" */
+/* #line 541 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -919,7 +919,7 @@ _eof_trans:
   }}
 	break;
 	case 42:
-/* #line 91 "lexer.rl" */
+/* #line 90 "lexer.rl" */
 	{te = p;p--;{
     tok.s = ts;
     tok.len = te-ts;
@@ -933,7 +933,7 @@ _eof_trans:
   }}
 	break;
 	case 43:
-/* #line 103 "lexer.rl" */
+/* #line 102 "lexer.rl" */
 	{te = p;p--;{
     tok.s = ts;
     tok.len = te-ts;
@@ -947,7 +947,7 @@ _eof_trans:
   }}
 	break;
 	case 44:
-/* #line 125 "lexer.rl" */
+/* #line 124 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -959,7 +959,7 @@ _eof_trans:
   }}
 	break;
 	case 45:
-/* #line 155 "lexer.rl" */
+/* #line 154 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -972,7 +972,7 @@ _eof_trans:
   }}
 	break;
 	case 46:
-/* #line 214 "lexer.rl" */
+/* #line 213 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, COLON, tok, q);
@@ -982,7 +982,7 @@ _eof_trans:
   }}
 	break;
 	case 47:
-/* #line 230 "lexer.rl" */
+/* #line 229 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, MINUS, tok, q);
@@ -992,7 +992,7 @@ _eof_trans:
   }}
 	break;
 	case 48:
-/* #line 246 "lexer.rl" */
+/* #line 245 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, STAR, tok, q);
@@ -1002,11 +1002,11 @@ _eof_trans:
   }}
 	break;
 	case 49:
-/* #line 278 "lexer.rl" */
+/* #line 277 "lexer.rl" */
 	{te = p;p--;}
 	break;
 	case 50:
-/* #line 281 "lexer.rl" */
+/* #line 280 "lexer.rl" */
 	{te = p;p--;{
     tok.len = te-ts;
     tok.s = ts;
@@ -1019,7 +1019,7 @@ _eof_trans:
   }}
 	break;
 	case 51:
-/* #line 292 "lexer.rl" */
+/* #line 291 "lexer.rl" */
 	{te = p;p--;{
     tok.numval = 0;
     tok.len = 1;
@@ -1066,7 +1066,7 @@ _eof_trans:
   }}
 	break;
 	case 52:
-/* #line 503 "lexer.rl" */
+/* #line 502 "lexer.rl" */
 	{te = p;p--;{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1081,7 +1081,7 @@ _eof_trans:
   }}
 	break;
 	case 53:
-/* #line 103 "lexer.rl" */
+/* #line 102 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.s = ts;
     tok.len = te-ts;
@@ -1095,7 +1095,7 @@ _eof_trans:
   }}
 	break;
 	case 54:
-/* #line 214 "lexer.rl" */
+/* #line 213 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, COLON, tok, q);
@@ -1105,7 +1105,7 @@ _eof_trans:
   }}
 	break;
 	case 55:
-/* #line 246 "lexer.rl" */
+/* #line 245 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, STAR, tok, q);
@@ -1115,11 +1115,11 @@ _eof_trans:
   }}
 	break;
 	case 56:
-/* #line 278 "lexer.rl" */
+/* #line 277 "lexer.rl" */
 	{{p = ((te))-1;}}
 	break;
 	case 57:
-/* #line 503 "lexer.rl" */
+/* #line 502 "lexer.rl" */
 	{{p = ((te))-1;}{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1383,7 +1383,7 @@ _again:
 	_out: {}
 	}
 
-/* #line 602 "lexer.rl" */
+/* #line 601 "lexer.rl" */
 
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v3(pParser, 0, tok, q);
