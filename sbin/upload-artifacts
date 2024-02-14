@@ -31,7 +31,13 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-ARCH=$($READIES/bin/platform --arch)
+if [[ $OS_TYPE = 'Darwin' ]]
+then
+    $ARCH="aarch64"
+else
+    $ARCH=$(uname -m)
+fi
+
 [[ $ARCH == x64 ]] && ARCH="x86_64"
 
 OS=$($READIES/bin/platform --os)
@@ -121,8 +127,8 @@ s3_upload() {
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
-		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz `; do
 		#for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz 2> /dev/null`; do
+		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz `; do
 			s3_upload_file $file $upload_dir
 		done
 	else
