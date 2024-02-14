@@ -293,4 +293,5 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
 
 
     master.execute_command('FLUSHALL')
-    env.expect('WAIT', '1', '10000').equal(1)
+    res = master.execute_command('WAIT', '1', '10000')
+    env.assertEqual(res, 1)
