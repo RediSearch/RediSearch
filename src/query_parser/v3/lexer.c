@@ -490,6 +490,7 @@ _eof_trans:
 	break;
 	case 18:
 /* #line 153 "lexer.rl" */
+printf("INFINITY case te = p+1;\n");
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -792,6 +793,7 @@ _eof_trans:
 	break;
 	case 37:
 /* #line 449 "lexer.rl" */
+  printf("CONTAINS case te = p+1;\n");
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -814,7 +816,9 @@ _eof_trans:
     tok.s = ts + 3 + is_attr;
     tok.pos = tok.s - q->raw;
     // Invalid case: wildcard and contains
+    printf("tok.s[0] = %c, tok.s[1] = %c\n", tok.s[0], tok.s[1]);
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      printf("Invalid case: wildcard and contains\n");
       {p++; goto _out; }
     }
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
@@ -960,6 +964,7 @@ _eof_trans:
 	break;
 	case 45:
 /* #line 153 "lexer.rl" */
+  printf("INFINITY case 45 te = p;p--;\n");
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1082,6 +1087,7 @@ _eof_trans:
 	break;
 	case 53:
 /* #line 101 "lexer.rl" */
+  printf("NUMBER case 53 p = ((te))-1;\n");
 	{{p = ((te))-1;}{
     tok.s = ts;
     tok.len = te-ts;
@@ -1150,6 +1156,7 @@ _eof_trans:
   }
 	break;
 	case 2:
+  printf("case 2  NUMBER {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.s = ts;
     tok.len = te-ts;
@@ -1196,6 +1203,7 @@ _eof_trans:
   }
 	break;
 	case 7:
+  printf("INFINITY {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1208,28 +1216,34 @@ _eof_trans:
   }
 	break;
 	case 14:
+  printf("COLON case 14 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, COLON, tok, q);
     if (!QPCTX_ISOK(q)) {
+      printf("Nafraf: COLON error case 14\n");
       {p++; goto _out; }
     }
   }
 	break;
 	case 16:
+  printf("MINUS case 16 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, MINUS, tok, q);
     if (!QPCTX_ISOK(q)) {
+      printf("Nafraf: MINUS error case 14\n");
       {p++; goto _out; }
     }
   }
 	break;
 	case 18:
+  printf("STAR case 14 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, STAR, tok, q);
     if (!QPCTX_ISOK(q)) {
+      printf("Nafraf: STAR error case 14\n");
       {p++; goto _out; }
     }
   }
@@ -1247,6 +1261,7 @@ _eof_trans:
   }
 	break;
 	case 26:
+  printf("case 26 %s\n", tok.s);
 	{{p = ((te))-1;}
     tok.numval = 0;
     tok.len = 1;
@@ -1266,7 +1281,9 @@ _eof_trans:
     tok.len = te - (ts + 3);
     tok.s = ts + 2;
 
+    printf("tok.s[0] = %c\n", tok.s[0]);
     if(tok.s[0] == 'w' && tok.s[1] == '\'' && tok.s[tok.len-1] == '\'') {
+      printf("WILDCARD in case 26\n");
       int is_attr = (*(ts + 4) == '$') ? 1 : 0;
       tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
       tok.len = te - (ts + 6 + is_attr);
@@ -1293,6 +1310,7 @@ _eof_trans:
   }
 	break;
 	case 29:
+  printf("PREFIX case 29 {p = ((te))-1;\n");
 	{{p = ((te))-1;}
     tok.numval = 0;
     tok.len = 1;
@@ -1342,6 +1360,7 @@ _eof_trans:
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
+      printf("Nafraf: SUFFIX error case 32\n");
       {p++; goto _out; }
     }
   }

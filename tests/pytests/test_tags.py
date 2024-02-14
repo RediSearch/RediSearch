@@ -583,6 +583,8 @@ def testTagAutoescaping(env):
     else:
         env.assertEqual(res, "TAG:@tag {\n  w\\'???1a\n}\n")
 
+
+def testInvalidTags(env):
     # invalid syntax
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{ w'?*1'}", 'DIALECT', 5)
@@ -594,5 +596,8 @@ def testTagAutoescaping(env):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'}", 'DIALECT', 5)
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}", 'DIALECT', 5)
         env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}", 'DIALECT', 5)
+        env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})", 'DIALECT', 5)
+        env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})", 'DIALECT', 5)
+        env.cmd("FT.SEARCH idx \"@tag:{*w'-abc*}\" DIALECT 5")
         
         
