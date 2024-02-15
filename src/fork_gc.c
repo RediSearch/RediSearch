@@ -90,7 +90,7 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
       buf += nrecvd;
       len -= nrecvd;
     } else if (nrecvd < 0 && errno != EINTR) {
-			RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
+	  RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
       return REDISMODULE_ERR;
     }
   }
@@ -522,12 +522,12 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
-	RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-	RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
-	FGC_childCollectTerms(gc, &sctx);
-	FGC_childCollectNumeric(gc, &sctx);
-	FGC_childCollectTags(gc, &sctx);
-	RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+  FGC_childCollectTerms(gc, &sctx);
+  FGC_childCollectNumeric(gc, &sctx);
+  FGC_childCollectTags(gc, &sctx);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
 }
 
 typedef struct {
@@ -1090,7 +1090,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
 FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
-	RedisModule_Log(gc->ctx, "debug", "ForkGC - parent start applying changes");
+  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent start applying changes");
 
 #define COLLECT_FROM_CHILD(e)               \
   while ((status = (e)) == FGC_COLLECTED) { \
@@ -1102,7 +1102,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
-	RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
+  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
 
   return status;
 }
