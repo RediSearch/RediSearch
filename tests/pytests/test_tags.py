@@ -485,12 +485,8 @@ def testTagAutoescaping(env):
     env.assertEqual(res, "TAG:@tag {\n  PREFIX{a-b-c*}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{a-b-c\\*}', 'DIALECT', 5)
-    # TODO: the format in the cluster test is different
-    if not env.isCluster():    
-        env.assertEqual(res, 'TAG:@tag {\n  a-b-c*\n}\n')
-    else:
-        env.assertEqual(res, 'TAG:@tag {\n  a-b-c\\*\n}\n')
-    
+    env.assertEqual(res, 'TAG:@tag {\n  a-b-c*\n}\n')
+
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{abc\\*yxv*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc*yxv*}\n}\n')
 
@@ -516,11 +512,7 @@ def testTagAutoescaping(env):
     env.assertEqual(res, "TAG:@tag {\n  SUFFIX{*a-b-c}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{\\*a-b-c}', 'DIALECT', 5)
-    # TODO: the format in the cluster tests is different
-    if not env.isCluster():
-        env.assertEqual(res, 'TAG:@tag {\n  *a-b-c\n}\n')
-    else:
-        env.assertEqual(res, 'TAG:@tag {\n  \\*a-b-c\n}\n')
+    env.assertEqual(res, 'TAG:@tag {\n  *a-b-c\n}\n')
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  SUFFIX{*abc*yxv}\n}\n')
@@ -539,11 +531,7 @@ def testTagAutoescaping(env):
     env.assertEqual(res, "TAG:@tag {\n  INFIX{*a-b-c*}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{\\*a-b-c\\*}', 'DIALECT', 5)
-    # TODO: the format in the cluster tests is different
-    if not env.isCluster():
-        env.assertEqual(res, 'TAG:@tag {\n  *a-b-c*\n}\n')
-    else:
-        env.assertEqual(res, 'TAG:@tag {\n  \\*a-b-c\\*\n}\n')
+    env.assertEqual(res, 'TAG:@tag {\n  *a-b-c*\n}\n')
 
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*abc\\*yxv:*}', 'DIALECT', 5)
     env.assertEqual(res, 'TAG:@tag {\n  INFIX{*abc*yxv:*}\n}\n')
@@ -595,13 +583,8 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
 
-    # TODO: the format in the cluster tests is different
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
-    if not env.isCluster():
-        env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
-    else:
-        env.assertEqual(res, "TAG:@tag {\n  w\\'???1a\n}\n")
-
+    env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
 
 def testInvalidSyntax(env):
     # Create index
