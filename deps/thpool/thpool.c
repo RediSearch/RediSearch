@@ -118,7 +118,7 @@ static int priority_queue_init(priority_queue* priority_queue_p, size_t n_thread
                                size_t num_privileged_threads);
 static void priority_queue_clear(priority_queue* priority_queue_p);
 static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job* first_newjob, struct job* last_newjob, size_t num, thpool_priority priority);
-static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t cur_thread_ticket);
+static struct job* priority_queue_pull(priority_queue* priority_queue_p);
 static void priority_queue_destroy(priority_queue* priority_queue_p);
 static size_t priority_queue_len(priority_queue* priority_queue_p);
 static size_t priority_queue_len_unsafe(priority_queue* priority_queue_p);
@@ -186,6 +186,8 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t* thpool_p) 
   if (thpool_p->state != THPOOL_UNINITIALIZED) return; // Already initialized or should be kept dead
   thpool_p->state = THPOOL_KEEP_ALIVE;
   thpool_p->jobqueue.should_run = true;
+  // Threads from previous instalization might have exit the loop and terminate before trying to pull a job from the queue.
+  thpool_p->jobqueue.num_threads_working = 0;
 
   /* Thread init */
   for (size_t n = 0; n < thpool_p->total_threads_count; n++) {
@@ -264,9 +266,13 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   priority_queue* priority_queue_p = &thpool_p->jobqueue;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
   while (priority_queue_len_unsafe(&thpool_p->jobqueue) || priority_queue_p->num_threads_working) {
+    LOG_IF_EXISTS("verbose", "slepeping in wait, num_threads_working = %zu, len = %zu", priority_queue_p->num_threads_working, priority_queue_len_unsafe(&thpool_p->jobqueue))
     pthread_cond_wait(&priority_queue_p->threads_all_idle, &priority_queue_p->jobqueues_rwmutex);
+
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  LOG_IF_EXISTS("verbose", "finish wait")
+
 }
 
 void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
@@ -310,6 +316,7 @@ void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
     }
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  LOG_IF_EXISTS("verbose", "Drain finished")
 }
 
 static void redisearch_thpool_terminate_threads_common(redisearch_thpool_t* thpool_p, thpool_state new_state) {
@@ -456,7 +463,7 @@ static void* thread_do(struct thread* thread_p) {
     /* Read job from queue and execute it */
     void (*func_buff)(void*);
     void* arg_buff;
-    job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
+    job* job_p = priority_queue_pull(&thpool_p->jobqueue);
     if (job_p) {
       func_buff = job_p->function;
       arg_buff = job_p->arg;
@@ -607,22 +614,27 @@ static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job*
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
-static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t cur_thread_ticket) {
+static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
   priority_queue_p->num_threads_working--;
 
   if (priority_queue_p->num_threads_working == 0) {
+    RedisModule_Log(NULL, "verbose", "num_threads_working == 0, signaling");
     pthread_cond_signal(&priority_queue_p->threads_all_idle);
   }
 
   while (jobqueue_is_empty(&priority_queue_p->high_priority_jobqueue) &&
          jobqueue_is_empty(&priority_queue_p->low_priority_jobqueue) &&
          priority_queue_p->should_run) {
+    RedisModule_Log(NULL, "verbose", "ngping to sleep");
+
     pthread_cond_wait(&priority_queue_p->cond, &priority_queue_p->jobqueues_rwmutex);
   }
 
   if (!priority_queue_p->should_run) {
+    RedisModule_Log(NULL, "verbose", "!priority_queue_p->should_run return, num_threads_working= %zu", priority_queue_p->num_threads_working);
+
     pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
     return NULL;
   }
@@ -651,6 +663,7 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t 
     }
     priority_queue_p->pulls++;
   }
+  RedisModule_Log(NULL, "verbose", "pulled job");
 
   priority_queue_p->num_threads_working++;
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
