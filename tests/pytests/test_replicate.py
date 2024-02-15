@@ -105,11 +105,11 @@ def testDropReplicate():
     for j in range(100):
       geo = '1.23456,' + str(float(j) / 100)
       master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
-    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+    env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1) # wait for master and slave to be in sync
 
   def master_command(*cmd):
     master.execute_command(*cmd)
-    env.expect('WAIT', '1', '10000').equal(1) # wait for master and slave to be in sync
+    env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1) # wait for master and slave to be in sync
 
   load_master()
 
@@ -293,4 +293,5 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
 
 
     master.execute_command('FLUSHALL')
-    env.expect('WAIT', '1', '10000').equal(1)
+    res = master.execute_command('WAIT', '1', '10000')
+    env.assertEqual(res, 1)
