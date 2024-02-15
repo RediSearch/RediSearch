@@ -701,7 +701,7 @@ elif [[ $COORD == oss ]]; then
 	# passing PINGs between shards
   	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
-	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then

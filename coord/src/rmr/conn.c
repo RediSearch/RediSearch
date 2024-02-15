@@ -7,7 +7,6 @@
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
-#include "search_cluster.h"
 
 #include <uv.h>
 #include <signal.h>
@@ -205,9 +204,6 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
 
   int n = 0;
   dictIterator *it = dictGetIterator(m->map);
-  char *key;
-  tm_len_t len;
-  void *p;
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
@@ -439,6 +435,74 @@ static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
 error:
     if (ssl_ctx) SSL_CTX_free(ssl_ctx);
     return NULL;
+}
+
+
+static char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
+  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+  if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
+    return NULL;
+  }
+  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
+  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
+  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+
+  char* res = rm_calloc(1, len + 1);
+  memcpy(res, valueRepCStr, len);
+
+  RedisModule_FreeCallReply(rep);
+
+  return res;
+}
+
+extern RedisModuleCtx *RSDummyContext;
+static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
+  int ret = 1;
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModule_ThreadSafeContextLock(ctx);
+  char* clusterTls = NULL;
+  char* tlsPort = NULL;
+
+  clusterTls = getConfigValue(ctx, "tls-cluster");
+  if (!clusterTls || strcmp(clusterTls, "yes")) {
+    tlsPort = getConfigValue(ctx, "tls-port");
+    if (!tlsPort || !strcmp(tlsPort, "0")) {
+      ret = 0;
+      goto done;
+    }
+  }
+
+  *client_key = getConfigValue(ctx, "tls-key-file");
+  *client_cert = getConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
+
+  if (!*client_key || !*client_cert || !*ca_cert){
+    ret = 0;
+    if(*client_key){
+      rm_free(*client_key);
+    }
+    if(*client_cert){
+      rm_free(*client_cert);
+    }
+    if(*ca_cert){
+      rm_free(*client_cert);
+    }
+  }
+
+done:
+  if (clusterTls) {
+    rm_free(clusterTls);
+  }
+  if (tlsPort) {
+    rm_free(tlsPort);
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return ret;
 }
 
 /* hiredis async connect callback */
