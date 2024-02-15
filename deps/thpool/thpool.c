@@ -266,12 +266,10 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   priority_queue* priority_queue_p = &thpool_p->jobqueue;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
   while (priority_queue_len_unsafe(&thpool_p->jobqueue) || priority_queue_p->num_threads_working) {
-    LOG_IF_EXISTS("verbose", "slepeping in wait, num_threads_working = %zu, len = %zu", priority_queue_p->num_threads_working, priority_queue_len_unsafe(&thpool_p->jobqueue))
     pthread_cond_wait(&priority_queue_p->threads_all_idle, &priority_queue_p->jobqueues_rwmutex);
 
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
-  LOG_IF_EXISTS("verbose", "finish wait")
 
 }
 
@@ -316,7 +314,6 @@ void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
     }
   }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
-  LOG_IF_EXISTS("verbose", "Drain finished")
 }
 
 static void redisearch_thpool_terminate_threads_common(redisearch_thpool_t* thpool_p, thpool_state new_state) {
@@ -620,14 +617,12 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   priority_queue_p->num_threads_working--;
 
   if (priority_queue_p->num_threads_working == 0) {
-    RedisModule_Log(NULL, "verbose", "num_threads_working == 0, signaling");
     pthread_cond_signal(&priority_queue_p->threads_all_idle);
   }
 
   while (jobqueue_is_empty(&priority_queue_p->high_priority_jobqueue) &&
          jobqueue_is_empty(&priority_queue_p->low_priority_jobqueue) &&
          priority_queue_p->should_run) {
-    RedisModule_Log(NULL, "verbose", "ngping to sleep");
 
     pthread_cond_wait(&priority_queue_p->cond, &priority_queue_p->jobqueues_rwmutex);
   }
@@ -663,8 +658,6 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
     }
     priority_queue_p->pulls++;
   }
-  RedisModule_Log(NULL, "verbose", "pulled job");
-
   priority_queue_p->num_threads_working++;
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 
