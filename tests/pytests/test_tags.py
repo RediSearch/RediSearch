@@ -513,7 +513,6 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
 
-
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param}',
                   'PARAMS', '2', 'param', 'xyz:2',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)

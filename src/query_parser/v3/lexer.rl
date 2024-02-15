@@ -80,7 +80,8 @@ assign_attr = arrow lb attr colon escaped_term rb $2;
 contains_tag = colon lb star.single_tag.star rb $1;
 prefix_tag = colon lb single_tag.star rb $1;
 suffix_tag = colon lb star.single_tag rb $1;
-unescaped_tag = colon lb ( single_tag | escape wildcard | escape 'w' single_tag) rb $1;
+unescaped_tag = colon lb (single_tag | escape wildcard) rb $1;
+unescaped_tag2 = colon lb (escape 'w' single_tag) rb $1;
 wildcard_tag = colon lb wildcard rb $1;
 wildcard_txt = colon lp wildcard rp $1;
 
@@ -318,6 +319,42 @@ main := |*
       tok.type = QT_TERM;
       RSQuery_Parse_v3(pParser, UNESCAPED_TAG, tok, q);
     }
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+  };
+
+  unescaped_tag2 => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = te - (ts + 3);
+    tok.s = ts + 2;
+    tok.pos = tok.s - q->raw;
+    tok.type = QT_TERM;
+    RSQuery_Parse_v3(pParser, UNESCAPED_TAG, tok, q);
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
