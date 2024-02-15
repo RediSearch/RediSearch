@@ -1044,7 +1044,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    if (!it) return NULL;
+    if (!it) {
+      rm_free(its);
+      return NULL;
+    }
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
 
@@ -1056,7 +1059,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         it->mode = TM_SUFFIX_MODE;
       }
     }
-
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
@@ -1080,7 +1082,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
                                                 qn->pfx.prefix, q->sctx->timeout);
-    if (!arr) return NULL;
+    if (!arr) {
+      rm_free(its);
+      return NULL;
+    }
     for (int i = 0; i < array_len(arr); ++i) {
       size_t iarrlen = array_len(arr);
       for (int j = 0; j < array_len(arr[i]); ++j) {
@@ -1102,14 +1107,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     array_free(arr);
   }
 
-  // printf("Expanded %d terms!\n", itsSz);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
-  if (itsSz == 1) {
-    // TODO:
-    IndexIterator *iter = its[0];
+  if (itsSz < 2) {
+    IndexIterator *iter = itsSz ? its[0] : NULL;
     rm_free(its);
     return iter;
   }
@@ -1392,17 +1391,17 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
+int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
+               const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
-    dst->query = rm_strndup(q, n);
-    dst->nquery = n;
+    dst->query = rm_strndup(qstr, len);
+    dst->nquery = len;
   }
   QueryParseCtx qpCtx = {// force multiline
                          .raw = dst->query,
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
-                         .opts = opts,
+                         .opts = sopts,
                          .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL
@@ -1708,7 +1707,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      if(qs->pfx.prefix && qs->pfx.suffix) {
+        s = sdscatprintf(s, "INFIX{*%s*", (char *)qs->pfx.tok.str);
+      } else if (qs->pfx.suffix) {
+        s = sdscatprintf(s, "SUFFIX{*%s", (char *)qs->pfx.tok.str);
+      } else {
+        s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      }
       break;
 
     case QN_LEXRANGE:

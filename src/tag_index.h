@@ -76,7 +76,7 @@ extern "C" {
  *    @tags:{hello world | foo bar}
  *
  * **IMPORTANT**: When specifying multiple tags in the same tag clause, the semantic meaning is a
- *    **UNION** of the documents containing any of the tags (as in a SQL WHERE IN clause).
+ *    **UNION** of the documents containing any of the tags (as in an SQL WHERE IN clause).
  *    If you need to intersect tags, you should repeat several tag clauses.
  *    For example:
  *

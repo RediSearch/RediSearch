@@ -16,13 +16,13 @@
 typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterType;
 
 typedef struct {
-  size_t numPartitions;
   MRClusterType type;
   int timeoutMS;
   const char* globalPass;
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
+  size_t topologyValidationTimeoutMS;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -34,23 +34,18 @@ extern SearchClusterConfig clusterConfig;
 
 #define DEFAULT_CLUSTER_CONFIG                                                             \
   (SearchClusterConfig) {                                                                  \
-    .numPartitions = 0,                                                                    \
     .connPerShard = 0,                                                                     \
     .type = DetectClusterType(),                                                           \
     .timeoutMS = 0,                                                                        \
     .globalPass = NULL,                                                                    \
     .cursorReplyThreshold = 1,                                                             \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
+    .topologyValidationTimeoutMS = 30000,                                                  \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
  * If we cannot determine, we return OSS type anyway
  */
 MRClusterType DetectClusterType();
-
-/* Load the configuration from the module arguments.
- * Argument format: PARTITIONS {num_partitions} ENDPOINT {[password@]host:port}
- */
-int ParseConfig(SearchClusterConfig *conf, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 RSConfigOptions *GetClusterConfigOptions(void);
