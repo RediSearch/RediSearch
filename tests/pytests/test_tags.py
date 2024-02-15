@@ -576,6 +576,9 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{\\w'-abc})", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  \\w'-abc\n}\n")
 
+    res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})", 'DIALECT', 5)
+    env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
+
     # TODO: the format in the cluster tests is different
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
     if not env.isCluster():
