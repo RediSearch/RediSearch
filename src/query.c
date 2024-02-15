@@ -986,7 +986,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    if (!it) return NULL;
+    if (!it) {
+      rm_free(its);
+      return NULL;
+    }
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
 
@@ -998,7 +1001,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         it->mode = TM_SUFFIX_MODE;
       }
     }
-
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
@@ -1022,7 +1024,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
                                                 qn->pfx.prefix, q->sctx->timeout);
-    if (!arr) return NULL;
+    if (!arr) {
+      rm_free(its);
+      return NULL;
+    }
     for (int i = 0; i < array_len(arr); ++i) {
       size_t iarrlen = array_len(arr);
       for (int j = 0; j < array_len(arr[i]); ++j) {
@@ -1044,14 +1049,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     array_free(arr);
   }
 
-  // printf("Expanded %d terms!\n", itsSz);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
-  if (itsSz == 1) {
-    // TODO:
-    IndexIterator *iter = its[0];
+  if (itsSz < 2) {
+    IndexIterator *iter = itsSz ? its[0] : NULL;
     rm_free(its);
     return iter;
   }
