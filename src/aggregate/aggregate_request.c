@@ -993,7 +993,15 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (opts->language == RS_LANG_INDEX_DEFAULT) {
-    opts->language = index->rule->lang_default;
+    if (index->rule->lang_field != NULL) {
+      if (index->rule->lang_per_field != RS_LANG_UNSUPPORTED) {
+        opts->language = index->rule->lang_per_field;
+      } else {
+        opts->language = index->rule->lang_default;
+      }
+    } else {
+      opts->language = index->rule->lang_default;
+    }
   } else if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;

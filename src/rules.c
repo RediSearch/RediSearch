@@ -112,6 +112,8 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
+  rule->lang_per_field = RS_LANG_INDEX_DEFAULT;
+
   rule->prefixes = array_new(const char *, 1);
   for (int i = 0; i < args->nprefixes; ++i) {
     const char *p = rm_strdup(args->prefixes[i]);
