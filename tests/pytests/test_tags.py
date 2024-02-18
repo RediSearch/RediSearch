@@ -550,12 +550,8 @@ def testEmptyValueTags(env):
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY', 'text', 'TEXT').ok()
-
-    # Create a document with an empty field, corresponding to the TAG field of
-    # the index (use cluster connection - for rerouting).
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'h1', 't', '')
-
     testHashIndex(env, 'idx')
     env.flush()
 
