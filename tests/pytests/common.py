@@ -607,3 +607,7 @@ def verify_shard_init(env, shard=None):
         raise Exception('Expected FT.SEARCH to fail')
     except redis_exceptions.ResponseError as e:
         env.assertContains('no such index', str(e))
+
+def cmd_assert(env, cmd, res):
+    db_res = env.cmd(*cmd)
+    env.assertEqual(db_res, res)

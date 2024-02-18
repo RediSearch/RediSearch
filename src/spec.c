@@ -425,6 +425,8 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+      fs->options |= FieldSpec_IndexEmpty;
     } else {
       break;
     }
@@ -817,6 +819,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
         fs->options |= FieldSpec_WithSuffixTrie;
+      } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+        fs->options |= FieldSpec_IndexEmpty;
       } else {
         break;
       }
@@ -903,7 +907,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
-  if (ac->offset == ac->argc) {
+  if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Fields arguments are missing");
     return 0;
   }
@@ -968,7 +972,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         }
       }
       fs->ftId = textId;
-      if isSpecJson (sp) {
+      if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
           JSONPath jsonPath = pathParse(fs->path, &err_msg);
