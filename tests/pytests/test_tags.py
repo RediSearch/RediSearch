@@ -621,8 +621,8 @@ def testEmptyValueTags(env):
         'arr': ['a', '', 'c']
     }
     arrs = json.dumps(arr, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'EMPTY').ok()
+    env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
     cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
     expected = [1, 'j', ['$', arrs]]
     cmd_assert(env, cmd, expected)
