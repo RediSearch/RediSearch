@@ -86,8 +86,8 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
       buf += nrecvd;
       len -= nrecvd;
     } else if (nrecvd < 0 && errno != EINTR) {
-	  RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
-	  return REDISMODULE_ERR;
+      RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
+      return REDISMODULE_ERR;
     }
   }
   return REDISMODULE_OK;
