@@ -54,7 +54,7 @@ static void spellcheckReducerCtx_Free(spellcheckReducerCtx* ctx) {
   rm_free(ctx);
 }
 
-static spellCheckReducerTerm *spellcheckReducerCtx_GetOrCreateTermSuggerstions(
+static spellCheckReducerTerm *spellcheckReducerCtx_GetOrCreateTermSuggestions(
     spellcheckReducerCtx *ctx, const char *term) {
   spellCheckReducerTerm *reducer_term = NULL;
   for (int i = 0; i < array_len(ctx->terms); ++i) {
@@ -72,13 +72,13 @@ static spellCheckReducerTerm *spellcheckReducerCtx_GetOrCreateTermSuggerstions(
 
 static void spellcheckReducerCtx_AddTermSuggestion(spellcheckReducerCtx* ctx, const char* term,
                                                    const char* suggestion, double score) {
-  spellCheckReducerTerm *reducer_term = spellcheckReducerCtx_GetOrCreateTermSuggerstions(ctx, term);
+  spellCheckReducerTerm *reducer_term = spellcheckReducerCtx_GetOrCreateTermSuggestions(ctx, term);
   spellCheckReducerTerm_AddSuggestion(reducer_term, suggestion, score);
 }
 
 static void spellcheckReducerCtx_AddTermAsFoundInIndex(spellcheckReducerCtx* ctx,
                                                        const char* term) {
-  spellCheckReducerTerm* reducer_term = spellcheckReducerCtx_GetOrCreateTermSuggerstions(ctx, term);
+  spellCheckReducerTerm* reducer_term = spellcheckReducerCtx_GetOrCreateTermSuggestions(ctx, term);
   reducer_term->foundInIndex = true;
 }
 
@@ -135,7 +135,7 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   return true;
 }
 
-static bool spellCheckAnalizeResult_resp2(spellcheckReducerCtx *ctx, MRReply *reply) {
+static bool spellCheckAnalyzeResult_resp2(spellcheckReducerCtx *ctx, MRReply *reply) {
   if (MRReply_Length(reply) != 3) {
     return false;
   }
@@ -195,13 +195,13 @@ static bool spellCheckAnalizeResult_resp2(spellcheckReducerCtx *ctx, MRReply *re
   }
 
   if (i == 0) {
-    spellcheckReducerCtx_GetOrCreateTermSuggerstions(ctx, term);
+    spellcheckReducerCtx_GetOrCreateTermSuggestions(ctx, term);
   }
 
   return true;
 }
 
-static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx *ctx, MRReply *termReply, MRReply *suggestions) {
+static bool spellCheckAnalyzeResult_resp3(spellcheckReducerCtx *ctx, MRReply *termReply, MRReply *suggestions) {
   const char* term = MRReply_String(termReply, NULL);
 
   int type = MRReply_Type(suggestions);
@@ -228,7 +228,7 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx *ctx, MRReply *te
 
     MRReply *suggestionReply = MRReply_ArrayElement(termSuggestion, 0);
     MRReply *scoreReply = MRReply_ArrayElement(termSuggestion, 1);
-  
+
     if (MRReply_Type(scoreReply) != MR_REPLY_DOUBLE) {
       return false;
     }
@@ -243,7 +243,7 @@ static bool spellCheckAnalizeResult_resp3(spellcheckReducerCtx *ctx, MRReply *te
   }
 
   if (i == 0) {
-    spellcheckReducerCtx_GetOrCreateTermSuggerstions(ctx, term);
+    spellcheckReducerCtx_GetOrCreateTermSuggestions(ctx, term);
   }
 
   return true;
@@ -295,7 +295,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
         goto finish;
       }
 
-      if (!spellCheckAnalizeResult_resp2(spellcheckCtx, term)) {
+      if (!spellCheckAnalyzeResult_resp2(spellcheckCtx, term)) {
         error = "could not analyze term result";
         goto finish;
       }
@@ -354,14 +354,14 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     for (int j = 0; j < MRReply_Length(termMap); j += 2) {
       MRReply *term = MRReply_ArrayElement(termMap, j);
       MRReply *suggestions = MRReply_ArrayElement(termMap, j + 1);
-      int sugg_type = MRReply_Type(suggestions); // either an array of ERR(SPELL_CHECK_FOUND_TERM_IN_INDEX)
+      int sug_type = MRReply_Type(suggestions); // either an array of ERR(SPELL_CHECK_FOUND_TERM_IN_INDEX)
       if (MRReply_Type(term) != MR_REPLY_STRING
-         || (sugg_type != MR_REPLY_ARRAY && sugg_type != MR_REPLY_ERROR)) {
+         || (sug_type != MR_REPLY_ARRAY && sug_type != MR_REPLY_ERROR)) {
         error = "bad reply returned";
         goto finish;
       }
 
-      if (!spellCheckAnalizeResult_resp3(spellcheckCtx, term, suggestions)) {
+      if (!spellCheckAnalyzeResult_resp3(spellcheckCtx, term, suggestions)) {
         error = "could not analyze term result";
         goto finish;
       }

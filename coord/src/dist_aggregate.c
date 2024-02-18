@@ -7,7 +7,6 @@
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
-#include "search_cluster.h"
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
@@ -41,8 +40,9 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   MRCommand newCmd;
   char buf[128];
   sprintf(buf, "%lld", cursorId);
-  int shardingKey = MRCommand_GetShardingKey(cmd);
-  const char *idx = MRCommand_ArgStringPtrLen(cmd, shardingKey, NULL);
+  // AGGREGATE commands has the index name at position 1
+  // while CURSOR READ/DEL commands has it at position 2
+  const char *idx = MRCommand_ArgStringPtrLen(cmd, cmd->rootCommand == C_AGG ? 1 : 2, NULL);
   // If we timed out and not in cursor mode, we want to send the shard a DEL
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
@@ -159,7 +159,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRIteratorCallback_ProcessDone(ctx);
   } else {
     // resend command
-    if (MRIteratorCallback_ResendCommand(ctx, cmd) == REDIS_ERR) {
+    if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
       MRIteratorCallback_Done(ctx, 1);
       rc = REDIS_ERR;
     }
@@ -240,12 +240,10 @@ typedef struct {
   size_t curIdx;
   MRIterator *it;
   MRCommand cmd;
-  MRCommandGenerator cg;
   AREQ *areq;
 
   // profile vars
-  MRReply **shardsProfile;
-  int shardsProfileIdx;
+  arrayof(MRReply *) shardsProfile;
 } RPNet;
 
 static int getNextReply(RPNet *nc) {
@@ -351,7 +349,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
-          nc->shardsProfile[nc->shardsProfileIdx++] = root;
+          array_ensure_append_1(nc->shardsProfile, root);
         } else {
           // Check for a warning (resp3 only)
           MRReply *warning = MRReply_MapElement(rows, "warning");
@@ -465,7 +463,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(nc->cg, netCursorCallback);
+  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -482,32 +480,28 @@ static void rpnetFree(ResultProcessor *rp) {
   // them...
   if (nc->it) {
     MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
+    MRIterator_Free(nc->it);
   }
 
-  nc->cg.Free(nc->cg.ctx);
-
   if (nc->shardsProfile) {
-    for (size_t i = 0; i < nc->shardsProfileIdx; ++i) {
-      if (nc->shardsProfile[i] != nc->current.root) {
-        MRReply_Free(nc->shardsProfile[i]);
+    array_foreach(nc->shardsProfile, reply, {
+      if (reply != nc->current.root) {
+        MRReply_Free(reply);
       }
-    }
-    rm_free(nc->shardsProfile);
+    });
+    array_free(nc->shardsProfile);
   }
 
   MRReply_Free(nc->current.root);
+  MRCommand_Free(&nc->cmd);
 
-  if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);
 }
 
-static RPNet *RPNet_New(const MRCommand *cmd, SearchCluster *sc) {
-  //  MRCommand_FPrint(stderr, &cmd);
+static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
-  nc->cmd = *cmd;
-  nc->cg = SearchCluster_MultiplexCommand(sc, &nc->cmd);
+  nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
-  nc->shardsProfileIdx = 0;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = rpnetNext_Start;
@@ -582,10 +576,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_free(tmparr);
 }
 
-static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
-                             AREQDIST_UpstreamInfo *us) {
+static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd, sc);
+  RPNet *rpRoot = RPNet_New(xcmd); // This will take ownership of the command
   rpRoot->base.parent = &r->qiter;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
@@ -614,7 +607,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
 
   // allocate memory for replies and update endProc if necessary
   if (IsProfile(r)) {
-    rpRoot->shardsProfile = rm_malloc(sizeof(*rpRoot->shardsProfile) * sc->size);
+    // 2 is just a starting size, as we most likely have more than 1 shard
+    rpRoot->shardsProfile = array_new(MRReply*, 2);
     if (!found) {
       r->qiter.endProc = rpProfile;
     }
@@ -634,9 +628,9 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
 
   // Print shards profile
   if (reply->resp3) {
-    PrintShardProfile_resp3(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+    PrintShardProfile_resp3(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
   } else {
-    PrintShardProfile_resp2(reply, rpnet->shardsProfileIdx, rpnet->shardsProfile, false);
+    PrintShardProfile_resp2(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
   }
 
   RedisModule_Reply_MapEnd(reply); // Shards
@@ -718,17 +712,15 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) goto err;
 
-  SearchCluster *sc = GetSearchCluster();
-
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
-  xcmd.rootCommand = C_READ;  // Response is equivalent to a `CURSOR READ` response
+  xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
-  buildDistRPChain(r, &xcmd, sc, &us);
+  buildDistRPChain(r, &xcmd, &us);
 
   if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 

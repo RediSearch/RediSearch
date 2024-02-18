@@ -19,8 +19,11 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 0 # fetch all history for accurate results
-    - name: Setup
-      run: ./sbin/setup
+    - name: Setup specific
+      working-directory: .install
+      run: ./install_script.sh sudo
+    - name: Setup common
+      run: .install/common_installations.sh sudo
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
