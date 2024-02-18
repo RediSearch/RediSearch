@@ -32,7 +32,6 @@
 #define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"
 #define RS_DROP_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPIFX"             // for replica of support
 #define RS_DROP_INDEX_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPINDEXIFX"  // for replica of support
-#define RS_SYNADD_CMD RS_CMD_WRITE_PREFIX ".SYNADD"
 #define RS_SYNUPDATE_CMD RS_CMD_WRITE_PREFIX ".SYNUPDATE"
 #define RS_ALTER_CMD RS_CMD_WRITE_PREFIX ".ALTER"
 #define RS_ALTER_IF_NX_CMD RS_CMD_WRITE_PREFIX "._ALTERIFNX"  // for replica of support
@@ -44,26 +43,34 @@
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"  // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
 
+// Suggestion commands are key-bounded, but gets redirection for OSS cluster.
+// So on standalone and enterprise, we need only the local `FT.` variations,
+// but on OSS cluster we need both the local and the remote variations, and
+// have the local variations with `_FT.` prefix.
+#define RS_SUGADD_CMD RS_CMD_WRITE_PREFIX ".SUGADD"
+#define RS_SUGGET_CMD RS_CMD_WRITE_PREFIX ".SUGGET"
+#define RS_SUGDEL_CMD RS_CMD_WRITE_PREFIX ".SUGDEL"
+#define RS_SUGLEN_CMD RS_CMD_WRITE_PREFIX ".SUGLEN"
+
+// read commands that are always performed locally
+#define RS_EXPLAIN_CMD "FT.EXPLAIN"
+#define RS_EXPLAINCLI_CMD "FT.EXPLAINCLI"
+#define RS_DICT_DUMP "FT.DICTDUMP"
+#define RS_SYNDUMP_CMD "FT.SYNDUMP"
+#define RS_INDEX_LIST_CMD "FT._LIST"
+#define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
+
 // read commands
-#define RS_INDEX_LIST_CMD RS_CMD_READ_PREFIX "._LIST"
 #define RS_INFO_CMD RS_CMD_READ_PREFIX ".INFO"
 #define RS_SEARCH_CMD RS_CMD_READ_PREFIX ".SEARCH"
 #define RS_AGGREGATE_CMD RS_CMD_READ_PREFIX ".AGGREGATE"
 #define RS_PROFILE_CMD RS_CMD_READ_PREFIX ".PROFILE"
-#define RS_EXPLAIN_CMD RS_CMD_READ_PREFIX ".EXPLAIN"
-#define RS_EXPLAINCLI_CMD RS_CMD_READ_PREFIX ".EXPLAINCLI"
-#define RS_GET_CMD RS_CMD_READ_PREFIX ".GET"
+#define RS_GET_CMD RS_CMD_WRITE_PREFIX ".GET" // "write" so it won't be redirected on enterprise cluster
 #define RS_MGET_CMD RS_CMD_READ_PREFIX ".MGET"
 #define RS_TAGVALS_CMD RS_CMD_READ_PREFIX ".TAGVALS"
-#define RS_SUGADD_CMD RS_CMD_READ_PREFIX ".SUGADD"
-#define RS_SUGGET_CMD RS_CMD_READ_PREFIX ".SUGGET"
-#define RS_SUGDEL_CMD RS_CMD_READ_PREFIX ".SUGDEL"
-#define RS_SUGLEN_CMD RS_CMD_READ_PREFIX ".SUGLEN"
 #define RS_CURSOR_CMD RS_CMD_READ_PREFIX ".CURSOR"
 #define RS_DEBUG RS_CMD_READ_PREFIX ".DEBUG"
 #define RS_SPELL_CHECK RS_CMD_READ_PREFIX ".SPELLCHECK"
-#define RS_DICT_DUMP RS_CMD_READ_PREFIX ".DICTDUMP"
 #define RS_CONFIG RS_CMD_READ_PREFIX ".CONFIG"
-#define RS_SYNDUMP_CMD RS_CMD_READ_PREFIX ".SYNDUMP"
 
 #endif

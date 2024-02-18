@@ -135,8 +135,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-      char buf[2];
-      sprintf(buf, "%c", fs->tagOpts.tagSep);
+      char buf[2] = {fs->tagOpts.tagSep, 0}; // Convert the separator to a C string
       REPLY_KVSTR(SPEC_TAG_SEPARATOR_STR, buf);
 
       if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {

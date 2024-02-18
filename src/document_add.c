@@ -208,7 +208,7 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
   }
 }
 
-static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
+int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     // cmd, index, document, [arg] ...
     return RedisModule_WrongArity(ctx);
@@ -263,11 +263,4 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 cleanup:
   QueryError_ClearError(&status);
   return REDISMODULE_OK;
-}
-
-int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 1);
-}
-int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 0);
 }
