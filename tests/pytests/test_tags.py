@@ -524,16 +524,28 @@ def testEmptyValueTags(env):
         # Validate that separated empty fields are indexed as empty as well
         conn.execute_command('HSET', 'h5', 't', ', bar')
         conn.execute_command('HSET', 'h6', 't', 'bat, ')
-        conn.execute_command('HSET', 'h7', 't', 'bat, , bat2')
+        conn.execute_command('HSET', 'h7', 't', 'bat,')
+        conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
+        conn.execute_command('HSET', 'h9', 't', ',')
         cmd = f'FT.SEARCH {idx} @t:{{__empty}} SORTBY t ASC'.split(' ')
         expected = [
             ANY,
             'h1', ['t', '', 'text', 'hello'],
+            'h9', ['t', ','],
             'h5', ['t', ', bar'],
+            'h7', ['t', 'bat,'],
             'h6', ['t', 'bat, '],
-            'h7', ['t', 'bat, , bat2']
+            'h8', ['t', 'bat, , bat2']
         ]
         cmd_assert(env, cmd, expected)
+
+        # Make sure we don't index h5, h6, h7 in case of a non-empty indexing
+        # tag field
+        env.cmd('FT.CREATE', 'temp_idx', 'SCHEMA', 't', 'TAG')
+        cmd = f'FT.SEARCH temp_idx @t:{{__empty}} SORTBY t ASC'.split(' ')
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+        env.cmd('FT.DROPINDEX', 'temp_idx')
 
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
@@ -583,10 +595,11 @@ def testEmptyValueTags(env):
         j = {
             't': ['a', '', 'c']
         }
-        js = json.dumps(j)
+        js = json.dumps(j, separators=(',', ':'))
         conn.execute_command('JSON.SET', 'j', '$', js)
         cmd = f'FT.SEARCH {idx} @t:{{__empty}}'.split(' ')
-        expected = [1, 'j', ['$', empty_js]]
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
 
         # Empty array
         j = {
@@ -615,8 +628,6 @@ def testEmptyValueTags(env):
     env.flush()
 
     # Empty array values ["a", "", "c"] with explicit array components indexing
-    # Note: The case of an empty array [] won't be found in when indexing its
-    # components.
     arr = {
         'arr': ['a', '', 'c']
     }
@@ -625,6 +636,16 @@ def testEmptyValueTags(env):
     env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
     cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
     expected = [1, 'j', ['$', arrs]]
+    cmd_assert(env, cmd, expected)
+
+    # Empty arrays shouldn't be indexed for this indexing mechanism
+    arr = {
+        'arr': []
+    }
+    arrs = json.dumps(arr, separators=(',', ':'))
+    env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
+    cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
+    expected = [0]
     cmd_assert(env, cmd, expected)
 
     env.flush()
@@ -639,4 +660,15 @@ def testEmptyValueTags(env):
     cmd = f'FT.SEARCH jidx @b:{{__empty}}'.split(' ')
     expected = [1, 'j', ['$', js]]
     cmd_assert(env, cmd, expected)
+
+    # Embedded empty array
+    j = {
+        "t": {"b": []}
+    }
+    js = json.dumps(j, separators=(',', ':'))
+    env.expect('JSON.SET', 'j', '$', js).equal('OK')
+    cmd = f'FT.SEARCH jidx @b:{{__empty}}'.split(' ')
+    expected = [1, 'j', ['$', js]]
+    cmd_assert(env, cmd, expected)
+
     env.flush()

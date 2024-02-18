@@ -102,7 +102,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   char *tok;
   char *p;
   char *pp = p = rm_strdup(str);
-  bool last_is_sep = *(p + strlen(p) - 1) == sep;
+  bool last_is_sep = (strlen(p) > 0) && (*(p + strlen(p) - 1) == sep);
   while (p) {
     // get the next token
     size_t toklen = 0;
@@ -133,8 +133,6 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
 }
 
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata) {
-  char sep = fs->tagOpts.tagSep;
-  TagFieldFlags flags = fs->tagOpts.tagFlags;
   arrayof(char*) arr = array_new(char *, 4);
   const char *str;
   int ret = 1;
