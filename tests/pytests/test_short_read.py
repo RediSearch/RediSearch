@@ -74,7 +74,8 @@ def downloadFiles(target_dir):
                 shutil.copyfile(local_path, path)
                 unzip(path, path_dir)
         if not os.path.exists(path):
-            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+            dpath = os.path.abspath(path)
             _, ext = os.path.splitext(dpath)
             if ext == '.zip':
                 if not unzip(path, path_dir):
@@ -219,7 +220,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
             cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3), 'field6', '', 'field7', '']
             env.assertEqual(conn.execute_command(*cmd), 4)
         else:
-            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'", "field6":"", "field7":""}']
+            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r', "field6":"", "field7":""}']
             env.assertOk(conn.execute_command(*cmd))
 
     for i in range(num_keys + 1, num_keys + num_geometry_keys + 1):
