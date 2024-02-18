@@ -379,8 +379,11 @@ def test_empty_suffix_withsuffixtrie(env):
 def testEmptyValueTags(env):
     """Tests that empty values are indexed properly"""
 
-    def testHashIndex(env, conn, idx):
+    def testHashIndex(env, idx):
         """Performs a series of tests on a hash index"""
+
+        conn = getConnectionByEnv(env)
+
         # Search for a single document, via its indexed empty value
         cmd = f'FT.SEARCH {idx} @t:{{__empty}}'.split(' ')
         expected = [1, 'h1', ['t', '']]
@@ -541,7 +544,7 @@ def testEmptyValueTags(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'h1', 't', '')
 
-    testHashIndex(env, conn, 'idx')
+    testHashIndex(env, 'idx')
     env.flush()
 
     # ----------------------------- SORTABLE case ------------------------------
@@ -549,7 +552,7 @@ def testEmptyValueTags(env):
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'EMPTY', 'SORTABLE', 'text', 'TEXT').ok()
     conn.execute_command('HSET', 'h1', 't', '')
 
-    testHashIndex(env, conn, 'idx_sortable')
+    testHashIndex(env, 'idx_sortable')
     env.flush()
 
     # --------------------------- WITHSUFFIXTRIE case --------------------------
@@ -557,11 +560,13 @@ def testEmptyValueTags(env):
     # using a suffix trie
     env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'EMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
     conn.execute_command('HSET', 'h1', 't', '')
-    testHashIndex(env, conn, 'idx_suffixtrie')
+    testHashIndex(env, 'idx_suffixtrie')
     env.flush()
 
     # ---------------------------------- JSON ----------------------------------
-    def testJSONIndex(env, conn, idx):
+    def testJSONIndex(env, idx):
+        conn = getConnectionByEnv(env)
+
         # Populate the db with a document that has an empty TAG field
         empty_j = {
         't': ''
@@ -574,7 +579,7 @@ def testEmptyValueTags(env):
         expected = [1, 'j', ['$', empty_js]]
         cmd_assert(env, cmd, expected)
 
-        # Multi-value case
+        # Multi-value
         j = {
             't': ['a', '', 'c']
         }
@@ -583,6 +588,7 @@ def testEmptyValueTags(env):
         cmd = f'FT.SEARCH {idx} @t:{{__empty}}'.split(' ')
         expected = [1, 'j', ['$', empty_js]]
 
+        # Empty array
         j = {
             't': []
         }
@@ -592,12 +598,25 @@ def testEmptyValueTags(env):
         expected = [1, 'j', ['$', js]]
         cmd_assert(env, cmd, expected)
 
+        # Empty object
+        j = {
+            't': {}
+        }
+        js = json.dumps(j, separators=(',', ':'))
+        conn.execute_command('JSON.SET', 'j', '$', js)
+        cmd = f'FT.SEARCH {idx} @t:{{__empty}}'.split(' ')
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
+
+
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'EMPTY').ok()
-    testJSONIndex(env, conn, 'jidx')
+    testJSONIndex(env, 'jidx')
+
     env.flush()
 
-    # TODO: This is flaky for some reason. Investigate.
-    # Indexing with $arr[*] and TAG EMPTY
+    # Empty array values ["a", "", "c"] with explicit array components indexing
+    # Note: The case of an empty array [] won't be found in when indexing its
+    # components.
     arr = {
         'arr': ['a', '', 'c']
     }
@@ -607,3 +626,17 @@ def testEmptyValueTags(env):
     cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
     expected = [1, 'j', ['$', arrs]]
     cmd_assert(env, cmd, expected)
+
+    env.flush()
+
+    # Embedded empty object
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'EMPTY').ok()
+    j = {
+        "t": {"b": {}}
+    }
+    js = json.dumps(j, separators=(',', ':'))
+    env.expect('JSON.SET', 'j', '$', js).equal('OK')
+    cmd = f'FT.SEARCH jidx @b:{{__empty}}'.split(' ')
+    expected = [1, 'j', ['$', js]]
+    cmd_assert(env, cmd, expected)
+    env.flush()
