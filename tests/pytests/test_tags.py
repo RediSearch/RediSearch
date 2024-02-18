@@ -647,6 +647,17 @@ def testEmptyValueTags(env):
     cmd = f'FT.SEARCH jidx @arr:{{__empty}}'.split(' ')
     expected = [0]
     cmd_assert(env, cmd, expected)
+    conn.execute_command('DEL', 'j')
+
+    # Empty object shouldn't be indexed for this indexing mechanism (flatten, [*])
+    obj = {
+        'obj': {}
+    }
+    objs = json.dumps(obj, separators=(',', ':'))
+    env.expect('JSON.SET', 'j', '$', objs).equal('OK')
+    cmd = f'FT.SEARCH jidx @obj:{{__empty}}'.split(' ')
+    expected = [0]
+    cmd_assert(env, cmd, expected)
 
     env.flush()
 
@@ -672,3 +683,28 @@ def testEmptyValueTags(env):
     cmd_assert(env, cmd, expected)
 
     env.flush()
+
+    # An attempt to index a non-empty object as a TAG should fail (coverage)
+    j = {
+        "t": {"lala": "lali"}
+    }
+    js = json.dumps(j)
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'EMPTY').ok()
+    env.expect('JSON.SET', 'j', '$', js).equal('OK')
+    cmd = f'FT.SEARCH jidx @t:{{__empty}}'.split(' ')
+    cmd_assert(env, cmd, [0])
+
+    # Make sure we experienced an indexing failure, via `FT.INFO`
+    info = index_info(env, 'jidx')
+    env.assertEqual(info['hash_indexing_failures'], 1)
+
+    env.flush()
+
+    # Test that when we index many docs, we find the wanted portion of them upon
+    # empty value indexing
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY').ok()
+    n_docs = 1000
+    for i in range(n_docs):
+        env.cmd('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
+    res = env.cmd('FT.SEARCH', 'idx', '@t:{__empty}', 'LIMIT', '0', '0')
+    env.assertEqual(int(res[0]), 500)

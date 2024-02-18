@@ -102,7 +102,8 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   char *tok;
   char *p;
   char *pp = p = rm_strdup(str);
-  bool last_is_sep = (strlen(p) > 0) && (*(p + strlen(p) - 1) == sep);
+  uint len = strlen(p);
+  bool last_is_sep = (len > 0) && (*(p + len - 1) == sep);
   while (p) {
     // get the next token
     size_t toklen = 0;
