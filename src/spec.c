@@ -425,8 +425,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
-      fs->options |= FieldSpec_IndexEmpty;
     } else {
       break;
     }
