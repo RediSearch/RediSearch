@@ -24,8 +24,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 
-
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
