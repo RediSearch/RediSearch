@@ -568,8 +568,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  // if language is NULL, set it to UNDEFINED and it will be updated later,
-  // taking the index language
+  // if language is NULL, set it to RS_LANG_INDEX_DEFAULT and it will be updated
+  // later, taking the index language
   if(languageStr == NULL) {
     searchOpts->language = RS_LANG_INDEX_DEFAULT;
   } else {
