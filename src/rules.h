@@ -57,9 +57,6 @@ typedef struct SchemaRule {
   char *payload_field;
   double score_default;
   RSLanguage lang_default;
-  // if all the docs have the same language specified in lang_field, this will
-  // be set to that language, otherwise it will be set to DEFAULT_LANGUAGE
-  RSLanguage lang_per_field;
 } SchemaRule;
 
 /*
