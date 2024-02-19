@@ -271,7 +271,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -422,7 +422,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef global_ref = IndexSpec_LoadUnsafe(ctx, spec_name, 0);
+  StrongRef global_ref = IndexSpec_LoadUnsafe(ctx, spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -476,7 +476,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -517,7 +517,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -565,7 +565,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -613,7 +613,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = {0};
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, ixname, 1);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -681,8 +681,8 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   IndexLoadOptions loadOpts = {
-      .name = {.rstring = argv[2]},
-      .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+      .nameR = argv[2],
+      .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -725,8 +725,8 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
-                            .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -746,8 +746,8 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
-                            .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   if (!StrongRef_Get(ref)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -761,8 +761,8 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   QueryError status = {0};
-  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
-                            .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
@@ -1010,13 +1010,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // to be able to replicate from an old RediSearch version.
   // If this is the light version then the _ft.safeadd/_ft.del does not exists
   // and we will get the normal ft.safeadd/ft.del command.
-  RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_SAFEADD_CMD, RSSafeAddDocumentCommand,
+  RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
          INDEX_DOC_CMD_ARGS);
 #endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
@@ -1178,7 +1178,6 @@ void RediSearch_CleanupModule(void) {
   SchemaPrefixes_Free(SchemaPrefixes_g);
   // GeometryApi_Free();
 
-  RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
 }
