@@ -53,7 +53,7 @@ squote = "'";
 escaped_character = escape (punct | space | escape);
 escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | '?')+ $0;
 
-# these are the punctuations that are not valid in a tag, they have an especial
+# these are the punctuations that are not valid in a tag, they have special
 # meaning and need to be escaped to be considered as part of a tag
 tag_invalid_punct = (rb | star | escape | '$');
 
