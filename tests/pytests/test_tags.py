@@ -551,6 +551,12 @@ def testTagAutoescaping(env):
                   'PARAMS', '2', 'param', '@mail.', 'NOCONTENT', 'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:5'])
 
+    # if '$' is escaped, it is treated as a regular character, and the parameter
+    # is not replaced
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [0])
+
     # Test wildcard
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
