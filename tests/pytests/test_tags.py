@@ -392,6 +392,7 @@ def testTagAutoescaping(env):
     env.cmd('HSET', '{doc}:11', 'tag', 'a|b-c d', 'id', '11')
     # this test generates the tag: '_@12\\345'
     env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
+    env.cmd('HSET', '{doc}:13', 'tag', '$literal', 'id', '13')
     
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
@@ -556,6 +557,10 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
                   'PARAMS', '2', 'param', '@mail.', 'NOCONTENT', 'DIALECT', 5)
     env.assertEqual(res, [0])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$literal*}',
+                  'PARAMS', '2', 'literal', '@mail.', 'NOCONTENT', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:13'])
 
     # Test wildcard
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}", 'DIALECT', 5)
