@@ -393,6 +393,10 @@ def testTagAutoescaping(env):
     # this test generates the tag: '_@12\\345'
     env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
     env.cmd('HSET', '{doc}:13', 'tag', '$literal', 'id', '13')
+    # tags with leading and trailing spaces
+    env.cmd('HSET', '{doc}:14', 'tag', '  with: space  ', 'id', '14')
+    env.cmd('HSET', '{doc}:15', 'tag', '  leading:space', 'id', '15')
+    env.cmd('HSET', '{doc}:16', 'tag', 'trailing:space  ', 'id', '16')
     
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
@@ -603,6 +607,64 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
+
+    # Test tags with leading and trailing spaces
+    expected_result = [1, '{doc}:14', ['tag', '  with: space  ', 'id', '14']]
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  with: space  }", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{ with: space*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space *}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{with: space *}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}", 'DIALECT', 5,
+                  'PARAMS', '2', 'param', 'with: space')
+    env.assertEqual(res, expected_result)
+
+    # Test tags with leading spaces
+    expected_result = [1, '{doc}:15', ['tag', '  leading:space', 'id', '15']]
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading:space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*eading:space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* leading:space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    # Test tags with trailing spaces
+    expected_result = [1, '{doc}:16', ['tag', 'trailing:space  ', 'id', '16']]
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:spac*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
 def testInvalidSyntax(env):
     # Create index

@@ -315,6 +315,15 @@ main := |*
       tok.pos = tok.s - q->raw;
       RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
     } else {
+      // remove leading spaces
+      while(tok.len && isspace(tok.s[0])) {
+        tok.s++;
+        tok.len--;
+      }
+      // remove trailing spaces
+      while(tok.len > 1 && isspace(tok.s[tok.len-1])) {
+        tok.len--;
+      }
       tok.pos = tok.s - q->raw;
       tok.type = QT_TERM;
       RSQuery_Parse_v3(pParser, UNESCAPED_TAG, tok, q);
@@ -430,6 +439,15 @@ main := |*
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
     }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
+    }
     RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
@@ -469,6 +487,15 @@ main := |*
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
     }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
+    }
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
@@ -507,6 +534,15 @@ main := |*
     // Invalid case: wildcard and contains
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
+    }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
     }
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
     if (!QPCTX_ISOK(q)) {
