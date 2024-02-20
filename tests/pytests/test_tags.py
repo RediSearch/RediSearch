@@ -408,6 +408,13 @@ def testTagAutoescaping(env):
                   'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:7'])
 
+    # with dialect < 5, the pipe is an OR operator
+    expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
+    for dialect in [1, 2, 3, 4]:
+        res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc\:1|xyz\:2}', 'NOCONTENT',
+                      'SORTBY', 'id', 'ASC', 'DIALECT', dialect)
+        env.assertEqual(res, expected_result)
+
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12\100}', 'NOCONTENT',
                   'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:8'])
@@ -415,9 +422,10 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{_12@}', 'NOCONTENT', 'DIALECT', 5)
     env.assertEqual(res, [1, '{doc}:8'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_@12\\\\345}', 'NOCONTENT',
-                  'DIALECT', 5)
-    env.assertEqual(res, [1, '{doc}:12'])
+    # escape character (backslash '\') is still a special character that needs
+    # escaping
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{_@12\\\\345}', 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:12', ['tag', '_@12\\345', 'id', '12']])
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{ab(12)}', 'NOCONTENT',
                   'DIALECT', 5)
@@ -505,7 +513,6 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:*}=>{$weight:3.4}',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [4, '{doc}:1', '{doc}:3', '{doc}:4', '{doc}:7'])
-
 
     # Test suffix
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*a-b-c}', 'DIALECT', 5)
