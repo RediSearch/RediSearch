@@ -324,7 +324,7 @@ static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) 
   // first letter is insufficient. DISJOINT and DISTANCE both start with DIS.
   // last letter is insufficient. CONTAINS and INTERSECTS both end with S, DISJOINT and NEAREST both end with T.
   // TODO: consider comparing 8-byte values instead of 2-byte
-  int cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));    // for all ascii chars, 'a' | 0x20 == 'A'
+  const int cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));
 #define CASE(s) (((sizeof(s)-1) << CHAR_BIT) | s[sizeof(s)-2])  // two bytes: len | last char
 #define COND(s) ((cmp == CASE(s)) && !strncasecmp(predicate, s, len))
   if COND("WITHIN") {  // 0x06'4E
