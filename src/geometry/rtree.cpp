@@ -120,8 +120,9 @@ auto from_wkt(std::string_view wkt) -> geom_type<cs> {
           throw std::runtime_error{"attempting to create empty geometry"};
         }
         // TODO: GEOMETRY - add flag to allow user to ascertain validity of input
-        if (bg::correct(geom); !bg::is_valid(geom)) {
-          throw std::runtime_error{"invalid geometry"};
+        bg::correct(geom);
+        if (std::string error; !bg::is_valid(geom, error)) {
+          throw std::runtime_error{"invalid geometry: " + error};
         }
       },
       geom);
