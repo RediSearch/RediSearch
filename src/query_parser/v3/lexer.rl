@@ -307,21 +307,27 @@ main := |*
     tok.len = te - (ts + 3);
     tok.s = ts + 2;
 
-    if(tok.s[0] == 'w' && tok.s[1] == '\'' && tok.s[tok.len-1] == '\'') {
-      int is_attr = (*(ts + 4) == '$') ? 1 : 0;
-      tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
-      tok.len = te - (ts + 6 + is_attr);
-      tok.s = ts + 4 + is_attr;
-      tok.pos = tok.s - q->raw;
-      RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
-    } else {
+    bool parsed = false;
+    if(tok.len > 3) {
+      if(tok.s[0] == 'w' && tok.s[1] == '\'' && tok.s[tok.len - 1] == '\'') {
+        int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+        tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+        tok.len = te - (ts + 6 + is_attr);
+        tok.s = ts + 4 + is_attr;
+        tok.pos = tok.s - q->raw;
+        RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
+        parsed = true;
+      }
+    }
+
+    if(!parsed) {
       // remove leading spaces
       while(tok.len && isspace(tok.s[0])) {
         tok.s++;
         tok.len--;
       }
       // remove trailing spaces
-      while(tok.len > 1 && isspace(tok.s[tok.len-1])) {
+      while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
         tok.len--;
       }
       tok.pos = tok.s - q->raw;
@@ -339,7 +345,6 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-
   };
 
   unescaped_tag2 => {
@@ -375,7 +380,6 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-
   };
 
   wildcard_tag => {
@@ -411,7 +415,6 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-
   };
 
   suffix_tag => {
@@ -643,7 +646,6 @@ main := |*
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
-
   };
 
 *|;

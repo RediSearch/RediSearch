@@ -397,7 +397,12 @@ def testTagAutoescaping(env):
     env.cmd('HSET', '{doc}:14', 'tag', '  with: space  ', 'id', '14')
     env.cmd('HSET', '{doc}:15', 'tag', '  leading:space', 'id', '15')
     env.cmd('HSET', '{doc}:16', 'tag', 'trailing:space  ', 'id', '16')
-    
+    # short tags
+    env.cmd('HSET', '{doc}:17', 'tag', 'x', 'id', '17')
+    env.cmd('HSET', '{doc}:18', 'tag', 'w', 'id', '18')
+    env.cmd('HSET', '{doc}:19', 'tag', "w'", 'id', '19')
+    env.cmd('HSET', '{doc}:20', 'tag', "w''", 'id', '20')
+
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
@@ -607,6 +612,19 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}", 'DIALECT', 5)
     env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'}", 'DIALECT', 4,
+                  'SORTBY', 'id', 'ASC', 'NOCONTENT')
+    env.assertEqual(res, [2, '{doc}:17', '{doc}:18'])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w''}", 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:20', ['tag', "w''", 'id', '20']])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'}", 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:19', ['tag', "w'", 'id', '19']])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'} -@tag:{w'w'}", 'DIALECT', 5)
+    env.assertEqual(res, [1, '{doc}:17', ['tag', 'x', 'id', '17']])
 
     # Test tags with leading and trailing spaces
     expected_result = [1, '{doc}:14', ['tag', '  with: space  ', 'id', '14']]
