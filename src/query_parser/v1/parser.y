@@ -549,6 +549,21 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
 }
 
+numeric_range(A) ::= LSQB LP num(B) num(C) RSQB. [NUMBER] {
+  A = NewQueryParam(QP_NUMERIC_FILTER);
+  A->nf = NewNumericFilter(B.num, C.num, 0, C.inclusive, true);
+}
+
+numeric_range(A) ::= LSQB num(B) LP num(C) RSQB. [NUMBER] {
+  A = NewQueryParam(QP_NUMERIC_FILTER);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, 0, true);
+}
+
+numeric_range(A) ::= LSQB LP num(B) LP num(C) RSQB. [NUMBER] {
+  A = NewQueryParam(QP_NUMERIC_FILTER);
+  A->nf = NewNumericFilter(B.num, C.num, 0, 0, true);
+}
+
 numeric_range(A) ::= LSQB num(B) RSQB. [NUMBER]{
   A = NewQueryParam(QP_NUMERIC_FILTER);
   A->nf = NewNumericFilter(B.num, B.num, B.inclusive, B.inclusive, true);
@@ -581,11 +596,6 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
     A.inclusive = 1;
-}
-
-num(A) ::= LP num(B). {
-    A=B;
-    A.inclusive = 0;
 }
 
 num(A) ::= MINUS num(B). {
