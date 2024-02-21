@@ -800,6 +800,43 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
+numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, B.inclusive, B.inclusive);
+}
+
 /////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
@@ -1042,11 +1079,6 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
-num(A) ::= LP num(B). {
-  A=B;
-  A.inclusive = 0;
-}
-
 num(A) ::= MINUS num(B). {
   B.num = -B.num;
   A = B;
@@ -1112,7 +1144,14 @@ param_num(A) ::= num(B). {
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= LP ATTRIBUTE(B). {
+exclusive_param_num(A) ::= LP num(B). {
+  printf("exclusive_param_num(A) ::= num: %f\n", B.num);
+  A.numval = B.num;
+  A.inclusive = 0;
+  A.type = QT_NUMERIC;
+}
+
+exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
