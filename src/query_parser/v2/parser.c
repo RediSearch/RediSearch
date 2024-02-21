@@ -2095,7 +2095,7 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
         break;
       case 73: /* vector_command ::= TERM param_size modifier ATTRIBUTE */
 {
-  if (!strncasecmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
+  if (yymsp[-3].minor.yy0.len == strlen("KNN") && !strncasecmp("KNN", yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy27 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy27->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
@@ -2146,7 +2146,7 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
         break;
       case 78: /* vector_range_command ::= TERM param_num ATTRIBUTE */
 {
-  if (!strncasecmp("VECTOR_RANGE", yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len)) {
+  if (yymsp[-2].minor.yy0.len == strlen("VECTOR_RANGE") && !strncasecmp("VECTOR_RANGE", yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len)) {
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy27 = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &yymsp[-1].minor.yy0, &yymsp[0].minor.yy0);
   } else {
