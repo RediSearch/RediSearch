@@ -227,12 +227,16 @@ def testRange(env):
         expected = [doc_num + 1 - doc]
         max_val = (doc - 1) * 100 + arr_len
         for i in range(doc_num, doc -1, -1):
-            expected.append('doc:{}'.format(i))
+            lastdoc = 'doc:{}'.format(i)
+            expected.append(lastdoc)
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
 
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
+
+        res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{}]'.format(max_val), 'NOCONTENT')
+        env.assertEqual(toSortedFlatList(res), [1, lastdoc], message = '[{}]'.format(lastdoc))
 
 @skip(cluster=True)
 def testDebugDump(env):

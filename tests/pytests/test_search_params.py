@@ -334,6 +334,21 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key5'])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf]', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    # Invalid syntax
+    env.expect('FT.SEARCH', 'idx', '@numval:[(105]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(inf]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[($param]', 'DIALECT', 2, 
+               'PARAMS', 2, 'param', 100).error()
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
