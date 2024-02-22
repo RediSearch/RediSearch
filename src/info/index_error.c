@@ -175,7 +175,7 @@ IndexError IndexError_Deserialize(MRReply *reply) {
                           MRReply_Integer(MRReply_ArrayElement(last_error_time, 1))};
     IndexError_SetErrorTime(&error, ts);
 
-    if (STR_EQ(last_error_str, error_len, NA)) {
+    if (!STR_EQ(last_error_str, error_len, NA)) {
         IndexError_SetLastError(&error, last_error_str);
         RedisModuleString *key_rstr = RedisModule_CreateString(RSDummyContext, key_str, key_len);
         IndexError_SetKey(&error, key_rstr);
