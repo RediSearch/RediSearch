@@ -2151,7 +2151,8 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = LoadStringBuffer_IOError(rdb, &sp->nameLen, goto cleanup);
+  sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  sp->nameLen = strlen(sp->name);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
   sp->name = tmpName;
