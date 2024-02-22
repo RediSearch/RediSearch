@@ -1145,7 +1145,6 @@ param_num(A) ::= num(B). {
 }
 
 exclusive_param_num(A) ::= LP num(B). {
-  printf("exclusive_param_num(A) ::= num: %f\n", B.num);
   A.numval = B.num;
   A.inclusive = 0;
   A.type = QT_NUMERIC;
