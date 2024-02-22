@@ -765,13 +765,9 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
   }
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
-      char *eptr;
-      double d = strtod(res->sortKey + 1, &eptr);
-      if (eptr != res->sortKey + 1 && *eptr == 0) {
-        res->sortKeyNum = d;
-      }
-    } else if (!strncmp(res->sortKey, "none", 4)) {
-      res->sortKey = NULL;
+      char *endptr;
+      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
