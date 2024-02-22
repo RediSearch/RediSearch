@@ -232,10 +232,11 @@ CONFIG_GETTER(getFrisoINI) {
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
+  size_t len;
   const char *policy;
-  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  int acrc = AC_GetString(ac, &policy, &len, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, strlen(policy));
+  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
   }
@@ -925,9 +926,9 @@ const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
 }
 
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
-  if (!strncasecmp(s, "RETURN", n)) {
+  if (STR_EQCASE(s, n, "RETURN")) {
     return TimeoutPolicy_Return;
-  } else if (!strncasecmp(s, "FAIL", n)) {
+  } else if (STR_EQCASE(s, n, "FAIL")) {
     return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;
