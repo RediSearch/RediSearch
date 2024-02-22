@@ -694,8 +694,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
     res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  } else {
-    res->sortKey = NULL;
   }
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
@@ -799,7 +797,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
    * ...           ---|
    * First field
    *
