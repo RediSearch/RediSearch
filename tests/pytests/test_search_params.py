@@ -337,6 +337,9 @@ def test_numeric_range(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key5'])
 
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]', 'NOCONTENT')
     env.assertEqual(res1, [0])
 
@@ -345,6 +348,8 @@ def test_numeric_range(env):
 
     # Invalid syntax
     env.expect('FT.SEARCH', 'idx', '@numval:[(105]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[-(105]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-105]', 'DIALECT', 2).error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(inf]', 'DIALECT', 2).error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]', 'DIALECT', 2).error()
     env.expect('FT.SEARCH', 'idx', '@numval:[($param]', 'DIALECT', 2, 
