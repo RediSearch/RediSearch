@@ -96,7 +96,8 @@ RSLanguage RSLanguage_Find(const char *language, size_t len) {
     }
   } else {
     for (size_t i = 0; __langPairs[i].str != NULL; i++) {
-      if (!strncasecmp(language, __langPairs[i].str, len)) {
+      if (len == strlen(__langPairs[i].str) &&
+          !strncasecmp(language, __langPairs[i].str, len)) {
         return __langPairs[i].lang;
       }
     }

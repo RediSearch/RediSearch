@@ -259,7 +259,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
-static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
+static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -269,7 +269,7 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
-    return RS_OwnRedisStringVal(src);
+    return RS_OwnRedisStringVal((RedisModuleString *)src);
   }
 }
 
@@ -318,7 +318,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
-  
+
   if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST || japi_ver < 3) {
     // Preserve single value behavior for backward compatibility
     RedisJSON json = japi->next(iter);
@@ -336,7 +336,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
       goto done;
     }
-    
+
     // Second, get the first JSON value
     RedisJSON json = japi->next(iter);
     // If the value is an array, we currently try using the first element
@@ -355,7 +355,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RedisModule_FreeString(ctx, serialized);
     }
   }
-  
+
 done:
   return res;
 }
@@ -437,11 +437,9 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
-                                  keyPtr, strlen(keyPtr));
+  } else if (!strcmp(kk->name, UNDERSCORE_KEY)) {
+    const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
-    RedisModule_FreeString(options->sctx->redisCtx, keyName);
   } else {
     return REDISMODULE_OK;
   }
@@ -494,7 +492,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
-    if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+    if (!strcmp(kk->name, UNDERSCORE_KEY)) {
       rsv = RS_StringVal(rm_strdup(keyPtr), strlen(keyPtr));
     } else {
       return REDISMODULE_OK;

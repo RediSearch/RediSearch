@@ -77,7 +77,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
-    
+
     data = Suffix_GetData(trienode);
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
@@ -92,7 +92,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   for (int i = 0; i < array_len(array); ++i) {
-    if (!strncmp(array[i], str, rlen)) {
+    if (STR_EQ(str, rlen, array[i])) {
       array = array_del_fast(array, i);
       return;
     }
@@ -516,5 +516,5 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
 
 void suffixTrieMap_freeCallback(void *payload) {
   suffixTrie_freeCallback(payload);
-  rm_free(payload);  
+  rm_free(payload);
 }
