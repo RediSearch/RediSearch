@@ -607,7 +607,11 @@ static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job*
       jobqueue_push_chain(&priority_queue_p->low_priority_jobqueue, f_newjob_p, l_newjob_p, n);
       break;
   }
-  pthread_cond_broadcast(&priority_queue_p->cond);
+  if (n > 1) {
+    pthread_cond_broadcast(&priority_queue_p->cond);
+  } else {
+    pthread_cond_signal(&priority_queue_p->cond);
+  }
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 

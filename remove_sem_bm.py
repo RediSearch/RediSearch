@@ -18,8 +18,8 @@ port = 6379
 redis_conn = redis.Redis(decode_responses=True, host=host, port=port)
 
 n_vectors = int(sys.argv[1])
-dim = 128
-vecs_file = f"vectors_n_{n_vectors}.npy"
+dim = 768
+vecs_file = f"vectors_n_{n_vectors}_dim_{dim}.npy"
 
 def generate_and_store_random_vectors(n_vectors):
     print(f"generating random vectors, saving to {vecs_file}")
@@ -105,19 +105,19 @@ if __name__ == '__main__':
     else:
         print(f"{vecs_file} exists, skipping generation of random vectors...")
 
+    key = 'scenario_1'
     # Fresh start
     redis_conn.flushall()
     #
     # Scenario 1 - loading data
     np.random.seed(20)
-    key = 'scenario_1'
     load_vectors(n_vectors, 5, key)
 
     # querying data for 1m
     stop = Value('i', 0)
     t = Process(target=run_queries, args=(5, stop, key))
     t.start()
-    time.sleep(5)
+    time.sleep(10)
     stop.value = 1
     t.join()
     # #
@@ -126,17 +126,17 @@ if __name__ == '__main__':
     # # print(f"Update all vectors")
     # # load_vectors(n_vectors, 5, key)
     # #
-    # # Scenario 3 - update data while querying
-    # print(f"Update all vector while running queries")
-    # for n_readers in [5, 20, 50]:
-    #     key = f'scenario_3_ratio_5:{n_readers}'
-    #     print(f"Running with 5:{n_readers} writers:readers ratio")
-    #     stop = Value('i', 0)
-    #     t = Process(target=run_queries, args=(n_readers, stop, key))
-    #     t.start()
-    #     load_vectors(n_vectors, 5, key)
-    #     stop.value = 1
-    #     t.join()
+    # Scenario 3 - update data while querying
+    print(f"Update all vector while running queries")
+    for n_readers in [5, 20, 50]:
+        key = f'scenario_3_ratio_5:{n_readers}'
+        print(f"Running with 5:{n_readers} writers:readers ratio")
+        stop = Value('i', 0)
+        t = Process(target=run_queries, args=(n_readers, stop, key))
+        t.start()
+        load_vectors(n_vectors, 5, key)
+        stop.value = 1
+        t.join()
     #
     # # Scenario 4 - update data while resharding
     # print(f"Update vectors while resharding")
