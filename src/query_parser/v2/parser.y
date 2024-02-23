@@ -977,7 +977,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (!strncasecmp("KNN", T.s, T.len)) {
+  if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
@@ -1019,7 +1019,7 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
 }
 
 vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
-  if (!strncasecmp("VECTOR_RANGE", T.s, T.len)) {
+  if (T.len == strlen("VECTOR_RANGE") && !strncasecmp("VECTOR_RANGE", T.s, T.len)) {
     C.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
   } else {
