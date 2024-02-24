@@ -1233,6 +1233,7 @@ void IR_Rewind(void *ctx) {
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+  ir->sameId = 0;
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
