@@ -41,7 +41,7 @@ contain more than 32 attributes, create it with the `MAXTEXTFIELDS` option.
 
 ## Return
 
-FT.CREATE returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
+FT.ALTER returns a simple string reply `OK` if executed correctly, or an error reply otherwise.
 
 ## Examples
 
