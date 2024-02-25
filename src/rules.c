@@ -112,9 +112,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(const char *, 1);
+  rule->prefixes = array_new(sds, 1);
   for (int i = 0; i < args->nprefixes; ++i) {
-    const char *p = rm_strdup(args->prefixes[i]);
+    sds p = sdsnew(args->prefixes[i]);
     rule->prefixes = array_append(rule->prefixes, p);
   }
 
@@ -127,7 +127,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
-    SchemaPrefixes_Add(rule->prefixes[i], ref);
+    SchemaPrefixes_Add(rule->prefixes[i], sdslen(rule->prefixes[i]), ref);
   }
 
   return rule;
@@ -179,7 +179,7 @@ void SchemaRule_Free(SchemaRule *rule) {
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
-  array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
+  array_free_ex(rule->prefixes, sds_free(*(void **)ptr));
   array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
   rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
@@ -434,7 +434,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
-    RedisModule_SaveStringBuffer(rdb, rule->prefixes[i], strlen(rule->prefixes[i]) + 1);
+    RedisModule_SaveStringBuffer(rdb, rule->prefixes[i], sdslen(rule->prefixes[i]) + 1);
   }
   if (rule->filter_exp_str) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -474,9 +474,10 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
   // check prefixes
   bool match = false;
-  const char **prefixes = sp->rule->prefixes;
+  sds *prefixes = sp->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
-    if (!strncmp(keyCstr, prefixes[i], strlen(prefixes[i]))) {
+    // Using `strncmp` to compare the prefix, since the key might be longer than the prefix
+    if (!strncmp(keyCstr, prefixes[i], sdslen(prefixes[i]))) {
       match = true;
       break;
     }
@@ -521,12 +522,11 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(const char *prefix, StrongRef ref) {
-  size_t nprefix = strlen(prefix);
-  void *p = TrieMap_Find(SchemaPrefixes_g, (char *)prefix, nprefix);
+void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef ref) {
+  void *p = TrieMap_Find(SchemaPrefixes_g, (char *)prefix, len);
   if (p == TRIEMAP_NOTFOUND) {
     SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
-    TrieMap_Add(SchemaPrefixes_g, (char *)prefix, nprefix, node, NULL);
+    TrieMap_Add(SchemaPrefixes_g, (char *)prefix, len, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
     node->index_specs = array_append(node->index_specs, ref);
@@ -537,10 +537,10 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   IndexSpec *spec = StrongRef_Get(ref);
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
-  const char **prefixes = spec->rule->prefixes;
+  sds *prefixes = spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
-    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefixes[i], strlen(prefixes[i]));
+    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]));
     if (node == TRIEMAP_NOTFOUND) {
       continue;
     }
@@ -550,7 +550,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node
-          TrieMap_Delete(SchemaPrefixes_g, prefixes[i], strlen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+          TrieMap_Delete(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
         }
         break;
       }
