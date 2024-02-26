@@ -63,6 +63,8 @@ Buffer *Buffer_Wrap(char *data, size_t len) {
 }
 
 size_t Buffer_Free(Buffer *buf) {
+  // buf->cap is the number of bytes allocated,
+  // buf->offset is the number of bytes used
   size_t bytes_to_release = buf->cap;
   buf->offset = 0;
   buf->cap = 0;

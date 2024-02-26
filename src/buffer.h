@@ -37,8 +37,8 @@ typedef struct {
 
 typedef struct Buffer {
   char *data;
-  size_t cap;
-  size_t offset;
+  size_t cap;    // capacity of the buffer, number of bytes allocated
+  size_t offset; // number of bytes used
 } Buffer;
 
 typedef struct {
@@ -104,7 +104,6 @@ position if where is outside bounds
 typedef struct {
   Buffer *buf;
   char *pos;
-
 } BufferWriter;
 
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
@@ -114,17 +113,19 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen);
 size_t Buffer_Grow(Buffer *b, size_t extraLen);
 
 static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
-  size_t cap = buf->cap;
   if (buf->offset + n <= buf->cap) {
     return 0;
   }
   return Buffer_Grow(buf, n);
 }
 
+// Write len bytes from data to the buffer. If the buffer is not large enough,
+// it will be grown to accommodate the new data.
+// Returns the number of bytes added, or 0 if the buffer is already large enough.
 static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
-  size_t mem_growth = 0;
   Buffer *buf = bw->buf;
-  if (!!(mem_growth = Buffer_Reserve(buf, len))) {
+  size_t mem_growth = Buffer_Reserve(buf, len);
+  if (mem_growth != 0) {
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
