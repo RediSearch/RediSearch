@@ -145,7 +145,7 @@ def testMemoryAfterDrop(env):
             forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty TEXT and TAG inverted index is 
-    # 54 bytes * doc_count, becase FGC_applyInvertedIndex() is calling 
+    # 54 bytes * doc_count, because FGC_applyInvertedIndex() is calling 
     # InvertedIndex_AddBlock() for each delete doc.
     # The memory occupied by a empty NUMERIC and GEO inverted index is 102 bytes.
     expected_inverted_sz_mb = (54 * 2 * doc_count) / (1024 * 1024) \
@@ -189,7 +189,7 @@ def testIssue1497(env):
     forceInvokeGC(env, 'idx')
 
     # The memory occupied by a empty TEXT and TAG inverted index is 
-    # 54 bytes * doc_count, becase FGC_applyInvertedIndex() is calling 
+    # 54 bytes * doc_count, because FGC_applyInvertedIndex() is calling 
     # InvertedIndex_AddBlock() for each delete doc.
     # The memory occupied by a empty NUMERIC and GEO inverted index is 102 bytes.
     expected_inverted_sz_mb = (54 * 2 * count) / (1024 * 1024) \
@@ -312,7 +312,7 @@ def testMemoryAfterDrop_text(env):
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty TEXT inverted index is 54 bytes * doc_count,
-    # becase FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
+    # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
     # The size of a new block is 54 bytes, which is the sum of:
     # sizeof(IndexBlock)                   48
@@ -353,7 +353,7 @@ def testMemoryAfterDrop_tag(env):
         forceInvokeGC(env, 'idx%d' % i)
 
     # The memory occupied by a empty TAG inverted index is 54 bytes * doc_count,
-    # becase FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
+    # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
     # The size of a new block is 54 bytes, which is the sum of:
     # sizeof(IndexBlock)                   48
