@@ -94,12 +94,33 @@ def testWKTIngestError(env):
   # Missing parenthesis
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
   env.assertContains("Error indexing geoshape: Expected '(' at '1'", get_last_error())
-  # Too few coordinates (not a polygon)
-  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
-  env.assertContains("Error indexing geoshape: invalid geometry", get_last_error())
   # Zero coordinates
-  conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
-  env.assertContains("Error indexing geoshape: attempting to create empty geometry", get_last_error())
+  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POINT()", "name": "Mr. Burns"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has too few points", get_last_error())
+  # Too few coordinates
+  conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has too few points", get_last_error())
+  # Spike
+  conn.execute_command('JSON.SET', 'p8', '$', '{"geom": "POLYGON((1 1, 1 200, 1 100, 100 1, 1 1))", "name": "Marge"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has spikes", get_last_error())
+  # Self-intersection
+  conn.execute_command('JSON.SET', 'p9', '$', '{"geom": "POLYGON((1 1, 1 100, 50 50, 50 -50, 1 150, 100 50, 1 1))", "name": "Lisa"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has invalid self-intersections", get_last_error())
+  # Interior outside exterior
+  conn.execute_command('JSON.SET', 'p10', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1) (25 150, 75 150, 75 250, 25 250, 25 150))", "name": "Sideshow Bob"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has interior rings defined outside the outer boundary", get_last_error())
+  # Nested interiors
+  conn.execute_command('JSON.SET', 'p11', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1) (25 25, 75 25, 75 75, 25 75, 25 25) (49 49, 51 49, 51 51, 49 51, 49 49))", "name": "Krusty"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has nested interior rings", get_last_error())
+  # Disconnected interior
+  conn.execute_command('JSON.SET', 'p12', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1) (50 1, 75 50, 50 100, 25 50, 50 1))", "name": "Apu"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has disconnected interior", get_last_error())
+  # Duplicate points
+  conn.execute_command('JSON.SET', 'p13', '$', '{"geom": "POINT(1 1, 1 1)", "name": "Selma"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has duplicate (consecutive) points", get_last_error())
+  # Invalid coordinates
+  conn.execute_command('JSON.SET', 'p14', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, bart, 1 1))", "name": "Bart"}')
+  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has point(s) with invalid coordinate(s)", get_last_error())
 
 
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
@@ -109,9 +130,11 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
   # Missing comma separator
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
+  # Hourglass
+  conn.execute_command('JSON.SET', 'p15', '$', '{"geom": "POLYGON((1 1, 1 100, 50 50, 50 -50, 1 1))", "name": "Maggie"}')
 
   # Indexing failures
-  env.assertEqual(int(index_info(env)['hash_indexing_failures']), 4)
+  env.assertEqual(int(index_info(env)['hash_indexing_failures']), 11)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
