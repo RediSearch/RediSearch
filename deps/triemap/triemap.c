@@ -43,7 +43,7 @@ TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
 /* Create a new trie node. str is a string to be copied into the node,
  * starting from offset up until len. numChildren is the initial number of
  * allocated child nodes */
-TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t numChildren,
+TrieMapNode *__newTrieMapNode(const char *str, tm_len_t offset, tm_len_t len, tm_len_t numChildren,
                               void *value, int terminal) {
   tm_len_t nlen = len - offset;
   TrieMapNode *n = rm_malloc(__trieMapNode_Sizeof(numChildren, nlen));
@@ -61,7 +61,7 @@ TrieMap *NewTrieMap() {
   TrieMap *tm = rm_malloc(sizeof(TrieMap));
   tm->size = 0;
   tm->cardinality = 0;
-  tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
+  tm->root = __newTrieMapNode("", 0, 0, 0, NULL, 0);
   return tm;
 }
 
@@ -79,7 +79,7 @@ TrieMapNode *__trieMapNode_AddChild(TrieMapNode *n, char *str, tm_len_t offset, 
   return n;
 }
 
-TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, char *str, tm_len_t offset, tm_len_t len,
+TrieMapNode *__trieMapNode_AddChildIdx(TrieMapNode *n, const char *str, tm_len_t offset, tm_len_t len,
                                     void *value, int idx) {
   // make room for another child
   n = __trieMapNode_resizeChildren(n, 1);
@@ -120,7 +120,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   return n;
 }
 
-int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
+int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   TrieMapNode *n = *np;
   int rv = 0;
 
@@ -190,14 +190,14 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
-  
-  ptr = childKeys; 
+
+  ptr = childKeys;
   while(ptr < childKeys + n->numChildren && *ptr < c) {++ptr;}
   *np = __trieMapNode_AddChildIdx(n, str, offset, len, value, ptr - childKeys);
   return ++rv;
 }
 
-int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
+int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
   t->size += rc;
   int added = rc ? 1 : 0;
@@ -917,7 +917,7 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
   return TrieMapIterator_Next(it->matchIter, ptr, len, value);
 }
 
-/* 
+/*
  * The function is called after a match of one characther was found.
  * It checks whether the partial match is a full match and if not, it returns 0.
  * If a full match is found, in `suffix` mode the string buffer is updated and return 1.
@@ -934,7 +934,7 @@ static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, 
   while (termOffset < it->prefixLen) {
     tm_len_t globalRemain = it->prefixLen - termOffset;
     tm_len_t localRemain = n->len - localOffset;
-    
+
     compareLen = MIN(localRemain, globalRemain);
 
     if (strncmp(&n->str[localOffset], &it->prefix[termOffset], compareLen)) {
@@ -972,14 +972,14 @@ static int __partial_Next(TrieMapIterator *it, __tmi_stackNode *sn, char **ptr, 
     }
     goto end;
   }
-  
+
   rv = 1;
   // set iterator to be used with TrieMapIterator_Next
   TrieMapIterator *iter = it->matchIter = rm_calloc(1, sizeof(*it->matchIter));
   // copy string to new buffer
   // 1. current buffer
   // 2. affix string - 1
-  // 3. remainder of node string 
+  // 3. remainder of node string
   iter->buf = array_ensure_append_n(iter->buf, it->buf, array_len(it->buf));
   iter->buf = array_ensure_append_n(iter->buf, it->prefix + 1, it->prefixLen - 1);
   if (compareLen + localOffset < n->len) {
@@ -1050,11 +1050,11 @@ int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len,
         // Add the matching child to the stack
         __tmi_Push(it, ch, 0, current->found);
 
-        goto next;        
+        goto next;
       }
     }
-  
-    __tmi_Pop(it); 
+
+    __tmi_Pop(it);
   next:
     continue;
   }
@@ -1088,7 +1088,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
       current->state = TM_ITERSTATE_CHILDREN;
 
       // check if current buffer is a match
-      int match = current->found ? FULL_MATCH : 
+      int match = current->found ? FULL_MATCH :
                   Wildcard_MatchChar(it->prefix, it->prefixLen, it->buf, array_len(it->buf));
       switch (match) {
         case NO_MATCH: {
@@ -1107,7 +1107,7 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
             *value = n->value;
             return 1;
           }
-          // fixed length therefore no more results are possible 
+          // fixed length therefore no more results are possible
           if (it->mode == TM_WILDCARD_FIXED_LEN_MODE) {
             __tmi_Pop(it);
             goto next;
@@ -1126,11 +1126,11 @@ int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len,
         // Add the matching child to the stack
         __tmi_Push(it, ch, 0, current->found);
 
-        goto next;        
+        goto next;
       }
     }
-  
-    __tmi_Pop(it); 
+
+    __tmi_Pop(it);
   next:
     continue;
   }

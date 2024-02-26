@@ -93,7 +93,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
         size_t sl = 0;
         const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
+          TrieMap_Add(dict, s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {

@@ -112,10 +112,10 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(sds, 1);
+  rule->prefixes = array_new(sds, args->nprefixes);
   for (int i = 0; i < args->nprefixes; ++i) {
     sds p = sdsnew(args->prefixes[i]);
-    rule->prefixes = array_append(rule->prefixes, p);
+    array_append(rule->prefixes, p);
   }
 
   if (rule->filter_exp_str) {
@@ -524,10 +524,10 @@ void SchemaPrefixes_Free(TrieMap *t) {
 }
 
 void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef ref) {
-  void *p = TrieMap_Find(SchemaPrefixes_g, (char *)prefix, len);
+  void *p = TrieMap_Find(SchemaPrefixes_g, prefix, len);
   if (p == TRIEMAP_NOTFOUND) {
     SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
-    TrieMap_Add(SchemaPrefixes_g, (char *)prefix, len, node, NULL);
+    TrieMap_Add(SchemaPrefixes_g, prefix, len, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
     node->index_specs = array_append(node->index_specs, ref);
