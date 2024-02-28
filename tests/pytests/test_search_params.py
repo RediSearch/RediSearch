@@ -347,12 +347,12 @@ def test_numeric_range(env):
     env.assertEqual(res1, [0])
 
     # Invalid syntax
-    env.expect('FT.SEARCH', 'idx', '@numval:[(105]', 'DIALECT', 2).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[-(105]', 'DIALECT', 2).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-105]', 'DIALECT', 2).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(inf]', 'DIALECT', 2).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]', 'DIALECT', 2).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[($param]', 'DIALECT', 2, 
+    env.expect('FT.SEARCH', 'idx', '@numval:[(105]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[-(105]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-105]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[($param]', 
                'PARAMS', 2, 'param', 100).error()
 
 def test_vector(env):
