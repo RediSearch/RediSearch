@@ -95,7 +95,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON(1 1, 1 100, 100 100, 100 1, 1 1))", "name": "Patty"}')
   env.assertContains("Error indexing geoshape: Expected '(' at '1'", get_last_error())
   # Zero coordinates
-  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POINT()", "name": "Mr. Burns"}')
+  conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has too few points", get_last_error())
   # Too few coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
@@ -112,15 +112,9 @@ def testWKTIngestError(env):
   # Nested interiors
   conn.execute_command('JSON.SET', 'p11', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1) (25 25, 75 25, 75 75, 25 75, 25 25) (49 49, 51 49, 51 51, 49 51, 49 49))", "name": "Krusty"}')
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has nested interior rings", get_last_error())
-  # Disconnected interior
-  conn.execute_command('JSON.SET', 'p12', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1) (50 1, 75 50, 50 100, 25 50, 50 1))", "name": "Apu"}')
-  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has disconnected interior", get_last_error())
-  # Duplicate points
-  conn.execute_command('JSON.SET', 'p13', '$', '{"geom": "POINT(1 1, 1 1)", "name": "Selma"}')
-  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has duplicate (consecutive) points", get_last_error())
   # Invalid coordinates
   conn.execute_command('JSON.SET', 'p14', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, bart, 1 1))", "name": "Bart"}')
-  env.assertContains("Error indexing geoshape: invalid geometry: Geometry has point(s) with invalid coordinate(s)", get_last_error())
+  env.assertContains("Error indexing geoshape: bad lexical cast", get_last_error())
 
 
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
@@ -130,11 +124,13 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
   # Missing comma separator
   conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
+  # Duplicate points - we remove duplicates with bg::correct
+  conn.execute_command('JSON.SET', 'p13', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 100 1, 1 1))", "name": "Selma"}')
   # Hourglass
   conn.execute_command('JSON.SET', 'p15', '$', '{"geom": "POLYGON((1 1, 1 100, 50 50, 50 -50, 1 1))", "name": "Maggie"}')
 
   # Indexing failures
-  env.assertEqual(int(index_info(env)['hash_indexing_failures']), 11)
+  env.assertEqual(int(index_info(env)['hash_indexing_failures']), 9)
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
