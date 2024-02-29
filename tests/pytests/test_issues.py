@@ -981,3 +981,29 @@ def test_mod6186(env):
     env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
     env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
 
+@skip(cluster=False)
+def test_mod_6541(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  cmds = [
+    ('FT.SEARCH', 'idx', '*'),
+    ('FT.AGGREGATE', 'idx', '*'),
+    ('FT.CURSOR', 'READ', 'idx', '0'),
+    ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'),
+    ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
+    ('FT.INFO', 'idx'),
+    ('FT.SPELLCHECK', 'idx', 'foo'),
+    ('FT.SUGLEN', 'idx', 'foo'),
+    ('FT.ALIASADD', 'alias', 'idx'),
+    # Deprecated commands
+    ('FT.TAGVALS', 'idx', 't'),
+    ('FT.MGET', 'idx', 'doc1', 'doc2'),
+  ]
+
+  for cmd in cmds:
+    env.expect('MULTI').ok()
+    env.expect(*cmd).equal('QUEUED')
+    res = env.cmd('EXEC')
+    env.assertEqual(len(res), 1)
+    env.assertIsInstance(res[0], redis_exceptions.ResponseError)
+    env.assertEqual(str(res[0]), f'Cannot perform `{cmd[0]}`: Cannot block')
