@@ -1023,7 +1023,7 @@ def test_mod6186(env):
 def test_mod_6599_query(env):
     docs = 1000
     for i in range(docs):
-        key = "doc:" + str(i)
+        key = "{doc}:" + str(i)
         numstr = '' . join([str(randint(0,9)) for _ in range(11)])
         env.cmd("HSET", key, "id", "docum" + numstr, "gender", i%2)
 
