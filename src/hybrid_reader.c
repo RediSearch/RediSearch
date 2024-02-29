@@ -284,7 +284,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
 			// Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
 			mmh_clear(hr->topResults);
 			hr->child->Rewind(hr->child->ctx);
-	    return computeDistances(hr);
+			return computeDistances(hr);
 		}
   }
   VecSimBatchIterator_Free(batch_it);
