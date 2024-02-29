@@ -285,7 +285,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
       mmh_clear(hr->topResults);
       hr->child->Rewind(hr->child->ctx);
       return computeDistances(hr);
-		}
+    }
   }
   VecSimBatchIterator_Free(batch_it);
   return code;
