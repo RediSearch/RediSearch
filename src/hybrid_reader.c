@@ -278,14 +278,14 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     }
 
     if (reviewHybridSearchPolicy(hr, n_res_left, child_num_estimated, &child_num_estimated)) {
-		// Change policy from batches to AD-HOC BF.
-	  VecSimBatchIterator_Free(batch_it);
-	  hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
-		// Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
-		mmh_clear(hr->topResults);
-		hr->child->Rewind(hr->child->ctx);
-	  return computeDistances(hr);
-    }
+			// Change policy from batches to AD-HOC BF.
+			VecSimBatchIterator_Free(batch_it);
+			hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+			// Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
+			mmh_clear(hr->topResults);
+			hr->child->Rewind(hr->child->ctx);
+	    return computeDistances(hr);
+		}
   }
   VecSimBatchIterator_Free(batch_it);
   return code;
