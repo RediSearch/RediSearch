@@ -1108,26 +1108,26 @@ DEBUG_COMMAND(DeleteCursors) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-VecSimDebugCommandCode replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
+void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 	int **neighbours_data = NULL;
 	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
 	RedisModule_Reply reply = RedisModule_NewReply(ctx);
-	if  (res == VecSimDebugCommandCode_LabelNotExists){
+	if (res == VecSimDebugCommandCode_LabelNotExists){
 		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
 		RedisModule_EndReply(&reply);
-		return res;
+		return;
 	}
 	START_POSTPONED_LEN_ARRAY(response);
 	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
-	size_t num_levels = 0;
-	while (neighbours_data[num_levels]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[num_levels][0] + 1);
-		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", num_levels);
-		for (size_t i = 0; i < neighbours_data[num_levels][0]; i++) {
-			RedisModule_ReplyWithLongLong(ctx, neighbours_data[num_levels][i + 1]);
+	size_t level = 0;
+	while (neighbours_data[level]) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
+		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
 		}
-		num_levels++; ARRAY_LEN_VAR(response)++;
+    level++; ARRAY_LEN_VAR(response)++;
 	}
 	END_POSTPONED_LEN_ARRAY(response);
 	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
@@ -1143,7 +1143,7 @@ DEBUG_COMMAND(dumpHNSWData) {
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
   if (!keyName) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
-	goto cleanup;
+	  goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).

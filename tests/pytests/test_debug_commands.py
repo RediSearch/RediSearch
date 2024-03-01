@@ -291,6 +291,7 @@ def testDumpHNSW(env):
     # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
         equal(['Doc id', 1, ['Neighbors in level 0', 2]])
+
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
         equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
                "Doc id 3 doesn't contain the given field"])
