@@ -8,6 +8,8 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
+#include "crc16.h"
+#include "crc12.h"
 
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"
@@ -54,19 +56,10 @@ void testEndpoint() {
   MREndpoint_Free(&ep);
 }
 
-void testShardingFunc() {
-
-  MRCommand cmd = MR_NewCommand(2, "foo", "baz");
-  mr_slot_t shard = CRC16ShardFunc(&cmd, 4096);
-  mu_assert_int_eq(shard, 717);
-  MRCommand_Free(&cmd);
-}
-
-
-
 static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const char **hosts){
 
   MRClusterTopology *topo = rm_malloc(sizeof(*topo));
+  topo->hashFunc = MRHashFunc_CRC16;
   topo->numShards = numNodes;
   topo->numSlots = numSlots;
   topo->shards = rm_calloc(numNodes, sizeof(MRClusterShard));
@@ -94,6 +87,37 @@ static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const c
 
   return topo;
 }
+
+static const char *GetShardKey(const MRCommand *cmd, size_t *len) {
+  *len = cmd->lens[1];
+  return cmd->strs[1];
+}
+static mr_slot_t CRCShardFunc(const MRCommand *cmd, const MRCluster *cl) {
+
+  if(cmd->targetSlot >= 0){
+    return cmd->targetSlot;
+  }
+
+  size_t len;
+  const char *k = GetShardKey(cmd, &len);
+  if (!k) return 0;
+  // Default to crc16
+  uint16_t crc = (cl->topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
+  return crc % cl->topo->numSlots;
+}
+
+void testShardingFunc() {
+
+  MRCommand cmd = MR_NewCommand(2, "foo", "baz");
+  const char *host = "localhost:6379";
+  MRClusterTopology *topo = getTopology(4096, 1, &host);
+  MRCluster *cl = MR_NewCluster(topo, 2);
+  mr_slot_t shard = CRCShardFunc(&cmd, cl);
+  mu_assert_int_eq(shard, 717);
+  MRCommand_Free(&cmd);
+  MRClust_Free(cl);
+}
+
 MRClusterShard *_MRCluster_FindShard(MRCluster *cl, mr_slot_t slot);
 
 void testCluster() {
@@ -102,9 +126,8 @@ void testCluster() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2, CRC16ShardFunc);
+  MRCluster *cl = MR_NewCluster(topo, 2);
   mu_check(cl != NULL);
-  mu_check(cl->sf == CRC16ShardFunc);
   //  mu_check(cl->tp == tp);
   mu_check(cl->topo->numShards == n);
   mu_check(cl->topo->numSlots == 4096);
@@ -127,9 +150,9 @@ void testClusterSharding() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2, CRC16ShardFunc);
+  MRCluster *cl = MR_NewCluster(topo, 2);
   MRCommand cmd = MR_NewCommand(4, "_FT.SEARCH", "foob", "bar", "baz");
-  mr_slot_t slot = CRC16ShardFunc(&cmd, cl->topo->numSlots);
+  mr_slot_t slot = CRCShardFunc(&cmd, cl);
   printf("%d\n", slot);
   mu_check(slot > 0);
   MRClusterShard *sh = _MRCluster_FindShard(cl, slot);

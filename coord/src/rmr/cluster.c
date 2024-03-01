@@ -7,17 +7,10 @@
 #include "cluster.h"
 #include "crc16.h"
 #include "crc12.h"
-#include "node_map.h"
 
 #include <stdlib.h>
 
 void _MRCluster_UpdateNodes(MRCluster *cl) {
-  /* Reallocate the cluster's node map */
-  if (cl->nodeMap) {
-    MRNodeMap_Free(cl->nodeMap);
-  }
-  cl->nodeMap = MR_NewNodeMap();
-
   /* Get all the current node ids from the connection manager.  We will remove all the nodes
    * that are in the new topology, and after the update, delete all the nodes that are in this map
    * and not in the new topology */
@@ -36,17 +29,14 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
       // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
       MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
 
-      /* Add the node to the node map */
-      MRNodeMap_Add(cl->nodeMap, node);
-
       /* This node is still valid, remove it from the nodes to delete list */
       dictDelete(nodesToDisconnect, node->id);
 
       /* See if this is us - if so we need to update the cluster's host and current id */
-      if (node->flags & MRNode_Self) {
-        cl->myNode = node;
-        cl->myShard = &cl->topo->shards[sh];
-      }
+      // if (node->flags & MRNode_Self) {
+      //   cl->myNode = node;
+      //   cl->myShard = &cl->topo->shards[sh];
+      // }
     }
   }
 
@@ -60,13 +50,9 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   dictRelease(nodesToDisconnect);
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, ShardFunc sf) {
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size) {
   MRCluster *cl = rm_new(MRCluster);
-  cl->sf = sf;
   cl->topo = initialTopology;
-  cl->nodeMap = NULL;
-  cl->myNode = NULL;  // tODO: discover local ip/port
-  cl->myShard = NULL;
   MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
@@ -87,151 +73,26 @@ MRClusterShard *_MRCluster_FindShard(MRCluster *cl, unsigned slot) {
 }
 
 /* Select a node from the shard according to the coordination strategy */
-MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, MRClusterNode *myNode,
-                                          MRCoordinationStrategy strategy) {
-
-  switch (strategy & ~MRCluster_MastersOnly) {
-
-    case MRCluster_LocalCoordination:
-      for (int i = 0; i < sh->numNodes; i++) {
-        MRClusterNode *n = &sh->nodes[i];
-        // skip slaves if this is a master only request
-        if (strategy & MRCluster_MastersOnly && !(n->flags & MRNode_Master)) {
-          continue;
-        }
-        if (MRNode_IsSameHost(n, myNode)) {
-          return n;
-        }
-      }
-      // Not found...
-      return NULL;
-
-    case MRCluster_RemoteCoordination:
-      for (int i = 0; i < sh->numNodes; i++) {
-        MRClusterNode *n = &sh->nodes[i];
-        // skip slaves if this is a master only request
-        if (strategy & MRCluster_MastersOnly && !(n->flags & MRNode_Master)) {
-          continue;
-        }
-        if (!MRNode_IsSameHost(n, myNode)) {
-          return n;
-        }
-      }
-      // Not found...
-      return NULL;
-
-    case MRCluster_FlatCoordination:
-      // if we only want masters - find the master of this shard
-      if (strategy & MRCluster_MastersOnly) {
-        for (int i = 0; i < sh->numNodes; i++) {
-          if (sh->nodes[i].flags & MRNode_Master) {
-            return &sh->nodes[i];
-          }
-        }
-        return NULL;
-      }
-      // if we don't care - select a random node
-      return &sh->nodes[rand() % sh->numNodes];
-  }
-  return NULL;
-}
-
-MRConn* MRCluster_GetConn(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd) {
-
-  if (!cl || !cl->topo) return NULL;
-
-  /* Get the cluster slot from the sharder */
-  unsigned slot = cl->sf(cmd, cl->topo->numSlots);
-
-  /* Get the shard from the slot map */
-  MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
-  if (!sh) return NULL;
-
-  MRClusterNode *node = _MRClusterShard_SelectNode(sh, cl->myNode, strategy);
-  if (!node) return NULL;
-
-  return MRConn_Get(&cl->mgr, node->id);
-}
-
-/* Send a single command to the right shard in the cluster, with an optional control over node
- * selection */
-int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
-                          redisCallbackFn *fn, void *privdata) {
-  MRConn *conn = MRCluster_GetConn(cl, strategy, cmd);
-  if (!conn) return REDIS_ERR;
-  return MRConn_SendCommand(conn, cmd, fn, privdata);
-}
-
-int MRCluster_CheckConnections(MRCluster *cl, MRCoordinationStrategy strategy) {
-  if (!cl->nodeMap) {
-    return REDIS_ERR;
-  }
-
-  MRNodeMapIterator it;
-  switch (strategy & ~(MRCluster_MastersOnly)) {
-    case MRCluster_LocalCoordination:
-      it = MRNodeMap_IterateHost(cl->nodeMap, cl->myNode->endpoint.host);
-      break;
-    default:
-      it = MRNodeMap_IterateAll(cl->nodeMap);
-  }
-
-  int ret = REDIS_OK;
-  MRClusterNode *n;
-  while (NULL != (n = it.Next(&it))) {
-    if ((strategy & MRCluster_MastersOnly) && !(n->flags & MRNode_Master)) {
-      continue;
-    }
-    if (!MRConn_Get(&cl->mgr, n->id)) {
-      ret = REDIS_ERR;
-      break;
-    }
-  }
-
-  MRNodeMapIterator_Free(&it);
-  return ret;
-}
-
-/* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
- * number of sent commands */
-int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
-                            redisCallbackFn *fn, void *privdata) {
-  if (!cl->nodeMap) {
-    return 0;
-  }
-
-  MRNodeMapIterator it;
-  switch (strategy & ~(MRCluster_MastersOnly)) {
-    case MRCluster_LocalCoordination:
-      it = MRNodeMap_IterateHost(cl->nodeMap, cl->myNode->endpoint.host);
-      break;
-    default:
-      it = MRNodeMap_IterateAll(cl->nodeMap);
-  }
-
-  int ret = 0;
-  MRClusterNode *n;
-  while (NULL != (n = it.Next(&it))) {
-    if ((strategy & MRCluster_MastersOnly) && !(n->flags & MRNode_Master)) {
-      continue;
-    }
-    MRConn *conn = MRConn_Get(&cl->mgr, n->id);
-    // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
-    if (conn) {
-      if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
-        ret++;
+MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, bool mastersOnly) {
+  // if we only want masters - find the master of this shard
+  if (mastersOnly) {
+    for (int i = 0; i < sh->numNodes; i++) {
+      if (sh->nodes[i].flags & MRNode_Master) {
+        return &sh->nodes[i];
       }
     }
+    return NULL;
   }
-  MRNodeMapIterator_Free(&it);
-
-  return ret;
+  // if we don't care - select a random node
+  return &sh->nodes[rand() % sh->numNodes];
 }
 
-/* Initialize the connections to all shards */
-int MRCluster_ConnectAll(MRCluster *cl) {
-  return MRConnManager_ConnectAll(&cl->mgr);
-}
+typedef struct {
+  const char *base;
+  size_t baseLen;
+  const char *shard;
+  size_t shardLen;
+} MRKey;
 
 void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
   mk->shard = mk->base = src;
@@ -259,9 +120,9 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
   // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
 }
 
-static const char *MRGetShardKey(MRCommand *cmd, size_t *len) {
+static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
   int pos = MRCommand_GetShardingKey(cmd);
-  if (pos < 0 || pos >= cmd->num) {
+  if (pos >= cmd->num) {
     // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
     return NULL;
   }
@@ -274,31 +135,87 @@ static const char *MRGetShardKey(MRCommand *cmd, size_t *len) {
   return mk.shard;
 }
 
-mr_slot_t CRC16ShardFunc(MRCommand *cmd, mr_slot_t numSlots) {
 
-  size_t len;
+static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRCluster *cl) {
 
   if(cmd->targetSlot >= 0){
     return cmd->targetSlot;
   }
 
+  size_t len;
   const char *k = MRGetShardKey(cmd, &len);
   if (!k) return 0;
-  uint16_t crc = crc16(k, len);
-  return crc % numSlots;
+  // Default to crc16
+  uint16_t crc = (cl->topo->hashFunc == MRHashFunc_CRC12) ? crc12(k, len) : crc16(k, len);
+  return crc % cl->topo->numSlots;
 }
 
-mr_slot_t CRC12ShardFunc(MRCommand *cmd, mr_slot_t numSlots) {
-  size_t len;
+MRConn* MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd) {
 
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
+  if (!cl || !cl->topo) return NULL;
+
+  /* Get the cluster slot from the sharder */
+  unsigned slot = getSlotByCmd(cmd, cl);
+
+  /* Get the shard from the slot map */
+  MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
+  if (!sh) return NULL;
+
+  MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
+  if (!node) return NULL;
+
+  return MRConn_Get(&cl->mgr, node->id);
+}
+
+/* Send a single command to the right shard in the cluster, with an optional control over node
+ * selection */
+int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
+                          redisCallbackFn *fn, void *privdata) {
+  MRConn *conn = MRCluster_GetConn(cl, mastersOnly, cmd);
+  if (!conn) return REDIS_ERR;
+  return MRConn_SendCommand(conn, cmd, fn, privdata);
+}
+
+int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
+  for (size_t i = 0; i < cl->topo->numShards; i++) {
+    MRClusterShard *sh = &cl->topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
+        continue;
+      }
+      if (!MRConn_Get(&cl->mgr, sh->nodes[j].id)) {
+        return REDIS_ERR;
+      }
+    }
   }
+  return REDIS_OK;
+}
 
-  const char *k = MRGetShardKey(cmd, &len);
-  if (!k) return 0;
-  uint16_t crc = crc12(k, len);
-  return crc % numSlots;
+/* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
+ * number of sent commands */
+int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
+                            redisCallbackFn *fn, void *privdata) {
+  int ret = 0;
+  for (size_t i = 0; i < cl->topo->numShards; i++) {
+    MRClusterShard *sh = &cl->topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
+        continue;
+      }
+      MRConn *conn = MRConn_Get(&cl->mgr, sh->nodes[j].id);
+      if (conn) {
+        if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
+          ret++;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+/* Initialize the connections to all shards */
+int MRCluster_ConnectAll(MRCluster *cl) {
+  return MRConnManager_ConnectAll(&cl->mgr);
 }
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
@@ -312,50 +229,17 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
   rm_free(t);
 }
 
-int MRClusterTopology_IsValid(MRClusterTopology *t) {
-  if (!t || t->numShards <= 0 || t->numSlots <= 0) {
-    return 0;
-  }
-
-  mr_slot_t sum = 0;
-  for (size_t s = 0; s < t->numShards; s++) {
-    sum += 1 + t->shards[s].endSlot - t->shards[s].startSlot;
-  }
-
-  return sum >= t->numSlots;
-}
-
-size_t MRCluster_NumShards(MRCluster *cl) {
-  if (cl->topo) {
-    return cl->topo->numShards;
-  }
-  return 0;
-}
-
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
 }
 
-static ShardFunc selectHashFunc(MRHashFunc f) {
-  switch (f) {
-    case MRHashFunc_CRC12:
-      return CRC12ShardFunc;
-    case MRHashFunc_CRC16:
-      return CRC16ShardFunc;
-    default:
-      break;
-  }
-  return NULL;
-}
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
   if (!newTopo) return REDIS_ERR;
 
   // if the topology has updated, we update to the new one
-  if (newTopo->hashFunc != MRHashFunc_None) {
-    cl->sf = selectHashFunc(newTopo->hashFunc);
-  } else if (cl->topo) {
+  if (newTopo->hashFunc == MRHashFunc_None && cl->topo) {
     newTopo->hashFunc = cl->topo->hashFunc;
   }
 
@@ -367,14 +251,6 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
     MRClusterTopology_Free(old);
   }
   return REDIS_OK;
-}
-
-size_t MRCluster_NumHosts(MRCluster *cl) {
-  return cl->nodeMap ? MRNodeMap_NumHosts(cl->nodeMap) : 0;
-}
-
-size_t MRCluster_NumNodes(MRCluster *cl) {
-  return cl->nodeMap ? MRNodeMap_NumNodes(cl->nodeMap) : 0;
 }
 
 MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t capNodes) {
@@ -418,8 +294,6 @@ void MRClust_Free(MRCluster *cl) {
   if (cl) {
     if (cl->topo)
       MRClusterTopology_Free(cl->topo);
-    if (cl->nodeMap)
-      MRNodeMap_Free(cl->nodeMap);
     if (cl->mgr.map)
       MRConnManager_Free(&cl->mgr);
     rm_free(cl);
