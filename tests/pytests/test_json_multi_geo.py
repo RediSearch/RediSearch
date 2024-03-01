@@ -104,12 +104,8 @@ def checkInfo(env, idx, num_docs, inverted_sz_mb):
     env.assertEqual(int(info['num_docs']), num_docs)
     env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb)
 
-def ft_info_to_dict(env, idx):
-    res = env.execute_command('ft.info', idx)
-    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
 def check_empty(env, idx, mem_usage):
-    d = ft_info_to_dict(env, idx)
+    d = index_info(env, idx)
     env.assertEqual(float(d['num_records']), 0)
     env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 

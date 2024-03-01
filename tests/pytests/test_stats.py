@@ -8,10 +8,6 @@ from RLTest import Env
 
 ##########################################################################
 
-def ft_debug_to_dict(env, idx, n):
-    res = env.cmd('ft.debug', 'NUMIDX_SUMMARY', idx, n)
-    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
 def check_empty(env, idx, memory_consumption):
     d = index_info(env, idx)
     env.assertEqual(float(d['num_records']), 0)
@@ -100,21 +96,15 @@ def runTestWithSeed(env, s=None):
         forceInvokeGC(env, 'idx')
     check_empty(env, idx, expected_empty_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testRandom(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     runTestWithSeed(env, 2)
 
     runTestWithSeed(env)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     idx_count = 100
     doc_count = 50
@@ -153,11 +143,8 @@ def testMemoryAfterDrop(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testIssue1497(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     count = 110
     divide_by = 1000000   # ensure limits of geo are not exceeded
@@ -196,15 +183,11 @@ def testIssue1497(env):
                     + (102 * 2) / (1024 * 1024)
     check_empty(env, 'idx', expected_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_numeric(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     idx_count = 100
     doc_count = 120
-    divide_by = 1000000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -214,7 +197,6 @@ def testMemoryAfterDrop_numeric(env):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
 
     for i in range(idx_count):
-        geo = '1.23456,' + str(float(i) / divide_by)
         for j in range(doc_count):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'n', i)
         pl.execute()
@@ -238,11 +220,8 @@ def testMemoryAfterDrop_numeric(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_geo(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     idx_count = 100
     doc_count = 50
@@ -280,11 +259,8 @@ def testMemoryAfterDrop_geo(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_text(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     idx_count = 1
     doc_count = 100
@@ -321,11 +297,8 @@ def testMemoryAfterDrop_text(env):
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_tag(env):
-
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
 
     idx_count = 1
     doc_count = 100

@@ -286,12 +286,8 @@ def testInvertedIndexMultipleBlocks(env):
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
-def ft_info_to_dict(env, idx):
-    res = env.execute_command('ft.info', idx)
-    return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
 def check_empty(env, idx, mem_usage):
-    d = ft_info_to_dict(env, idx)
+    d = index_info(env, idx)
     env.assertEqual(float(d['num_records']), 0)
     env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 
