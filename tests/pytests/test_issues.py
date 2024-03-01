@@ -1027,3 +1027,22 @@ def test_mod6186(env):
     env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
     env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
 
+@skip(cluster=True)
+def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
+    dim = 1000
+    n_vectors = 50000
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
+
+    # Create HNSW index which is large enough, so we'll get timeout later on.
+    env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
+               f' t text').equal('OK')
+    for i in range(n_vectors):
+        env.expect('HSET', i, 'v', create_np_array_typed(np.random.rand(dim)).tobytes(), 't', f'meta data').equal(2)
+
+    # There was a bug causing this to unlock the tiered HNSW index locks twice (in case of timeout + adhoc BF mode).
+    query_vec = create_np_array_typed(np.random.rand(dim))
+    env.expect('FT.SEARCH', 'idx', 'meta=>[KNN 5 @v $vec_param HYBRID_POLICY ADHOC_BF]', 'NOCONTENT',
+                             'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'DIALECT', 2)\
+        .error().contains('Timeout limit was reached')
+    # Then, when we delete inplace and tried to acquire the locks again for write, we got a deadlock.
+    env.expect('DEL 0').equal(1)
