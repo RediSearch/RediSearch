@@ -131,11 +131,11 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
                                           size_t len, int create, size_t *sz) {
   *sz = 0;
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
+  InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
-      TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
+      TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
   return iv;
