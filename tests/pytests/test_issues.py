@@ -1058,6 +1058,7 @@ def test_mod_6541(env: Env):
     ('FT.MGET', 'idx', 'doc1', 'doc2'),
     ('FT.LSEARCH', 'idx', 'foo'),
     ('FT.BROADCAST', 'idx', 'foo'),
+    ('FT.SYNADD', 'idx', 'foo', 'bar'),
   ]
 
   def expect_error(cmd):
