@@ -1058,10 +1058,18 @@ def test_mod_6541(env: Env):
     ('FT.MGET', 'idx', 'doc1', 'doc2'),
   ]
 
+  def expect_error(cmd):
+    return f'Cannot perform `{cmd[0]}`: Cannot block'
+
+  # Test MULTI/EXEC
   for cmd in cmds:
     env.expect('MULTI').ok()
     env.expect(*cmd).equal('QUEUED')
     res = env.cmd('EXEC')
     env.assertEqual(len(res), 1, message=cmd[0])
     env.assertIsInstance(res[0], redis_exceptions.ResponseError)
-    env.assertEqual(str(res[0]), f'Cannot perform `{cmd[0]}`: Cannot block')
+    env.assertEqual(str(res[0]), expect_error(cmd))
+
+  # Test Lua
+  for cmd in cmds:
+    env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
