@@ -577,7 +577,7 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	else
 		parallel="$(($PARALLEL / $SHARDS))"
 	fi
-	if (( $parallel -eq 0 )) ; then parallel=1 ; fi
+	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
 	echo "Running tests in parallel using $parallel workers"
 fi
