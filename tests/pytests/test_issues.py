@@ -998,6 +998,9 @@ def test_mod_6541(env: Env):
     # Deprecated commands
     ('FT.TAGVALS', 'idx', 't'),
     ('FT.MGET', 'idx', 'doc1', 'doc2'),
+    ('FT.LSEARCH', 'idx', 'foo'),
+    ('FT.BROADCAST', 'idx', 'foo'),
+    ('FT.SYNADD', 'idx', 'foo', 'bar'),
   ]
 
   def expect_error(cmd):
@@ -1009,7 +1012,7 @@ def test_mod_6541(env: Env):
     env.expect(*cmd).equal('QUEUED')
     res = env.cmd('EXEC')
     env.assertEqual(len(res), 1, message=cmd[0])
-    env.assertIsInstance(res[0], redis_exceptions.ResponseError)
+    env.assertIsInstance(res[0], exceptions.ResponseError)
     env.assertEqual(str(res[0]), expect_error(cmd))
 
   # Test Lua
