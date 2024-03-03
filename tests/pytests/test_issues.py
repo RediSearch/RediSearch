@@ -981,3 +981,40 @@ def test_mod6186(env):
     env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
     env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
 
+@skip(cluster=False)
+def test_mod_6541(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  cmds = [
+    ('FT.SEARCH', 'idx', '*'),
+    ('FT.AGGREGATE', 'idx', '*'),
+    ('FT.CURSOR', 'READ', 'idx', '0'),
+    ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'),
+    ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
+    ('FT.INFO', 'idx'),
+    ('FT.SPELLCHECK', 'idx', 'foo'),
+    ('FT.SUGLEN', 'idx', 'foo'),
+    ('FT.ALIASADD', 'alias', 'idx'),
+    # Deprecated commands
+    ('FT.TAGVALS', 'idx', 't'),
+    ('FT.MGET', 'idx', 'doc1', 'doc2'),
+    ('FT.LSEARCH', 'idx', 'foo'),
+    ('FT.BROADCAST', 'idx', 'foo'),
+    ('FT.SYNADD', 'idx', 'foo', 'bar'),
+  ]
+
+  def expect_error(cmd):
+    return f'Cannot perform `{cmd[0]}`: Cannot block'
+
+  # Test MULTI/EXEC
+  for cmd in cmds:
+    env.expect('MULTI').ok()
+    env.expect(*cmd).equal('QUEUED')
+    res = env.cmd('EXEC')
+    env.assertEqual(len(res), 1, message=cmd[0])
+    env.assertIsInstance(res[0], exceptions.ResponseError)
+    env.assertEqual(str(res[0]), expect_error(cmd))
+
+  # Test Lua
+  for cmd in cmds:
+    env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
