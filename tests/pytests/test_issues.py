@@ -1056,6 +1056,8 @@ def test_mod_6541(env: Env):
     # Deprecated commands
     ('FT.TAGVALS', 'idx', 't'),
     ('FT.MGET', 'idx', 'doc1', 'doc2'),
+    ('FT.LSEARCH', 'idx', 'foo'),
+    ('FT.BROADCAST', 'idx', 'foo'),
   ]
 
   def expect_error(cmd):
