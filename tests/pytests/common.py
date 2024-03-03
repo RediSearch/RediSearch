@@ -285,6 +285,9 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
 
+def run_command_on_all_shards(env, *args):
+    return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
+
 def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
 
