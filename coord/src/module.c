@@ -1280,7 +1280,11 @@ cleanup:
 }
 
 static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
-  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+  return RedisModule_GetContextFlags(ctx) & (
+    REDISMODULE_CTX_FLAGS_DENY_BLOCKING | // Supported from redis 6.2
+    REDISMODULE_CTX_FLAGS_MULTI |         // MULTI/EXEC
+    REDISMODULE_CTX_FLAGS_LUA             // Lua script
+  );
 }
 
 static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
