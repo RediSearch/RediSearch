@@ -1069,7 +1069,7 @@ def test_mod_6541(env: Env):
     env.expect(*cmd).equal('QUEUED')
     res = env.cmd('EXEC')
     env.assertEqual(len(res), 1, message=cmd[0])
-    env.assertIsInstance(res[0], redis_exceptions.ResponseError)
+    env.assertIsInstance(res[0], exceptions.ResponseError)
     env.assertEqual(str(res[0]), expect_error(cmd))
 
   # Test Lua
