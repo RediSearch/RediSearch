@@ -1656,6 +1656,14 @@ cleanup:
   return res;
 }
 
+static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
+  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+}
+
+static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
+  return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
+}
+
 int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  MRReduceFunc reducer, struct MRCtx *mrCtx) {
 
@@ -1675,9 +1683,11 @@ int FirstPartitionCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, 
 }
 
 int FirstShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  bool resp3 = is_resp3(ctx);
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   RS_AutoMemory(ctx);
@@ -1694,6 +1704,9 @@ int SynAddCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   RS_AutoMemory(ctx);
@@ -1716,6 +1729,9 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1753,6 +1769,9 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1779,6 +1798,9 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1803,6 +1825,9 @@ static int mastersCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, i
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1831,25 +1856,6 @@ static int MastersUnshardedHandler(RedisModuleCtx *ctx, RedisModuleString **argv
   return mastersCommandCommon(ctx, argv, argc, 0);
 }
 
-int FanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RS_AutoMemory(ctx);
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  MRCommandGenerator cg = SearchCluster_MultiplexCommand(GetSearchCluster(), &cmd);
-  MR_Map(MR_CreateCtx(ctx, 0, NULL), allOKReducer, cg, true);
-  cg.Free(cg.ctx);
-  return REDISMODULE_OK;
-}
-
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
 
@@ -1859,6 +1865,9 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   }
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                RSExecDistAggregate, ctx, argv, argc);
@@ -1875,6 +1884,9 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc);
 }
@@ -1886,6 +1898,9 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1908,6 +1923,9 @@ int BroadcastCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1935,6 +1953,9 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
@@ -1958,6 +1979,9 @@ int LocalSearchCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Check that the cluster state is valid
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -2148,6 +2172,9 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   if (!SearchCluster_Ready(GetSearchCluster())) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
