@@ -37,8 +37,8 @@ typedef struct {
 
 typedef struct Buffer {
   char *data;
-  size_t cap;
-  size_t offset;
+  size_t cap;    // capacity of the buffer, number of bytes allocated
+  size_t offset; // number of bytes used
 } Buffer;
 
 typedef struct {
@@ -104,33 +104,34 @@ position if where is outside bounds
 typedef struct {
   Buffer *buf;
   char *pos;
-
 } BufferWriter;
 
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
 
 // Ensure that at least extraLen new bytes can be added to the buffer.
-// Returns 0 if no realloc was performed. 1 if realloc was performed.
-void Buffer_Grow(Buffer *b, size_t extraLen);
+// Returns the number of bytes added, or 0 if the buffer is already large enough.
+size_t Buffer_Grow(Buffer *b, size_t extraLen);
 
 static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
   if (buf->offset + n <= buf->cap) {
     return 0;
   }
-  Buffer_Grow(buf, n);
-  return 1;
+  return Buffer_Grow(buf, n);
 }
 
+// Write len bytes from data to the buffer. If the buffer is not large enough,
+// it will be grown to accommodate the new data.
+// Returns the number of bytes added, or 0 if the buffer is already large enough.
 static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
-
   Buffer *buf = bw->buf;
-  if (Buffer_Reserve(buf, len)) {
+  size_t mem_growth = Buffer_Reserve(buf, len);
+  if (mem_growth != 0) {
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
   bw->pos += len;
   buf->offset += len;
-  return len;
+  return mem_growth;
 }
 
 /**
@@ -180,7 +181,9 @@ size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 
 Buffer *Buffer_Wrap(char *data, size_t len);
-void Buffer_Free(Buffer *buf);
+
+// release the buf->data pointer and return the number of bytes released
+size_t Buffer_Free(Buffer *buf);
 
 #ifdef __cplusplus
 }

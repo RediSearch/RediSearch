@@ -33,7 +33,7 @@ typedef struct {
 } IndexBlock;
 
 typedef struct InvertedIndex {
-  IndexBlock *blocks;
+  IndexBlock *blocks; // Array containing the inverted index blocks
   uint32_t size;      // Number of blocks
   IndexFlags flags;
   t_docId lastId;
@@ -80,18 +80,33 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
-/* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
- * block */
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId);
-void indexBlock_Free(IndexBlock *blk);
+static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
+  int useFieldMask = flags & Index_StoreFieldFlags;
+  int useNumEntries = flags & Index_StoreNumeric;
+  RedisModule_Assert(!(useFieldMask & useNumEntries));
+  // Avoid some of the allocation if not needed
+  return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
+                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+}
+
+// Create a new inverted index object, with the given flag.
+// If initBlock is 1, we create the first block.
+// out parameter memsize must be not NULL, the total of allocated memory 
+// will be returned in it
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
+
+/* Add a new block to the index with a given document id as the initial id
+  * Returns the new block
+  * in/out parameter memsize must be not NULL, because the size (bytes) of the
+  * new block is added to it
+*/
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
+size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
 #define IndexBlock_DataBuf(b) (b)->buf.data
 #define IndexBlock_DataLen(b) (b)->buf.offset
-
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
-                         IndexRepairParams *params);
+#define IndexBlock_DataCap(b) (b)->buf.cap
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
