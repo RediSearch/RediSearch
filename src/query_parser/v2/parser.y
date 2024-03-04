@@ -797,7 +797,7 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 1);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
@@ -807,7 +807,7 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 1);
 }
 
 numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -817,7 +817,7 @@ numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 0);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -827,14 +827,14 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
 }
 
 numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
   if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, B.inclusive, B.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
 /////////////////////////////////////////////////////////////////

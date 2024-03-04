@@ -303,6 +303,7 @@ def test_numeric_range(env):
     env.assertEqual(conn.execute_command('HSET', 'key3', 'numval', '103'), 1)
     env.assertEqual(conn.execute_command('HSET', 'key4', 'numval', '104'), 1)
     env.assertEqual(conn.execute_command('HSET', 'key5', 'numval', '105'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key6neg', 'numval', '-10'), 1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
@@ -330,14 +331,17 @@ def test_numeric_range(env):
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf, (105]', 'NOCONTENT')
-    env.assertEqual(res1, [4, 'key1', 'key2', 'key3', 'key4'])
+    env.assertEqual(res1, [5, 'key1', 'key2', 'key3', 'key4', 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]', 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key5'])
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
+    env.assertEqual(res1, [1, 'key5', ['numval', '105']])
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')
+    env.assertEqual(res1, [1, 'key6neg', ['numval', '-10']])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]')
     env.assertEqual(res1, [0])
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]', 'NOCONTENT')
@@ -347,12 +351,15 @@ def test_numeric_range(env):
     env.assertEqual(res1, [0])
 
     # Invalid syntax
+    env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[((105 300]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[((105]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(105]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[-(105]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(-105]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[($param]', 
+    env.expect('FT.SEARCH', 'idx', '@numval:[($param]',
                'PARAMS', 2, 'param', 100).error()
 
 def test_vector(env):
