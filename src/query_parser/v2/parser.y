@@ -831,9 +831,6 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
 }
 
 numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
