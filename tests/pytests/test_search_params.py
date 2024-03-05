@@ -303,6 +303,8 @@ def test_numeric_range(env):
     env.assertEqual(conn.execute_command('HSET', 'key3', 'numval', '103'), 1)
     env.assertEqual(conn.execute_command('HSET', 'key4', 'numval', '104'), 1)
     env.assertEqual(conn.execute_command('HSET', 'key5', 'numval', '105'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key6neg', 'numval', '-10'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key7inf', 'numval', 'inf'), 1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
@@ -325,15 +327,21 @@ def test_numeric_range(env):
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT')
-    env.assertEqual(res1, [3, 'key3', 'key4', 'key5'])
+    env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7inf'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '+inf')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf, (105]', 'NOCONTENT')
-    env.assertEqual(res1, [4, 'key1', 'key2', 'key3', 'key4'])
+    env.assertEqual(res1, [5, 'key1', 'key2', 'key3', 'key4', 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
+    # TODO:
+    # res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT')
+    # env.assertEqual(res1, [2, 'key1', 'key6neg'])
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$param +$param]', 'NOCONTENT',
+    #                   'PARAMS', 2, 'param', 101)
+    # env.assertEqual(res2, res1)
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

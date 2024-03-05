@@ -29,9 +29,9 @@ void RSQuery_ParseFree_v2(void *p, void (*freeProc)(void *));
 
 machine query;
 
-inf = ['+\-']? 'inf' $ 4;
+inf = ['+\-']? 'inf'i $ 4;
 size = digit+ $ 2;
-number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
+number = '-'? digit+('.' digit+)? (('E'|'e') ['+\-']? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -57,7 +57,7 @@ attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
-as = 'AS'|'aS'|'As'|'as';
+as = 'AS'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
 

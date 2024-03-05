@@ -389,3 +389,50 @@ def testNegativeValues(env):
     # Query the index. if the split value of the root is nan, the query won't return any results.
     res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], doc_id)
+
+def testNumberFormat(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'numeric').ok()
+    env.assertEqual(conn.execute_command('HSET', 'doc01', 'n', '1.0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc02', 'n', '1'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc03', 'n', '1.0e0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc04', 'n', '10e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc05', 'n', '1.5e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc06', 'n', '10e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc07', 'n', '1.5e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc08', 'n', 'INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc09', 'n', 'inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc10', 'n', 'iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc11', 'n', '+INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc12', 'n', '+inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc13', 'n', '+iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc14', 'n', '-INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc15', 'n', '-inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc16', 'n', '-iNf'), 1)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]')
+    env.assertEqual(res[0], 3)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]')
+    env.assertEqual(res[0], 3)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]')
+    expected = [6, 'doc08', ['n', 'INF'], 'doc09', ['n', 'inf'],
+                'doc10', ['n', 'iNf'], 'doc11', ['n', '+INF'],
+                'doc12', ['n', '+inf'], 'doc13', ['n', '+iNf']]
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]')
+    env.assertEqual(res2, expected)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]')
+    expected = [3, 'doc14', ['n', '-INF'], 'doc15', ['n', '-inf'],
+                'doc16', ['n', '-iNf']]
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]')
+    env.assertEqual(res2, expected)
+
+    # Invalid syntax
+    env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[((105 300]').error()
