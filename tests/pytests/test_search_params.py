@@ -338,24 +338,36 @@ def test_numeric_range(env):
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
     env.assertEqual(res1, [1, 'key5', ['numval', '105']])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '105')
+    env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')
     env.assertEqual(res1, [1, 'key6neg', ['numval', '-10']])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-10')
+    env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]')
     env.assertEqual(res1, [0])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-105')
+    env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]')
     env.assertEqual(res1, [1, 'key7inf', ['numval', 'inf']])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
+                   'PARAMS', 2, 'param', '+inf')
+    env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf]')
     env.assertEqual(res1, [0])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
+                   'PARAMS', 2, 'param', '-inf')
+    env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[+inf]', 'DIALECT', '2', 'LOAD', '1', '__key')
+    res1 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[+inf]', 'LOAD', '1', '__key')
     env.assertEqual(res1, [1, ['__key', 'key7inf']])
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf]', 'NOCONTENT')
-    env.assertEqual(res1, [0])
+    res2 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[$param]',
+                   'LOAD', '1', '__key', 'PARAMS', 2, 'param', '+inf')
+    env.assertEqual(res2, res1)
 
     # Invalid syntax
     env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
@@ -367,6 +379,8 @@ def test_numeric_range(env):
     env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
     env.expect('FT.SEARCH', 'idx', '@numval:[($param]',
+               'PARAMS', 2, 'param', 100).error()
+    env.expect('FT.SEARCH', 'idx', '@numval:[-$param]',
                'PARAMS', 2, 'param', 100).error()
     
 

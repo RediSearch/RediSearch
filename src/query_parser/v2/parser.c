@@ -1966,9 +1966,6 @@ yylhsminor.yy13 = yymsp[0].minor.yy13;
   yymsp[-2].minor.yy13 = yylhsminor.yy13;
         break;
       case 59: /* numeric_range ::= LSQB param_num param_num RSQB */
-      case 60: /* numeric_range ::= LSQB exclusive_param_num param_num RSQB */ yytestcase(yyruleno==60);
-      case 61: /* numeric_range ::= LSQB param_num exclusive_param_num RSQB */ yytestcase(yyruleno==61);
-      case 62: /* numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */ yytestcase(yyruleno==62);
 {
   if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
     yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
@@ -1976,15 +1973,45 @@ yylhsminor.yy13 = yymsp[0].minor.yy13;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  yymsp[-3].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  yymsp[-3].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 1, 1);
+}
+        break;
+      case 60: /* numeric_range ::= LSQB exclusive_param_num param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 0, 1);
+}
+        break;
+      case 61: /* numeric_range ::= LSQB param_num exclusive_param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 1, 0);
+}
+        break;
+      case 62: /* numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 0, 0);
 }
         break;
       case 63: /* numeric_range ::= LSQB param_num RSQB */
 {
-  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
-  yymsp[-2].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-1].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-1].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  yymsp[-2].minor.yy72 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-1].minor.yy0, &yymsp[-1].minor.yy0, 1, 1);
 }
         break;
       case 64: /* expr ::= modifier COLON geo_filter */
@@ -2288,7 +2315,6 @@ yylhsminor.yy13 = yymsp[0].minor.yy13;
         break;
       case 99: /* exclusive_param_num ::= LP num */
 {
-  printf("exclusive_param_num(yymsp[-1].minor.yy0) ::= num: %f\n", yymsp[0].minor.yy93.num);
   yymsp[-1].minor.yy0.numval = yymsp[0].minor.yy93.num;
   yymsp[-1].minor.yy0.inclusive = 0;
   yymsp[-1].minor.yy0.type = QT_NUMERIC;
