@@ -333,12 +333,8 @@ static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) 
   if COND("CONTAINS") { // 0x08'53
     return CONTAINS;
   }
-  if COND("DISJOINT") { // 0x08'54
-    return DISJOINT;
-  }
-  if COND("INTERSECTS") { // 0x0A'53
-    return INTERSECTS;
-  }
+  COND("DISJOINT") // 0x08'54
+  COND("INTERSECTS") // 0x0A'53
   COND("DISTANCE"); // 0x08'45
   COND("NEAREST"); // 0x07'54
   return UNKNOWN_QUERY;
