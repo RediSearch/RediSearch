@@ -354,34 +354,18 @@ def test_numeric_range(env):
                    'PARAMS', 4, 'n', 10, 'm', -101)
     env.assertEqual(res2, res1)
 
-    # Test invalid ranges
-    error_msg = "Invalid numeric range: 2 exclusive identical values"
-    env.expect('FT.SEARCH', 'idx', '@numval:[(100 (100]').error()\
-        .contains('Invalid numeric range')
-
-    env.expect('FT.SEARCH', 'idx', '@numval:[($n ($n]',
-                'PARAMS', 2, 'n', 100).error().contains(error_msg)
-    
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-$n (-$n]',
-                'PARAMS', 2, 'n', 100).error().contains(error_msg)
-    
-    env.expect('FT.SEARCH', 'idx', '@numval:[($n (100]',
-               'PARAMS', 2, 'n', 100).error().contains(error_msg)
-
-    env.expect('FT.SEARCH', 'idx', '@numval:[(100 ($n]',
-               'PARAMS', 2, 'n', 100).error().contains(error_msg)
-
-    env.expect('FT.SEARCH', 'idx', '@numval:[($n (-100]',
-               'PARAMS', 2, 'n', -100).error().contains(error_msg)
-    
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-100 ($n]',
-               'PARAMS', 2, 'n', -100).error().contains(error_msg)
-
-    env.expect('FT.SEARCH', 'idx', '@numval:[($n ($m]',
-               'PARAMS', 4, 'n', 100, 'm', 100).error().contains(error_msg)
-    
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-$n ($m]',
-               'PARAMS', 4, 'n', 100, 'm', -100).error().contains(error_msg)
+    # Range with 2 exclusive identical values will return no results
+    res = env.cmd('FT.SEARCH', 'idx', '@numval:[(101 (101]', 'NOCONTENT')
+    env.assertEqual(res[0], 0)
+    res = env.cmd('FT.SEARCH', 'idx', '@numval:[($n ($n]', 'NOCONTENT',
+                   'PARAMS', 2, 'n', 101)
+    env.assertEqual(res[0], 0)
+    res = env.cmd('FT.SEARCH', 'idx', '@numval:[(-$n ($m]', 'NOCONTENT',
+                   'PARAMS', 4, 'n', -101, 'm', 101)
+    env.assertEqual(res[0], 0)
+    res = env.cmd('FT.SEARCH', 'idx', '@numval:[($m (-$n]', 'NOCONTENT',
+                   'PARAMS', 4, 'n', -101, 'm', 101)
+    env.assertEqual(res[0], 0)
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
