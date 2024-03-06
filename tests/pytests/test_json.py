@@ -718,16 +718,16 @@ def testNumeric(env):
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1, 'doc:1', ['flt', '9.72']])
 
-@skip(cluster=True)
 def testLanguage(env):
+    conn = getConnectionByEnv(env)
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
     env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
 
-    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}')
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}'))
     env.expect('ft.search', 'idx', 'tradu*', 'RETURN', '1', '$.t' ).equal([1, 'doc:1', ['$.t', "traduzioni"]])
 
-    env.cmd('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}'))
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1, 'doc:2', ['$.domanda', "perché"]])
 
 @skip(msan=True)

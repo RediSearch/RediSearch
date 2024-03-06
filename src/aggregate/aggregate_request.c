@@ -568,10 +568,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  // if language is NULL, set it to RS_LANG_INDEX_DEFAULT and it will be updated
+  // if language is NULL, set it to RS_LANG_UNSET and it will be updated
   // later, taking the index language
   if(languageStr == NULL) {
-    searchOpts->language = RS_LANG_INDEX_DEFAULT;
+    searchOpts->language = RS_LANG_UNSET;
   } else {
     searchOpts->language = RSLanguage_Find(languageStr, 0);
   }
@@ -992,7 +992,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if (opts->language == RS_LANG_INDEX_DEFAULT) {
+  if (opts->language == RS_LANG_UNSET) {
     opts->language = index->rule->lang_default;
   } else if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
