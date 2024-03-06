@@ -2,6 +2,7 @@
 
 from common import getConnectionByEnv, waitForIndex
 from RLTest import Env
+from common import index_info
 import time
 
 def testSearchHashIndexLanguage(env):
@@ -280,4 +281,18 @@ def testSearchIndexLanguageField(env):
                         'LANGUAGE', 'english')
         env.assertEqual(res1, res2)
 
-    
+def testLanguageInfo(env):
+    languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
+                 'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
+                 'indonesian', 'irish', 'italian', 'lithuanian', 'nepali',
+                 'norwegian', 'portuguese', 'romanian', 'russian', 'serbian',
+                 'spanish', 'swedish', 'tamil', 'turkish', 'yiddish', 'chinese']
+    # 'english' is not printed in FT.INFO because it is the default language
+    for language in languages:
+        env.cmd('FT.CREATE', 'idx_' + language, 'LANGUAGE', language,
+                'SCHEMA', 'text', 'TEXT')
+        info = index_info(env, 'idx_' + language)
+        index_definition = info['index_definition']
+        idx = {index_definition[i]: index_definition[i + 1] for i in range(0, len(index_definition), 2)}
+        env.assertEqual(idx['default_language'], language)
+
