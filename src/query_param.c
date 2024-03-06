@@ -41,6 +41,20 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   QueryParam_InitParams(ret, 2);
   QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
   QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
+
+  if(inclusiveMin == 0 && inclusiveMax == 0) {
+    if(min->type == QT_PARAM_NUMERIC_MIN_RANGE) {
+      QueryParam_Resolve(&ret->params[0], q->opts->params, q->status);
+    }
+    if(max->type == QT_PARAM_NUMERIC_MAX_RANGE) {
+      QueryParam_Resolve(&ret->params[1], q->opts->params, q->status);
+    }
+    if(nf->min == nf->max) {
+      QueryError_SetErrorFmt(q->status, QUERY_ESYNTAX,
+        "Invalid numeric range: 2 exclusive identical values");
+      return NULL;
+    }
+  }
   return ret;
 }
 
