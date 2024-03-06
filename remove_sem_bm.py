@@ -75,6 +75,11 @@ def run_queries(n_clients, stop_run, key):
             my_total_queries += 1
             if len(res.docs) < k:
                 print("less than k results which are: ", res)
+            if (my_total_queries % 50_000) == 0:
+                    print(redis_conn.execute_command("ft.debug worker_threads stats")[:4]) # ['totalJobsDone', 0, 'totalPendingJobs', 0]
+                    redis_info = redis_conn.info()
+                    print(f"used_memory_human = {redis_info['used_memory_human']}")
+                    print(f"used_memory_rss_human {redis_info['used_memory_rss_human']}")
         my_total_time = time.time() - start
         redis_conn.hset(key, mapping={f"client_{my_id}_queries_num": my_total_queries,
                                       f"client_{my_id}_total_runtime": my_total_time})
@@ -105,30 +110,31 @@ if __name__ == '__main__':
     else:
         print(f"{vecs_file} exists, skipping generation of random vectors...")
 
-    key = 'scenario_1'
-    # Fresh start
-    redis_conn.flushall()
-    #
-    # Scenario 1 - loading data
-    np.random.seed(20)
-    load_vectors(n_vectors, 5, key)
-
-    # querying data for 1m
-    stop = Value('i', 0)
-    t = Process(target=run_queries, args=(5, stop, key))
-    t.start()
-    time.sleep(10)
-    stop.value = 1
-    t.join()
+    # key = 'scenario_1'
+    # # Fresh start
+    # redis_conn.flushall()
     # #
-    # # # Scenario 2 - updating data
-    # # key = 'scenario_2'
-    # # print(f"Update all vectors")
-    # # load_vectors(n_vectors, 5, key)
+    # # Scenario 1 - loading data
+    # np.random.seed(20)
+    # load_vectors(n_vectors, 5, key)
+
+    # # querying data for 1m
+    # stop = Value('i', 0)
+    # t = Process(target=run_queries, args=(5, stop, key))
+    # t.start()
+    # time.sleep(10)
+    # stop.value = 1
+    # t.join()
+    # #
+    # Scenario 2 - updating data
+    key = 'scenario_2'
+    # print(f"Update all vectors")
+    # load_vectors(n_vectors, 5, key)
     # #
     # Scenario 3 - update data while querying
     print(f"Update all vector while running queries")
-    for n_readers in [5, 20, 50]:
+    for n_readers in [20]:
+   # for n_readers in [5, 20, 50]:
         key = f'scenario_3_ratio_5:{n_readers}'
         print(f"Running with 5:{n_readers} writers:readers ratio")
         stop = Value('i', 0)
