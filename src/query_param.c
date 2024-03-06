@@ -152,6 +152,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   target_param->target_len = target_len;
   target_param->name = rm_strndup(source->s, source->len);
   target_param->len = source->len;
+  target_param->sign = source->sign;
   q->numParams++;
   return true;
 }
@@ -213,7 +214,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     {
       int inclusive;
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin , status) == REDISMODULE_OK)
+      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;

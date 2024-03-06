@@ -336,12 +336,23 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
-    # TODO:
-    # res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT')
-    # env.assertEqual(res1, [2, 'key1', 'key6neg'])
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$param +$param]', 'NOCONTENT',
-    #                   'PARAMS', 2, 'param', 101)
-    # env.assertEqual(res2, res1)
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT')
+    env.assertEqual(res1, [2, 'key1', 'key6neg'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$param +$param]', 'NOCONTENT',
+                   'PARAMS', 2, 'param', 101)
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-10 101]', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key1'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-$n +$m]', 'NOCONTENT',
+                   'PARAMS', 4, 'n', 10, 'm', 101)
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10 (101]', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key6neg'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$n (-$m]', 'NOCONTENT',
+                   'PARAMS', 4, 'n', 10, 'm', -101)
+    env.assertEqual(res2, res1)
 
     # Test invalid ranges
     error_msg = "Invalid numeric range: 2 exclusive identical values"
@@ -349,6 +360,9 @@ def test_numeric_range(env):
         .contains('Invalid numeric range')
 
     env.expect('FT.SEARCH', 'idx', '@numval:[($n ($n]',
+                'PARAMS', 2, 'n', 100).error().contains(error_msg)
+    
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-$n (-$n]',
                 'PARAMS', 2, 'n', 100).error().contains(error_msg)
     
     env.expect('FT.SEARCH', 'idx', '@numval:[($n (100]',
@@ -365,6 +379,9 @@ def test_numeric_range(env):
 
     env.expect('FT.SEARCH', 'idx', '@numval:[($n ($m]',
                'PARAMS', 4, 'n', 100, 'm', 100).error().contains(error_msg)
+    
+    env.expect('FT.SEARCH', 'idx', '@numval:[(-$n ($m]',
+               'PARAMS', 4, 'n', 100, 'm', -100).error().contains(error_msg)
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
