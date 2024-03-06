@@ -62,7 +62,6 @@ typedef struct PLN_BaseStep {
 
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
-#define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
 
 /**
  * JUNCTION/REDUCTION POINTS

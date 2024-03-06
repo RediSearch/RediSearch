@@ -20,7 +20,7 @@ typedef struct PLN_DistributeStep {
   AGGPlan *plan;
   PLN_GroupStep **oldSteps;  // Old step which this distribute breaks down
 #ifdef __cplusplus
-  typedef std::vector<const char *> SerializedArray;
+  typedef std::vector<char *> SerializedArray;
   SerializedArray *serialized;
 #else
   void *serialized;
