@@ -203,10 +203,6 @@ def dump_numeric_index_tree_root(env, idx, numeric_field):
                  for i in range(0, len(tree_root_stats), 2)}
     return root_dump
 
-def numeric_tree_summary(env, idx, numeric_field):
-    res = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', idx, numeric_field)
-    tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return tree_summary
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -267,14 +263,10 @@ def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(ftDebugCmdName(env), "VECSIM_INFO", index_name, vector_field))
 
 
-def forceInvokeGC(env, idx = 'idx', timeout = None):
+def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
-    if timeout is not None:
-        if timeout == 0:
-            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
-    else:
-        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
+    env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
+
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -299,24 +291,38 @@ def unstable(f):
 
 def skip(cluster=False, macos=False, asan=False, msan=False, noWorkers=False):
     def decorate(f):
-        def wrapper():
-            if not (cluster or macos or asan or msan or noWorkers):
-                raise SkipTest()
-            if cluster and COORD in ['oss', 'rlec', '1']:
-                raise SkipTest()
-            if macos and OS == 'macos':
-                raise SkipTest()
-            if asan and SANITIZER == 'address':
-                raise SkipTest()
-            if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if noWorkers and not MT_BUILD:
-                raise SkipTest()
-            if len(inspect.signature(f).parameters) > 0:
-                env = Env()
-                return f(env)
-            else:
-                return f()
+        if len(inspect.signature(f).parameters) == 0:
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                if not (cluster or macos or asan or msan or noWorkers):
+                    raise SkipTest()
+                if macos and OS == 'macos':
+                    raise SkipTest()
+                if asan and SANITIZER == 'address':
+                    raise SkipTest()
+                if msan and SANITIZER == 'memory':
+                    raise SkipTest()
+                if noWorkers and not MT_BUILD:
+                    raise SkipTest()
+
+                return f(*args, **kwargs)
+        else:
+            @wraps(f)
+            def wrapper(x, *args, **kwargs):
+                env = x if isinstance(x, Env) else x.env
+                if not (cluster or macos or asan or msan or noWorkers):
+                    env.skip()
+                if cluster and env.isCluster():
+                    env.skip()
+                if macos and OS == 'macos':
+                    env.skip()
+                if asan and SANITIZER == 'address':
+                    env.skip()
+                if msan and SANITIZER == 'memory':
+                    env.skip()
+                if noWorkers and not MT_BUILD:
+                    env.skip()
+                return f(x, *args, **kwargs)
         return wrapper
     return decorate
 
@@ -477,10 +483,3 @@ def dict_diff(res, exp, show=False, ignore_order=True, significant_digits=7,
     if dd != {} and show:
         pp(dd)
     return dd
-
-def number_to_ordinal(n: int) -> str:
-    if 11 <= (n % 100) <= 13:
-        suffix = 'th'
-    else:
-        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
-    return str(n) + suffix

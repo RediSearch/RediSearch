@@ -285,8 +285,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   for (size_t ii = 0; ii < count; ++ii) {
-    int type = MRReply_Type(replies[ii]);
-    if (type == MR_REPLY_ERROR) {
+    if (MRReply_Type(replies[ii]) == MR_REPLY_ERROR) {
       if (!fields.errorIndexes) {
         fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
       }
@@ -298,13 +297,16 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
       continue;
     }
 
-    if (type != MR_REPLY_ARRAY && type != MR_REPLY_MAP) {
+    if (MRReply_Type(replies[ii]) != MR_REPLY_ARRAY && MRReply_Type(replies[ii]) != MR_REPLY_MAP) {
       continue;  // Ooops!
     }
 
-    size_t numElems = MRReply_Length(replies[ii]);
-    if (numElems % 2 != 0) {
-      printf("Uneven INFO Reply!!!?\n");
+    int type = MRReply_Type(replies[ii]);
+    if (type == MR_REPLY_ARRAY || type == MR_REPLY_MAP) {
+      size_t numElems = MRReply_Length(replies[ii]);
+      if (numElems % 2 != 0) {
+        printf("Uneven INFO Reply!!!?\n");
+      }
     }
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0);
   }

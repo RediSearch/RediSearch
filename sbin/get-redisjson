@@ -75,19 +75,10 @@ else
 			nick=ubuntu18.04
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora || $dist == rocky ]]; then
-		if [[ $nick == centos9 || $nick == ol9 || $nick == rocky9 || $nick == rhel9 ]]; then
-			nick="rhel9"
-		elif [[ $nick == centos8 || $nick == rocky8 ]]; then
+		if [[ $nick == centos8 || $nick == rocky8 ]]; then
 			nick="rhel8"
 		else
 			nick="rhel7"
-		fi
-	elif [[ $dist == mariner ]]; then
-		OSS=1
-		if [[ $BRANCH == master ]]; then
-			# Mariner2 is created using github actions,
-			# for master branch the artifacts are uploaded to staging
-			STAGING=1
 		fi
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
@@ -111,13 +102,7 @@ if [[ $OSS == 1 ]]; then
 else
 	STEM=rejson
 fi
-
-if [[ $STAGING == 1 ]]; then
-	MOD_S3_URL="https://redismodules.s3.amazonaws.com/lab/staging/${STEM}/snapshots"
-else
-	MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
-fi
-
+MOD_S3_URL="https://redismodules.s3.amazonaws.com/${STEM}/snapshots"
 MOD_RAMP="${STEM}.${platform}.${BRANCH}.zip"
 
 if [[ $OSS == 1 && -z $REPO_PATH ]]; then

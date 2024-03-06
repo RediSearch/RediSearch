@@ -88,7 +88,7 @@ static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
 static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
   int rc = TimedOut(timeout);
   if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ETIMEDOUT);
+    QueryError_SetCode(status, QUERY_TIMEDOUT);
   }
   return rc; 
 }

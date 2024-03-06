@@ -30,14 +30,6 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
-// Allocates a new SearchResult, and populates it with `r`'s data (takes
-// ownership as well)
-SearchResult *SearchResult_Copy(SearchResult *r) {
-  SearchResult *ret = rm_malloc(sizeof(*ret));
-  *ret = *r;
-  return ret;
-}
-
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;
@@ -71,6 +63,8 @@ void SearchResult_Destroy(SearchResult *r) {
  * downstream.
  *******************************************************************************************************************/
 
+// Get the index search context from the result processor
+#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 // Get the index spec from the result processor - this should be used only if the spec
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
@@ -82,6 +76,7 @@ static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_statu
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
+  struct timespec timeout;  // milliseconds until timeout
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
@@ -90,7 +85,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
@@ -161,13 +156,19 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
+  ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
   ret->base.type = RP_INDEX;
   return &ret->base;
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  self->timeout = timeout;
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {

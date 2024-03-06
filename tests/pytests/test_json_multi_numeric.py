@@ -234,9 +234,10 @@ def testRange(env):
         res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
         env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
 
-@skip(cluster=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
+
+    env.skipOnCluster()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx:top', 'ON', 'JSON', 'SCHEMA', '$[*]', 'AS', 'val', 'NUMERIC').ok()
@@ -245,12 +246,12 @@ def testDebugDump(env):
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
     env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0,
-                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
+                                                                      'lastDocId', 2, 'revisionId', 0])
 
-@skip(cluster=True)
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
+
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10
@@ -321,9 +322,9 @@ def printSeed(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-@skip(cluster=True)
 def testInfoAndGC(env):
     """ Test cleanup of numeric ranges """
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -555,9 +556,10 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
 
-@skip(cluster=True)
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
+
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
 
@@ -594,9 +596,10 @@ def testConsecutiveValues(env):
 
     env.assertEqual(summary1, summary2)
 
-@skip(cluster=True)
 def testDebugRangeTree(env):
     """ Test debug of range tree """
+
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -606,14 +609,17 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(11), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
-                'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
-                    ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
-            'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
+    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal( ['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0,
+        'root', ['value', 0, 'maxDepth', 0,
+            'range', ['minVal', 1, 'maxVal', 5, 'unique_sum', 0, 'invertedIndexSize', 11, 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+                'entries', ['numDocs', 3, 'lastId', 3, 'size', 1, 'values',
+                    ['value', 1, 'docId', 1, 'value', 2, 'docId', 1, 'value', 3, 'docId', 1, 'value', 1, 'docId', 2, 'value', 2, 'docId', 2, 'value', 3, 'docId', 2, 'value', 3, 'docId', 3, 'value', 4, 'docId', 3, 'value', 5, 'docId', 3]]],
+            'left', [], 'right', []]])
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
+
+    env.skipOnCluster()
     if env.env == 'existing-env':
         env.skip()
     conn = getConnectionByEnv(env)
@@ -683,12 +689,10 @@ def checkUpdateNumRecords(env, is_json):
     info = index_info(env, 'idx')
     env.assertEqual(info['num_records'], '0')
 
-@skip(cluster=True)
 def testUpdateNumRecordsJson(env):
     """ Test update of `num_records` when using JSON """
     checkUpdateNumRecords(env, True)
 
-@skip(cluster=True)
 def testUpdateNumRecordsHash(env):
     """ Test update of `num_records` when using Hashes """
     checkUpdateNumRecords(env, False)

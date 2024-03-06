@@ -92,24 +92,22 @@ typedef enum {
  * may not be visible by the fork gc engine.
  *
  * This function will return before the fork is performed. You
- * must call FGC_ForkAndWaitBeforeApply or FGC_Apply to allow the GC to
+ * must call WaitAtApply or WaitClear to allow the GC to
  * resume functioning
  */
-//TODO: I'm not sure this one is necessary, we already wait before we call the callback. (in cbWrapper)
-void FGC_WaitBeforeFork(ForkGC *gc);
+void FGC_WaitAtFork(ForkGC *gc);
 
 /**
- * Indicate that the GC should continue from FGC_WaitBeforeFork, and
- * wait before the changes are applied. At this point, the child and parent process
- * no longer share the same memory, hence, the child will not be aware of any
- * changes made in the main process.
+ * Indicate that the GC should unpause from WaitAtFork, and
+ * instead wait before the changes are applied. This is in order
+ * to change the state of the index at the parent
  */
-void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
+void FGC_WaitAtApply(ForkGC *gc);
 
 /**
- * Apply the changes the parent received from the child.
+ * Don't perform diagnostic waits
  */
-void FGC_Apply(ForkGC *gc);
+void FGC_WaitClear(ForkGC *gc);
 
 #ifdef __cplusplus
 }

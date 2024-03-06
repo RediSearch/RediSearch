@@ -251,7 +251,7 @@ def testMSet(env):
 
 @no_msan
 def testMerge(env):
-    # JSON.MERGE
+    # JSON.MERGE 
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
 
     env.execute_command('JSON.MERGE', 'doc:1', '$', r'{"t":"ReJSON","details":{"a":1}}')
@@ -1080,10 +1080,12 @@ def testVector_delete(env):
         env.expect(*q).equal([1, 'j2'])
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-@skip(cluster=True, msan=True)
+@no_msan
 def testRedisCommands(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
-    env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
+    env.skipOnCluster()
+
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
     # Test Redis COPY
@@ -1151,8 +1153,5 @@ def test_mod5608(env):
 
         env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
         waitForIndex(env, 'idx')
-        _, cursor = env.execute_command('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
-
-        if SANITIZER or CODE_COVERAGE:
-            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
-            env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+        res = env.execute_command('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+        cursor_id = res[1]

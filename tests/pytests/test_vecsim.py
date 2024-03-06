@@ -5,7 +5,7 @@ from RLTest import Env
 from common import *
 from includes import *
 from random import randrange
-from redis import ResponseError
+
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILON = 1e-8
@@ -313,9 +313,10 @@ def test_update_with_bad_value():
     env.expect('FT.SEARCH', 'idx2', '*').equal(res)
     env.expect('FT.SEARCH', 'idx2', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', '????????', 'RETURN', '1', 'vec').equal(res)
 
-@skip(cluster=True)
+
 def test_create():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     # A value to use as a dummy value for memory fields in the info command (and any other irrelevant fields)
@@ -356,9 +357,10 @@ def test_create():
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
 
-@skip(cluster=True)
+
 def test_create_multiple_vector_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     dim = 2
     conn = getConnectionByEnv(env)
     # Create index with 2 vector fields, where the first is a prefix of the second.
@@ -1499,9 +1501,10 @@ def test_redis_memory_limits():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(cluster=True)
+
 def test_default_block_size_and_initial_capacity():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     dim = 1024
@@ -1561,10 +1564,11 @@ def test_default_block_size_and_initial_capacity():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(cluster=True)
+
 def test_redisearch_memory_limit():
     # test block size with VSS_MAX_RESIZE_MB configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
@@ -1602,9 +1606,10 @@ def test_redisearch_memory_limit():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(cluster=True)
+
 def test_rdb_memory_limit():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
@@ -1641,12 +1646,14 @@ def test_rdb_memory_limit():
         # reset env (for clean RLTest run with env reuse)
         env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(msan=True, asan=True)
+
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
+    if SANITIZER:
+        env.skip()
     conn = getConnectionByEnv(env)
     nshards = env.shardsCount
-    timeout_expected = 'Timeout limit was reached'
+    timeout_expected = 0 if env.isCluster() else 'Timeout limit was reached'
 
     vecsim_algorithms_and_sizes = [('FLAT', 80000 * nshards), ('HNSW', 10000 * nshards)]
     hybrid_modes = ['BATCHES', 'ADHOC_BF']
@@ -1667,13 +1674,11 @@ def test_timeout_reached():
                                        'TIMEOUT', 0)
             env.assertEqual(res[0], n_vec)
             # run query with 1 millisecond timeout. should fail.
-            try:
+            try: # TODO: rewrite when cluster behavior is consistent on timeout
                 res = conn.execute_command('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
                                            'PARAMS', 4, 'K', n_vec, 'vec_param', query_vec.tobytes(),
                                            'TIMEOUT', 1)
-                # TODO: Add when MOD-5965 is merged
-                # env.assertEqual(type(res[0]), ResponseError)
-                env.assertEqual(str(res[0]), timeout_expected)
+                env.assertEqual(res[0], timeout_expected)
             except Exception as error:
                 env.assertContains('Timeout limit was reached', str(error))
 
@@ -1695,13 +1700,11 @@ def test_timeout_reached():
                                            'TIMEOUT', 0)
                 env.assertEqual(res[0], n_vec)
 
-                try:
+                try: # TODO: rewrite when cluster behavior is consistent on timeout
                     res = conn.execute_command('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                                                'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
-                                                'TIMEOUT', 1)
-                    # TODO: Add when MOD-5965 is merged
-                    # env.assertEqual(type(res[0]), ResponseError)
-                    env.assertEqual(str(res[0]), timeout_expected)
+                                               'PARAMS', 6, 'K', n_vec, 'vec_param', query_vec.tobytes(), 'hp', mode,
+                                               'TIMEOUT', 1)
+                    env.assertEqual(res[0], timeout_expected)
                 except Exception as error:
                     env.assertContains('Timeout limit was reached', str(error))
 
@@ -1776,7 +1779,7 @@ def test_index_multi_value_json():
 
         for _ in env.retry_with_rdb_reload():
             waitForIndex(env, 'idx')
-            info = index_info(env, 'idx')
+            info = conn.ft('idx').info()
             env.assertEqual(info['num_docs'], info_type(n))
             env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
@@ -1813,12 +1816,12 @@ def test_bad_index_multi_value_json():
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # We also don't support an array of length 1 that wraps an array for single value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     conn.flushall()
     failures = 0
@@ -1828,30 +1831,30 @@ def test_bad_index_multi_value_json():
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['num_records'], info_type(2))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # some of the vectors are not of the right dimension
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), np.ones(dim + 46).tolist()]})
     failures += 1
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), []]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
     # some of the elements in some of vectors are not numerics
     vec = [42] * dim
     vec[-1] = 'not a number'
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), vec]})
     failures += 1
-    env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
+    env.assertEqual(conn.ft('idx').info()['hash_indexing_failures'], info_type(failures))
 
 
 def test_range_query_basic():

@@ -274,7 +274,6 @@ typedef enum {
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
-#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
 typedef struct {
   /* The number of child records */

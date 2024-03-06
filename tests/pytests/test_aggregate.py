@@ -650,12 +650,8 @@ class TestAggregateSecondUseCases():
         self.env.assertEqual(len(res), 4531)
 
     def testSimpleAggregateWithCursor(self):
-        _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
-        self.env.assertNotEqual(cursor, 0)
-        if SANITIZER or CODE_COVERAGE:
-            # Avoid sanitizer and coverage deadlock on shutdown (not a problem in production)
-            self.env.cmd('ft.cursor', 'del', 'games', cursor)
-
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
+        self.env.assertTrue(res[1] != 0)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
@@ -882,8 +878,8 @@ def testMaxAggResults(env):
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
 
-@skip(cluster=True)
 def testMaxAggInf(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
 
@@ -959,10 +955,10 @@ def testAggregateGroup0Field(env):
                   'REDUCE', 'QUANTILE', '2', 'num', '0.5', 'AS', 'q50')
     env.assertEqual(res, [1, ['q50', '758000']])
 
-@skip()
 def testResultCounter(env):
     # Issue 436
     # https://github.com/RediSearch/RediSearch/issues/436
+    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 't1', 'hello')
@@ -982,61 +978,33 @@ def testResultCounter(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([4])
     #env.expect('FT.AGGREGATE', 'idx', '*', 'FILTER', '@t1 == "foo"').equal([0])
 
-def populate_db(env):
-    """Creates an index and populates the database"""
+def test_aggregate_timeout():
+    if VALGRIND:
+        # You don't want to run this under valgrind, it will take forever
+        raise unittest.SkipTest("Skipping timeout test under valgrind")
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE')
     nshards = env.shardsCount
     num_docs = 10000 * nshards
     pipeline = conn.pipeline(transaction=False)
     for i, t1 in enumerate(np.random.randint(1, 1024, num_docs)):
-        pipeline.hset(i, 't1', str(t1))
+        pipeline.hset (i, 't1', str(t1))
         if i % 1000 == 0:
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
 
-def aggregate_test(protocol=2):
-    if VALGRIND:
-        # You don't want to run this under valgrind, it will take forever
-        raise unittest.SkipTest("Skipping timeout test under valgrind")
-    elif protocol not in [2, 3]:
-        # Unsupported protocol
-        raise unittest.SkipTest("Unsupported protocol")
+    # On coordinator, we currently get a single empty result on timeout,
+    # because all the shards timed out but the coordinator doesn't report it.
+    env.expect('FT.AGGREGATE', 'idx', '*',
+               'LOAD', '2', '@t1', '@__key',
+               'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
+               'groupby', '2', '@t1', '@t1exp',
+                    'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
+               'TIMEOUT', '1',
+        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
-    conn = getConnectionByEnv(env)
-
-    populate_db(env)
-
-    res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                        'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
-                'TIMEOUT', '1',)
-
-    if protocol == 2:
-        env.assertEqual(res, ['Timeout limit was reached'])
-    else:
-        env.assertEqual(res['error'], ['Timeout limit was reached'])
-
-    # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
-    # should return a timeout (rather than results)
-    res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1', 'TIMEOUT', '1'
-    )
-
-    if protocol == 2:
-        env.assertEqual(res, ['Timeout limit was reached'])
-    else:
-        env.assertEqual(res['error'], ['Timeout limit was reached'])
-
-def test_aggregate_timeout_resp2():
-    aggregate_test(protocol=2)
-
-def test_aggregate_timeout_resp3():
-    aggregate_test(protocol=3)
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)

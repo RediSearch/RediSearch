@@ -101,10 +101,11 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void TermReader_OnReopen(void *privdata) {
+void IndexReader_OnReopen(void *privdata) {
+
   IndexReader *ir = privdata;
   if (ir->record->type == RSResultType_Term) {
-    // we need to reopen the inverted index to make sure its still valid.
+    // we need to reopen the inverted index to make sure its stil valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
@@ -119,14 +120,6 @@ void TermReader_OnReopen(void *privdata) {
     }
   }
 
-  IndexReader_OnReopen(ir);
-}
-
-void IndexReader_OnReopen(IndexReader *ir) {
-  if (IR_IS_AT_END(ir)) {
-    // Save time and state if we are already at the end
-    return;
-  }
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -137,10 +130,12 @@ void IndexReader_OnReopen(IndexReader *ir) {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
     // anymore. This means that we need to seek to last docId we were at
 
-    // keep the last docId we were at
-    t_docId lastId = ir->lastId;
     // reset the state of the reader
-    IR_Rewind(ir);
+    t_docId lastId = ir->lastId;
+    ir->currentBlock = 0;
+    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
+    ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
@@ -374,8 +369,8 @@ ENCODER(encodeNumeric) {
   EncodingHeader header = {.storage = 0};
 
   // Write a placeholder for the header and mark its position
-  size_t pos = BufferWriter_Offset(bw); // save the current position to the buffer. here we will store the header
-  size_t sz = Buffer_Write(bw, "\0", sizeof(EncodingHeader)); // promote the buffer by the header size (1 byte)
+  size_t pos = BufferWriter_Offset(bw);
+  size_t sz = Buffer_Write(bw, "\0", 1);
 
   // Write the delta (if not zero)
   size_t numDeltaBytes = 0;
@@ -1355,9 +1350,8 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   return ri;
 }
 
-/* Repair an index block by removing garbage - records pointing at deleted documents,
- * and write valid entries in their place.
- * Returns the number of docs collected, and puts the number of bytes collected in the given
+/* Repair an index block by removing garbage - records pointing at deleted documents.
+ * Returns the number of records collected, and puts the number of bytes collected in the given
  * pointer. If an error occurred - returns -1
  */
 int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
@@ -1365,6 +1359,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
 
+  t_docId oldFirstBlock = blk->lastId;
   blk->lastId = blk->firstId = 0;
   Buffer repair = {0};
   BufferReader br = NewBufferReader(&blk->buf);
@@ -1389,13 +1384,12 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
-    // read the curr entry of the buffer into res and promote the buffer to the next one.
-    // if it's not a legacy version, res->docId contains the delta from the previous entry
     decoders.decoder(&br, &empty, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
-    // On non legacy version, since res->docId is the delta, this if is redundant.
-    // if it's the first entry: res->docId == 0, else res->docId != 0, but it's not the first entry.
     if (!(isFirstRes && res->docId != 0)) {
+      // if we are entering this here
+      // then its not the first entry or its
+      // not an old rdb version
       // on an old rdb version, the first entry is the docid itself and not
       // the delta, so no need to increase by the lastReadId
       if (decoders.decoder != readRawDocIdsOnly) {
@@ -1404,7 +1398,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         res->docId = (*(uint32_t *)&res->docId) + firstReadId;
       }
     }
-    // Multi value documents are saved as individual entries that share the same docId.
     // Increment frags only when moving to the next doc
     // (do not increment when moving to the next entry in the same doc)
     int fragsIncr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
@@ -1427,7 +1420,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       params->bytesCollected += sz;
       ++params->entriesCollected;
       isLastValid = 0;
-    } else { // the doc exist
+    } else {
       if (params->RepairCallback) {
         params->RepairCallback(res, blk, params->arg);
       }
@@ -1436,27 +1429,26 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
         // In this case we are already closing holes, so we need to write back the record at the
         // writer's position. We also calculate the delta again
-        if (!blk->lastId) { // This is the first entry in this block, initialize the blk->lastId
+        if (!blk->lastId) {
           blk->lastId = res->docId;
         }
         if (encoder != encodeRawDocIdsOnly) {
           if (isLastValid) {
-            // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
             Buffer_Write(&bw, bufBegin, sz);
-          } else { // we need to calculate the delta
+          } else {
             encoder(&bw, res->docId - blk->lastId, res);
           }
         } else { // encoder == encodeRawDocIdsOnly
           if (!blk->firstId) {
             blk->firstId = res->docId;
           }
-          encoder(&bw, res->docId - blk->firstId, res);
-        }
+            encoder(&bw, res->docId - blk->firstId, res);
+          }
       }
 
       // Update these for every valid document, even for those which
       // are not repaired
-      if (blk->firstId == 0) { // this is the first repair
+      if (blk->firstId == 0) {
         blk->firstId = res->docId;
       }
       blk->lastId = res->docId;
@@ -1470,6 +1462,15 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     Buffer_Free(&blk->buf);
     blk->buf = repair;
     Buffer_ShrinkToSize(&blk->buf);
+  }
+  if (blk->numEntries == 0) {
+    // if we left with no elements we do need to keep the
+    // first id so the binary search on the block will still working.
+    // The last_id will turn zero indicating there is no records in
+    // this block. We will not save empty blocks in rdb and also we
+    // will not read empty block from rdb (in case we read a corrunpted
+    // rdb from older versions).
+    blk->firstId = oldFirstBlock;
   }
 
   params->bytesAfterFix = blk->buf.offset;

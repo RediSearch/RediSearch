@@ -76,7 +76,6 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   cl->topo = initialTopology;
   cl->nodeMap = NULL;
   cl->myNode = NULL;  // tODO: discover local ip/port
-  cl->myshard = NULL;
   MRConnManager_Init(&cl->mgr, conn_pool_size);
 
   if (cl->topo) {
@@ -146,7 +145,7 @@ MRClusterNode *_MRClusterShard_SelectNode(MRClusterShard *sh, MRClusterNode *myN
   return NULL;
 }
 
-/* Send a single command to the right shard in the cluster, with an optional control over node
+/* Send a single command to the right shard in the cluster, with an optoinal control over node
  * selection */
 int MRCluster_SendCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCommand *cmd,
                           redisCallbackFn *fn, void *privdata) {

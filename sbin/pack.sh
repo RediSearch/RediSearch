@@ -36,7 +36,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		RAMP_VARIANT=name   RAMP variant (e.g. ramp-{name}.yml)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
-
+		
 		RAMP_YAML=path      RAMP configuration file path
 		RAMP_ARGS=args      Extra arguments to RAMP
 
@@ -58,7 +58,6 @@ OP=""
 
 ARCH=$($READIES/bin/platform --arch)
 [[ $ARCH == x64 ]] && ARCH=x86_64
-[[ $ARCH == arm64v8 ]] && ARCH=aarch64
 
 OS=$($READIES/bin/platform --os)
 [[ $OS == linux ]] && OS=Linux
@@ -71,15 +70,13 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
-[[ $OSNICK == centos9 ]] && OSNICK=rhel9
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
-[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
 
 if [[ $OS == macos ]]; then
 	# as we don't build on macOS for every platform, we converge to a least common denominator
 	if [[ $ARCH == x86_64 ]]; then
-		OSNICK=catalina  # to be aligned with the rest of the modules in redis stack
+		[[ $OSNICK == bigsur || $OSNICK == ventura ]] && OSNICK=catalina
 	else
 		[[ $OSNICK == ventura ]] && OSNICK=monterey
 	fi
@@ -128,7 +125,7 @@ pack_ramp() {
 		local packdir=snapshots
 		local s3base=snapshots/
 	fi
-
+	
 	local fq_package=$stem.${verspec}.zip
 	local fq_package_debug=$stem_debug.${verspec}.zip
 
@@ -147,7 +144,7 @@ pack_ramp() {
 
 		xtx_vars+=" -e NAME_$dep -e PATH_$dep -e SHA256_$dep"
 	done
-
+	
 	if [[ -n $RAMP_YAML ]]; then
 		RAMP_YAML="$(realpath $RAMP_YAML)"
 	elif [[ -z $RAMP_VARIANT ]]; then
@@ -166,7 +163,7 @@ pack_ramp() {
 	fi
 
 	runn rm -f /tmp/ramp.fname $packfile
-
+	
 	# ROOT is required so ramp will detect the right git commit
 	cd $ROOT
 	runn @ <<-EOF
@@ -224,9 +221,9 @@ pack_ramp() {
 
 pack_deps() {
 	local dep="$1"
-
+	
 	cd $ROOT
-
+	
 	local stem=${PACKAGE_NAME}.${dep}.${PLATFORM}
 	local verspec=${SEMVER}${VARIANT}
 	local fq_package=$stem.${verspec}.tgz
@@ -234,7 +231,7 @@ pack_deps() {
 	local depdir=$(cat $ARTDIR/$dep.dir)
 	local tar_path=$ARTDIR/$fq_package
 	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
-
+	
 	rm -f $tar_path
 	if [[ $NOP != 1 ]]; then
 		{ cd $depdir ;\
@@ -273,6 +270,18 @@ pack_deps() {
 
 #----------------------------------------------------------------------------------------------
 
+prepare_symbols_dep() {
+	if [[ ! -f $MODULE.debug ]]; then return 0; fi
+	echo "# Preparing debug symbols dependencies ..."
+	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
+	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
+	echo "" > $ARTDIR/debug.prefix
+	pack_deps debug
+	echo "# Done."
+}
+
+#----------------------------------------------------------------------------------------------
+
 NUMVER="$(NUMERIC=1 $SBIN/getver)"
 SEMVER="$($SBIN/getver)"
 
@@ -285,16 +294,7 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-git_config_add_ifnx() {
-	local key="$1"
-	local val="$2"
-	if [[ -z $(git config --global --get $key $val) ]]; then
-		git config --global --add $key $val
-	fi
-}
-
 if [[ -z $BRANCH ]]; then
-	git_config_add_ifnx safe.directory $ROOT
 	BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	# this happens of detached HEAD
 	if [[ $BRANCH == HEAD ]]; then
@@ -303,7 +303,6 @@ if [[ -z $BRANCH ]]; then
 fi
 BRANCH=${BRANCH//[^A-Za-z0-9._-]/_}
 if [[ $WITH_GITSHA == 1 ]]; then
-	git_config_add_ifnx safe.directory $ROOT
 	GIT_COMMIT=$(git rev-parse --short HEAD)
 	BRANCH="${BRANCH}-${GIT_COMMIT}"
 fi
@@ -338,13 +337,15 @@ fi
 
 mkdir -p $ARTDIR
 
-if [[ $DEPS == 1 && -n $DEP_NAMES ]]; then
+if [[ $DEPS == 1 ]]; then
 	# set up `debug` dep
 	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
 	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
 	echo "" > $ARTDIR/debug.prefix
 
 	echo "# Building dependencies ..."
+
+	[[ $SYM == 1 ]] && prepare_symbols_dep
 
 	for dep in $DEP_NAMES; do
 		if [[ $OS != macos ]]; then
@@ -373,7 +374,7 @@ if [[ $RAMP == 1 ]]; then
 
 	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
 	[[ $SNAPSHOT == 1 ]] && pack_ramp
-
+	
 	echo "# Done."
 fi
 

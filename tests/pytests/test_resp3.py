@@ -1,9 +1,6 @@
 from common import *
 import operator
 from math import nan
-import json
-from redis import ResponseError
-from test_coordinator import test_error_propagation_from_shards
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -139,36 +136,32 @@ def test_search():
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
 def test_search_timeout():
-    num_range = 1000
-    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
+    env = Env(protocol=3)
     if should_skip(env):
         env.skip()
-    conn = getConnectionByEnv(env)
+    env.skipOnCluster()
 
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+
+    env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
+            "SCHEMA", "f1", "TEXT", "f2", "TEXT")
+    waitForIndex(env, 'idx1')
+
+    # test with timeout
+    num_range = 1000
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
-        conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
+        env.cmd('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    # TODO: Add these tests again once MOD-5965 is merged
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
-    #   contains('Timeout limit was reached')
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-    #   contains('Timeout limit was reached')
-
-    # (coverage) Later failure than the above tests - in pipeline execution
-    # phase. For this, we need more documents in the index, such that we will
-    # fail for sure
-    num_range_2 = 25000 * env.shardsCount
-    p = conn.pipeline(transaction=False)
-    for i in range(num_range, num_range_2):
-      p.execute_command('HSET', f'doc{i}', 't', f'{i}', 'geo', f"{i/10000},{i/1000}")
-    p.execute()
-
-    err = conn.execute_command('ft.search', 'myIdx', '*', 'limit', '0', str(num_range_2), 'timeout', '1')['error']
-    env.assertEqual(len(err), 1)
-    # TODO: Add this when the error type is fixed (MOD-5965)
-    # env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(err[0]))
+    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0'). \
+      contains('Timeout limit was reached')
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1).\
+      error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_profile(env):
@@ -738,9 +731,11 @@ def testExpandErrorsResp3():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')['error']
-    env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with JSON', str(err[0]))
+    # TODO: Expect an error once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal(
+       {'attributes': [], 'error': [], 'total_results': 0, 'format': 'EXPAND', 'results': []}
+    )
+
 
 def testExpandErrorsResp2():
   env = Env(protocol=2)
@@ -750,9 +745,8 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').error()
   else:
-    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
+    # TODO: Expect an error once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx', '*', 'FORMAT', 'EXPAND').equal([0])
 
 
   # On HASH
@@ -762,9 +756,9 @@ def testExpandErrorsResp2():
   if not env.isCluster():
     env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').error()
   else:
-    err = env.cmd('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND')[1]
-    env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('EXPAND format is only supported with RESP3', str(err[0]))
+    # TODO: Expect an error once MOD-5211 is done
+    env.expect('FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND').equal([0])
+
 
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
@@ -1299,7 +1293,3 @@ def test_vecsim_1():
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
                     exclude_regex_paths=["\['sortkey'\]"]), {})
-
-def test_error_propagation_from_shards_resp3():
-    env = Env(protocol=3)
-    test_error_propagation_from_shards(env)

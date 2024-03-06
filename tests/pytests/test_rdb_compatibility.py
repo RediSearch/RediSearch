@@ -30,13 +30,15 @@ def downloadFiles(rdbs = None):
             return False
     return True
 
-@skip(cluster=True)
+@unstable
 def testRDBCompatibility(env):
     # temp skip for out-of-index
 
     env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french; LANGUAGE_FIELD MyLang; SCORE 0.5; SCORE_FIELD MyScore; PAYLOAD_FIELD MyPayload; UPGRADE_INDEX idx1')
     # env = Env(moduleArgs=['UPGRADE_INDEX idx', 'PREFIX 1 tt', 'LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
     # env = Env(moduleArgs=['UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
+
+    env.skipOnCluster()
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -72,9 +74,9 @@ def testRDBCompatibility(env):
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 
-@skip(cluster=True)
 def testRDBCompatibility_vecsim():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.skipOnCluster()
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]

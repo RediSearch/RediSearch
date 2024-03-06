@@ -109,15 +109,18 @@ end:
   return rc;
 }
 
-void *MRChannel_UnsafeForcePop(MRChannel *chan) {
+void *MRChannel_ForcePop(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
   chanItem *item = chan->head;
-  if (!item) {
-    return NULL;
+  if(!item){
+      pthread_mutex_unlock(&chan->lock);
+      return NULL;
   }
   chan->head = item->next;
   // empty queue...
   if (!chan->head) chan->tail = NULL;
   chan->size--;
+  pthread_mutex_unlock(&chan->lock);
   // discard the item (TODO: recycle items)
   void* ret = item->ptr;
   rm_free(item);

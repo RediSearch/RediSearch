@@ -56,8 +56,6 @@ def testSimpleBuffer():
 def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
-
-@skip(asan=True)
 def test_invalid_MT_MODE_FULL_config():
     try:
         env = initEnv(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_FULL')
@@ -69,8 +67,6 @@ def test_invalid_MT_MODE_FULL_config():
         env = Env()
         pass
 
-
-@skip(asan=True)
 def test_invalid_MT_MODE_ONLY_ON_OPERATIONS_config():
     # Invalid 0 worker threads with MT_MODE_ONLY_ON_OPERATIONS.
     try:

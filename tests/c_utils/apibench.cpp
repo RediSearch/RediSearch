@@ -30,8 +30,8 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int main(int, char **) {
-  const char *arguments[] = {"NOGC"};
-  RMCK_Bootstrap(my_OnLoad, arguments, 1);
+  const char *arguments[] = {"SAFEMODE", "NOGC"};
+  RMCK_Bootstrap(my_OnLoad, arguments, 2);
   RediSearch_Initialize();
   auto options = RediSearch_CreateIndexOptions();
   RediSearch_IndexOptionsSetFlags(options, RSIDXOPT_DOCTBLSIZE_UNLIMITED);

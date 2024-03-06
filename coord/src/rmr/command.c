@@ -174,8 +174,6 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->targetSlot = -1;
   cmd->cmd = NULL;
   cmd->protocol = 0;
-  cmd->depleted = false;
-  cmd->forCursor = false;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {
@@ -195,8 +193,6 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   MRCommand_Init(&ret, cmd->num);
   ret.id = cmd->id;
   ret.protocol = cmd->protocol;
-  ret.forCursor = cmd->forCursor;
-  ret.rootCommand = cmd->rootCommand;
 
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);

@@ -13,8 +13,9 @@ def set_max_dialect(env):
     prefix = 'search_dialect_'
     MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
 
-@skip(cluster=True)
+
 def test_dialect_config_get_set_from_default(env):
+    env.skipOnCluster()
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
     skipOnDialect(env, 2)
     set_max_dialect(env)
@@ -25,8 +26,8 @@ def test_dialect_config_get_set_from_default(env):
     env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
     env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
 
-@skip(cluster=True)
 def test_dialect_config_get_set_from_config(env):
+    env.skipOnCluster()
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     set_max_dialect(env)
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
