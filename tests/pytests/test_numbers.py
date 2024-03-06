@@ -433,6 +433,9 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]')
     env.assertEqual(res2, expected)
 
-    # Invalid syntax
-    env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[((105 300]').error()
+    # Multiple parenthesis are allowed
+    expected = [1, 'doc05', ['n', '1.5e+2']]
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]')
+    env.assertEqual(res, expected)

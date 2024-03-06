@@ -354,7 +354,7 @@ def test_numeric_range(env):
                    'PARAMS', 4, 'n', 10, 'm', -101)
     env.assertEqual(res2, res1)
 
-    # Range with 2 exclusive identical values will return no results
+    # range with 2 exclusive identical values will return no results
     res = env.cmd('FT.SEARCH', 'idx', '@numval:[(101 (101]', 'NOCONTENT')
     env.assertEqual(res[0], 0)
     res = env.cmd('FT.SEARCH', 'idx', '@numval:[($n ($n]', 'NOCONTENT',
@@ -366,6 +366,10 @@ def test_numeric_range(env):
     res = env.cmd('FT.SEARCH', 'idx', '@numval:[($m (-$n]', 'NOCONTENT',
                    'PARAMS', 4, 'n', -101, 'm', 101)
     env.assertEqual(res[0], 0)
+
+    # multiple parenthesis before parameter are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[(($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 (($n]', 'PARAMS', 2, 'n', 9).error()
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
