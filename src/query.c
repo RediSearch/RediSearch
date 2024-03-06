@@ -318,19 +318,34 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-
-  QueryNode *ret = NULL;
-
+static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) {
   enum QueryType query_type;
-  if (!strncasecmp(predicate, "WITHIN", len)) {
-    query_type = WITHIN;
-  } else if (!strncasecmp(predicate, "CONTAINS", len)) {
-    query_type = CONTAINS;
-  } else {
+  // length is insufficient to uniquely identify predicates. CONTAINS, DISJOINT, and DISTANCE all have 8 chars.
+  // first letter is insufficient. DISJOINT and DISTANCE both start with DIS.
+  // last letter is insufficient. CONTAINS and INTERSECTS both end with S, DISJOINT and NEAREST both end with T.
+  // TODO: consider comparing 8-byte values instead of 2-byte
+  const int cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));
+#define CASE(s) (((sizeof(s)-1) << CHAR_BIT) | s[sizeof(s)-2])  // two bytes: len | last char
+#define COND(s) ((cmp == CASE(s)) && !strncasecmp(predicate, s, len))
+  if COND("WITHIN") {  // 0x06'4E
+    return WITHIN;
+  }
+  if COND("CONTAINS") { // 0x08'53
+    return CONTAINS;
+  }
+  COND("DISJOINT"); // 0x08'54
+  COND("INTERSECTS"); // 0x0A'53
+  COND("DISTANCE"); // 0x08'45
+  COND("NEAREST"); // 0x07'54
+  return UNKNOWN_QUERY;
+}
+
+QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
+  enum QueryType query_type = parseGeometryPredicate(predicate, len);
+  if (query_type == UNKNOWN_QUERY) {
     return NULL;
   }
-  ret = NewQueryNode(QN_GEOMETRY);
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
