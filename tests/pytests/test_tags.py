@@ -376,8 +376,10 @@ def test_empty_suffix_withsuffixtrie(env):
     res = env.cmd(*cmd)
     env.assertEqual(res, expected)
 
-def testEmptyValueTags(env):
+def testEmptyValueTags():
     """Tests that empty values are indexed properly"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
     def testHashIndex(env, idx):
         """Performs a series of tests on a hash index"""
@@ -431,7 +433,7 @@ def testEmptyValueTags(env):
 
         # ---------------------------- Intersection ----------------------------
         # Intersection of empty and non-empty values
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty} @t:{foo}}']
+        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{__empty} @t:{foo}']
         expected = [0]
         cmd_assert(env, cmd, expected)
 
@@ -701,6 +703,6 @@ def testEmptyValueTags(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY').ok()
     n_docs = 1000
     for i in range(n_docs):
-        env.cmd('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
+        conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
     res = env.cmd('FT.SEARCH', 'idx', '@t:{__empty}', 'LIMIT', '0', '0')
     env.assertEqual(int(res[0]), 500)
