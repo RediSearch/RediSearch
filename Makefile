@@ -266,16 +266,10 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 
-export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
-include build/conan/Makefile.defs
-
 # S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
 # export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
 # include build/s2geometry/Makefile.defs
 
-ifeq ($(wildcard $(CONAN_PRESETS)),)
-MISSING_DEPS += $(CONAN_PRESETS)
-endif
 
 # ifeq ($(wildcard $(S2GEOMETRY)),)
 # MISSING_DEPS += $(S2GEOMETRY)
@@ -293,7 +287,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=conan libuv #@@  s2geometry hiredis
+DEPENDENCIES=libuv #@@  s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -333,15 +327,11 @@ ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else ifeq ($(ALL),all)
 	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
 
-clean-conan:
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 
-.PHONY: clean-conan
 
 #----------------------------------------------------------------------------------------------
 
@@ -364,13 +354,7 @@ endif
 
 ifeq ($(DEPS),1)
 
-deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
-
-conan: $(CONAN_PRESETS)
-
-$(CONAN_PRESETS):
-	@echo Fetching conan libraries...
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
+deps: $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
 
 # s2geometry: $(S2GEOMETRY)
 #
