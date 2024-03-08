@@ -1156,8 +1156,9 @@ def test_mod5608(env):
 def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
-                        'SCHEMA', '$.tag', 'AS', 'tag', 'TAG')
+    # We are using ',' as tag SEPARATOR to get the same results of HASH index
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+            'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"tag": "abc:1"}')
@@ -1266,41 +1267,39 @@ def testTagAutoescaping(env):
     # Test tags with leading and trailing spaces
     expected_result = [1, 'doc:14', ['$', '[{"tag":"  with: space  "}]']]
 
-    # TODO: For JSON, the leading spaces are not removed from the tag
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{  with: space  }", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  with: space  }", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space*}", 'DIALECT', 5)
     env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{ with: space*}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{ with: space*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space *}", 'DIALECT', 5)
     env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{with: space *}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{with: space *}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}", 'DIALECT', 5,
-    #               'PARAMS', '2', 'param', 'with: space')
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}", 'DIALECT', 5,
+                  'PARAMS', '2', 'param', 'with: space')
+    env.assertEqual(res, expected_result)
 
     # Test tags with leading spaces
     expected_result = [1, 'doc:15', ['$', '[{"tag":"  leading:space"}]']]
 
-    # TODO: For JSON, the leading spaces are not removed from the tag
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading*}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading*}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading:space}", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading:space}", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*eading:space}", 'DIALECT', 5)
     env.assertEqual(res, expected_result)
@@ -1317,9 +1316,8 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:spac*}", 'DIALECT', 5)
     env.assertEqual(res, expected_result)
 
-    # TODO: For JSON, the leading spaces are not removed from the tag
-    # res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }", 'DIALECT', 5)
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }", 'DIALECT', 5)
+    env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}", 'DIALECT', 5)
     env.assertEqual(res, expected_result)
