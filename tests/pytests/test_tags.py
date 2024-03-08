@@ -409,7 +409,7 @@ def testTagAutoescaping(env):
                'NUMERIC', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
-    # Test exact match    
+    # Test exact match
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1}', 'NOCONTENT',
                   'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
@@ -485,13 +485,10 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
     env.assertEqual(res, [2, '{doc}:2', '{doc}:3'])
 
-
     res = env.cmd('FT.SEARCH', 'idx',
                   '(@tag:{xyz:2} | @tag:{abc:1}) => { $weight: 5.0; }',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC', 'DIALECT', 5)
-    expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
-
-    env.assertEqual(expected_result, res)
+    env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
     res = env.cmd('FT.SEARCH', 'idx', 
                   '((@tag:{xyz:2}  @tag:{abc:1}) | @tag1:{val:3} (@tag2:{joe@mail.com} => { $weight:0.3 } )) => { $weight:0.2 }',
