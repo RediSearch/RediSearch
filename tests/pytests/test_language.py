@@ -194,12 +194,13 @@ def testSearchIndexLanguageField(env):
                          '__lang', 'english')
     conn.execute_command('HSET', '{word}:9', 'word', 'xaranja',
                          '__lang', 'unexistent_language')
+    conn.execute_command('HSET', '{word}:10', 'word', 'fragola',
+                         '__lang', 'italian') # strawberry
 
     # Create index - language per index: Italian
     env.cmd('FT.CREATE', 'idx_it', 'ON', 'HASH', 'PREFIX', '1', '{word}:',
             'LANGUAGE', 'italian', 'LANGUAGE_FIELD', '__lang',
             'SCHEMA', 'word', 'TEXT', )
-
     # Wait for index to be created
     waitForIndex(env, 'idx_it')
 
@@ -281,6 +282,49 @@ def testSearchIndexLanguageField(env):
                         'LANGUAGE', 'english')
         env.assertEqual(res1, res2)
 
+    # Indexing Language field
+    # Index with language field in the schema and language per Index: Italian
+    env.cmd('FT.CREATE', 'idx_lang', 'ON', 'HASH', 'PREFIX', '1', '{word}:',
+            'LANGUAGE', 'italian', 'LANGUAGE_FIELD', '__lang',
+            'SCHEMA', 'word', 'TEXT', '__lang', 'TAG')
+    # Wait for index to be created
+    waitForIndex(env, 'idx_lang')
+
+    # Index with language field in the schema and language per Index: Default
+    env.cmd('FT.CREATE', 'idx_def_lang', 'ON', 'HASH', 'PREFIX', '1', '{word}:',
+            'LANGUAGE_FIELD', '__lang',
+            'SCHEMA', 'word', 'TEXT', '__lang', 'TAG')
+    # Wait for index to be created
+    waitForIndex(env, 'idx_def_lang')
+
+    for idx in ['idx_lang', 'idx_def_lang']:
+        # Search words in Italian - only Italian words should be returned
+        res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian}',
+                    'SORTBY', 'word')
+        env.assertEqual(res, [3, '{word}:2', ['word', 'arance'],
+                            '{word}:1', ['word', 'arancia'],
+                            '{word}:10', ['word', 'fragola']])
+        
+        res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian} arance', 
+                    'SORTBY', 'word', 'ASC')
+        env.assertEqual(res, [2, '{word}:2', ['word', 'arance'],
+                            '{word}:1', ['word', 'arancia']])
+
+        # Search words in English - only English words should be returned
+        res = env.cmd('FT.SEARCH', idx, '@__lang:{english}',
+                    'SORTBY', 'word')
+        env.assertEqual(res, [4, '{word}:8', ['word', 'cherries'],
+                                '{word}:7', ['word', 'cherry'],
+                                '{word}:5', ['word', 'orange'],
+                                '{word}:6', ['word', 'oranges']])
+
+        # Search words without any language
+        res = env.cmd('FT.SEARCH', idx,
+                    '-@__lang:{english} -@__lang:{italian}', 'SORTBY', 'word')
+        env.assertEqual(res, [3, '{word}:3', ['word', 'ciliegia'],
+                            '{word}:4', ['word', 'ciliegie'],
+                            '{word}:9', ['word', 'xaranja']])
+
 def testLanguageInfo(env):
     languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
                  'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
@@ -295,4 +339,3 @@ def testLanguageInfo(env):
         index_definition = info['index_definition']
         idx = {index_definition[i]: index_definition[i + 1] for i in range(0, len(index_definition), 2)}
         env.assertEqual(idx['default_language'], language)
-
