@@ -414,44 +414,48 @@ def testNumberFormat(env):
     env.assertEqual(conn.execute_command('HSET', 'doc17', 'n', '-1'), 1)
 
     # Test unsigned numbers
-    expected = [3, 'doc01', ['n', '1.0'], 'doc02', ['n', '1'],
-                'doc03', ['n', '1.0e0']]
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]')
+    expected = [3, 'doc01', 'doc02', 'doc03']
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]', 'NOCONTENT')
     env.assertEqual(res, expected)
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT')
     env.assertEqual(res, expected)
 
     # Test signed numbers
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT')
     env.assertEqual(res, expected)
 
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]')
-    env.assertEqual(res, [1, 'doc17', ['n', '-1']])
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc17'])
 
     # Test +inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]')
-    expected = [6, 'doc08', ['n', 'INF'], 'doc09', ['n', 'inf'],
-                'doc10', ['n', 'iNf'], 'doc11', ['n', '+INF'],
-                'doc12', ['n', '+inf'], 'doc13', ['n', '+iNf']]
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]', 'NOCONTENT')
+    expected = [6, 'doc08', 'doc09', 'doc10', 'doc11', 'doc12', 'doc13']
     env.assertEqual(res1, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT')
     env.assertEqual(res2, expected)
 
     # Test -inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]')
-    expected = [4, 'doc14', ['n', '-INF'], 'doc15', ['n', '-inf'],
-                'doc16', ['n', '-iNf'], 'doc17', ['n', '-1']]
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT')
+    expected = [4, 'doc14', 'doc15', 'doc16', 'doc17']
     env.assertEqual(res1, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT')
     env.assertEqual(res2, expected)
 
     # Multiple parenthesis are allowed
-    expected = [1, 'doc05', ['n', '1.5e+2']]
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]')
+    expected = [1, 'doc05']
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]', 'NOCONTENT')
     env.assertEqual(res, expected)
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]', 'NOCONTENT')
     env.assertEqual(res, expected)
 
     # invalid syntax - multiple signs are not allowed
     env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
     env.expect('FT.SEARCH', 'idx', '@n:[++1e0 +-1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-+inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[+-inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[--inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 ++inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 -+inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()

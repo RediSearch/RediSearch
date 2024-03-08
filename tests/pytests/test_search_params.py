@@ -326,16 +326,35 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
     env.assertEqual(res2, res1)
 
+    # Test parameters = -inf, +inf, inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT')
     env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7inf'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '+inf')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '102', 'max', '+inf')
+    env.assertEqual(res2, res1)
+    # -$n, with $n=-inf should be equivalent to +inf
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min -$max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '102', 'max', '-inf')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf, (105]', 'NOCONTENT')
     env.assertEqual(res1, [5, 'key1', 'key2', 'key3', 'key4', 'key6neg'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '-inf', 'max', '105')
+    env.assertEqual(res2, res1)
+    # -$n, with $n=inf or $n=+inf should be equivalent to -inf
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min, ($max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', 'inf', 'max', '105')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min, ($max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '+inf', 'max', '105')
+    env.assertEqual(res2, res1)
+    # +$n, with $n=-inf should be equivalent to -inf
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[+$min, ($max]', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
+    # parameters with sign and/or exclusive ranges
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT')
     env.assertEqual(res1, [2, 'key1', 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$param +$param]', 'NOCONTENT',

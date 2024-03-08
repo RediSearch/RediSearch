@@ -12,10 +12,14 @@
 
 int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
-  if (isMin && !strcasecmp(s, "-inf")) {
+  if (isMin && (
+        (sign == 1 && !strcasecmp(s, "-inf")) ||
+        (sign == -1 && (!strcasecmp(s, "+inf") || !strcasecmp(s, "inf"))))) {
     *target = NF_NEGATIVE_INFINITY;
     return REDISMODULE_OK;
-  } else if (!isMin && !strcasecmp(s, "+inf")) {
+  } else if (!isMin && (
+        (sign == 1 && (!strcasecmp(s, "+inf") || !strcasecmp(s, "inf"))) ||
+        (sign == -1 && !strcasecmp(s, "-inf")))){
     *target = NF_INFINITY;
     return REDISMODULE_OK;
   }
