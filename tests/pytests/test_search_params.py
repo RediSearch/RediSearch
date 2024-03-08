@@ -342,7 +342,7 @@ def test_numeric_range(env):
                    'PARAMS', 2, 'param', 101)
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-10 101]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-10 +101]', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key1'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-$n +$m]', 'NOCONTENT',
                    'PARAMS', 4, 'n', 10, 'm', 101)
@@ -353,6 +353,18 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$n (-$m]', 'NOCONTENT',
                    'PARAMS', 4, 'n', 10, 'm', -101)
     env.assertEqual(res2, res1)
+
+    # parameters can be preceded by a single sign
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n $m]', 'NOCONTENT',
+                  'PARAMS', 4, 'n', 101, 'm', 102)
+    env.assertEqual(res1, [2, 'key1', 'key2'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$n +$m]', 'NOCONTENT',
+                  'PARAMS', 4, 'n', -101, 'm', 102)
+    env.assertEqual(res2, res1)
+
+	# invalid syntax - multiple signs before parameters are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[+-$n -+$n]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++$n --$m]', 'PARAMS', 2, 'n', 1).error()
 
     # range with 2 exclusive identical values will return no results
     res = env.cmd('FT.SEARCH', 'idx', '@numval:[(101 (101]', 'NOCONTENT')
@@ -367,9 +379,17 @@ def test_numeric_range(env):
                    'PARAMS', 4, 'n', -101, 'm', 101)
     env.assertEqual(res[0], 0)
 
-    # multiple parenthesis before parameter are not allowed
+    # invalid syntax - multiple parenthesis before parameter are not allowed
     env.expect('FT.SEARCH', 'idx', '@n:[(($n 9]', 'PARAMS', 2, 'n', 1).error()
     env.expect('FT.SEARCH', 'idx', '@n:[1 (($n]', 'PARAMS', 2, 'n', 9).error()
+
+    # invalid syntax - signs before parenthesis are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[+($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-+($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[+-($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[--($n 9]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++($n 9]', 'PARAMS', 2, 'n', 1).error()
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

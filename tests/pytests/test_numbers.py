@@ -411,13 +411,24 @@ def testNumberFormat(env):
     env.assertEqual(conn.execute_command('HSET', 'doc14', 'n', '-INF'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc15', 'n', '-inf'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc16', 'n', '-iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc17', 'n', '-1'), 1)
 
+    # Test unsigned numbers
+    expected = [3, 'doc01', ['n', '1.0'], 'doc02', ['n', '1'],
+                'doc03', ['n', '1.0e0']]
     res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]')
-    env.assertEqual(res[0], 3)
-
+    env.assertEqual(res, expected)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]')
-    env.assertEqual(res[0], 3)
+    env.assertEqual(res, expected)
 
+    # Test signed numbers
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]')
+    env.assertEqual(res, expected)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]')
+    env.assertEqual(res, [1, 'doc17', ['n', '-1']])
+
+    # Test +inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]')
     expected = [6, 'doc08', ['n', 'INF'], 'doc09', ['n', 'inf'],
                 'doc10', ['n', 'iNf'], 'doc11', ['n', '+INF'],
@@ -426,9 +437,10 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]')
     env.assertEqual(res2, expected)
 
+    # Test -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]')
-    expected = [3, 'doc14', ['n', '-INF'], 'doc15', ['n', '-inf'],
-                'doc16', ['n', '-iNf']]
+    expected = [4, 'doc14', ['n', '-INF'], 'doc15', ['n', '-inf'],
+                'doc16', ['n', '-iNf'], 'doc17', ['n', '-1']]
     env.assertEqual(res1, expected)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]')
     env.assertEqual(res2, expected)
@@ -439,3 +451,7 @@ def testNumberFormat(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]')
     env.assertEqual(res, expected)
+
+    # invalid syntax - multiple signs are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++1e0 +-1]').error()

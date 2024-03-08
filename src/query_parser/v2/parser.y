@@ -22,7 +22,7 @@
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS.
+%left TILDE MINUS PLUS.
 %left AND.
 
 %left ARROW.
@@ -1077,11 +1077,6 @@ num(A) ::= LP num(B). {
   A.inclusive = 0;
 }
 
-num(A) ::= MINUS num(B). {
-  B.num = -B.num;
-  A = B;
-}
-
 term(A) ::= TERM(B) . {
   A = B;
 }
@@ -1097,7 +1092,6 @@ term(A) ::= SIZE(B). {
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
-
 
 // Number is treated as a term here
 param_term(A) ::= term(B). {
@@ -1131,7 +1125,6 @@ param_size(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= ATTRIBUTE(B). {
-    printf("ATTRIBUTE %f\n", B.numval);
     A = B;
     A.sign = 1; // default
     A.type = QT_PARAM_NUMERIC;
@@ -1139,9 +1132,15 @@ param_num(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= MINUS ATTRIBUTE(B). {
-    printf("MINUS ATTRIBUTE %f\n", B.numval);
     A = B;
     A.sign = -1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
+param_num(A) ::= PLUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = 1;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 1;
 }
@@ -1163,4 +1162,11 @@ exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
     A.sign = -1;
+}
+
+exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+    A.sign = 1;
 }
