@@ -405,8 +405,7 @@ def testTagAutoescaping(env):
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
-               'NUMERIC', 'SORTABLE').ok()
+               'SCHEMA', 'tag', 'TAG', 'id', 'NUMERIC', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
     # Test exact match
@@ -737,3 +736,41 @@ def testInvalidSyntax(env):
     # test cntrl character
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.explaincli idx @t1:\10 DIALECT 5")
+
+def testTagUNF(env):
+    # Create sample data
+    env.cmd('HSET', '{doc}:1', 'tag', 'america')
+    env.cmd('HSET', '{doc}:2', 'tag', 'aMerica')
+    env.cmd('HSET', '{doc}:3', 'tag', 'America')
+
+    # Create index without UNF
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
+
+    # TODO: This fails for dialect >= 4
+    # Without UNF, the tags are normalized and the results are sorted by key
+    # res = env.cmd('FT.SEARCH', 'idx', '@tag:{america}', 'NOCONTENT',
+    #               'SORTBY', 'tag', 'WITHCOUNT', 'DIALECT', 5)
+    # env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
+
+    # Without UNF, the results are normalized and are grouped
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tag',
+                  'REDUCE', 'COUNT', '0', 'DIALECT', 5)
+    env.assertEqual(res[0], 1)
+
+    # Create index with UNF
+    env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()
+    waitForIndex(env, 'idx_unf')
+
+    # With UNF (un-normalized form), the normalization is disabled and the tags
+    # are sorted by its original form
+    res = env.cmd('FT.SEARCH', 'idx_unf', '@tag:{america}', 'NOCONTENT',
+                  'SORTBY', 'tag', 'WITHCOUNT', 'DIALECT', 5)
+    env.assertEqual(res, [3, '{doc}:3', '{doc}:2', '{doc}:1'])
+
+    # With UNF, the results are not normalized and are not grouped
+    res = env.cmd('FT.AGGREGATE', 'idx_unf', '*', 'GROUPBY', '1', '@tag',
+                  'REDUCE', 'COUNT', '0', 'DIALECT', 5)
+    env.assertEqual(res[0], 3)
