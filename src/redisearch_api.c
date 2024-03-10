@@ -4,6 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "redismodule.h"
 #include "spec.h"
 #include "field_spec.h"
 #include "document.h"
@@ -771,14 +772,14 @@ int RediSearch_IndexOptionsSetLanguage(RSIndexOptions* options, const char *lang
     return REDISMODULE_ERR;                                                         \
   }
 
-int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
-  if (RedisModule_ExportSharedAPI == NULL) {
-    RedisModule_Log(ctx, "warning", "Upgrade redis-server to use Redis Search's C API");
-    return REDISMODULE_ERR;
-  }
-  RS_XAPIFUNC(REGISTER_API)
-  return REDISMODULE_OK;
-}
+// int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
+//   if (RedisModule_ExportSharedAPI == NULL) {
+//     RedisModule_Log(ctx, "warning", "Upgrade redis-server to use Redis Search's C API");
+//     return REDISMODULE_ERR;
+//   }
+//   RS_XAPIFUNC(REGISTER_API)
+//   return REDISMODULE_OK;
+// }
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 }

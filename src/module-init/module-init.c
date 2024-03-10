@@ -70,12 +70,12 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
 }
 
 static int initAsModule(RedisModuleCtx *ctx) {
-  if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-  } else {
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
-                    REDISEARCH_CAPI_VERSION);
-  }
+  // if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
+  //   RedisModule_Log(ctx, "warning", "Could not initialize low level api");
+  // } else {
+  //   RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
+  //                   REDISEARCH_CAPI_VERSION);
+  // }
 
   if (!validateAofSettings(ctx)) {
     return REDISMODULE_ERR;

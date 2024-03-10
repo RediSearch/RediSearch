@@ -7,8 +7,9 @@
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 
-#include "redismodule.h"
 #include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +113,10 @@ struct RSIdxField {
 
 #define RS_INFO_CURRENT_VERSION 1
 #define RS_INFO_INIT_VERSION 1
+
+// Avoid including redismodule.h - predectly define the types we need
+typedef struct RedisModuleString RedisModuleString;
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 typedef struct RSIdxInfo {
   uint64_t version;
@@ -425,6 +430,8 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
   X(IndexInfoFree)                   \
   X(SetCriteriaTesterThreshold)
 
+#ifdef REDISEARCH_API_EXTERN
+
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
     printf("could not initialize RediSearch_" #name "\r\n");                   \
@@ -432,7 +439,6 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
     goto rsfunc_init_end__;                                                    \
   }
 
-#ifdef REDISEARCH_API_EXTERN
 /**
  * This is implemented as a macro rather than a function so that the inclusion of this
  * header file does not automatically require the symbols to be defined above.
@@ -462,11 +468,11 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
 #define RediSearch_Initialize()
 #endif
 
-/**
- * Export the C API to be dynamically discoverable by other modules.
- * This is an internal function
- */
-int RediSearch_ExportCapi(RedisModuleCtx* ctx);
+// /**
+//  * Export the C API to be dynamically discoverable by other modules.
+//  * This is an internal function
+//  */
+// int RediSearch_ExportCapi(RedisModuleCtx* ctx);
 
 #define REDISEARCH_INIT_MODULE 0x01
 #define REDISEARCH_INIT_LIBRARY 0x02
