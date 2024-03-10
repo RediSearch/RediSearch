@@ -1370,6 +1370,9 @@ def testNumericRange(env):
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '+inf', 5).error().contains("Bad lower range: +inf")
+    # Filter does not accept parameters
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '$n',
+               'PARAMS', 2, '10').error().contains("Bad upper range: $n")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
@@ -1389,10 +1392,22 @@ def testNumericRange(env):
 
         res = env.cmd('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                 "filter", "score", "(0", "(50")
-
         env.assertEqual(49, res[0])
+
         res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", "-inf", "+inf")
+        env.assertEqual(100, res[0])
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
+                                "filter", "score", "-10", "(10")
+        env.assertEqual(10, res[0])
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
+                                "filter", "score", "-inf", "inf")
+        env.assertEqual(100, res[0])
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
+                                "filter", "score", "-INF", "Inf")
         env.assertEqual(100, res[0])
 
         # test multi filters

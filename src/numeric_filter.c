@@ -14,11 +14,11 @@ int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
   if (isMin && (
         (sign == 1 && !strcasecmp(s, "-inf")) ||
-        (sign == -1 && (!strcasecmp(s, "+inf") || !strcasecmp(s, "inf"))))) {
+        (sign == -1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")))) {
     *target = NF_NEGATIVE_INFINITY;
     return REDISMODULE_OK;
   } else if (!isMin && (
-        (sign == 1 && (!strcasecmp(s, "+inf") || !strcasecmp(s, "inf"))) ||
+        (sign == 1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")) ||
         (sign == -1 && !strcasecmp(s, "-inf")))){
     *target = NF_INFINITY;
     return REDISMODULE_OK;
@@ -30,12 +30,12 @@ int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
   char *endptr = NULL;
   errno = 0;
   *target = strtod(s, &endptr);
-  if(sign == -1) {
-    *target = -(*target);
-  }
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
     QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
     return REDISMODULE_ERR;
+  }
+  if(sign == -1) {
+    *target = -(*target);
   }
   return REDISMODULE_OK;
 }
