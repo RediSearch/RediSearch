@@ -1158,11 +1158,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         char err[128];
         sprintf(err, "Unsupported argument `%s`", count_str);
         RedisModule_ReplyWithError(ctx, err);
+        RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
 
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
+        RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
     }
