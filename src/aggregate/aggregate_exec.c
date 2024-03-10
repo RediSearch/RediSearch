@@ -1152,6 +1152,15 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     long long count = 0;
     if (argc > 5) {
       // e.g. 'COUNT <timeout>'
+      // Verify that the 4'th argument is `COUNT`.
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        char err[128];
+        sprintf(err, "Unsupported argument `%s`", count_str);
+        RedisModule_ReplyWithError(ctx, err);
+        return REDISMODULE_OK;
+      }
+
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
         return REDISMODULE_OK;

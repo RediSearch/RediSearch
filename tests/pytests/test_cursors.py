@@ -416,3 +416,33 @@ def testCursorDepletionStrictTimeoutPolicy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+def testCountArgValidation(env):
+    """Tests that an error is returned upon dispatching a `CURSOR READ` command
+    with an invalid fourth argument (i.e., instead of `COUNT`)"""
+
+    conn = getConnectionByEnv(env)
+    for i in range(5):
+        conn.execute_command('HSET', f'h{i}', 't', f'foo{i}')
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+
+    # Create a cursor
+    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
+
+    # Query the cursor with a bad `COUNT` argument
+    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unsupported argument `LOVE`')
+
+    # Query with lowercase `COUNT`
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
+    env.assertEqual(len(res), 3)
+
+    # Query with uppercase `COUNT`
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
+    env.assertEqual(len(res), 3)
+
+    # Make sure cursor is depleted
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
+    env.assertEqual(cid, 0)
+    env.assertEqual(res, [0])
