@@ -1823,7 +1823,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
     case QN_WILDCARD_QUERY:
       s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
-      break;
+      return s;
     case QN_NULL:
       s = sdscat(s, "<empty>");
       break;
