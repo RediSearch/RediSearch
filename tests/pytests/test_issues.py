@@ -1081,3 +1081,13 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
+
+def test_explain_wildcard(env: Env):
+  env.expect('FT.CREATE idx SCHEMA tag1 TAG').equal('OK')
+  env.expect('FT.EXPLAIN', 'idx', "@tag1:{w'*'}", 'DIALECT', 2)\
+    .equal("TAG:@tag1 {\n  WILDCARD{*}\n}\n")
+
+  if not env.isCluster():
+    # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI', 'idx', "@tag1:{w'*'}", 'DIALECT', 2)\
+      .equal(['TAG:@tag1 {', '  WILDCARD{*}', '}', ''])
