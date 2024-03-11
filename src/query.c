@@ -1817,7 +1817,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_WILDCARD:
       s = sdscat(s, "<WILDCARD>");
-      break;
+      return s;
     case QN_FUZZY:
       s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
       return s;
