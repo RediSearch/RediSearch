@@ -1084,10 +1084,14 @@ def test_mod_6541(env: Env):
 
 def test_explain_wildcard(env: Env):
   env.expect('FT.CREATE idx SCHEMA tag1 TAG').equal('OK')
+  env.expect('FT.EXPLAIN', 'idx', "*", 'DIALECT', 2)\
+    .equal("<WILDCARD>")
   env.expect('FT.EXPLAIN', 'idx', "@tag1:{w'*'}", 'DIALECT', 2)\
     .equal("TAG:@tag1 {\n  WILDCARD{*}\n}\n")
 
   if not env.isCluster():
     # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI', 'idx', "*", 'DIALECT', 2)\
+    .equal(['<WILDCARD>'])
     env.expect('FT.EXPLAINCLI', 'idx', "@tag1:{w'*'}", 'DIALECT', 2)\
       .equal(['TAG:@tag1 {', '  WILDCARD{*}', '}', ''])
