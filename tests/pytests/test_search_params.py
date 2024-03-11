@@ -6,45 +6,46 @@ from redis import ResponseError
 
 
 def test_geo(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
+    for dialect in [2, 5]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
+        conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE').ok()
-    waitForIndex(env, 'idx')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE').ok()
+        waitForIndex(env, 'idx')
 
-    env.assertEqual(conn.execute_command('HSET', 'geo1', 'g', '29.69465, 34.95126'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'geo2', 'g', '29.69350, 34.94737'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'geo3', 'g', '29.68746, 34.94882'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'geo1', 'g', '29.69465, 34.95126'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'geo2', 'g', '29.69350, 34.94737'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'geo3', 'g', '29.68746, 34.94882'), 1)
 
-    # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 500 m]', 'NOCONTENT')
-    # env.assertEqual(res, [2, 'geo1', 'geo2'])
-    #
-    # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 10 km]', 'NOCONTENT')
-    # env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
+        # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 500 m]', 'NOCONTENT')
+        # env.assertEqual(res, [2, 'geo1', 'geo2'])
+        #
+        # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 10 km]', 'NOCONTENT')
+        # env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm')
-    env.assertEqual(res, [2, 'geo1', 'geo2'])
+        res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm')
+        env.assertEqual(res, [2, 'geo1', 'geo2'])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '10', 'units', 'km')
-    env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
+        res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '10', 'units', 'km')
+        env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
 
-    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-    env.assertEqual(res, res2)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-    env.assertEqual(res, res2)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-    env.assertEqual(res, res2)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-    env.assertEqual(res, res2)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-    env.assertEqual(res, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+        env.assertEqual(res, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+        env.assertEqual(res, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+        env.assertEqual(res, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+        env.assertEqual(res, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+        env.assertEqual(res, res2)
 
-    res = env.cmd('FT.AGGREGATE', 'idx', '*',
-                               'APPLY', 'geodistance(@g,29.69,34.94)', 'AS', 'dist',
-                               'GROUPBY', '1', '@dist',
-                               'SORTBY', '2', '@dist', 'ASC')
-    env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
-    env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
+        res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                                'APPLY', 'geodistance(@g,29.69,34.94)', 'AS', 'dist',
+                                'GROUPBY', '1', '@dist',
+                                'SORTBY', '2', '@dist', 'ASC')
+        env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
+        env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
 
 
 def test_param_errors(env):
@@ -122,71 +123,73 @@ def test_param_errors(env):
 
 
 def test_attr(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
+    for dialect in [2, 5]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
+        conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name_ph', 'TEXT', 'PHONETIC', 'dm:en', 'name', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name_ph', 'TEXT', 'PHONETIC', 'dm:en', 'name', 'TEXT').ok()
+        waitForIndex(env, 'idx')
 
-    env.assertEqual(conn.execute_command('HSET', 'key1', 'name_ph', 'John', 'name', 'John'), 2)
-    env.assertEqual(conn.execute_command('HSET', 'key2', 'name_ph', 'Jon', 'name', 'Jon'), 2)
-    env.assertEqual(conn.execute_command('HSET', 'key3', 'name_ph', 'Joy', 'name', 'Joy'), 2)
-    env.assertEqual(conn.execute_command('HSET', 'key4', 'name_ph', 'Lucy', 'name', 'Lucy'), 2)
+        env.assertEqual(conn.execute_command('HSET', 'key1', 'name_ph', 'John', 'name', 'John'), 2)
+        env.assertEqual(conn.execute_command('HSET', 'key2', 'name_ph', 'Jon', 'name', 'Jon'), 2)
+        env.assertEqual(conn.execute_command('HSET', 'key3', 'name_ph', 'Joy', 'name', 'Joy'), 2)
+        env.assertEqual(conn.execute_command('HSET', 'key4', 'name_ph', 'Lucy', 'name', 'Lucy'), 2)
 
-    # Error: field does not support phonetics
-    env.expect('FT.SEARCH', 'idx', '@name:($name) => { $slop:$slop; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'slop', '0', 'ph', 'true').error()
+        # Error: field does not support phonetics
+        env.expect('FT.SEARCH', 'idx', '@name:($name) => { $slop:$slop; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'slop', '0', 'ph', 'true').error()
 
-    # With phonetic
-    res1 = env.cmd('FT.SEARCH', 'idx', '(@name_ph:(jon) => { $weight: 1; $phonetic:true}) | (@name_ph:(jon) => { $weight: 2; $phonetic:false})', 'NOCONTENT')
-    env.assertEqual(res1, [2, 'key2', 'key1'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '(@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}) | (@name_ph:($name) => { $weight: $w2; $phonetic:false})', 'NOCONTENT', 'PARAMS', '12', 'name', 'jon', 'slop', '0', 'ph1', 'true', 'ph2', 'false', 'w1', '1', 'w2', '2')
-    env.assertEqual(res2, res1)
+        # With phonetic
+        res1 = env.cmd('FT.SEARCH', 'idx', '(@name_ph:(jon) => { $weight: 1; $phonetic:true}) | (@name_ph:(jon) => { $weight: 2; $phonetic:false})', 'NOCONTENT')
+        env.assertEqual(res1, [2, 'key2', 'key1'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '(@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}) | (@name_ph:($name) => { $weight: $w2; $phonetic:false})', 'NOCONTENT', 'PARAMS', '12', 'name', 'jon', 'slop', '0', 'ph1', 'true', 'ph2', 'false', 'w1', '1', 'w2', '2')
+        env.assertEqual(res2, res1)
 
-    # Without phonetic
-    res1 = env.cmd('FT.SEARCH', 'idx', '@name_ph:(jon) => { $weight: 1; $phonetic:false}', 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key2'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'w1', '1', 'ph1', 'false')
-    env.assertEqual(res2, res1)
+        # Without phonetic
+        res1 = env.cmd('FT.SEARCH', 'idx', '@name_ph:(jon) => { $weight: 1; $phonetic:false}', 'NOCONTENT')
+        env.assertEqual(res1, [1, 'key2'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'w1', '1', 'ph1', 'false')
+        env.assertEqual(res2, res1)
 
 
 def test_binary_data(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
+    for dialect in [2, 5]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
+        conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'bin', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'bin', 'TEXT').ok()
+        waitForIndex(env, 'idx')
 
-    bin_data1 = b'\xd7\x93\xd7\x90\xd7\x98\xd7\x94\xd7\x91\xd7\x99\xd7\xa0\xd7\x90\xd7\xa8\xd7\x99\xd7\x90\xd7\xa8\xd7\x95\xd7\x9a\xd7\x95\xd7\x9e\xd7\xa2\xd7\xa0\xd7\x99\xd7\x99\xd7\x9f'
-    bin_data2 = b'10010101001010101100101011001101010101'
+        bin_data1 = b'\xd7\x93\xd7\x90\xd7\x98\xd7\x94\xd7\x91\xd7\x99\xd7\xa0\xd7\x90\xd7\xa8\xd7\x99\xd7\x90\xd7\xa8\xd7\x95\xd7\x9a\xd7\x95\xd7\x9e\xd7\xa2\xd7\xa0\xd7\x99\xd7\x99\xd7\x9f'
+        bin_data2 = b'10010101001010101100101011001101010101'
 
-    env.assertEqual(conn.execute_command('HSET', 'key1', 'bin', bin_data1), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key2', 'bin', bin_data2), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key1', 'bin', bin_data1), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key2', 'bin', bin_data2), 1)
 
-    # Compare results with and without param - data1
-    res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:' + bin_data2, 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key2'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '10010101001010101100101011001101010101')
-    env.assertEqual(res2, res1)
+        # Compare results with and without param - data1
+        res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:' + bin_data2, 'NOCONTENT')
+        env.assertEqual(res1, [1, 'key2'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '10010101001010101100101011001101010101')
+        env.assertEqual(res2, res1)
 
-    # Compare results with and without param - data2
-    res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:' + bin_data1, 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key1'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', bin_data1)
-    env.assertEqual(res2, res1)
+        # Compare results with and without param - data2
+        res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:' + bin_data1, 'NOCONTENT')
+        env.assertEqual(res1, [1, 'key1'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', bin_data1)
+        env.assertEqual(res2, res1)
 
-    # Compare results with and without param using Prefix - data1
-    res1 = env.cmd('FT.SEARCH', 'idx', '@bin:10010*', 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key2'])
+        # Compare results with and without param using Prefix - data1
+        res1 = env.cmd('FT.SEARCH', 'idx', '@bin:10010*', 'NOCONTENT')
+        env.assertEqual(res1, [1, 'key2'])
 
-    res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', '10010')
-    env.assertEqual(res2, res1)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', '10010')
+        env.assertEqual(res2, res1)
 
-    # Compare results with and without param using Prefix - data2
-    res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
-    env.assertEqual(res1, [1, 'key1'])
+        # Compare results with and without param using Prefix - data2
+        res1 = env.cmd('FT.SEARCH', 'idx', b'@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
+        env.assertEqual(res1, [1, 'key1'])
 
-    res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', b'\xd7\x93\xd7\x90')
-    env.assertEqual(res2, res1)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@bin:$val*', 'NOCONTENT', 'PARAMS', '2', 'val', b'\xd7\x93\xd7\x90')
+        env.assertEqual(res2, res1)
 
 
 def test_expression(env):
