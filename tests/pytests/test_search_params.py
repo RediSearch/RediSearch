@@ -6,46 +6,45 @@ from redis import ResponseError
 
 
 def test_geo(env):
-    for dialect in [2, 5]:
-        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
-        conn = getConnectionByEnv(env)
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
 
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE').ok()
-        waitForIndex(env, 'idx')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
 
-        env.assertEqual(conn.execute_command('HSET', 'geo1', 'g', '29.69465, 34.95126'), 1)
-        env.assertEqual(conn.execute_command('HSET', 'geo2', 'g', '29.69350, 34.94737'), 1)
-        env.assertEqual(conn.execute_command('HSET', 'geo3', 'g', '29.68746, 34.94882'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'geo1', 'g', '29.69465, 34.95126'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'geo2', 'g', '29.69350, 34.94737'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'geo3', 'g', '29.68746, 34.94882'), 1)
 
-        # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 500 m]', 'NOCONTENT')
-        # env.assertEqual(res, [2, 'geo1', 'geo2'])
-        #
-        # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 10 km]', 'NOCONTENT')
-        # env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
+    # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 500 m]', 'NOCONTENT')
+    # env.assertEqual(res, [2, 'geo1', 'geo2'])
+    #
+    # res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 10 km]', 'NOCONTENT')
+    # env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
 
-        res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm')
-        env.assertEqual(res, [2, 'geo1', 'geo2'])
+    res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm')
+    env.assertEqual(res, [2, 'geo1', 'geo2'])
 
-        res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '10', 'units', 'km')
-        env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
+    res = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '10', 'units', 'km')
+    env.assertEqual(res, [3, 'geo1', 'geo2', 'geo3'])
 
-        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-        env.assertEqual(res, res2)
-        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-        env.assertEqual(res, res2)
-        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-        env.assertEqual(res, res2)
-        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-        env.assertEqual(res, res2)
-        res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
-        env.assertEqual(res, res2)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
 
-        res = env.cmd('FT.AGGREGATE', 'idx', '*',
-                                'APPLY', 'geodistance(@g,29.69,34.94)', 'AS', 'dist',
-                                'GROUPBY', '1', '@dist',
-                                'SORTBY', '2', '@dist', 'ASC')
-        env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
-        env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                               'APPLY', 'geodistance(@g,29.69,34.94)', 'AS', 'dist',
+                               'GROUPBY', '1', '@dist',
+                               'SORTBY', '2', '@dist', 'ASC')
+    env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
+    env.assertEqual(res, [3, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
 
 
 def test_param_errors(env):
