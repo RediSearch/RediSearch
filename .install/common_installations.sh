@@ -13,9 +13,9 @@ activate_venv() {
 	fi
 }
 
-python3 -m venv venv
-activate_venv
-source venv/bin/activate
+# python3 -m venv venv
+# activate_venv
+# source venv/bin/activate
 
 pip install --upgrade pip
 pip install -q --upgrade setuptools
