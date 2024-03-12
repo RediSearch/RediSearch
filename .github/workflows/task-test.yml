@@ -76,6 +76,7 @@ jobs:
           key: boost-${{ env.BOOST_VERSION }}-${{ inputs.container || inputs.env }}-${{ runner.arch }}
 
       - name: Install Boost
+        if: steps.restore-boost.outputs.cache-hit != 'true'
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 

@@ -236,14 +236,14 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-
+BOOST_DIR=.install/boost_$(BOOST_VERSION)/installdir
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 # ifneq ($(filter $(OSNICK),bionic amzn2),)
 _CMAKE_FLAGS += -DCANON_BOOST=on
 # endif
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(BOOST_DIR)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
@@ -254,7 +254,7 @@ _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 # CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
 # CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
 
-CC_INCLUDES.macos += $(boost_prefix)/include
+CC_INCLUDES.macos += $(BOOST_DIR)/include
 
 #----------------------------------------------------------------------------------------------
 
