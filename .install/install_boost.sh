@@ -14,6 +14,8 @@ fi
 
 cd ${BOOST_DIR}
 
+mkdir -p installdir
+
 # Build and install boost. Should be fast if cached
-./bootstrap.sh --prefix=/usr
+./bootstrap.sh --prefix=./installdir
 $MODE ./b2 install
