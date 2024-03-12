@@ -680,7 +680,6 @@ def testInvalidSyntax(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
                'NUMERIC', 'SORTABLE').ok()
-    waitForIndex(env, 'idx')
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{ w'?*1'}", 'DIALECT', 5)
@@ -733,31 +732,28 @@ def testInvalidSyntax(env):
         env.cmd("FT.explaincli idx @t1:\10 DIALECT 5")
 
 def testTagUNF(env):
+    # Create index without UNF
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
+    
+    # Create index with UNF
+    env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()
+
     # Create sample data
     env.cmd('HSET', '{doc}:1', 'tag', 'america')
     env.cmd('HSET', '{doc}:2', 'tag', 'aMerica')
     env.cmd('HSET', '{doc}:3', 'tag', 'America')
 
-    # Create index without UNF
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
-    waitForIndex(env, 'idx')
-
-    # TODO: This fails for dialect >= 4
     # Without UNF, the tags are normalized and the results are sorted by key
-    # res = env.cmd('FT.SEARCH', 'idx', '@tag:{america}', 'NOCONTENT',
-    #               'SORTBY', 'tag', 'WITHCOUNT', 'DIALECT', 5)
-    # env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{america}', 'NOCONTENT',
+                  'SORTBY', 'tag', 'ASC', 'WITHCOUNT', 'DIALECT', 5)
+    env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
     # Without UNF, the results are normalized and are grouped
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tag',
                   'REDUCE', 'COUNT', '0', 'DIALECT', 5)
     env.assertEqual(res[0], 1)
-
-    # Create index with UNF
-    env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()
-    waitForIndex(env, 'idx_unf')
 
     # With UNF (un-normalized form), the normalization is disabled and the tags
     # are sorted by its original form
