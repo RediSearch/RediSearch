@@ -302,7 +302,7 @@ def testEmptyNumericLeakCenter(env):
         for j in range(docs):
             x = j + i * docs
             conn.execute_command('HSET', 'doc{}'.format(j % 100 + 100), 'n', format(x))
-        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
+        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 
     num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
@@ -310,7 +310,7 @@ def testEmptyNumericLeakCenter(env):
     num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     env.assertGreater(num_summery_before[1], num_summery_after[1])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
 
 @skip(cluster=True)
@@ -459,6 +459,12 @@ def testNumberFormat(env):
     env.expect('FT.SEARCH', 'idx', '@n:[1 -+inf]').error()
     env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
     env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()
+
+    # invalid syntax - spaces betwen the sign and the number are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[-inf + 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[- inf  1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-inf + inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[- inf +inf]').error()
 
 def testExplainNumericRange(env):
   env.expect('FT.CREATE idx SCHEMA n NUMERIC').equal('OK')
