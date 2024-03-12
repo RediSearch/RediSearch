@@ -2,20 +2,12 @@
 
 set -e
 VERSION=$1
-MODE=$2 # whether to install using sudo or not
-
 BOOST_DIR="boost_${VERSION//./_}"
 
-# Download and extract boost if not found (cached)
-if [[ ! -d ${BOOST_DIR} ]]; then
-    wget https://boostorg.jfrog.io/artifactory/main/release/${VERSION}/source/${BOOST_DIR}.tar.gz
-    tar -xzf ${BOOST_DIR}.tar.gz
-fi
+wget https://boostorg.jfrog.io/artifactory/main/release/${VERSION}/source/${BOOST_DIR}.tar.gz
 
+tar -xzf ${BOOST_DIR}.tar.gz
 cd ${BOOST_DIR}
 
-mkdir -p installdir
-
-# Build and install boost. Should be fast if cached
-./bootstrap.sh --prefix=./installdir
-$MODE ./b2 install
+./bootstrap.sh --prefix=/tmp/boostdir/
+./b2 install
