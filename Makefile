@@ -236,7 +236,7 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-BOOST_DIR=.install/boost_$(BOOST_VERSION)/installdir
+BOOST_DIR=$(PWD)/.install/boost_$(BOOST_VERSION)/installdir
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 # ifneq ($(filter $(OSNICK),bionic amzn2),)
 _CMAKE_FLAGS += -DCANON_BOOST=on
