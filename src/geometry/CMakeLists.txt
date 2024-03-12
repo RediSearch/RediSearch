@@ -1,8 +1,6 @@
 
 set(CMAKE_CXX_STANDARD 20)
 
-include(${CONAN_BINDIR}/conan_toolchain.cmake)
-
 # find_package(absl 20230125.1)
 if(CANON_BOOST)
 	find_package(Boost 1.82.0)
