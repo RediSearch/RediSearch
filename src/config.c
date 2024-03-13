@@ -795,7 +795,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getForkGcInterval},
         {.name = "FORK_GC_CLEAN_THRESHOLD",
          .helpText = "the fork gc will only start to clean when the number of not cleaned document "
-                     "will acceded this threshold",
+                     "will exceed this threshold",
          .setValue = setForkGcCleanThreshold,
          .getValue = getForkGcCleanThreshold},
         {.name = "FORK_GC_RETRY_INTERVAL",
