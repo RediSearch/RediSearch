@@ -437,6 +437,9 @@ def test_mod_6597(env):
     res, cid = env.execute_command('ft.aggregate', 'idx', f'@test:[1 {num_docs}]', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
     n = len(res) - 1
 
+    # Make sure GC is not self-invoked (periodic run).
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+
     # Delete all documents of the index. The same effect is achieved if a split
     # occurred and a whole NumericRangeNode is deleted.
     for i in range(1, num_docs, 1):
