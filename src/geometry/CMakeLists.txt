@@ -9,5 +9,5 @@ add_library(redisearch-geometry STATIC ${SOURCES})
 
 # include_directories(${absl_INCLUDE_DIR})
 
-cmake_print_variables(BOOST_DIR)
+message(STATUS "The value of BOOST_DIR is: ${BOOST_DIR}")
 include_directories(${BOOST_DIR})
