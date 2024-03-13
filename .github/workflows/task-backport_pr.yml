@@ -1,0 +1,50 @@
+name: Backport merged pull request
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  pull_request_target:
+    types: [closed]
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write # so it can comment
+  pull-requests: write # so it can create pull requests
+jobs:
+  backport:
+    name: Backport pull request
+    runs-on: ubuntu-latest
+
+    # Only run when pull request is merged
+    # or when a comment starting with `/backport` is created by someone other than the
+    # https://github.com/backport-action bot user (user id: 97796249). Note that if you use your
+    # own PAT as `github_token`, that you should replace this id with yours.
+    if: >
+      (
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.merged
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.user.id != 97796249 &&
+        startsWith(github.event.comment.body, '/backport')
+      )
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create backport pull requests
+        id: backport
+        uses: korthout/backport-action@v2
+        with:
+          pull_title: '[${target_branch}] ${pull_title}'
+          merge_commits: 'skip'
+          copy_requested_reviewers: 'true'
+          copy_labels_pattern: '.*' # copy all labels. Excluding the backport labels automatically
+      - name: Trigger CI
+        env:
+          GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+        # Draft and then undraft the pull requests to trigger CI
+        run: |
+          for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
+            gh pr ready $pr --undo
+            gh pr ready $pr
+          done

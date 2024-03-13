@@ -348,11 +348,11 @@ clean-conan:
 parsers:
 ifeq ($(FORCE),1)
 	$(SHOW)cd src/aggregate/expr ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v1 ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v2 ;\
-	rm -f lexer.c parser-toplevel.c parser.c.inc
+	rm -f lexer.c parser.c
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
 	$(SHOW)$(MAKE) -C src/query_parser/v1
@@ -488,7 +488,8 @@ pytest: $(REJSON_SO)
 ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) LOG_LEVEL=$(LOG_LEVEL) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------

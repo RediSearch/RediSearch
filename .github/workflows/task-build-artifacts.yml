@@ -26,6 +26,7 @@ env:
 
 jobs:
   build:
+    name: Build ${{ inputs.container || inputs.env }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     defaults:
@@ -53,20 +54,22 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .install
-            tests/pytests/requirements.*
-      - name: Setup
+            tests/pytests/requirements.txt
+      - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli
+        working-directory: setup/.install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-
-      - name: Setup (readies)
-        if: inputs.container != 'mcr.microsoft.com/cbl-mariner/base/core:2.0'
-        run: ./sbin/setup
-
+      - name: Setup common
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+      - name: install build artifacts req
+        run: pip install -q -r .install/build_package_requirments.txt
       # Get Redis
       - name: Get Redis
         uses: actions/checkout@v3

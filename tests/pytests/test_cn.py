@@ -88,8 +88,8 @@ def testMixedEscapes(env):
 
     r = env.cmd('ft.search', 'idx', 'hello\\-world')
     env.assertEqual(2, r[0])
-    env.assertIn('doc1', r)
-    env.assertIn('doc2', r)
+    env.assertContains('doc1', r)
+    env.assertContains('doc2', r)
     r = env.cmd('ft.search', 'idx', '\\:\\:hello')
     env.assertEqual('doc3', r[1])
     r = env.cmd('ft.search', 'idx', '\\-hello')
@@ -113,4 +113,4 @@ def testSynonym(env):
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
     env.assertEqual(1, r[0])
-    env.assertIn('doc1', r)
+    env.assertContains('doc1', r)

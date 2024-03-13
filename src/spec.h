@@ -25,6 +25,7 @@
 #include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
+#include "info/index_error.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -124,8 +125,8 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t indexingFailures;
-  long double totalIndexTime; // usec
+  size_t totalIndexTime;
+  IndexError indexError;
   size_t totalDocsLen;
 } IndexStats;
 
@@ -258,8 +259,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
-  IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
+  IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
@@ -482,38 +483,18 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 
 //---------------------------------------------------------------------------------------------
 
-/** Load the index as writeable */
-#define INDEXSPEC_LOAD_WRITEABLE 0x01
-/** Don't consult the alias table when retrieving the index */
-#define INDEXSPEC_LOAD_NOALIAS 0x02
-/** The name of the index is in the format of a redis string */
-#define INDEXSPEC_LOAD_KEY_RSTRING 0x04
-
-/**
- * The redis string is formatted, and is not the "plain" index name.
- * Impliest RSTRING
- */
-#define INDEXSPEC_LOAD_KEY_FORMATTED 0x08
-
-/**
- * Don't load or return the key. Should only be used in cases where the
- * spec is not persisted between threads
- */
-#define INDEXSPEC_LOAD_KEYLESS 0x10
-
-#define INDEXSPEC_LOAD_NOTIMERUPDATE 0x20
+typedef enum {
+  INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
+  INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
+  INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+} IndexLoadOptionsFlags;
 
 typedef struct {
-  uint32_t flags;
   union {
-    const char *cstring;
-    RedisModuleString *rstring;
-  } name;
-
-  /** key pointer. you should close this when done with the index */
-  RedisModuleKey *keyp;
-  /** name of alias lookup key to use */
-  const char *alookup;
+    const char *nameC;
+    RedisModuleString *nameR;
+  };
+  IndexLoadOptionsFlags flags;
 } IndexLoadOptions;
 
 //---------------------------------------------------------------------------------------------
@@ -523,7 +504,7 @@ typedef struct {
  * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
  * If an owned reference is needed, use StrongRef API to create one.
  */
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite);
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter

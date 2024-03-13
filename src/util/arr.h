@@ -39,7 +39,7 @@
 extern "C" {
 #endif
 
-/* Definition of malloc & friedns that can be overridden before including arr.h.
+/* Definition of malloc & friends that can be overridden before including arr.h.
  * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
  * to those of the RM_ family
  */

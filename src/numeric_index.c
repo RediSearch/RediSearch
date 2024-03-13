@@ -181,7 +181,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   *n->range = (NumericRange){
       .minVal = __DBL_MAX__,
-      .maxVal = __DBL_MIN__,
+      .maxVal = NF_NEGATIVE_INFINITY,
       .unique_sum = 0,
       .card = 0,
       .cardCheck = NR_CARD_CHECK,

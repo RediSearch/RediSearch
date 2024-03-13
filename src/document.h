@@ -193,8 +193,8 @@ void Document_Clear(Document *doc);
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
 
 /**
  * Load all the fields into the document.
@@ -378,7 +378,6 @@ size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

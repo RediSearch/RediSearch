@@ -318,19 +318,38 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
-
-  QueryNode *ret = NULL;
-
+static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) {
   enum QueryType query_type;
-  if (!strncasecmp(predicate, "WITHIN", len)) {
-    query_type = WITHIN;
-  } else if (!strncasecmp(predicate, "CONTAINS", len)) {
-    query_type = CONTAINS;
-  } else {
+  // length is insufficient to uniquely identify predicates. CONTAINS, DISJOINT, and DISTANCE all have 8 chars.
+  // first letter is insufficient. DISJOINT and DISTANCE both start with DIS.
+  // last letter is insufficient. CONTAINS and INTERSECTS both end with S, DISJOINT and NEAREST both end with T.
+  // TODO: consider comparing 8-byte values instead of 2-byte
+  const int cmp = ((len << CHAR_BIT) | toupper(predicate[len-1]));
+#define CASE(s) (((sizeof(s)-1) << CHAR_BIT) | s[sizeof(s)-2])  // two bytes: len | last char
+#define COND(s) ((cmp == CASE(s)) && !strncasecmp(predicate, s, len))
+  if COND("WITHIN") {  // 0x06'4E
+    return WITHIN;
+  }
+  if COND("CONTAINS") { // 0x08'53
+    return CONTAINS;
+  }
+  if COND("DISJOINT") { // 0x08'54
+    return DISJOINT;
+  }
+  if COND("INTERSECTS") { // 0x0A'53
+    return INTERSECTS;
+  }
+  COND("DISTANCE"); // 0x08'45
+  COND("NEAREST"); // 0x07'54
+  return UNKNOWN_QUERY;
+}
+
+QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt) {
+  enum QueryType query_type = parseGeometryPredicate(predicate, len);
+  if (query_type == UNKNOWN_QUERY) {
     return NULL;
   }
-  ret = NewQueryNode(QN_GEOMETRY);
+  QueryNode *ret = NewQueryNode(QN_GEOMETRY);
   GeometryQuery *geomq = rm_calloc(1, sizeof(*geomq));
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
@@ -838,17 +857,15 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_NOT) {
     return NULL;
   }
-  QueryNotNode *node = &qn->inverted;
 
   return NewNotIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight);
+                        q->docTable->maxDocId, qn->opts.weight, q->sctx->timeout);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_OPTIONAL) {
     return NULL;
   }
-  QueryOptionalNode *node = &qn->opt;
 
   return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
                              q->docTable->maxDocId, qn->opts.weight);
@@ -1045,7 +1062,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
     TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
-    if (!it) return NULL;
+    if (!it) {
+      rm_free(its);
+      return NULL;
+    }
     TrieMapIterator_SetTimeout(it, q->sctx->timeout);
     TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
 
@@ -1057,7 +1077,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         it->mode = TM_SUFFIX_MODE;
       }
     }
-
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
@@ -1081,7 +1100,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
                                                 qn->pfx.prefix, q->sctx->timeout);
-    if (!arr) return NULL;
+    if (!arr) {
+      rm_free(its);
+      return NULL;
+    }
     for (int i = 0; i < array_len(arr); ++i) {
       size_t iarrlen = array_len(arr);
       for (int j = 0; j < array_len(arr[i]); ++j) {
@@ -1103,14 +1125,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     array_free(arr);
   }
 
-  // printf("Expanded %d terms!\n", itsSz);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
-  if (itsSz == 1) {
-    // TODO:
-    IndexIterator *iter = its[0];
+  if (itsSz < 2) {
+    IndexIterator *iter = itsSz ? its[0] : NULL;
     rm_free(its);
     return iter;
   }
@@ -1385,17 +1401,17 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, unsigned int dialectVersion, QueryError *status) {
+int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
+               const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
   if (!dst->query) {
-    dst->query = rm_strndup(q, n);
-    dst->nquery = n;
+    dst->query = rm_strndup(qstr, len);
+    dst->nquery = len;
   }
   QueryParseCtx qpCtx = {// force multiline
                          .raw = dst->query,
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
-                         .opts = opts,
+                         .opts = sopts,
                          .status = status,
 #ifdef PARSER_DEBUG
                          .trace_log = NULL
@@ -1701,7 +1717,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      if(qs->pfx.prefix && qs->pfx.suffix) {
+        s = sdscatprintf(s, "INFIX{*%s*", (char *)qs->pfx.tok.str);
+      } else if (qs->pfx.suffix) {
+        s = sdscatprintf(s, "SUFFIX{*%s", (char *)qs->pfx.tok.str);
+      } else {
+        s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+      }
       break;
 
     case QN_LEXRANGE:

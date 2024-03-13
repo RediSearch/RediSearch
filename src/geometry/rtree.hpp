@@ -52,7 +52,7 @@ class RTree {
   using LUT_type = boost::unordered_flat_map<t_docId, geom_type, std::hash<t_docId>,
                                              std::equal_to<t_docId>, lookup_alloc>;
 
-  using query_results = std::vector<doc_type, Allocator::TrackingAllocator<doc_type>>;
+  using query_results = rtree_type::const_query_iterator;
 
  private:
   mutable std::size_t allocated_;
@@ -70,22 +70,16 @@ class RTree {
   void dump(RedisModuleCtx* ctx) const;
   [[nodiscard]] std::size_t report() const noexcept;
 
-  void* operator new(std::size_t) noexcept;
-  void operator delete(void* p) noexcept;
-
  private:
   [[nodiscard]] auto lookup(t_docId id) const -> boost::optional<geom_type const&>;
   [[nodiscard]] auto lookup(doc_type const& doc) const -> boost::optional<geom_type const&>;
   void insert(geom_type const& geom, t_docId id);
 
   template <typename Predicate, typename Filter>
-  [[nodiscard]] auto apply_predicate(Predicate&& p, Filter&& f) const -> query_results;
-  [[nodiscard]] auto contains(doc_type const& query_doc, geom_type const& query_geom) const
+  [[nodiscard]] auto apply_predicate(Predicate&& predicate, Filter&& filter) const
       -> query_results;
-  [[nodiscard]] auto within(doc_type const& query_doc, geom_type const& query_geom) const
+  [[nodiscard]] auto query_begin(QueryType query_type, geom_type const& query_geom) const
       -> query_results;
-  [[nodiscard]] auto generate_predicate(doc_type const& query_doc, QueryType query_type,
-                                        geom_type const& query_geom) const -> query_results;
 };
 
 }  // namespace GeoShape

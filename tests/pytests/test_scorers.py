@@ -58,13 +58,13 @@ def testScoreIndex(env):
     ]
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'DISMAX', 'DOCSCORE']
     expected_results = results_cluster if env.shardsCount > 1 else results_single
-    for _ in env.reloading_iterator():
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for i, scorer in enumerate(scorers):
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer', scorer, 'nocontent', 'withscores', 'limit', 0, 5)
             res = [round(float(x), 2) if j > 0 and (j - 1) %
                    2 == 1 else x for j, x in enumerate(res)]
-            env.assertListEqual(expected_results[i], res)
+            env.assertEqual(expected_results[i], res)
 
 
 def testDocscoreScorerExplanation(env):
@@ -86,9 +86,9 @@ def testTFIDFScorerExplanation(env):
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
 
-    env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
-    env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
-    env.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
+    env.cmd('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
+    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
+    env.cmd('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
 
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3)
@@ -124,12 +124,11 @@ def testTFIDFScorerExplanation(env):
                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
     res2 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
-                [['(Weight 1.00 * total children TFIDF 40.00)',
-                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                        ['(Weight 1.00 * total children TFIDF 30.00)',
-                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                             '(Weight 1.00 * total children TFIDF 20.00)']]]]]]
-
+            [['(Weight 1.00 * total children TFIDF 40.00)',
+              [['(Weight 1.00 * total children TFIDF 30.00)',
+                ['(Weight 1.00 * total children TFIDF 20.00)',
+                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
 
     actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     # on older versions we trim the reply to remain under the 7-layer limitation.

@@ -211,8 +211,8 @@ int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
   return REDISMODULE_OK;
 }
 
-int RedisModule_Reply_String(RedisModule_Reply *reply, RedisModuleString *val) {
-  RedisModule_ReplyWithString(reply->ctx, val);
+int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val) {
+  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString*)val);
 #ifdef REDISMODULE_REPLY_DEBUG
   size_t n;
   const char *p = RedisModule_StringPtrLen(val, &n);
@@ -385,10 +385,10 @@ int RedisModule_ReplyKV_StringBuffer(RedisModule_Reply *reply, const char *key, 
   return REDISMODULE_OK;
 }
 
-int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, RedisModuleString *val) {
+int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const RedisModuleString *val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
-  RedisModule_ReplyWithString(reply->ctx, val);
+  RedisModule_ReplyWithString(reply->ctx, (RedisModuleString*)val);
   _RedisModule_Reply_Next(reply);
 
 #ifdef REDISMODULE_REPLY_DEBUG
@@ -397,6 +397,20 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, RedisM
   json_add(reply, false, "\"%.*s\"", n, p);
 #endif
   _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_ReplyKV_Stringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
+  RedisModule_Reply_SimpleString(reply, key);
+  va_list args;
+  va_start(args, fmt);
+  char *p;
+  rm_vasprintf(&p, fmt, args);
+  RedisModule_ReplyWithSimpleString(reply->ctx, p);
+  json_add(reply, false, "\"%s\"", p);
+  rm_free(p);
+  _RedisModule_Reply_Next(reply);
+  va_end(args);
   return REDISMODULE_OK;
 }
 
@@ -414,7 +428,7 @@ int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
   json_add(reply, false, "\"%s\"", key);
   _RedisModule_Reply_Next(reply);
-  
+
   //RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_Reply_Array(reply);
   //_RedisModule_Reply_Push(reply, REDISMODULE_REPLY_ARRAY);

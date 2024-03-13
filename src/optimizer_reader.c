@@ -170,7 +170,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
         const RSDocumentMetadata *dmd = DocTable_Borrow(&opt->sctx->spec->docs, childRes->docId);
         if (!dmd) {
           continue;
-        }   
+        }
         it->pooledResult->dmd = dmd;
 
         // heap is not full. insert
@@ -187,7 +187,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
           }
           DMD_Return(it->pooledResult->dmd);
         }
-      } 
+      }
     }
 
     // Not enough result, try to rewind
@@ -196,7 +196,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
       childRes = numericRes = NULL;
       // rewind was successful, continue iteration
       if (it->numericIter != NULL) {
-        numeric = it->numericIter; 
+        numeric = it->numericIter;
         it->hitCounter = 0;
         it->numIterations++;
         continue;;
@@ -245,10 +245,8 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   IndexIterator *ri = &oi->base;
   ri->ctx = oi;
   ri->type = OPTIMUS_ITERATOR;
-  ri->mode = MODE_SORTED; 
 
   ri->NumEstimated = OPT_NumEstimated;
-  ri->GetCriteriaTester = NULL;
   ri->LastDocId = OPT_LastDocId;
   ri->Free = OptimizerIterator_Free;
   ri->Len = OPT_Len;

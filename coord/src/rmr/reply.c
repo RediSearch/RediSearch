@@ -246,7 +246,7 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
   switch (MRReply_Type(rep)) {
     case MR_REPLY_STRING: {
       size_t len;
-      char *str = MRReply_String(rep, &len);
+      const char *str = MRReply_String(rep, &len);
       return RedisModule_Reply_StringBuffer(reply, str, len);
     }
 
@@ -292,7 +292,7 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
 
     case MR_REPLY_DOUBLE:
       return RedisModule_Reply_Double(reply, MRReply_Double(rep));
-  
+
     case MR_REPLY_ATTR:
     case MR_REPLY_PUSH:
     case MR_REPLY_BIGNUM:
@@ -309,4 +309,59 @@ int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRRep
   RedisModule_Reply_SimpleString(reply, key);
   MR_ReplyWithMRReply(reply, rep);
   return REDISMODULE_OK;
+}
+
+
+inline void MRReply_Free(MRReply *reply) {
+  freeReplyObject(reply);
+}
+
+
+inline int MRReply_Type(const MRReply *reply) {
+  return reply->type;
+}
+
+
+inline long long MRReply_Integer(const MRReply *reply) {
+  return reply->integer;
+}
+
+
+inline double MRReply_Double(const MRReply *reply) {
+  return reply->dval;
+}
+
+
+inline size_t MRReply_Length(const MRReply *reply) {
+  return reply ? reply->elements : 0;
+}
+
+
+inline const char *MRReply_String(const MRReply *reply, size_t *len) {
+  if (len) {
+    *len = reply->len;
+  }
+  return reply->str;
+}
+
+inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
+  // TODO: check out of bounds
+  return reply->element[idx];
+}
+
+inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
+  if (reply->type != MR_REPLY_MAP) return NULL;
+  for (int i = 0; i < reply->elements; i += 2) {
+    if (MRReply_StringEquals(reply->element[i], key, false)) {
+      ++i;
+      return i < reply->elements ? reply->element[i] : NULL;
+    }
+  }
+  return NULL;
+}
+
+
+void MRReply_ArrayToMap(MRReply *reply) {
+  if (reply->type != MR_REPLY_ARRAY) return;
+  reply->type = MR_REPLY_MAP;
 }

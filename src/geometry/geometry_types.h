@@ -33,6 +33,9 @@ typedef enum {
 #undef X
 
 typedef enum QueryType {
+  UNKNOWN_QUERY,
   CONTAINS,
   WITHIN,
+  DISJOINT,
+  INTERSECTS,
 } QueryType;

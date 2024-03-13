@@ -211,7 +211,7 @@ def testCompressionConfig(env):
 	# w/o compression. exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
-	  	env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  	env.cmd('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
 		num = str(1 + i / 100.0)
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
@@ -219,13 +219,13 @@ def testCompressionConfig(env):
 	# with compression. no exact number match.
 	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
-	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	  env.cmd('hset', i, 'n', str(1 + i / 100.0))
 
 	# delete keys where compression does not change value
-	env.execute_command('del', '0')
-	env.execute_command('del', '25')
-	env.execute_command('del', '50')
-	env.execute_command('del', '75')
+	env.cmd('del', '0')
+	env.cmd('del', '25')
+	env.cmd('del', '50')
+	env.cmd('del', '75')
 
 	for i in range(100):
 		num = str(1 + i / 100.0)
@@ -240,7 +240,7 @@ def testRangeParentsConfig(env):
 		# check number of ranges
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
 		for i in range(elements):
-			env.execute_command('hset', i, 'n', i)
+			env.cmd('hset', i, 'n', i)
 		actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
 		env.assertEqual(actual_res[0:2], result[test])
 
@@ -330,3 +330,62 @@ def testCardinalityCrash(env):
 
     for i in range(count):
         conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
+
+''' The following test aims to reproduce a bug:
+During garbage collection the unique sum potentially became NaN.
+The bug affects the determination of split values for nodes in the tree structure,
+causing premature termination of searched due to NaN comparisons.
+The bug was fixed in PR#3892.
+More details in:
+https://redislabs.atlassian.net/wiki/spaces/DX/pages/4054876404/BUG+numeric+index+suddenly+return+0+or+partial+results
+'''
+
+@skip(cluster=True) # coordinator doesn't suppory ft.config
+def testNegativeValues(env):
+
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 'num', 'numeric').ok()
+
+    # add 2 docs with the same negative value
+    doc_id = 2
+    for i in range(doc_id):
+        val = -1
+        env.cmd('hset', f'doc:{i}', 'num', val)
+
+    # delete one a doc to trigger the gc.
+    env.cmd('hdel', f'doc:1', 'num')
+    forceInvokeGC(env, 'idx')
+    doc_id -= 1
+
+    # the unique_sum should be equal to the first value, as it is now the only value.
+    numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
+    range_data = to_dict(numeric_index_tree['range'])
+    unique_sum = range_data['unique_sum']
+    env.assertEqual(unique_sum, '-1')
+
+    # add docs to trigger a split and calculate the expected unique_sum
+    expected_unique_sum = int(unique_sum)
+    split = False
+    while split == False:
+        val = - 1 - doc_id
+        numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
+        range_data = to_dict(numeric_index_tree['range'])
+        #  The next hset will be added to the cardinality values and increase the cardinalities counter
+        if range_data['cardCheck'] == 1:
+            expected_unique_sum += val
+            # when the cardinalities counter equals 2, the first tree split will be triggered.
+            if range_data['card'] == 1:
+                split = True
+        env.cmd('hset', f'doc:{doc_id}', 'num', val)
+        doc_id += 1
+
+
+    # Before the bug fix, the split value of the root at this point was nan or some other unexpected value.
+    # now we expect it to be expected_unique_sum / 2 (relying on the assumption that the split occurred when there were 2 cardinality values.)
+    numeric_index_tree = dump_numeric_index_tree_root(env, 'idx', 'num')
+    env.assertEqual(float(numeric_index_tree['value']), expected_unique_sum/2)
+
+    # Query the index. if the split value of the root is nan, the query won't return any results.
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
+    env.assertEqual(res[0], doc_id)

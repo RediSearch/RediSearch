@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-// suppress warning 
+// suppress warning
 // "'struct timespec' declared inside parameter list will not be visible outside of this
 // definition or declaration"
 struct timespec;
@@ -24,7 +24,7 @@ struct timespec;
  *            Timeout API
  ****************************************/
 
-static inline int rs_timer_ge(struct timespec *a, struct timespec *b) {
+static inline int rs_timer_ge(const struct timespec *a, const struct timespec *b) {
   if (a->tv_sec == b->tv_sec) {
     return a->tv_nsec >= b->tv_nsec;
   }
@@ -68,7 +68,7 @@ static inline int TimedOut(struct timespec *timeout) {
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every 100 calls) 
+// Check if time has been reached (run once every 100 calls)
 static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
@@ -79,9 +79,25 @@ static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every 100 calls) 
+// Check if time has been reached (run once every `gran` calls)
+static inline int TimedOut_WithCounter_Gran(struct timespec *timeout, size_t *counter, uint32_t gran) {
+  if (RS_IsMock) return 0;
+
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
+    *counter = 0;
+    return TimedOut(timeout);
+  }
+  return NOT_TIMED_OUT;
+}
+
+// Check if time has been reached (run once every 100 calls)
 static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
   return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
+}
+
+// Check if time has been reached (run once every `gran` calls)
+static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
+  return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
 }
 
 // Check if time has been reached
@@ -90,7 +106,7 @@ static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *stat
   if (status && rc == TIMED_OUT) {
     QueryError_SetCode(status, QUERY_ETIMEDOUT);
   }
-  return rc; 
+  return rc;
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {

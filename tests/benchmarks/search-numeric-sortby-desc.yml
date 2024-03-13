@@ -1,8 +1,6 @@
 version: 0.2
 name: "search-numeric-sortby-desc"
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:

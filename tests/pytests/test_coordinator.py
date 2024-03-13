@@ -1,5 +1,6 @@
 from common import *
 from redis import ResponseError
+from time import sleep
 
 def testInfo(env):
     SkipOnNonCluster(env)
@@ -26,7 +27,7 @@ def testInfo(env):
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
     env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
-    env.execute_command('HSET', '0', 't', 'hello')
+    env.cmd('HSET', '0', 't', 'hello')
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '2', 't').error()
     env.expect('ft.search', 'idx', 'hello', '_REQUIRED_FIELDS', '1', 't').equal([1, '0', '$hello', ['t', 'hello']])
@@ -36,7 +37,7 @@ def test_required_fields(env):
 
 
 def check_info_commandstats(env, cmd):
-    res = env.execute_command('INFO', 'COMMANDSTATS')
+    res = env.cmd('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
 def testCommandStatsOnRedis(env):
@@ -94,27 +95,13 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '*')[1]
-
-    env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('idx: no such index', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
     env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
 
     # Bad query
     # create the index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    if env.protocol == 3:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')['error']
-    else:
-        err = env.cmd('FT.AGGREGATE', 'idx', '**')[1]
-
-    env.assertEquals(type(err[0]), ResponseError)
-    env.assertContains('Syntax error', str(err[0]))
-    # The same for `FT.SEARCH`.
+    env.expect('FT.AGGREGATE', 'idx', '**').error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '**').error().contains('Syntax error')
 
     # Other stuff that are being checked only on the shards (FYI):
@@ -141,24 +128,60 @@ def test_timeout():
         conn.execute_command('HSET', i ,'t1', str(i))
 
     # No client cursor
-    res = env.execute_command('FT.AGGREGATE', 'idx', '*',
-                'LOAD', '2', '@t1', '@__key',
-                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
-                'groupby', '2', '@t1', '@t1exp',
-                'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1')
-    # TODO: Add this once the response will be fixed to be and error instead of a string
-    # env.assertEquals(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
+        '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
+        'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1'
+    ).error().contains('Timeout limit was reached')
 
     # Client cursor mid execution
-    res, _ = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t1',
-                                  'GROUPBY', '1', '@t1', 'WITHCURSOR', 'COUNT',
-                                  str(n_docs), 'TIMEOUT', 1)
-    env.assertEqual(res, [0])
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs,
+        'timeout', '1'
+    ).error().contains('Timeout limit was reached')
 
     # FT.SEARCH
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs,
-                               'timeout', '1')
-    # TODO: Add this when MOD-5965 is merged
-    # env.assertEqual(type(res[0]), ResponseError)
-    env.assertContains('Timeout limit was reached', str(res[0]))
+    env.expect(
+        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
+    ).error().contains('Timeout limit was reached')
+
+@skip(cluster=False, min_shards=2)
+def test_mod_6287(env):
+    """Tests that the coordinator does not crash on aggregations with cursors,
+    when some of the shards return an error while the others don't. Specifically,
+    such a scenario depicted in PR #4324 results in a crash since the `depleted`
+    and `pending` flags/counter were not aligned."""
+
+    conn = getConnectionByEnv(env)
+    con2 = env.getConnection(2)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    # Populate the database with enough documents to make sure that each shard
+    # will get at least 2 `_FT.CURSOR READ` commands from the coordinator, and
+    # still have more docs to return.
+    # Each such command pulls 1000 docs from each shard, so 2500 should work.
+    n_docs = 2500 * env.shardsCount
+    for i in range(n_docs):
+        conn.execute_command('HSET', i, 'n', i)
+
+    # Dispatch an aggregate with cursor command to the coordinator
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR')
+    received = len(res)-1
+
+    # Delete a shard cursor (of shard 2 in this case) so that once the coordinator
+    # sends a `CURSOR READ` command to that shard, it will return an error.
+    # Now (after PR 6287), the command for the errored shard will be set as
+    # `depleted`, such that the `depleted` shards will be aligned with the
+    # `pending` counter.
+    con2.execute_command('_FT.DEBUG', 'DELETE_LOCAL_CURSORS')
+
+    # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
+    # This results in the crash solved by #6287
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
+    env.assertEqual(cid, 0)
+
+    # Send another command to make sure that the coordinator is healthy
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))
+    env.assertEqual(len(res)-1, n_docs)

@@ -2,6 +2,8 @@ from RLTest import Env
 from includes import *
 from common import skip
 
+not_modifiable = 'Not modifiable at runtime'
+
 @skip(cluster=True)
 def testConfig(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
@@ -18,43 +20,42 @@ def testConfigErrors(env):
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
-    assert env.expect('ft.config', 'get', 'EXTLOAD').res[0][0] == 'EXTLOAD'
-    assert env.expect('ft.config', 'get', 'SAFEMODE').res[0][0] == 'SAFEMODE'
-    assert env.expect('ft.config', 'get', 'NOGC').res[0][0] == 'NOGC'
-    assert env.expect('ft.config', 'get', 'MINPREFIX').res[0][0] == 'MINPREFIX'
-    assert env.expect('ft.config', 'get', 'FORKGC_SLEEP_BEFORE_EXIT').res[0][0] == 'FORKGC_SLEEP_BEFORE_EXIT'
-    assert env.expect('ft.config', 'get', 'MAXDOCTABLESIZE').res[0][0] == 'MAXDOCTABLESIZE'
-    assert env.expect('ft.config', 'get', 'MAXEXPANSIONS').res[0][0] == 'MAXEXPANSIONS'
-    assert env.expect('ft.config', 'get', 'MAXPREFIXEXPANSIONS').res[0][0] == 'MAXPREFIXEXPANSIONS'
-    assert env.expect('ft.config', 'get', 'TIMEOUT').res[0][0] == 'TIMEOUT'
-    assert env.expect('ft.config', 'get', 'INDEX_THREADS').res[0][0] == 'INDEX_THREADS'
-    assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] == 'SEARCH_THREADS'
+    def check_config(conf):
+        env.expect('ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
+
+    check_config('EXTLOAD')
+    check_config('NOGC')
+    check_config('MINPREFIX')
+    check_config('FORKGC_SLEEP_BEFORE_EXIT')
+    check_config('MAXDOCTABLESIZE')
+    check_config('MAXEXPANSIONS')
+    check_config('MAXPREFIXEXPANSIONS')
+    check_config('TIMEOUT')
     if MT_BUILD:
-        assert env.expect('ft.config', 'get', 'WORKER_THREADS').res[0][0] == 'WORKER_THREADS'
-        assert env.expect('ft.config', 'get', 'MT_MODE').res[0][0] == 'MT_MODE'
-        assert env.expect('ft.config', 'get', 'TIERED_HNSW_BUFFER_LIMIT').res[0][0] == 'TIERED_HNSW_BUFFER_LIMIT'
-        assert env.expect('ft.config', 'get', 'PRIVILEGED_THREADS_NUM').res[0][0] == 'PRIVILEGED_THREADS_NUM'
-    assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] == 'FRISOINI'
-    assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] == 'MAXSEARCHRESULTS'
-    assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] == 'MAXAGGREGATERESULTS'
-    assert env.expect('ft.config', 'get', 'ON_TIMEOUT').res[0][0] == 'ON_TIMEOUT'
-    assert env.expect('ft.config', 'get', 'GCSCANSIZE').res[0][0] =='GCSCANSIZE'
-    assert env.expect('ft.config', 'get', 'MIN_PHONETIC_TERM_LEN').res[0][0] == 'MIN_PHONETIC_TERM_LEN'
-    assert env.expect('ft.config', 'get', 'GC_POLICY').res[0][0] == 'GC_POLICY'
-    assert env.expect('ft.config', 'get', 'FORK_GC_RUN_INTERVAL').res[0][0] == 'FORK_GC_RUN_INTERVAL'
-    assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] == 'FORK_GC_CLEAN_THRESHOLD'
-    assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] == 'FORK_GC_RETRY_INTERVAL'
-    assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] == '_MAX_RESULTS_TO_UNSORTED_MODE'
-    assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] == 'PARTIAL_INDEXED_DOCS'
-    assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] == 'UNION_ITERATOR_HEAP'
-    assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] == '_NUMERIC_COMPRESS'
-    assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] == '_NUMERIC_RANGES_PARENTS'
-    assert env.expect('ft.config', 'get', 'RAW_DOCID_ENCODING').res[0][0] == 'RAW_DOCID_ENCODING'
-    assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == 'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
-    assert env.expect('ft.config', 'get', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES').res[0][0] == '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
-    assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
-    assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
-    assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
+        check_config('WORKER_THREADS')
+        check_config('MT_MODE')
+        check_config('TIERED_HNSW_BUFFER_LIMIT')
+        check_config('PRIVILEGED_THREADS_NUM')
+    check_config('FRISOINI')
+    check_config('MAXSEARCHRESULTS')
+    check_config('MAXAGGREGATERESULTS')
+    check_config('ON_TIMEOUT')
+    check_config('GCSCANSIZE')
+    check_config('MIN_PHONETIC_TERM_LEN')
+    check_config('GC_POLICY')
+    check_config('FORK_GC_RUN_INTERVAL')
+    check_config('FORK_GC_CLEAN_THRESHOLD')
+    check_config('FORK_GC_RETRY_INTERVAL')
+    check_config('PARTIAL_INDEXED_DOCS')
+    check_config('UNION_ITERATOR_HEAP')
+    check_config('_NUMERIC_COMPRESS')
+    check_config('_NUMERIC_RANGES_PARENTS')
+    check_config('RAW_DOCID_ENCODING')
+    check_config('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+    check_config('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+    check_config('_FREE_RESOURCE_ON_THREAD')
+    check_config('BG_INDEX_SLEEP_GAP')
+    check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
 
 '''
 
@@ -63,30 +64,26 @@ Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
 def testSetConfigOptions(env):
 
     env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Success (not an error)')  ## TODO incorrect code
-    env.expect('ft.config', 'set', 'EXTLOAD', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'SAFEMODE', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NOGC', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
+    env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'INDEX_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'SEARCH_THREADS', 1).equal('Not modifiable at runtime')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'FRISOINI', 1).equal('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal(not_modifiable)
+    env.expect('ft.config', 'set', 'FRISOINI', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Success (not an error)')
     env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect('ft.config', 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect('ft.config', 'set', 'GC_POLICY', 1).equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'GC_POLICY', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
-    env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
@@ -111,8 +108,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
-    env.assertEqual(res_dict['INDEX_THREADS'][0], '0')   # Deprecated, Always 0
-    env.assertEqual(res_dict['SEARCH_THREADS'][0], '20') # Used by coordinator only
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
         env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
@@ -138,19 +133,17 @@ def testAllConfig(env):
 
 # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
-    #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
-    #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
 @skip(cluster=True)
-def testInitConfig(env):
+def testInitConfig():
     # Numeric arguments
 
     def test_arg_num(arg_name, arg_value):
-        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value, noDefaultModuleArgs=True)
+        env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, '%d' % arg_value]])
+        env.expect('ft.config', 'get', arg_name).equal([[arg_name, str(arg_value)]])
         env.stop()
 
     test_arg_num('MAXDOCTABLESIZE', 123456)
@@ -159,7 +152,6 @@ def testInitConfig(env):
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
-    test_arg_num('SEARCH_THREADS', 3)
     if MT_BUILD:
         test_arg_num('WORKER_THREADS', 3)
         test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
@@ -169,7 +161,6 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
     test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
-    test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
@@ -179,12 +170,10 @@ def testInitConfig(env):
         env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, res]])
+        env.expect('ft.config', 'get', arg_name).equal([[arg_name, res]])
         env.stop()
 
     test_arg_true_false('NOGC', 'true')
-    test_arg_true_false('SAFEMODE', 'true') # Deprecated, Always true
-    test_arg_true_false('CONCURRENT_WRITE_MODE', 'false') # Deprecated, Always false
     test_arg_true_false('NO_MEM_POOLS', 'true')
     test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
@@ -195,7 +184,7 @@ def testInitConfig(env):
         env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
+        env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
         env.stop()
 
     test_arg_str('GC_POLICY', 'fork')
@@ -220,22 +209,56 @@ def testInitConfig(env):
 @skip(cluster=True)
 def testImmutable(env):
 
-    env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'SAFEMODE').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'CONCURRENT_WRITE_MODE').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NOGC').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'EXTLOAD').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'NOGC').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'MT_MODE').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains('Not modifiable at runtime')
-        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
-    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
+        env.expect('ft.config', 'set', 'MT_MODE').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'FRISOINI').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'GC_POLICY').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains(not_modifiable)
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains(not_modifiable)
+
+###############################################################################
+# TODO: rewrite following tests properly for all coordinator's config options #
+###############################################################################
+
+@skip(cluster=False)
+def testConfigCoord(env):
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.expect('_ft.config', 'help', 'idx').equal([])
+
+@skip(cluster=False)
+def testConfigErrorsCoord(env):
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS', 'banana').error().contains(not_modifiable)
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS', '-1').error().contains(not_modifiable)
+
+@skip(cluster=False)
+def testGetConfigOptionsCoord(env):
+    def check_config(conf):
+        env.expect('_ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
+
+    check_config('SEARCH_THREADS')
+
+@skip(cluster=COORD) # Change to `skip(cluster=False)`
+def testAllConfigCoord(env):
+    pass
+
+@skip(cluster=False)
+def testInitConfigCoord():
+    def test_arg_num(arg_name, arg_value):
+        env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
+        env.expect('_ft.config', 'get', arg_name).equal([[arg_name, str(arg_value)]])
+        env.stop()
+
+    test_arg_num('SEARCH_THREADS', 3)
+
+@skip(cluster=False)
+def testImmutableCoord(env):
+    env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)

@@ -86,7 +86,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = RPProfile_GetDurationMSec(rp);
+  double totalRPTime = (double)(RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC);
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -99,28 +99,36 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
+void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   bool has_map = RedisModule_HasMap(reply);
+  req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
-    hires_clock_t now;
-
-    req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_ReplyKV_Map(reply, "profile"); // profile
 
       int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
       if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Total profile time", (double)req->totalTime);
+        RedisModule_ReplyKV_Double(reply, "Total profile time",
+          (double)(req->totalTime / CLOCKS_PER_MILLISEC));
 
       // Print query parsing time
       if (profile_verbose)
-        RedisModule_ReplyKV_Double(reply, "Parsing time", (double)req->parseTime);
+        RedisModule_ReplyKV_Double(reply, "Parsing time",
+          (double)(req->parseTime / CLOCKS_PER_MILLISEC));
 
       // Print iterators creation time
         if (profile_verbose)
-          RedisModule_ReplyKV_Double(reply, "Pipeline creation time", (double)req->pipelineBuildTime);
+          RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
+            (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+
+      // Print whether a warning was raised throughout command execution
+      if (timedout) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+      } else {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
+      }
 
       // print into array with a recursive function over result processors
 
@@ -146,8 +154,6 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
   //-------------------------------------------------------------------------------------------
   else // ! has_map (RESP2 variant)
   {
-    hires_clock_t now;
-    req->totalTime += hires_clock_since_msec(&req->initClock);
     RedisModule_Reply_Array(reply);
 
     int profile_verbose = req->reqConfig.printProfileClock;
@@ -155,21 +161,29 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Total profile time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)req->totalTime);
+        RedisModule_Reply_Double(reply, (double)(req->totalTime / CLOCKS_PER_MILLISEC));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print query parsing time
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Parsing time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)req->parseTime);
+        RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print iterators creation time
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)req->pipelineBuildTime);
+      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+    RedisModule_Reply_ArrayEnd(reply);
+
+    // Print whether a warning was raised throughout command execution
+    RedisModule_Reply_Array(reply);
+    RedisModule_Reply_SimpleString(reply, "Warning");
+    if (timedout) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    }
     RedisModule_Reply_ArrayEnd(reply);
 
     // print into array with a recursive function over result processors
@@ -195,7 +209,4 @@ int Profile_Print(RedisModule_Reply *reply, AREQ *req) {
 
     RedisModule_Reply_ArrayEnd(reply);
   }
-  //-------------------------------------------------------------------------------------------
-
-  return REDISMODULE_OK;
 }

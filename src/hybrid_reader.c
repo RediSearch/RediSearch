@@ -176,7 +176,6 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
   while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
       rc = VecSim_QueryReply_TimedOut;
-      VecSimTieredIndex_ReleaseSharedLocks(hr->index);
       break;
     }
     double metric = VecSimIndex_GetDistanceFrom_Unsafe(hr->index, cur_child_res->docId, qvector);
@@ -280,12 +279,12 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
 
     if (reviewHybridSearchPolicy(hr, n_res_left, child_num_estimated, &child_num_estimated)) {
       // Change policy from batches to AD-HOC BF.
+      VecSimBatchIterator_Free(batch_it);
       hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
       // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
       mmh_clear(hr->topResults);
       hr->child->Rewind(hr->child->ctx);
-      code = computeDistances(hr);
-      break;
+      return computeDistances(hr);
     }
   }
   VecSimBatchIterator_Free(batch_it);
@@ -469,10 +468,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
-  ri->mode = MODE_SORTED;  // Since this iterator is always the root, we currently don't return the
-                           // results sorted by id as an optimization (this can be modified in the future).
   ri->NumEstimated = HR_NumEstimated;
-  ri->GetCriteriaTester = NULL; // TODO:remove from all project
   ri->LastDocId = HR_LastDocId;
   ri->Free = HybridIterator_Free;
   ri->Len = HR_Len;            // Not clear what is the definition of this, currently returns
