@@ -328,7 +328,7 @@ static const YYACTIONTYPE yy_action[] = {
  /*   240 */   129,   82,  303,  304,  342,   83,  425,  247,  248,  249,
  /*   250 */    53,  306,  425,  250,  254,  388,  351,  418,  302,   47,
  /*   260 */     1,  386,  352,   14,   15,  353,  425,  425,  130,   28,
- /*   270 */   101,   44,  303,  304,  315,  385,  114,  247,  248,  249,
+ /*   270 */   101,   44,  303,  304,  315,  384,  114,  247,  248,  249,
  /*   280 */    53,  306,  302,  250,  254,  396,  351,  418,  302,   47,
  /*   290 */    16,   87,  352,   14,   15,  353,  303,  304,  130,   29,
  /*   300 */   111,  316,  303,  304,   65,  306,  100,  247,  248,  249,
@@ -350,7 +350,7 @@ static const YYACTIONTYPE yy_action[] = {
  /*   460 */   297,  115,  352,  298,   82,  353,   79,  131,  130,    4,
  /*   470 */   352,  395,  281,  353,  300,  299,  130,   42,  270,   93,
  /*   480 */   391,  393,  234,  314,  102,   97,  351,  418,  421,  379,
- /*   490 */   384,  421,  109,   23,  351,  418,  352,  420,  268,  353,
+ /*   490 */   385,  421,  109,   23,  351,  418,  352,  420,  268,  353,
  /*   500 */   420,  131,  130,   26,  269,   41,   24,   78,  257,  352,
  /*   510 */   279,   82,  353,   93,  131,  130,   25,  253,  120,   97,
  /*   520 */   351,  418,  121,  252,  237,    2,   93,  236,  123,  251,
@@ -790,8 +790,8 @@ static const char *const yyRuleName[] = {
  /*  60 */ "numeric_range ::= LSQB exclusive_param_num param_num RSQB",
  /*  61 */ "numeric_range ::= LSQB param_num exclusive_param_num RSQB",
  /*  62 */ "numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB",
- /*  63 */ "expr ::= modifier COLON numeric_operator",
- /*  64 */ "expr ::= modifier COLON NOT_EQUAL param_num",
+ /*  63 */ "expr ::= modifier COLON NOT_EQUAL param_num",
+ /*  64 */ "expr ::= modifier COLON numeric_operator",
  /*  65 */ "numeric_operator ::= EQUAL EQUAL param_num",
  /*  66 */ "numeric_operator ::= GREATER param_num",
  /*  67 */ "numeric_operator ::= GREATER EQUAL param_num",
@@ -1397,8 +1397,8 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     59,  /* (60) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
     59,  /* (61) numeric_range ::= LSQB param_num exclusive_param_num RSQB */
     59,  /* (62) numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */
-    37,  /* (63) expr ::= modifier COLON numeric_operator */
-    37,  /* (64) expr ::= modifier COLON NOT_EQUAL param_num */
+    37,  /* (63) expr ::= modifier COLON NOT_EQUAL param_num */
+    37,  /* (64) expr ::= modifier COLON numeric_operator */
     60,  /* (65) numeric_operator ::= EQUAL EQUAL param_num */
     60,  /* (66) numeric_operator ::= GREATER param_num */
     60,  /* (67) numeric_operator ::= GREATER EQUAL param_num */
@@ -1512,8 +1512,8 @@ static const signed char yyRuleInfoNRhs[] = {
    -4,  /* (60) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
    -4,  /* (61) numeric_range ::= LSQB param_num exclusive_param_num RSQB */
    -4,  /* (62) numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */
-   -3,  /* (63) expr ::= modifier COLON numeric_operator */
-   -4,  /* (64) expr ::= modifier COLON NOT_EQUAL param_num */
+   -4,  /* (63) expr ::= modifier COLON NOT_EQUAL param_num */
+   -3,  /* (64) expr ::= modifier COLON numeric_operator */
    -3,  /* (65) numeric_operator ::= EQUAL EQUAL param_num */
    -2,  /* (66) numeric_operator ::= GREATER param_num */
    -3,  /* (67) numeric_operator ::= GREATER EQUAL param_num */
@@ -1988,7 +1988,7 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 58: /* expr ::= modifier COLON numeric_range */
-      case 63: /* expr ::= modifier COLON numeric_operator */ yytestcase(yyruleno==63);
+      case 64: /* expr ::= modifier COLON numeric_operator */ yytestcase(yyruleno==64);
 {
   if (yymsp[0].minor.yy14) {
     // we keep the capitalization as is
@@ -2001,9 +2001,6 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 59: /* numeric_range ::= LSQB param_num param_num RSQB */
-      case 60: /* numeric_range ::= LSQB exclusive_param_num param_num RSQB */ yytestcase(yyruleno==60);
-      case 61: /* numeric_range ::= LSQB param_num exclusive_param_num RSQB */ yytestcase(yyruleno==61);
-      case 62: /* numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */ yytestcase(yyruleno==62);
 {
   if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
     yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
@@ -2011,10 +2008,43 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  yymsp[-3].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  yymsp[-3].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 1, 1);
 }
         break;
-      case 64: /* expr ::= modifier COLON NOT_EQUAL param_num */
+      case 60: /* numeric_range ::= LSQB exclusive_param_num param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 0, 1);
+}
+        break;
+      case 61: /* numeric_range ::= LSQB param_num exclusive_param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 1, 0);
+}
+        break;
+      case 62: /* numeric_range ::= LSQB exclusive_param_num exclusive_param_num RSQB */
+{
+  if (yymsp[-2].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC) {
+    yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  yymsp[-3].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, 0, 0);
+}
+        break;
+      case 63: /* expr ::= modifier COLON NOT_EQUAL param_num */
 {
   if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
     yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;

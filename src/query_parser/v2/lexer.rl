@@ -145,32 +145,32 @@ main := |*
   };
 
   equal => {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, EQUAL, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
   not_equal => {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
   greater => {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, GREATER, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, GREATER, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
   smaller => {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, SMALLER, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, SMALLER, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

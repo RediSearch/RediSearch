@@ -445,8 +445,8 @@ _eof_trans:
 	case 17:
 /* #line 155 "lexer.rl" */
 	{te = p+1;{
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -455,8 +455,8 @@ _eof_trans:
 	case 18:
 /* #line 163 "lexer.rl" */
 	{te = p+1;{
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, GREATER, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, GREATER, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -465,8 +465,8 @@ _eof_trans:
 	case 19:
 /* #line 171 "lexer.rl" */
 	{te = p+1;{
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, SMALLER, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, SMALLER, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -714,8 +714,8 @@ _eof_trans:
 	case 42:
 /* #line 147 "lexer.rl" */
 	{te = p;p--;{
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, EQUAL, tok, q);  
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }

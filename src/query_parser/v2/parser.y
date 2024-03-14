@@ -804,7 +804,7 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 1);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
@@ -814,7 +814,7 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 1);
 }
 
 numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -824,7 +824,7 @@ numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 0);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -834,22 +834,12 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
 }
 
 /////////////////////////////////////////////////////////////////
 // Numeric Operators
 /////////////////////////////////////////////////////////////////
-
-expr(A) ::= modifier(B) COLON numeric_operator(C). {
-  if (C) {
-    // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
-    A = NewNumericNode(C);
-  } else {
-    A = NewQueryNode(QN_NULL);
-  }
-}
 
 expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
   if (C.type == QT_PARAM_NUMERIC) {
@@ -862,6 +852,16 @@ expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
     D->nf->fieldName = rm_strndup(B.s, B.len);
     QueryNode* E = NewNumericNode(D);
     A = NewNotNode(E);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+expr(A) ::= modifier(B) COLON numeric_operator(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(C);
   } else {
     A = NewQueryNode(QN_NULL);
   }

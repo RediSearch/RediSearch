@@ -478,12 +478,17 @@ def test_numeric_operators(env):
     env.assertEqual(res1, [5, 'key1', 'key3', 'key4', 'key5', 'key7'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+12 @n:!= -10', 'NOCONTENT')
     env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:!= $n @n:!=$m', 'NOCONTENT',
+                   'PARAMS', 4, 'n', '12', 'm', '-10')
+    env.assertEqual(res2, res1)
 
     # Invalid syntax
-    env.expect('FT.SEARCH', 'idx', '@numval:==(105').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:==-(105').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:==(-105').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:==(inf').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:==(-inf').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:==($param', 
-               'PARAMS', 2, 'param', 100).error()
+    for operator in ['==', '!=', '>', '>=', '<', '<=']:
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '-(105').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(-105').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(-inf').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '($param', 
+                'PARAMS', 2, 'param', 100).error()
