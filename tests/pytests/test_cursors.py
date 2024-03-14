@@ -427,9 +427,10 @@ def test_mod_6597(env):
     # Create an index with a numeric field.
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
 
-    # Populate the db (and index) with corresponding documents (one more than
-    # the `forkGcCleanThreshold`, which is currently set to 100).
-    num_docs = 101
+    # Populate the db (and index) with enough documents for the GC to work (one
+    # more than `FORK_GC_CLEAN_THRESHOLD`).
+    res = env.cmd('FT.CONFIG', 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
+    num_docs = int(res) + 1
     for i in range(num_docs):
         conn.execute_command('hset', f'doc{i}', 'test', str(i))
 
