@@ -389,3 +389,101 @@ def testNegativeValues(env):
     # Query the index. if the split value of the root is nan, the query won't return any results.
     res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], doc_id)
+
+def test_numeric_operators(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    waitForIndex(env, 'idx')
+
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'n', '11'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'n', '12'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'n', '13'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'n', '14'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'n', '15'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key6', 'n', '-10'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key7', 'n', '-11'), 1)
+
+    # Test >= and <=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>=12 @n:<=14', 'NOCONTENT')
+    env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>= + 12 @n:<=+  14', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=$min @n:<=$max',
+                   'NOCONTENT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    # Test > and <=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>12 @n:<=14', 'NOCONTENT')
+    env.assertEqual(res1, [2, 'key3', 'key4'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>$min @n:<=$max', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    # Test >= and <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>=12 @n:<14', 'NOCONTENT')
+    env.assertEqual(res1, [2, 'key2', 'key3'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=+12 @n:< + 14', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=$min @n:<$max', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    # Test > and <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>12 @n:<14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key3'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>$min @n:<$max', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    # Test >
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>12', 'NOCONTENT')
+    env.assertEqual(res1, [3, 'key3', 'key4', 'key5'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '12')
+    env.assertEqual(res2, res1)
+
+    # Test <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:<15', 'NOCONTENT')
+    env.assertEqual(res1, [6, 'key1', 'key2', 'key3', 'key4', 'key6', 'key7'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:<$max', 'NOCONTENT',
+                   'PARAMS', '2', 'max', '15')
+    env.assertEqual(res2, res1)
+
+    # Test ==
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==15', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key5'])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-15', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-15', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==+inf', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-inf', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-11', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key7'])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-11 | @n:==-10', 'NOCONTENT')
+    env.assertEqual(res1, [2, 'key6', 'key7'])
+
+    # Test !=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:!=12 @n:!= -10', 'NOCONTENT')
+    env.assertEqual(res1, [5, 'key1', 'key3', 'key4', 'key5', 'key7'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+12 @n:!= -10', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+
+    # Invalid syntax
+    env.expect('FT.SEARCH', 'idx', '@numval:==(105').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:==-(105').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:==(-105').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:==(inf').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:==(-inf').error()
+    env.expect('FT.SEARCH', 'idx', '@numval:==($param', 
+               'PARAMS', 2, 'param', 100).error()

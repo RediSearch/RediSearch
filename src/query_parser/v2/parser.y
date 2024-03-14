@@ -25,6 +25,8 @@
 %left TILDE MINUS.
 %left AND.
 
+%left NOT_EQUAL EQUAL GREATER SMALLER.
+
 %left ARROW.
 %left COLON.
 
@@ -224,6 +226,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type numeric_range { QueryParam * }
 %destructor numeric_range {
+  QueryParam_Free($$);
+}
+
+%type numeric_operator { QueryParam * }
+%destructor numeric_operator {
   QueryParam_Free($$);
 }
 
@@ -800,6 +807,101 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
+numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+}
+
+/////////////////////////////////////////////////////////////////
+// Numeric Operators
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) COLON numeric_operator(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(C);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  
+  if (D) {
+    // we keep the capitalization as is
+    D->nf->fieldName = rm_strndup(B.s, B.len);
+    QueryNode* E = NewNumericNode(D);
+    A = NewNotNode(E);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+numeric_operator(A) ::= EQUAL EQUAL param_num(B). {
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+numeric_operator(A) ::= GREATER param_num(B). {
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
+}
+
+numeric_operator(A) ::= GREATER EQUAL param_num(B). {
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
+}
+
+numeric_operator(A) ::= SMALLER param_num(B). {
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
+}
+
+numeric_operator(A) ::= SMALLER EQUAL param_num(B). {
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
+}
+
 /////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
@@ -1042,11 +1144,6 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
-num(A) ::= LP num(B). {
-  A=B;
-  A.inclusive = 0;
-}
-
 num(A) ::= MINUS num(B). {
   B.num = -B.num;
   A = B;
@@ -1112,7 +1209,13 @@ param_num(A) ::= num(B). {
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= LP ATTRIBUTE(B). {
+exclusive_param_num(A) ::= LP num(B). {
+  A.numval = B.num;
+  A.inclusive = 0;
+  A.type = QT_NUMERIC;
+}
+
+exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
