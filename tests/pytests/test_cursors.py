@@ -437,7 +437,18 @@ def testCountArgValidation(env):
     _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
 
     # Query the cursor with a bad `COUNT` argument
-    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unsupported argument `LOVE`')
+    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument `LOVE`')
+
+    # Query the cursor with bad subcommand
+    env.expect(
+        'FT.CURSOR', 'READS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
+    env.expect(
+        'FT.CURSOR', 'DELS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
+    env.expect(
+        'FT.CURSOR', 'GCS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
 
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(
