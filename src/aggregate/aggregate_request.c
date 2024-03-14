@@ -260,7 +260,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
 
     if (arng->limit == 0 && arng->offset != 0) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The offset of the LIMIT cannot be greater than 0 when the limit is 0");
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
       return ARG_ERROR;
     }
 
