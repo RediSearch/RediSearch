@@ -428,11 +428,21 @@ def testCountArgValidation(env):
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
 
+    # Create a cursor with a bad value for the `COUNT` argument
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2.3'
+    ).error().contains('Bad arguments for COUNT: Could not convert argument to expected type')
+
     # Create a cursor
     _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
 
     # Query the cursor with a bad `COUNT` argument
     env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unsupported argument `LOVE`')
+
+    # Query the cursor with a bad value for the `COUNT` argument
+    env.expect(
+        'FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2.3'
+    ).error().contains('Bad value for COUNT')
 
     # Query with lowercase `COUNT`
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
