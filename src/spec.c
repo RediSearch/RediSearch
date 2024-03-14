@@ -987,7 +987,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
             JSONParse_error(status, err_msg, fs->path, fs->name, sp->name);
             goto reset;
           } /* else {
-            RedisModule_Log(RSDummyContext, "info",
+            RedisModule_Log(RSDummyContext, "notice",
                             "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
                             fs->path, fs->name, sp->name);
           } */
@@ -1433,7 +1433,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
 void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix
-  SchemaPrefixes_Free(ScemaPrefixes_g);
+  SchemaPrefixes_Free(SchemaPrefixes_g);
   SchemaPrefixes_Create();
 
   // Mark all Coordinator cursors as expired.
@@ -1470,19 +1470,17 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name, int openWrite) {
-  IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
-                            .name = {.cstring = name}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name) {
+  IndexLoadOptions lopts = {.nameC = name};
   return IndexSpec_LoadUnsafeEx(ctx, &lopts);
 }
 
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-    ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
+    ixname = RedisModule_StringPtrLen(options->nameR, NULL);
   } else {
-    ixname = options->name.cstring;
+    ixname = options->nameC;
   }
 
   StrongRef spec_ref = {dictFetchValue(specDict_g, ixname)};
@@ -2040,17 +2038,17 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     if (scanner->cancelled) {
       RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
-                  scanner->totalKeys);
+                  scanner->scannedKeys);
       goto end;
     }
   }
 
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
-                    scanner->totalKeys);
+                    scanner->scannedKeys);
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                    scanner->spec_name, scanner->totalKeys);
+                    scanner->spec_name, scanner->scannedKeys);
   }
 
 end:
@@ -2563,7 +2561,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "error", "RDB Load: %s",
+      RedisModule_Log(ctx, "warning", "RDB Load: %s",
                       status.detail ? status.detail : "general failure");
       return REDISMODULE_ERR;
     }
@@ -2724,7 +2722,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
   if (IndexSpecType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create index spec type");
+    RedisModule_Log(ctx, "warning", "Could not create index spec type");
     return REDISMODULE_ERR;
   }
 
@@ -2892,7 +2890,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
   // collect specs that their name is prefixed by the key name
   // `prefixes` includes list of arrays of specs, one for each prefix of key name
-  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
+  int nprefixes = TrieMap_FindPrefixes(SchemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {

@@ -77,11 +77,8 @@ help() {
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
-		PLATFORM_MODE=1       Implies NOFAIL & COLLECT_LOGS into STATFILE
 		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
-		NOFAIL=1              Do not fail on errors (always exit with 0)
-		STATFILE=file         Write test status (0|1) into `file`
 
 		LIST=1                List all tests and exit
 		ENV_ONLY=1            Just start environment, run no tests
@@ -225,8 +222,8 @@ setup_clang_sanitizer() {
 		fi
 
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp print_suppressions=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
 		# :use_tls=0
 
 	elif [[ $SAN == mem || $SAN == memory ]]; then
@@ -567,30 +564,23 @@ if [[ -n $TEST ]]; then
 	export RUST_BACKTRACE=1
 fi
 
-#-------------------------------------------------------------------------------- Platform Mode
-
-if [[ $PLATFORM_MODE == 1 ]]; then
-	CLEAR_LOGS=0
-	COLLECT_LOGS=1
-	NOFAIL=1
-fi
-STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
 
 #---------------------------------------------------------------------------------- Parallelism
 
 PARALLEL=${PARALLEL:-1}
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
-
+[[ -z $COORD ]] && SHARDS=1
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
-		parallel="$($READIES/bin/nproc)"
+		parallel="$(($($READIES/bin/nproc) / $SHARDS)) "
 	else
-		parallel="$PARALLEL"
+		parallel="$(($PARALLEL / $SHARDS))"
 	fi
+	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
+	echo "Running tests in parallel using $parallel workers"
 fi
-
 #------------------------------------------------------------------------------- Test selection
 
 if [[ -n $TEST ]]; then
@@ -685,7 +675,6 @@ if [[ $GC == 0 ]]; then
 fi
 
 if [[ -z $COORD ]]; then
-
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
@@ -712,7 +701,7 @@ elif [[ $COORD == oss ]]; then
 	# passing PINGs between shards
   	oss_cluster_args="${oss_cluster_args} --cluster_node_timeout 300000"
 
-	{ (MODARGS="${MODARGS} PARTITIONS AUTO" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
+	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then
@@ -741,18 +730,6 @@ if [[ $COLLECT_LOGS == 1 ]]; then
 	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
 	echo "Test logs:"
 	du -ah --apparent-size bin/artifacts/tests
-fi
-
-if [[ -n $STATFILE ]]; then
-	mkdir -p "$(dirname "$STATFILE")"
-	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STATFILE || echo 1) )) || true
-	fi
-	echo $E > $STATFILE
-fi
-
-if [[ $NOFAIL == 1 ]]; then
-	exit 0
 fi
 
 exit $E

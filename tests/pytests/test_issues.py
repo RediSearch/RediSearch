@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
-import subprocess
-from redis import Redis, RedisCluster, cluster, exceptions
-
 from common import *
-from RLTest import Env
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -850,6 +845,8 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
     mod5778_add_new_shard_to_cluster(env)
 
 def mod5778_add_new_shard_to_cluster(env: Env):
+    for i in range(env.shardsCount):
+      verify_shard_init(env, env.getConnection(i))
     conn = env.getConnection()
     initial_shards_count = env.shardsCount
     # The first two fields in the cluster info reply are the number of partition in thr cluster.
@@ -860,6 +857,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
+    verify_shard_init(env, new_shard_conn)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
     # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
@@ -986,3 +984,100 @@ def test_mod_4375(env):
   # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
   conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
   print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+
+@skip(cluster=False) # This test is only relevant for cluster
+def test_mod_6557(env: Env):
+  # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
+  env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  # Set topology to an invalid one (assuming port 9 is not open)
+  env.expect('SEARCH.CLUSTERSET',
+             'MYID',
+             '1',
+             'RANGES',
+             '2',
+             'SHARD',
+             '1',
+             'SLOTRANGE',
+             '0',
+             '8191',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER',
+             'SHARD',
+             '2',
+             'SLOTRANGE',
+             '8192',
+             '16383',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER'
+  ).ok()
+  # Verify that `FT.SEARCH` queries are not hanging and return an error
+  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+
+def test_mod6186(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('FT.EXPLAIN idx abc*').equal('PREFIX{abc*}\n')
+  env.expect('FT.EXPLAIN idx *abc').equal('SUFFIX{*abc}\n')
+  env.expect('FT.EXPLAIN idx *abc*').equal('INFIX{*abc*}\n')
+
+  if not env.isCluster():
+    # FT.EXPLAINCLI is not supported by the coordinator
+    env.expect('FT.EXPLAINCLI idx abc*').equal(['PREFIX{abc*}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
+    env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
+
+@skip(cluster=True)
+def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
+    dim = 1000
+    n_vectors = 50000
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
+
+    # Create HNSW index which is large enough, so we'll get timeout later on.
+    env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
+               f' t text').equal('OK')
+    for i in range(n_vectors):
+        env.expect('HSET', i, 'v', create_np_array_typed(np.random.rand(dim)).tobytes(), 't', f'meta data').equal(2)
+
+    # There was a bug causing this to unlock the tiered HNSW index locks twice (in case of timeout + adhoc BF mode).
+    query_vec = create_np_array_typed(np.random.rand(dim))
+    env.expect('FT.SEARCH', 'idx', 'meta=>[KNN 5 @v $vec_param HYBRID_POLICY ADHOC_BF]', 'NOCONTENT',
+                             'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'DIALECT', 2)\
+        .error().contains('Timeout limit was reached')
+    # Then, when we delete inplace and tried to acquire the locks again for write, we got a deadlock.
+    env.expect('DEL 0').equal(1)
+
+@skip(cluster=False)
+def test_mod_6541(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  cmds = [
+    ('FT.SEARCH', 'idx', '*'),
+    ('FT.AGGREGATE', 'idx', '*'),
+    ('FT.CURSOR', 'READ', 'idx', '0'),
+    ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'),
+    ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
+    ('FT.INFO', 'idx'),
+    ('FT.SPELLCHECK', 'idx', 'foo'),
+    ('FT.SUGLEN', 'idx', 'foo'),
+    ('FT.ALIASADD', 'alias', 'idx'),
+    # Deprecated commands
+    ('FT.TAGVALS', 'idx', 't'),
+    ('FT.MGET', 'idx', 'doc1', 'doc2'),
+  ]
+
+  def expect_error(cmd):
+    return f'Cannot perform `{cmd[0]}`: Cannot block'
+
+  # Test MULTI/EXEC
+  for cmd in cmds:
+    env.expect('MULTI').ok()
+    env.expect(*cmd).equal('QUEUED')
+    res = env.cmd('EXEC')
+    env.assertEqual(len(res), 1, message=cmd[0])
+    env.assertIsInstance(res[0], redis_exceptions.ResponseError)
+    env.assertEqual(str(res[0]), expect_error(cmd))
+
+  # Test Lua
+  for cmd in cmds:
+    env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))

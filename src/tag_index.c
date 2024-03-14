@@ -129,17 +129,17 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
 }
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
+  InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1);
-      TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
+      TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
   return iv;
 }
 
-/* Ecode a single docId into a specific tag value */
+/* Encode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
@@ -256,7 +256,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   return kdv->p;
 }
 
-/* Open the tag index in redis */
+/* Open the tag index */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   TagIndex *ret = NULL;
@@ -377,7 +377,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
 
   TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
   if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create attribute index type");
+    RedisModule_Log(ctx, "warning", "Could not create attribute index type");
     return REDISMODULE_ERR;
   }
 

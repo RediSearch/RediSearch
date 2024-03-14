@@ -113,7 +113,7 @@ static int priority_queue_init(priority_queue* priority_queue_p, size_t n_thread
                                size_t num_privileged_threads);
 static void priority_queue_clear(priority_queue* priority_queue_p);
 static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job* first_newjob, struct job* last_newjob, size_t num, thpool_priority priority);
-static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id);
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t cur_thread_ticket);
 static void priority_queue_destroy(priority_queue* priority_queue_p);
 static size_t priority_queue_len(priority_queue* priority_queue_p);
 
@@ -440,13 +440,13 @@ static void* thread_do(struct thread* thread_p) {
     if (thpool_p->state & (THPOOL_KEEP_ALIVE | THPOOL_TERMINATE_WHEN_EMPTY)) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
-      thpool_p->num_threads_working++;
+      size_t iter_id = thpool_p->num_threads_working++;
       pthread_mutex_unlock(&thpool_p->thcount_lock);
 
       /* Read job from queue and execute it */
       void (*func_buff)(void*);
       void* arg_buff;
-      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue, iter_id);
       if (job_p) {
         func_buff = job_p->function;
         arg_buff = job_p->arg;
@@ -593,11 +593,11 @@ static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job*
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
-static struct job* priority_queue_pull(priority_queue* priority_queue_p, int thread_id) {
+static struct job* priority_queue_pull(priority_queue* priority_queue_p, size_t cur_thread_ticket) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
 
-  if (thread_id < priority_queue_p->n_privileged_threads) {
+  if (cur_thread_ticket < priority_queue_p->n_privileged_threads) {
     // This is a privileged thread id, try taking from the high priority queue.
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
     // If the higher priority queue is empty, pull from the low priority queue.

@@ -208,7 +208,7 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
   }
 }
 
-static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
+int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     // cmd, index, document, [arg] ...
     return RedisModule_WrongArity(ctx);
@@ -235,7 +235,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   sp = StrongRef_Get(ref);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -263,11 +263,4 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 cleanup:
   QueryError_ClearError(&status);
   return REDISMODULE_OK;
-}
-
-int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 1);
-}
-int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 0);
 }

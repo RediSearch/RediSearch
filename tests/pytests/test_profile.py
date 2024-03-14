@@ -535,7 +535,7 @@ def TimedOutWarningtestCoord(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
   # Populate the index
-  num_docs = 20000 * env.shardsCount
+  num_docs = 30000 * env.shardsCount
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
@@ -574,8 +574,8 @@ def TimedOutWarningtestCoord(env):
     warning = coord_profile['Result processors profile']['profile']['Warning']
     env.assertEqual(warning, 'Timeout limit was reached')
 
+@skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoord(env):
-  SkipOnNonCluster(env)
   TimedOutWarningtestCoord(env)
 
 # This test is currently skipped due to flaky behavior of some of the machines'

@@ -44,7 +44,7 @@ extern "C" {
  *
  * 4. The index is much simpler and more compressed: We do not store frequencies, offset vectors of
  * field flags.
- *    The index contains only docuent ids encoded as deltas. This means that an entry in a tag index
+ *    The index contains only document ids encoded as deltas. This means that an entry in a tag index
  * is usually
  *    one or two bytes long. This makes them very memory efficient and fast.
  *
@@ -76,7 +76,7 @@ extern "C" {
  *    @tags:{hello world | foo bar}
  *
  * **IMPORTANT**: When specifying multiple tags in the same tag clause, the semantic meaning is a
- *    **UNION** of the documents containing any of the tags (as in a SQL WHERE IN clause).
+ *    **UNION** of the documents containing any of the tags (as in an SQL WHERE IN clause).
  *    If you need to intersect tags, you should repeat several tag clauses.
  *    For example:
  *

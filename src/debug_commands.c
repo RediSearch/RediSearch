@@ -5,6 +5,7 @@
  */
 
 #include "debug_commands.h"
+#include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -17,6 +18,7 @@
 #include "module.h"
 #include "suffix.h"
 #include "util/workers.h"
+#include "cursor.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -308,7 +310,7 @@ end:
 // FT.DEBUG DUMP_PREFIX_TRIE
 DEBUG_COMMAND(DumpPrefixTrie) {
 
-  TrieMap *prefixes_map = ScemaPrefixes_g;
+  TrieMap *prefixes_map = SchemaPrefixes_g;
 
   START_POSTPONED_LEN_ARRAY(prefixesMapDump);
   REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
@@ -619,15 +621,11 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 }
 
 static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define REPLY "DONE"
-  RedisModule_ReplyWithStringBuffer(ctx, REPLY, strlen(REPLY));
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
 static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-#define ERROR_REPLY "INVOCATION FAILED"
-  RedisModule_ReplyWithError(ctx, ERROR_REPLY);
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithError(ctx, "INVOCATION FAILED");
 }
 
 // FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
@@ -640,7 +638,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc == 2) {
     RedisModule_StringToLongLong(argv[1], &timeout);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -656,7 +654,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -670,7 +668,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -687,7 +685,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[0], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -744,9 +742,8 @@ DEBUG_COMMAND(ttl) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
-                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
   IndexSpec *sp = StrongRef_Get(ref);
@@ -766,6 +763,66 @@ DEBUG_COMMAND(ttl) {
   }
 
   return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
+}
+
+DEBUG_COMMAND(ttlPause) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  if (!sp->isTimerSet) {
+    return RedisModule_ReplyWithError(ctx, "Index does not have a timer");
+  }
+
+  WeakRef timer_ref;
+  // The timed-out callback is called from the main thread and removes the index from the global
+  // dictionary, so at this point we know that the timer exists.
+  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
+  WeakRef_Release(timer_ref);
+  sp->timerId = 0;
+  sp->isTimerSet = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(ttlExpire) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    return RedisModule_ReplyWithError(ctx, "Index is not temporary");
+  }
+
+  long long timeout = sp->timeout;
+  sp->timeout = 1; // Expire in 1ms
+  lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
+  // We validated that the index exists and is temporary, so we know that
+  // calling this function will set or reset a timer.
+  IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  sp->timeout = timeout; // Restore the original timeout
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 DEBUG_COMMAND(GitSha) {
@@ -1036,6 +1093,92 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG DEL_CURSORS
+ * Deletes the local cursors of the shard.
+*/
+DEBUG_COMMAND(DeleteCursors) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_Log(ctx, "warning", "Deleting local cursors!");
+  CursorList_Empty(&g_CursorsList);
+  RedisModule_Log(ctx, "warning", "Done deleting local cursors.");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
+	int **neighbours_data = NULL;
+	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
+	RedisModule_Reply reply = RedisModule_NewReply(ctx);
+	if (res == VecSimDebugCommandCode_LabelNotExists){
+		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+		RedisModule_EndReply(&reply);
+		return;
+	}
+	START_POSTPONED_LEN_ARRAY(response);
+	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
+
+	size_t level = 0;
+	while (neighbours_data[level]) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
+		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+		}
+    level++; ARRAY_LEN_VAR(response)++;
+	}
+	END_POSTPONED_LEN_ARRAY(response);
+	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+	RedisModule_EndReply(&reply);
+}
+
+DEBUG_COMMAND(dumpHNSWData) {
+  if (argc < 2 || argc > 3) { // it should be 2 or 3 (allowing specifying a certain doc)
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
+  if (!keyName) {
+    RedisModule_ReplyWithError(ctx, "Vector index not found");
+	  goto cleanup;
+  }
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
+  if (info.algo != VecSimAlgo_HNSWLIB) {
+	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
+	  goto cleanup;
+  }
+  if (info.isMulti) {
+	  RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
+	  goto cleanup;
+  }
+
+  if (argc == 3) {  // we want the neighbors of a specific vector only
+	  size_t key_len;
+	  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
+	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+	  if (doc_id == 0) {
+		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+		  goto cleanup;
+	  }
+	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
+	  goto cleanup;
+  }
+  // Otherwise, dump neighbors for every document in the index.
+  START_POSTPONED_LEN_ARRAY(num_docs);
+  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); (ARRAY_LEN_VAR(num_docs))++;})
+  END_POSTPONED_LEN_ARRAY(num_docs);
+
+  cleanup:
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
@@ -1107,7 +1250,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
+                               {"TTL_PAUSE", ttlPause},
+                               {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               {"DUMP_HNSW", dumpHNSWData},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif

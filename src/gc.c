@@ -101,8 +101,8 @@ static void debugTaskCallback(void* data) {
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
-    // If slave traffic is not allow it means that there is a state machine running
-    // we do not want to run any GC which might cause a FORK process to start for example).
+    // If slave traffic is not allowed it means that there is a state machine running
+    // we do not want to run any GC which might cause a FORK process to start for example.
     // Its better to just avoid it.
     GCContext* gc = data;
     gc->timerID = scheduleNext(gc);

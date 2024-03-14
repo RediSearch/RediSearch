@@ -29,15 +29,15 @@ typedef struct {
   t_docId firstId;
   t_docId lastId;
   Buffer buf;
-  uint16_t numEntries;
+  uint16_t numEntries;  // Number of entries (i.e., docs)
 } IndexBlock;
 
 typedef struct InvertedIndex {
   IndexBlock *blocks;
-  uint32_t size;
+  uint32_t size;      // Number of blocks
   IndexFlags flags;
   t_docId lastId;
-  uint32_t numDocs;
+  uint32_t numDocs;   // Number of documents in the index
   uint32_t gcMarker;
   // The following union must remain at the end as memory is not allocated for it
   // if not required (see function `NewInvertedIndex`)

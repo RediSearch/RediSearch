@@ -7,7 +7,6 @@
 #include "conn.h"
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
-#include "search_cluster.h"
 
 #include <uv.h>
 #include <signal.h>
@@ -30,6 +29,7 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
+#define UNUSED(x) (void)(x)
 
 #define CONN_LOG(conn, fmt, ...)                                                \
   fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
@@ -73,7 +73,8 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
   return pool;
 }
 
-static void MRConnPool_Free(void *p) {
+static void MRConnPool_Free(void *privdata, void *p) {
+  UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
@@ -85,7 +86,7 @@ static void MRConnPool_Free(void *p) {
 }
 
 /* Get a connection from the connection pool. We select the next available connected connection with
- * a roundrobin selector */
+ * a round robin selector */
 static MRConn *MRConnPool_Get(MRConnPool *pool) {
   for (size_t i = 0; i < pool->num; i++) {
 
@@ -99,24 +100,33 @@ static MRConn *MRConnPool_Get(MRConnPool *pool) {
   return NULL;
 }
 
+static dictType nodeIdToConnPoolType = {
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = MRConnPool_Free,
+};
+
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
-  mgr->map = NewTrieMap();
+  mgr->map = dictCreate(&nodeIdToConnPoolType, NULL);
   mgr->nodeConns = nodeConns;
 }
 
 /* Free the entire connection manager */
 void MRConnManager_Free(MRConnManager *mgr) {
-  TrieMap_Free(mgr->map, MRConnPool_Free);
+  dictRelease(mgr->map);
 }
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
-  void *ptr = TrieMap_Find(mgr->map, (char *)id, strlen(id));
-  if (ptr != TRIEMAP_NOTFOUND) {
-    MRConnPool *pool = ptr;
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr);
     return MRConnPool_Get(pool);
   }
   return NULL;
@@ -147,19 +157,12 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
-// replace an existing coonnection pool with a new one
-static void *replaceConnPool(void *oldval, void *newval) {
-  if (oldval) {
-    MRConnPool_Free(oldval);
-  }
-  return newval;
-}
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
 int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect) {
   /* First try to see if the connection is already in the manager */
-  void *ptr = TrieMap_Find(m->map, (char *)id, strlen(id));
-  if (ptr != TRIEMAP_NOTFOUND) {
-    MRConnPool *pool = ptr;
+  dictEntry *ptr = dictFind(m->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr);
 
     MRConn *conn = pool->conns[0];
     // the node hasn't changed address, we don't need to do anything */
@@ -178,7 +181,7 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
     }
   }
 
-  return TrieMap_Add(m->map, (char *)id, strlen(id), pool, replaceConnPool);
+  return dictReplace(m->map, (void *)id, pool);
 }
 
 /**
@@ -200,12 +203,10 @@ static int MRConn_StartNewConnection(MRConn *conn) {
 int MRConnManager_ConnectAll(MRConnManager *m) {
 
   int n = 0;
-  TrieMapIterator *it = TrieMap_Iterate(m->map, "", 0);
-  char *key;
-  tm_len_t len;
-  void *p;
-  while (TrieMapIterator_Next(it, &key, &len, &p)) {
-    MRConnPool *pool = p;
+  dictIterator *it = dictGetIterator(m->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
     if (!pool) continue;
     for (size_t i = 0; i < pool->num; i++) {
       if (MRConn_StartNewConnection(pool->conns[i]) == REDIS_OK) {
@@ -213,13 +214,13 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
       }
     }
   }
-  TrieMapIterator_Free(it);
+  dictReleaseIterator(it);
   return n;
 }
 
 /* Explicitly disconnect a connection and remove it from the connection pool */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
-  if (TrieMap_Delete(m->map, (char *)id, strlen(id), MRConnPool_Free)) {
+  if (dictDelete(m->map, id)) {
     return REDIS_OK;
   }
   return REDIS_ERR;
@@ -436,6 +437,74 @@ error:
     return NULL;
 }
 
+
+static char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
+  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+  if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
+    return NULL;
+  }
+  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
+  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
+  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+
+  char* res = rm_calloc(1, len + 1);
+  memcpy(res, valueRepCStr, len);
+
+  RedisModule_FreeCallReply(rep);
+
+  return res;
+}
+
+extern RedisModuleCtx *RSDummyContext;
+static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
+  int ret = 1;
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModule_ThreadSafeContextLock(ctx);
+  char* clusterTls = NULL;
+  char* tlsPort = NULL;
+
+  clusterTls = getConfigValue(ctx, "tls-cluster");
+  if (!clusterTls || strcmp(clusterTls, "yes")) {
+    tlsPort = getConfigValue(ctx, "tls-port");
+    if (!tlsPort || !strcmp(tlsPort, "0")) {
+      ret = 0;
+      goto done;
+    }
+  }
+
+  *client_key = getConfigValue(ctx, "tls-key-file");
+  *client_cert = getConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
+
+  if (!*client_key || !*client_cert || !*ca_cert){
+    ret = 0;
+    if(*client_key){
+      rm_free(*client_key);
+    }
+    if(*client_cert){
+      rm_free(*client_cert);
+    }
+    if(*ca_cert){
+      rm_free(*client_cert);
+    }
+  }
+
+done:
+  if (clusterTls) {
+    rm_free(clusterTls);
+  }
+  if (tlsPort) {
+    rm_free(tlsPort);
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return ret;
+}
+
 /* hiredis async connect callback */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
@@ -472,7 +541,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     rm_free(ca_cert);
     if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
-      CONN_LOG(conn, "Error on ssl contex creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
+      CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);

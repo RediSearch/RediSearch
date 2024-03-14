@@ -119,7 +119,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 
   InvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", INVERTED_INDEX_ENCVER, &tm);
   if (InvertedIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create inverted index type");
+    RedisModule_Log(ctx, "warning", "Could not create inverted index type");
     return REDISMODULE_ERR;
   }
 
@@ -180,7 +180,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 
 // DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
+  IndexLoadOptions loadOpts = {.nameC = indexName};
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {

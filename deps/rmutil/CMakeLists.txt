@@ -3,7 +3,6 @@ add_library(rmutil OBJECT
     args.c
     cmdparse.c
     heap.c
-    periodic.c
     priority_queue.c
     sds.c
     strings.c

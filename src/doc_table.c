@@ -645,7 +645,7 @@ void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 
   t_docId *pd = rm_malloc(sizeof(t_docId));
   *pd = docId;
-  TrieMap_Add(m->tm, (char *)s, n, pd, _docIdMap_replace);
+  TrieMap_Add(m->tm, s, n, pd, _docIdMap_replace);
 }
 
 void DocIdMap_Free(DocIdMap *m) {
@@ -653,5 +653,5 @@ void DocIdMap_Free(DocIdMap *m) {
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
+  return TrieMap_Delete(m->tm, s, n, rm_free);
 }

@@ -6,20 +6,15 @@
 
 #include "../config.h"
 #include "cluster.h"
-#include "conn.h"
-#include "libuv/include/uv.h"
 #include "redismodule.h"
-#include "rmutil/periodic.h"
-#include "version.h"
+#include "rmr.h"
 
-#define REDIS_CLUSTER_REFRESH_TIMEOUT 1000
-
-MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
-
+static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
+  RS_AutoMemory(ctx);
   const char *myId = NULL;
   RedisModuleCallReply *r = RedisModule_Call(ctx, "CLUSTER", "c", "MYID");
   if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
-    RedisModule_Log(ctx, "error", "Error calling CLUSTER MYID§");
+    RedisModule_Log(ctx, "warning", "Error calling CLUSTER MYID");
     return NULL;
   }
   size_t idlen;
@@ -27,7 +22,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
   r = RedisModule_Call(ctx, "CLUSTER", "c", "SLOTS");
   if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_ARRAY) {
-    RedisModule_Log(ctx, "error", "Error calling CLUSTER SLOTS");
+    RedisModule_Log(ctx, "warning", "Error calling CLUSTER SLOTS");
     return NULL;
   }
 
@@ -98,7 +93,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
               (MREndpoint){
                   .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
           .id = id_str,
-          .flags = MRNode_Coordinator,
+          .flags = 0,
       };
       // the first node in every shard is the master
       if (n == 0) node.flags |= MRNode_Master;
@@ -119,28 +114,29 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
   return topo;
 err:
-  RedisModule_Log(ctx, "error", "Error parsing cluster topology");
+  RedisModule_Log(ctx, "warning", "Error parsing cluster topology");
   MRClusterTopology_Free(topo);
   return NULL;
 }
 
-static struct RMUtilTimer *updateTopoTimer;
-
-static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
-  RedisModule_ThreadSafeContextLock(ctx);
-  RS_AutoMemory(ctx);
-
-  RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
-  if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {
-    fprintf(stderr, "Error running CLUSTERREFRESH: %s\n", RedisModule_CallReplyStringPtr(r, NULL));
+extern size_t NumShards;
+void UpdateTopology(RedisModuleCtx *ctx) {
+  MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
+  if (topo) { // if we didn't get a topology, do nothing. Log was already printed
+    RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+    NumShards = topo->numShards;
+    MR_UpdateTopology(topo);
   }
-  if (r) RedisModule_FreeCallReply(r);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  return 1;
 }
 
-int InitRedisTopologyUpdater() {
-  updateTopoTimer =
-      RMUtil_NewPeriodicTimer(updateTopoCB, NULL, NULL, (struct timespec){.tv_sec = 1});
-  return REDIS_OK;
+#define REFRESH_PERIOD 1000 // 1 second
+
+static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
+  REDISMODULE_NOT_USED(p);
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  UpdateTopology(ctx);
+}
+
+void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
 }
