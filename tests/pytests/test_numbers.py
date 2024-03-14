@@ -484,11 +484,11 @@ def test_numeric_operators(env):
 
     # Invalid syntax
     for operator in ['==', '!=', '>', '>=', '<', '<=']:
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(105').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(105').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '-(105').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(-105').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(inf').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '(-inf').error()
-        env.expect('FT.SEARCH', 'idx', '@numval:' + operator + '($param', 
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '-(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(-105').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(-inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '($param', 
                 'PARAMS', 2, 'param', 100).error()
