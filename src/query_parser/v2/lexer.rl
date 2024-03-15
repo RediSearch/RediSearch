@@ -51,15 +51,40 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
+term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | '?')+ $0;
+
+# these are the punctuations that are not valid in a autoescaped tag, they have
+# special meaning and need to be escaped to be considered as part of a tag
+tag_invalid_punct = (lb | rb | star | escape | '$' | '|');
+
+token_separators = ( '!' | '"' | '#' | '$' | '%' | '&' | squote | '(' | ')' |
+                    star |'+' | '-' | '.' | '/' | ':' | ';' | '<' | '=' | '>' |
+                    '?' | '@' | '[' | escape | ']' | '^' | '`' | '{' | '}' |
+                    '~' | '|' | ',' );
+valid_punct =  token_separators - tag_invalid_punct;
+invalid_punct = punct - valid_punct;
+
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
+tags = (((any - (invalid_punct | cntrl | escape)) | escaped_character) | '_' | '?')+ $0;
+
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
 as = 'AS'|'aS'|'As'|'as';
-verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
-wildcard = 'w' . verbatim $4;
+verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
+wildcard = 'w' . verbatim $2;
+
+assign_attr = arrow lb attr colon term rb $2;
+
+contains_tag = colon lb star.tags.star rb $1;
+prefix_tag = colon lb tags.star rb $1;
+suffix_tag = colon lb star.tags rb $1;
+unescaped_tag1 = colon lb (tags | escape wildcard) rb $1;
+unescaped_tag2 = colon lb (escape 'w' tags) rb $1;
+
+wildcard_tag = colon lb wildcard rb $1;
+wildcard_txt = colon lp wildcard rp $1;
 
 main := |*
 
@@ -235,7 +260,7 @@ main := |*
   space;
   punct;
   cntrl;
-  
+
   term => {
     tok.len = te-ts;
     tok.s = ts;
@@ -246,6 +271,280 @@ main := |*
       fbreak;
     }
   };
+
+  unescaped_tag1 => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = te - (ts + 3);
+    tok.s = ts + 2;
+
+    bool parsed = false;
+    if(tok.len > 3) {
+      if(tok.s[0] == 'w' && tok.s[1] == '\'' && tok.s[tok.len - 1] == '\'') {
+        int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+        tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+        tok.len = te - (ts + 6 + is_attr);
+        tok.s = ts + 4 + is_attr;
+        tok.pos = tok.s - q->raw;
+        RSQuery_Parse_v2(pParser, WILDCARD, tok, q);
+        parsed = true;
+      }
+    }
+
+    if(!parsed) {
+      // remove leading spaces
+      while(tok.len && isspace(tok.s[0])) {
+        tok.s++;
+        tok.len--;
+      }
+      // remove trailing spaces
+      while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+        tok.len--;
+      }
+      tok.pos = tok.s - q->raw;
+      tok.type = QT_TERM;
+      RSQuery_Parse_v2(pParser, UNESCAPED_TAG, tok, q);
+    }
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  unescaped_tag2 => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = te - (ts + 3);
+    tok.s = ts + 2;
+    tok.pos = tok.s - q->raw;
+    tok.type = QT_TERM;
+    RSQuery_Parse_v2(pParser, UNESCAPED_TAG, tok, q);
+
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  wildcard_tag => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+    tok.len = te - (ts + 6 + is_attr);
+    tok.s = ts + 4 + is_attr;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, WILDCARD, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  suffix_tag => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 3 + is_attr) - 1;
+    tok.s = ts + 3 + is_attr;
+    tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and suffix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
+    }
+    RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  prefix_tag => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 2) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 2 + is_attr) - 2;
+    tok.s = ts + 2 + is_attr;
+    tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and prefix
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
+    }
+    RSQuery_Parse_v2(pParser, PREFIX, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  contains_tag => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 2;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
+    tok.len = te - (ts + 3 + is_attr) - 2;
+    tok.s = ts + 3 + is_attr;
+    tok.pos = tok.s - q->raw;
+    // Invalid case: wildcard and contains
+    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+      fbreak;
+    }
+    // remove leading spaces
+    while(tok.len && isspace(tok.s[0])) {
+      tok.s++;
+      tok.len--;
+    }
+    // remove trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
+      tok.len--;
+    }
+    RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   prefix => {
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -297,6 +596,41 @@ main := |*
     tok.s = ts + 1 + is_attr;
     tok.numval = 0;
     RSQuery_Parse_v2(pParser, VERBATIM, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  wildcard_txt => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, LP, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+    tok.len = te - (ts + 6 + is_attr);
+    tok.s = ts + 4 + is_attr;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, WILDCARD, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
