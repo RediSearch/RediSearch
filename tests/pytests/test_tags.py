@@ -7,47 +7,53 @@ def search(env, r, *args):
     return r.execute_command('ft.search', *args)
 
 def testTagIndex(env):
-    env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag').ok()
-    N = 10
-    for n in range(N):
-        env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
-                                       'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n).ok()
-    for _ in env.reloadingIterator():
-        waitForIndex(env, 'idx')
-        res = env.cmd('ft.search', 'idx', 'hello world')
-        env.assertEqual(10, res[0])
+    for dialect in [2]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
 
-        res = env.cmd('ft.search', 'idx', 'foo bar')
-        env.assertEqual(0, res[0])
+        env.expect('ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text',
+                   'tags', 'tag').ok()
+        N = 10
+        for n in range(N):
+            env.expect('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
+                       'title', 'hello world term%d' % n, 
+                       'tags', 'foo bar,xxx,tag %d' % n).ok()
+        for _ in env.reloadingIterator():
+            waitForIndex(env, 'idx')
+            res = env.cmd('ft.search', 'idx', 'hello world')
+            env.assertEqual(10, res[0])
 
-        res = env.cmd('ft.search', 'idx', '@tags:{foo bar}')
-        env.assertEqual(N, res[0])
+            res = env.cmd('ft.search', 'idx', 'foo bar')
+            env.assertEqual(0, res[0])
 
-        # inorder should not affect tags
-        res = env.cmd(
-            'ft.search', 'idx', '@tags:{tag 1} @tags:{foo bar}', 'slop', '0', 'inorder')
-        env.assertEqual(1, res[0])
+            res = env.cmd('ft.search', 'idx', '@tags:{foo bar}')
+            env.assertEqual(N, res[0])
 
-        for n in range(N - 1):
+            # inorder should not affect tags
             res = env.cmd(
-                'ft.search', 'idx', '@tags:{tag %d}' % n, 'nocontent')
-            env.assertEqual(1, res[0])
-            env.assertEqual('doc%d' % n, res[1])
-            res = env.cmd(
-                'ft.search', 'idx', '@tags:{tag\\ %d}' % n, 'nocontent')
+                'ft.search', 'idx', '@tags:{tag 1} @tags:{foo bar}',
+                'slop', '0', 'inorder')
             env.assertEqual(1, res[0])
 
-            res = env.cmd(
-                'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
-            env.assertEqual(2, res[0])
-            res = py2sorted(res[1:])
-            env.assertEqual('doc%d' % n, res[0])
-            env.assertEqual('doc%d' % (n + 1), res[1])
+            for n in range(N - 1):
+                res = env.cmd(
+                    'ft.search', 'idx', '@tags:{tag %d}' % n, 'nocontent')
+                env.assertEqual(1, res[0])
+                env.assertEqual('doc%d' % n, res[1])
+                res = env.cmd(
+                    'ft.search', 'idx', '@tags:{tag\\ %d}' % n, 'nocontent')
+                env.assertEqual(1, res[0])
 
-            res = env.cmd(
-                'ft.search', 'idx', 'term%d @tags:{tag %d}' % (n, n), 'nocontent')
-            env.assertEqual(1, res[0])
-            env.assertEqual('doc%d' % n, res[1])
+                res = env.cmd(
+                    'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
+                env.assertEqual(2, res[0])
+                res = py2sorted(res[1:])
+                env.assertEqual('doc%d' % n, res[0])
+                env.assertEqual('doc%d' % (n + 1), res[1])
+
+                res = env.cmd(
+                    'ft.search', 'idx', 'term%d @tags:{tag %d}' % (n, n), 'nocontent')
+                env.assertEqual(1, res[0])
+                env.assertEqual('doc%d' % n, res[1])
 
 def testSeparator(env):
     env.expect(

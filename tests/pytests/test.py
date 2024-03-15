@@ -1264,48 +1264,51 @@ def testScorerSelection(env):
             'ft.search', 'idx', 'foo', 'scorer', 'NOSUCHSCORER')
 
 def testFieldSelectors(env):
-    env.expect(
-        'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
-        'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text').ok()
-    #todo: document as breaking change, ft.add fields name are not case insentive
-    env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
-               'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
-    env.expect('ft.add', 'idx', 'doc2', 0.5, 'fields',
-               'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
+    for dialect in [1, 2]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
 
-    res = env.cmd(
-        'ft.search', 'idx', '@TiTle:hello world', 'nocontent')
-    env.assertEqual(res, [1, 'doc1'])
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy:hello world', 'nocontent')
-    env.assertEqual(res, [1, 'doc2'])
+        env.expect(
+            'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
+            'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text').ok()
+        #todo: document as breaking change, ft.add fields name are not case insentive
+        env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
+                'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
+        env.expect('ft.add', 'idx', 'doc2', 0.5, 'fields',
+                'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
 
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy:hello @TiTle:world', 'nocontent')
-    env.assertEqual(res, [0])
+        res = env.cmd(
+            'ft.search', 'idx', '@TiTle:hello world', 'nocontent')
+        env.assertEqual(res, [1, 'doc1'])
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy:hello world', 'nocontent')
+        env.assertEqual(res, [1, 'doc2'])
 
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy:hello world @TiTle:world', 'nocontent')
-    env.assertEqual(res, [0])
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
-    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy:hello @TiTle:world', 'nocontent')
+        env.assertEqual(res, [0])
 
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
-    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy:hello world @TiTle:world', 'nocontent')
+        env.assertEqual(res, [0])
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
+        env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
-    res = env.cmd(
-        'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
-    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
+        env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
-    res = env.cmd(
-        'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
-    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+        res = env.cmd(
+            'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
+        env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
-    res = env.cmd(
-        'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
-    env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+        res = env.cmd(
+            'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
+        env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
+
+        res = env.cmd(
+            'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
+        env.assertEqual(py2sorted(res), py2sorted([2, 'doc1', 'doc2']))
 
 def testStemming(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text').ok()
