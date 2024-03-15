@@ -1147,12 +1147,6 @@ exclusive_param_num(A) ::= LP num(B). {
   A.type = QT_NUMERIC;
 }
 
-// This rule is to be backward compatible, accepting exclusive limits with
-// multiple left parenthesis
-exclusive_param_num(A) ::= LP exclusive_param_num(B). {
-  A = B;
-}
-
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
