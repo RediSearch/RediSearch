@@ -51,7 +51,7 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | '?')+ $0;
+term = ((any - (punct | cntrl | space | escape)) | escaped_character | '_')+ $0;
 
 # these are the punctuations that are not valid in a autoescaped tag, they have
 # special meaning and need to be escaped to be considered as part of a tag
@@ -66,7 +66,7 @@ invalid_punct = punct - valid_punct;
 
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
-tags = (((any - (invalid_punct | cntrl | escape)) | escaped_character) | '_' | '?')+ $0;
+tags = ((any - (invalid_punct | cntrl | escape)) | escaped_character | '_' | '?')+ $0;
 
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;

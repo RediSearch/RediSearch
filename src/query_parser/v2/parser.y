@@ -26,8 +26,6 @@
 %left TILDE MINUS.
 %left AND.
 
-%left EQUAL.
-
 %left ARROW.
 %left COLON.
 
