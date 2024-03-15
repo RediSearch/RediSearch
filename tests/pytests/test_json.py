@@ -1326,6 +1326,10 @@ def testTagAutoescapingParserV2(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* leading:space}")
     env.assertEqual(res, expected_result)
 
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
+                  'PARAMS', '2', 'param', 'leading:space')
+    env.assertEqual(res, expected_result)
+
     # Test tags with trailing spaces
     expected_result = [1, 'doc:16', ['$', '{"tag":"trailing:space  "}']]
 
@@ -1339,4 +1343,8 @@ def testTagAutoescapingParserV2(env):
     env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}")
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
+                  'PARAMS', '2', 'param', 'trailing:space')
     env.assertEqual(res, expected_result)
