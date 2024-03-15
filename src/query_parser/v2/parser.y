@@ -18,6 +18,7 @@
 
 %left RP RB RSQB.
 
+%left UNESCAPED_TAG.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.
@@ -1061,6 +1062,10 @@ term(A) ::= NUMBER(B) . {
 }
 
 term(A) ::= SIZE(B). {
+  A = B;
+}
+
+term(A) ::= UNESCAPED_TAG(B) . {
   A = B;
 }
 
