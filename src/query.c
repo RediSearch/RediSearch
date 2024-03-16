@@ -1677,6 +1677,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     s = sdscat(s, "@NULL:");
   }
 
+  bool curlyBracketIsOpen = false;
+
   if (qs->opts.fieldMask && qs->opts.fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
       qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!spec) {
@@ -1699,6 +1701,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     s = sdscat(s, ":");
   }
 
+  bool printAttributes = (qs->opts.weight != 1 || qs->opts.maxSlop != -1 ||
+                          qs->opts.inOrder);
+
   switch (qs->type) {
     case QN_PHRASE:
       s = sdscatprintf(s, "%s {\n", qs->pn.exact ? "EXACT" : "INTERSECT");
@@ -1706,7 +1711,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
         s = QueryNode_DumpSds(s, spec, qs->children[ii], depth + 1);
       }
       s = doPad(s, depth);
-
+      curlyBracketIsOpen = true;
       break;
     case QN_TOKEN:
       s = sdscatprintf(s, "%s%s", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
@@ -1724,45 +1729,53 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       } else {
         s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
       }
+      curlyBracketIsOpen = true;
       break;
 
     case QN_LEXRANGE:
       s = sdscatprintf(s, "LEXRANGE{%s...%s", qs->lxrng.begin ? qs->lxrng.begin : "",
                        qs->lxrng.end ? qs->lxrng.end : "");
+      curlyBracketIsOpen = true;
       break;
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      curlyBracketIsOpen = true;
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      curlyBracketIsOpen = true;
       break;
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", f->min, f->inclusiveMin ? "<=" : "<",
                        f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
+      curlyBracketIsOpen = true;
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      curlyBracketIsOpen = true;
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      curlyBracketIsOpen = true;
       break;
     case QN_GEO:
 
       s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", qs->gn.gf->property, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
+      curlyBracketIsOpen = true;
       break;
     case QN_IDS:
 
@@ -1770,6 +1783,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
+      curlyBracketIsOpen = true;
       break;
     case QN_VECTOR:
       s = sdscat(s, "VECTOR {");
@@ -1779,6 +1793,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
         s = doPad(s, depth);
         s = sdscat(s, "} => {");
       }
+      curlyBracketIsOpen = true;
       switch (qs->vn.vq->type) {
         case VECSIM_QT_KNN: {
           s = sdscatprintf(s, "K=%zu nearest vectors to ", qs->vn.vq->knn.k);
@@ -1823,18 +1838,27 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
     case QN_WILDCARD_QUERY:
       s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
-      return s;
+      if(!printAttributes) {
+        return s;
+      }
+      break;
     case QN_NULL:
       s = sdscat(s, "<empty>");
-      break;
+      return s;
     case QN_GEOMETRY:
       s = sdscatprintf(s, "GEOSHAPE{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      if(!printAttributes) {
+        return s;
+      }
       break;
   }
 
-  s = sdscat(s, "}");
+  if (curlyBracketIsOpen) {
+    s = sdscat(s, "}");
+  }
+  
   // print attributes if not the default
-  if (qs->opts.weight != 1 || qs->opts.maxSlop != -1 || qs->opts.inOrder) {
+  if (printAttributes) {
     s = sdscat(s, " => {");
     if (qs->opts.weight != 1) {
       s = sdscatprintf(s, " $weight: %g;", qs->opts.weight);

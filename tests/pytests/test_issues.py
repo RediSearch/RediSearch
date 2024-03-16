@@ -1081,22 +1081,3 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
-
-def test_explain_wildcard(env: Env):
-  env.expect('FT.CREATE idx SCHEMA tag TAG', 'txt', 'TEXT').equal('OK')
-  env.expect('FT.EXPLAIN', 'idx', "*", 'DIALECT', 2)\
-    .equal("<WILDCARD>")
-  env.expect('FT.EXPLAIN', 'idx', "@tag:{w'*'}", 'DIALECT', 2)\
-    .equal("TAG:@tag {\n  WILDCARD{*}\n}\n")
-  env.expect('FT.EXPLAIN', 'idx', "@tag:{w'*'}=>{$weight: 3;}", 'DIALECT', 2)\
-    .equal("TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
-
-  if not env.isCluster():
-    # FT.EXPLAINCLI is not supported by the coordinator
-    env.expect('FT.EXPLAINCLI', 'idx', "*", 'DIALECT', 2)\
-    .equal(['<WILDCARD>'])
-    env.expect('FT.EXPLAINCLI', 'idx', "@tag:{w'*'}", 'DIALECT', 2)\
-      .equal(['TAG:@tag {', '  WILDCARD{*}', '}', ''])
-    env.expect('FT.EXPLAINCLI', 'idx', "@tag:{w'*'}=>{$weight: 3;}",'DIALECT', 2)\
-      .equal(['TAG:@tag {', '  WILDCARD{*}', '} => { $weight: 3; }', ''])
-
