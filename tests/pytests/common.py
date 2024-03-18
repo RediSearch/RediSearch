@@ -24,8 +24,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 
-
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
@@ -611,3 +610,7 @@ def verify_shard_init(env, shard=None):
         raise Exception('Expected FT.SEARCH to fail')
     except redis_exceptions.ResponseError as e:
         env.assertContains('no such index', str(e))
+
+def cmd_assert(env, cmd, res):
+    db_res = env.cmd(*cmd)
+    env.assertEqual(db_res, res)
