@@ -615,8 +615,17 @@ def testExplain(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')", 'DIALECT', 2)
     env.assertEqual(res, "@t:WILDCARD{*}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 3;}", 'DIALECT', 2)
-    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 3; }\n")
+    res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 2; $slop:100}",
+                  'DIALECT', 2)
+    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 2; $slop: 100; $inorder: false; }\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 4; $slop:100; $inorder:true;}",
+                  'DIALECT', 2)
+    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 4; $slop: 100; $inorder: true; }\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 5; $inorder: true;}",
+                  'DIALECT', 2)
+    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 5; $inorder: true; }\n")
 
     if not env.isCluster():
         # test TEXT field        
