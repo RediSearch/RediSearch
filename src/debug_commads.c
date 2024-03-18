@@ -652,9 +652,6 @@ DEBUG_COMMAND(GCCleanNumeric) {
 
   NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
 
-  rt->numRanges += rv.numRanges;
-  rt->emptyLeaves = 0;
-
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
