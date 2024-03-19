@@ -72,7 +72,7 @@ jobs:
         id: restore-boost
         uses: actions/cache@v3
         with:
-          path: /tmp/boostdir
+          path: .install/boost
           key: boost-${{ env.BOOST_VERSION }}-${{ inputs.container || inputs.env }}-${{ runner.arch }}
 
       - name: Install Boost
