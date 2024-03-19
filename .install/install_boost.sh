@@ -9,8 +9,8 @@ wget https://boostorg.jfrog.io/artifactory/main/release/${VERSION}/source/${BOOS
 
 tar -xzf ${BOOST_DIR}.tar.gz
 cd ${BOOST_DIR}
+echo "BOOST_DIR=$PWD" >> $GITHUB_ENV
+echo "export BOOST_DIR = $BOOST_DIR"
 
-
-
-./bootstrap.sh --prefix=/usr
+./bootstrap.sh --prefix=.
 $MODE ./b2 install
