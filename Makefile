@@ -236,14 +236,13 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-BOOST_DIR=/tmp/boostdir
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
 # ifneq ($(filter $(OSNICK),bionic amzn2),)
 _CMAKE_FLAGS += -DCANON_BOOST=on
 # endif
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) #-DBOOST_DIR=$(BOOST_DIR)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(BOOST_DIR)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) -DBOOST_DIR=$(BOOST_DIR)

@@ -11,4 +11,8 @@ add_library(redisearch-geometry STATIC ${SOURCES})
 # include_directories(${absl_INCLUDE_DIR})
 
 #message(STATUS "The value of BOOST_DIR is: ${BOOST_DIR}")
-#include_directories(${BOOST_DIR})
+
+
+message("BOOST_DIR = $BOOST_DIR")
+
+include_directories(${BOOST_DIR})
