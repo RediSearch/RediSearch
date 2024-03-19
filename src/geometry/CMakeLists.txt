@@ -13,6 +13,9 @@ add_library(redisearch-geometry STATIC ${SOURCES})
 #message(STATUS "The value of BOOST_DIR is: ${BOOST_DIR}")
 
 
-message("BOOST_DIR = $BOOST_DIR")
-
-include_directories(${BOOST_DIR})
+if(NOT BOOST_DIR STREQUAL "")
+ 	message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
+	include_directories(${BOOST_DIR})
+else()
+ 	message(STATUS "BOOST_DIR is empty: ${BOOST_DIR}")
+endif()
