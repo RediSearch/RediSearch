@@ -65,15 +65,14 @@ typedef struct {
 
 typedef struct {
   size_t size;
-  // the maximum size this table is allowed to grow to
-  t_docId maxSize;
+  t_docId maxSize;          // the maximum size this table is allowed to grow to
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
   size_t sortablesSize;
 
   DMDChain *buckets;
-  DocIdMap dim;
+  DocIdMap dim;             // Mapping between document name to internal id
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
