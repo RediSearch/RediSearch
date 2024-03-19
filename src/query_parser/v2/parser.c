@@ -2046,9 +2046,6 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
         break;
       case 63: /* expr ::= modifier COLON NOT_EQUAL param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
   
   if (D) {
@@ -2064,41 +2061,26 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
         break;
       case 65: /* numeric_operator ::= EQUAL EQUAL param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   yymsp[-2].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
 }
         break;
       case 66: /* numeric_operator ::= GREATER param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   yymsp[-1].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 0, 1);
 }
         break;
       case 67: /* numeric_operator ::= GREATER EQUAL param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   yymsp[-2].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 1, 1);
 }
         break;
       case 68: /* numeric_operator ::= SMALLER param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   yymsp[-1].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 0);
 }
         break;
       case 69: /* numeric_operator ::= SMALLER EQUAL param_num */
 {
-  if (yymsp[0].minor.yy0.type == QT_PARAM_NUMERIC) {
-    yymsp[0].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   yymsp[-2].minor.yy14 = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 1);
 }
         break;

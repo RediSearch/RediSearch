@@ -842,9 +842,6 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
-  if (C.type == QT_PARAM_NUMERIC) {
-    C.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
   
   if (D) {
@@ -868,37 +865,22 @@ expr(A) ::= modifier(B) COLON numeric_operator(C). {
 }
 
 numeric_operator(A) ::= EQUAL EQUAL param_num(B). {
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
 numeric_operator(A) ::= GREATER param_num(B). {
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
 }
 
 numeric_operator(A) ::= GREATER EQUAL param_num(B). {
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
 }
 
 numeric_operator(A) ::= SMALLER param_num(B). {
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
 }
 
 numeric_operator(A) ::= SMALLER EQUAL param_num(B). {
-  if (B.type == QT_PARAM_NUMERIC) {
-    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
-  }
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
 }
 
