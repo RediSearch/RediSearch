@@ -475,7 +475,8 @@ def testCountArgValidation(env):
     ).error().contains('Bad arguments for COUNT: Could not convert argument to expected type')
 
     # Create a cursor
-    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(len(res), 2)
 
     # Query the cursor with a bad `COUNT` argument
     env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument `LOVE`')
