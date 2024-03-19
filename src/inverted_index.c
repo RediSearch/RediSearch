@@ -1231,7 +1231,6 @@ inline t_docId IR_LastDocId(void *ctx) {
 }
 
 void IR_Rewind(void *ctx) {
-
   IndexReader *ir = ctx;
   IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
