@@ -837,6 +837,10 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
 }
 
+numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
 /////////////////////////////////////////////////////////////////
 // Numeric Operators
 /////////////////////////////////////////////////////////////////
