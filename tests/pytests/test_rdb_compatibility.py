@@ -32,7 +32,7 @@ def downloadFiles(rdbs = None):
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
         if not os.path.exists(path):
             return False
     return True
