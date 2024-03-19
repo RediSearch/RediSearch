@@ -577,6 +577,89 @@ def testExplain(env):
     res = env.cmd('ft.explain', 'idx', *q)
     env.assertEqual(expected, res)
 
+    # test numeric operators - only supported in DIALECT 2
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:>1', 'DIALECT', '2')
+    env.assertEqual(res1, 'NUMERIC {1.000000 < @bar <= inf}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:>=2', 'DIALECT', '2')
+    env.assertEqual(res1, 'NUMERIC {2.000000 <= @bar <= inf}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:<-1', 'DIALECT', '2')
+    env.assertEqual(res1, 'NUMERIC {-inf <= @bar < -1.000000}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:<=-3.14', 'DIALECT', '2')
+    env.assertEqual(res1, 'NUMERIC {-inf <= @bar <= -3.140000}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:==5.7', 'DIALECT', '2')
+    env.assertEqual(res1, 'NUMERIC {5.700000 <= @bar <= 5.700000}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:!=0', 'DIALECT', '2')
+    env.assertEqual(res1, 'NOT{\n  NUMERIC {0.000000 <= @bar <= 0.000000}\n}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:==$n', 'DIALECT', '2',
+                'PARAMS', 2, 'n', 9.3)
+    env.assertEqual(res1, 'NUMERIC {9.300000 <= @bar <= 9.300000}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:==+$n', 'DIALECT', '2',
+                'PARAMS', 2, 'n', 10)
+    env.assertEqual(res1, 'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:>=12 @bar:<inf', 'DIALECT', '2')
+    expected = r'''INTERSECT {
+  NUMERIC {12.000000 <= @bar <= inf}
+  NUMERIC {-inf <= @bar < inf}
+}
+'''
+    env.assertEqual(res1, expected)
+
+    res1 = env.cmd('FT.EXPLAIN', 'idx', '@bar:<-10 | @bar:>10', 'DIALECT', '2')
+    expected = r'''UNION {
+  NUMERIC {-inf <= @bar < -10.000000}
+  NUMERIC {10.000000 < @bar <= inf}
+}
+'''
+    env.assertEqual(res1, expected)
+
+    if not env.isCluster():
+        # FT.EXPLAINCLI is not supported by the coordinator
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:>1', 'DIALECT', 2)
+        env.assertEqual(res1, ['NUMERIC {1.000000 < @bar <= inf}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:>=2', 'DIALECT', 2)
+        env.assertEqual(res1, ['NUMERIC {2.000000 <= @bar <= inf}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:<-1', 'DIALECT', 2)
+        env.assertEqual(res1, ['NUMERIC {-inf <= @bar < -1.000000}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:<=-3.14', 'DIALECT', 2)
+        env.assertEqual(res1, ['NUMERIC {-inf <= @bar <= -3.140000}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:==5.7', 'DIALECT', 2)
+        env.assertEqual(res1, ['NUMERIC {5.700000 <= @bar <= 5.700000}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:!=0', 'DIALECT', 2)
+        env.assertEqual(res1, ['NOT{',  '  NUMERIC {0.000000 <= @bar <= 0.000000}',
+                               '}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:==$n', 'DIALECT', 2,
+                    'PARAMS', 2, 'n', 9.3)
+        env.assertEqual(res1, ['NUMERIC {9.300000 <= @bar <= 9.300000}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:==+$n', 'DIALECT', 2,
+                    'PARAMS', 2, 'n', 10)
+        env.assertEqual(res1, ['NUMERIC {10.000000 <= @bar <= 10.000000}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:>=12 @bar:<inf', 'DIALECT', 2)
+        env.assertEqual(res1, ['INTERSECT {',
+                               '  NUMERIC {12.000000 <= @bar <= inf}',
+                               '  NUMERIC {-inf <= @bar < inf}',
+                               '}', ''])
+
+        res1 = env.cmd('FT.EXPLAINCLI', 'idx', '@bar:<-10 | @bar:>10', 'DIALECT', 2)
+        env.assertEqual(res1, ['UNION {',
+                               '  NUMERIC {-inf <= @bar < -10.000000}',
+                               '  NUMERIC {10.000000 < @bar <= inf}',
+                               '}', ''])
 
 def testNoIndex(env):
     env.expect(
