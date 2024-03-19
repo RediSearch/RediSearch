@@ -112,7 +112,7 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }} BOOST_DIR=$BOOST_DIR
+        run: make SAN=${{ inputs.san }} #BOOST_DIR=$BOOST_DIR
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }}
