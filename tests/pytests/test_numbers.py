@@ -571,14 +571,20 @@ def testNumericOperators(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-11 | @n:==-10', 'NOCONTENT')
     env.assertEqual(res1, [2, 'key6', 'key7'])
 
+    # Test == double number
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==3.14', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key8'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[3.14 3.14]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:==+$n', 'NOCONTENT', 'PARAMS', 2,
                    'n', '3.14')
     env.assertEqual(res2, res1)
 
+
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-3.14', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key9'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-3.14 -3.14]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:==+$n', 'NOCONTENT', 'PARAMS', 2,
                    'n', '-3.14')
     env.assertEqual(res2, res1)
@@ -622,9 +628,13 @@ def testNumericOperators(env):
                    'PARAMS', 4, 'n', '+12', 'm', '-10')
     env.assertEqual(res2, res1)
 
+    # Test != double number
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:!=3.14', 'NOCONTENT', 'LIMIT', 0, 20)
     env.assertEqual(res1, [11, 'key1', 'key2', 'key3', 'key4', 'key5', 'key6',
                            'key7', 'key9', 'key10', 'key11', 'key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (3.14] | @n:[(3.14 +inf]',
+                   'NOCONTENT', 'LIMIT', 0, 20)
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+$n', 'NOCONTENT',
                    'PARAMS', 2, 'n', '3.14', 'LIMIT', 0, 20)
     env.assertEqual(res2, res1)
@@ -632,6 +642,9 @@ def testNumericOperators(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:!=-3.14', 'NOCONTENT', 'LIMIT', 0, 20)
     env.assertEqual(res1, [11, 'key1', 'key2', 'key3', 'key4', 'key5', 'key6',
                            'key7', 'key8', 'key10', 'key11', 'key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (-3.14] | @n:[(-3.14 +inf]',
+                   'NOCONTENT', 'LIMIT', 0, 20)
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+$n', 'NOCONTENT',
                    'PARAMS', 2, 'n', '-3.14', 'LIMIT', 0, 20)
     env.assertEqual(res2, res1)
