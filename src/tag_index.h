@@ -115,12 +115,12 @@ TagIndex *NewTagIndex();
 
 void TagIndex_Free(void *p);
 
-char *TagIndex_SepString(char sep, char **s, size_t *toklen);
+char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */
-int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data, FieldIndexerData *fdata);
+int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
   array_foreach(s, tmpv, { rm_free(tmpv); });
