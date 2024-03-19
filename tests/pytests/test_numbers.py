@@ -735,7 +735,7 @@ def testNumericOperators(env):
     # Invalid syntax
     for operator in ['==', '!=', '>', '>=', '<', '<=']:
         env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(105').error()
-        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n:' + operator + '+(105').error()
         env.expect('FT.SEARCH', 'idx', '@n:' + operator + '-(105').error()
         env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(-105').error()
         env.expect('FT.SEARCH', 'idx', '@n:' + operator + '(inf').error()
