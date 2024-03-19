@@ -223,16 +223,31 @@ def testRange(env):
     env.expect('FT.SEARCH', 'idx:all', '@val:[-inf (-{}]'.format(max_val), 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx:all', '@val:[({} +inf]'.format(max_val), 'NOCONTENT').equal([0])
 
-    for doc in range(doc_num, 0, -1):
-        expected = [doc_num + 1 - doc]
-        max_val = (doc - 1) * 100 + arr_len
-        for i in range(doc_num, doc -1, -1):
-            expected.append('doc:{}'.format(i))
-        res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[-inf -{}]'.format(max_val), 'NOCONTENT')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[-inf -{}]'.format(max_val))
+    for dialect in [1, 2, 3]:
+        for doc in range(doc_num, 0, -1):
+            expected = [doc_num + 1 - doc]
+            max_val = (doc - 1) * 100 + arr_len
+            for i in range(doc_num, doc -1, -1):
+                lastdoc = 'doc:{}'.format(i)
+                expected.append(lastdoc)
+            res = conn.execute_command('FT.SEARCH', 'idx:all',
+                                       '@val:[-inf -{}]'.format(max_val),
+                                       'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected),
+                            message = '[-inf -{}]'.format(max_val))
 
-        res = conn.execute_command('FT.SEARCH', 'idx:all', '@val:[{} +inf]'.format(max_val), 'NOCONTENT')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected), message = '[{} +inf]'.format(max_val))
+            res = conn.execute_command('FT.SEARCH', 'idx:all',
+                                       '@val:[{} +inf]'.format(max_val),
+                                       'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected),
+                            message = '[{} +inf]'.format(max_val))
+
+            if dialect > 1:
+                res = conn.execute_command('FT.SEARCH', 'idx:all',
+                                           '@val:[{}]'.format(max_val),
+                                           'NOCONTENT', 'DIALECT', dialect)
+                env.assertEqual(toSortedFlatList(res), [1, lastdoc],
+                                message = '[{}]'.format(lastdoc))
 
 @skip(cluster=True)
 def testDebugDump(env):

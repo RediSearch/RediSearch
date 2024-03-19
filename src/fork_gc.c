@@ -659,9 +659,9 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
-  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
+  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Current index size should be larger or equal to original index size");
 
-  if (idxData->newBlocklist) { // ther child removed some of the block, but not all of them
+  if (idxData->newBlocklist) { // the child removed some of the blocks, but not all of them
     /**
      * At this point, we check if the last block has had new data added to it,
      * but was _not_ repaired. We check for a repaired last block in
@@ -702,7 +702,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     idx->size -= idxData->numDelBlocks;
 
     // There were new blocks added to the index in the main process while the child was running,
-    // and/or we decided to ignore changes made to the last block, we copy the blocks data strting from
+    // and/or we decided to ignore changes made to the last block, we copy the blocks data starting from
     // the first valid block we want to keep.
 
     memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
@@ -909,6 +909,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
     RedisModuleKey *idxKey = NULL;
+    // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
       break;
@@ -975,8 +976,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(&sctx);
     if (gc->cleanNumericEmptyNodes) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
-      rt->numRanges += rv.numRanges;
-      rt->emptyLeaves = 0;
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
