@@ -590,8 +590,10 @@ def testExplain(env):
             else:
                 res = env.cmd('FT.EXPLAINCLI', idx, query)
             env.assertEqual(res, expected.split('\n'))
+
     # test numeric operators - only supported in DIALECT 2
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
+    
     _testExplain(env, 'idx', '@bar:>1',
                          'NUMERIC {1.000000 < @bar <= inf}\n')
     
