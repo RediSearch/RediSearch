@@ -499,6 +499,24 @@ def testNumericOperators(env):
                    'PARAMS', 2, 'p', '-inf', 'LIMIT', 0, 20)
     env.assertEqual(res2, res1)
 
+    # Test >= +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>=inf', 'NOCONTENT')
+    env.assertEqual(res1, [2, 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=+$p', 'NOCONTENT', 
+                   'PARAMS', 2, 'p', '+inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=+$p', 'NOCONTENT', 
+                   'PARAMS', 2, 'p', 'inf')
+    env.assertEqual(res2, res1)
+    
+    # Test >= -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:>=-inf', 'NOCONTENT', 'LIMIT', 0, 20)
+    env.assertEqual(res1, [12, 'key1', 'key2', 'key3', 'key4', 'key5', 'key6',
+                           'key7', 'key8', 'key9', 'key10', 'key11','key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:>=$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '-inf', 'LIMIT', 0, 20)
+    env.assertEqual(res2, res1)
+
     # Test <
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:<15', 'NOCONTENT')
     env.assertEqual(res1, [9, 'key1', 'key2', 'key3', 'key4', 'key6', 'key7',
@@ -592,6 +610,8 @@ def testNumericOperators(env):
     # Test == +inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==inf', 'NOCONTENT')
     env.assertEqual(res1, [2, 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[inf inf]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:==+inf', 'NOCONTENT')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:==$n', 'NOCONTENT', 'PARAMS', 2,
@@ -604,18 +624,13 @@ def testNumericOperators(env):
     # Test == -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==-inf', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf -inf]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:==$n', 'NOCONTENT', 'PARAMS', 2,
                    'n', '-inf')
     env.assertEqual(res2, res1)
 
     # Test !=
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n:!=+inf', 'NOCONTENT')
-    env.assertEqual(res1, [10, 'key1', 'key2', 'key3', 'key4', 'key5', 'key6',
-                           'key7', 'key8', 'key9', 'key12'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+$n', 'NOCONTENT', 'PARAMS', 2,
-                     'n', 'inf')
-    env.assertEqual(res2, res1)
-
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:!=12 @n:!= -10', 'NOCONTENT')
     env.assertEqual(res1, [10, 'key1', 'key3', 'key4', 'key5', 'key7', 'key8',
                            'key9', 'key10', 'key11', 'key12'])
@@ -660,6 +675,9 @@ def testNumericOperators(env):
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=$n', 'NOCONTENT', 'PARAMS', 2,
                    'n', '+inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+$n', 'NOCONTENT', 'PARAMS', 2,
+                     'n', 'inf')
     env.assertEqual(res2, res1)
 
     # Test != -inf
