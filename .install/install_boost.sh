@@ -13,4 +13,4 @@ mv ${BOOST_NAME} ${BOOST_DIR}
 cd ${BOOST_DIR}
 
 ./bootstrap.sh --prefix=.
-$MODE ./b2 install
+$MODE ./b2 headers
