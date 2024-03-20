@@ -46,10 +46,10 @@ minus = '-';
 tilde = '~';
 star = '*';
 percent = '%';
+exclamation = '!';
 equal = '=';
 greater = '>';
 smaller = '<';
-not_equal = '!=';
 rsqb = ']';
 lsqb = '[';
 escape = '\\';
@@ -152,14 +152,6 @@ main := |*
     }
   };
 
-  not_equal => {
-    tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
   greater => {
     tok.pos = ts - q->raw;
     RSQuery_Parse_v2(pParser, GREATER, tok, q);
@@ -171,6 +163,14 @@ main := |*
   smaller => {
     tok.pos = ts - q->raw;
     RSQuery_Parse_v2(pParser, SMALLER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  exclamation => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v2(pParser, EXCLAMATION, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

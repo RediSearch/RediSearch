@@ -13,8 +13,8 @@
 #define LSQB                            13
 #define TILDE                           14
 #define MINUS                           15
-#define AND                             16
-#define NOT_EQUAL                       17
+#define EXCLAMATION                     16
+#define AND                             17
 #define EQUAL                           18
 #define GREATER                         19
 #define SMALLER                         20

@@ -22,10 +22,10 @@
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS.
+%left TILDE MINUS EXCLAMATION .
 %left AND.
 
-%left NOT_EQUAL EQUAL GREATER SMALLER.
+%left EQUAL GREATER SMALLER.
 
 %left ARROW.
 %left COLON.
@@ -845,7 +845,7 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 // Numeric Operators
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
+expr(A) ::= modifier(B) COLON EXCLAMATION EQUAL param_num(C). {
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
   
   if (D) {

@@ -746,4 +746,8 @@ def testNumericOperators(env):
     env.expect('FT.SEARCH', 'idx', '@n:==$p', 'PARAMS', 2, 'p', 'w').error()\
         .contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', "@n:==w'").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:!!=1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:!>=1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:>>1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:<<1").error().contains('Syntax error')
 
