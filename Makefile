@@ -32,6 +32,7 @@ make build          # compile and link
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  BOOST_DIR= 		  # boost installation path (default: empty)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
