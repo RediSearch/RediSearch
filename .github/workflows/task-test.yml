@@ -131,7 +131,7 @@ jobs:
         if: ${{ inputs.standalone }}
         continue-on-error: true
         run: |
-          source venv/bin/activate
+         # source venv/bin/activate
           make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
@@ -143,7 +143,7 @@ jobs:
         if: ${{ inputs.coordinator }}
         continue-on-error: true
         run: |
-          source venv/bin/activate
+         # source venv/bin/activate
           make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
