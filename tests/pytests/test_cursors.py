@@ -416,3 +416,44 @@ def testCursorDepletionStrictTimeoutPolicy():
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'GROUPBY', '1', '@t', 'WITHCURSOR', 'COUNT', str(num_docs), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+@skip(cluster=True)
+def test_mod_6597(env):
+    """Tests that we update the numeric index appropriately upon deleting
+    documents from a numeric index, and are able to query an invalid cursor in
+    such case getting an empty result instead of a crash."""
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a numeric field.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+
+    # Populate the db (and index) with enough documents for the GC to work (one
+    # more than `FORK_GC_CLEAN_THRESHOLD`).
+    res = env.cmd('FT.CONFIG', 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
+    num_docs = int(res) + 1
+    for i in range(num_docs):
+        conn.execute_command('hset', f'doc{i}', 'test', str(i))
+
+    # Initialize a cursor
+    res, cid = env.execute_command('ft.aggregate', 'idx', f'@test:[1 {num_docs}]', 'LOAD', '1', '@test', 'WITHCURSOR', 'COUNT', '1')
+    n = len(res) - 1
+
+    # Make sure GC is not self-invoked (periodic run).
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+
+    # Delete all documents of the index. The same effect is achieved if a split
+    # occurred and a whole NumericRangeNode is deleted.
+    for i in range(1, num_docs, 1):
+        env.cmd('DEL', f'doc{i}')
+
+    # Invoke the GC, cleaning the index
+    forceInvokeGC(env, 'idx')
+
+    # Deplete the cursor
+    while cid:
+        res, cid = env.cmd('ft.cursor', 'read', 'idx', cid)
+        n += len(res)-1
+
+    # We are not supposed to get any new results from the above query, since the
+    # index is already invalidated.
+    env.assertEqual(n, 1)
