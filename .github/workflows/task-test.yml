@@ -80,6 +80,10 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
+      - name: Define BOOST_DIR
+        working-directory: .install/boost
+        run: echo "BOOST_DIR=$PWD" >> $GITHUB_ENV
+
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
@@ -126,7 +130,9 @@ jobs:
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: |
+          source venv/bin/activate
+          make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
@@ -136,7 +142,9 @@ jobs:
         id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: |
+          source venv/bin/activate
+          make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts

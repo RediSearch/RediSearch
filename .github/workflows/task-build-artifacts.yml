@@ -84,6 +84,9 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
+      - name: Define BOOST_DIR
+        working-directory: .install/boost
+        run: echo "BOOST_DIR=$PWD" >> $GITHUB_ENV
       # Get Redis
       - name: Get Redis
         uses: actions/checkout@v3
