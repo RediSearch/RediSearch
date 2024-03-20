@@ -59,14 +59,12 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
   aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
+  // zero out field data. We check at the destructor to see if there is any
+  // left-over tag data here; if we've realloc'd, then this contains
+  // garbage
+  memset(aCtx->fspecs, 0, sizeof(*aCtx->fspecs) * doc->numFields);
+  memset(aCtx->fdatas, 0, sizeof(*aCtx->fdatas) * doc->numFields);
 
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    // zero out field data. We check at the destructor to see if there is any
-    // left-over tag data here; if we've realloc'd, then this contains
-    // garbage
-    aCtx->fdatas[ii].tags = NULL;
-    aCtx->fdatas[ii].isNull = 0;
-  }
 
   size_t numTextIndexable = 0;
 
