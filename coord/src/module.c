@@ -13,8 +13,6 @@
 #include "rmr/reply.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
-#include "crc16_tags.h"
-#include "crc12_tags.h"
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
 #include "config.h"
