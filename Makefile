@@ -236,16 +236,13 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
-# ifneq ($(filter $(OSNICK),bionic amzn2),)
-_CMAKE_FLAGS += -DCANON_BOOST=on
-# endif
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(BOOST_DIR)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) -DBOOST_DIR=$(BOOST_DIR)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
 
@@ -620,16 +617,3 @@ sanbox:
 	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox
-
-#MK is /workspaces/Code/RediSearch/deps/readies/mk
-#.PHONY: print
-#print:
-$(info DEFAULT_TARGETS =  $(DEFAULT_TARGETS) MK_MAKEFILES = $(MK_MAKEFILES) TARGET = $(TARGET))
-$(info BIN_DIRS =  $(BIN_DIRS) )
-$(info MISSING_DEPS = $(MISSING_DEPS))
-$(info CMAKE_TARGETS = $(CMAKE_TARGETS))
-$(info $(BINDIR)/Makefile = $(BINDIR)/Makefile)
-# build: $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
-# DEFAULT_TARGETS =  bindirs /workspaces/Code/RediSearch/bin/linux-arm64v8-release/search/redisearch.so
-# MK_MAKEFILES = /workspaces/Code/RediSearch/bin/linux-arm64v8-release/search/Makefile
-# TARGET = /workspaces/Code/RediSearch/bin/linux-arm64v8-release/search/redisearch.so

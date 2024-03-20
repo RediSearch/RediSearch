@@ -40,7 +40,7 @@ jobs:
 
     - name: Define BOOST_DIR
       working-directory: .install/boost
-      run: echo "BOOST_DIR=$PWD" >> $
+      run: echo "BOOST_DIR=$PWD" >> $GITHUB_ENV
 
     - name: Get Redis
       env:
