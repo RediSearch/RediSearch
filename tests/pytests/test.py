@@ -520,8 +520,8 @@ def testOptional(env):
 def testExplain(env):
 
     env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 't', 'TEXT', 'bar', 'numeric', 'sortable',
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
         'tag', 'TAG', 'g', 'GEOSHAPE', 'FLAT',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
@@ -588,7 +588,7 @@ def testExplain(env):
 
     # test wildcard with TAG field
     res = env.cmd('FT.EXPLAIN', 'idx', "*", 'DIALECT', 2)
-    env.assertEqual(res, "<WILDCARD>")
+    env.assertEqual(res, "<WILDCARD>\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'*'}", 'DIALECT', 2)
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{*}\n}\n")
@@ -600,7 +600,7 @@ def testExplain(env):
     if not env.isCluster():
         # FT.EXPLAINCLI is not supported by the coordinator
         res = env.cmd('FT.EXPLAINCLI', 'idx', "*", 'DIALECT', 2)
-        env.assertEqual(res, ['<WILDCARD>'])
+        env.assertEqual(res, ['<WILDCARD>', ''])
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', "@tag:{w'*'}", 'DIALECT', 2)
         env.assertEqual(res, ['TAG:@tag {', '  WILDCARD{*}', '}', ''])
@@ -617,22 +617,22 @@ def testExplain(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 2; $slop:100}",
                   'DIALECT', 2)
-    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 2; $slop: 100; $inorder: false; }\n")
+    env.assertEqual(res, "@t:WILDCARD{*} => { $weight: 2; $slop: 100; $inorder: false; }\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 4; $slop:100; $inorder:true;}",
                   'DIALECT', 2)
-    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 4; $slop: 100; $inorder: true; }\n")
+    env.assertEqual(res, "@t:WILDCARD{*} => { $weight: 4; $slop: 100; $inorder: true; }\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@t:(w'*')=>{$weight: 5; $inorder: true;}",
                   'DIALECT', 2)
-    env.assertEqual(res, "@t:WILDCARD{*}\n => { $weight: 5; $inorder: true; }\n")
+    env.assertEqual(res, "@t:WILDCARD{*} => { $weight: 5; $inorder: true; }\n")
 
     if not env.isCluster():
         # test TEXT field        
         res = env.cmd('FT.EXPLAINCLI', 'idx', "@t:(w'*')", 'DIALECT', 2)
         env.assertEqual(res, ['@t:WILDCARD{*}', ''])
         res = env.cmd('FT.EXPLAINCLI', 'idx', "@t:(w'*')=>{$weight: 3;}", 'DIALECT', 2)
-        env.assertEqual(res, ['@t:WILDCARD{*}', ' => { $weight: 3; }', ''])
+        env.assertEqual(res, ['@t:WILDCARD{*} => { $weight: 3; }', ''])
 
     # test GEOSHAPES
     res = env.cmd('FT.EXPLAIN', 'idx', '@g:[WITHIN $poly]', 'PARAMS', 2,
@@ -642,11 +642,11 @@ def testExplain(env):
     res = env.cmd('FT.EXPLAIN', 'idx', '@g:[CONTAINS $poly]=>{$weight: 3;}',
                   'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))',
                   'DIALECT', 3)
-    env.assertEqual(res, "GEOSHAPE{1 POLYGON((0 0, 0 1, 1 1, 0 0))}\n => { $weight: 3; }\n")
+    env.assertEqual(res, "GEOSHAPE{1 POLYGON((0 0, 0 1, 1 1, 0 0))} => { $weight: 3; }\n")
 
     # test empty query
     res = env.cmd('FT.EXPLAIN', 'idx', "", 'DIALECT', 2)
-    env.assertEqual(res, "<empty>")
+    env.assertEqual(res, "<empty>\n")
 
 def testNoIndex(env):
     env.expect(
