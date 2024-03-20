@@ -46,8 +46,12 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
-    for (int i = 0; i < num_prefixes; ++i) {
-      RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
+    if (num_prefixes > 0) {
+      for (int i = 0; i < num_prefixes; ++i) {
+        RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
+      }
+    } else {
+      RedisModule_Reply_SimpleString(reply, "No prefixes");
     }
     RedisModule_Reply_ArrayEnd(reply);
   }

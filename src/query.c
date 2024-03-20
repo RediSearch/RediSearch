@@ -613,6 +613,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  // TODO: This should be a single iterator - Fix in a separate PR.
+  // } else if (ctx.nits == 1) {
+  //   // In case of a single iterator, we can just return it
+  //   return ctx.its[0];
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);

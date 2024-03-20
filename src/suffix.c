@@ -16,7 +16,7 @@ typedef struct suffixData {
   // int wordExists; // exact match to string exists already
   // rune *rune;
   char *term;             // string is used in the array of all suffix tokens
-  arrayof(char *) array;   // list of words containing the string. weak pointers
+  arrayof(char *) array;  // list of words containing the string. weak pointers
 } suffixData;
 
 #define Suffix_GetData(node) node ? node->payload ? \
@@ -51,7 +51,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
   suffixData *data = NULL;
-  if (trienode && trienode->payload) {
+  if (trienode) {
     // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
@@ -171,6 +171,9 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
 }
 
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
+  // Q: What about PREFIX? It is "swallowed" by CONTAINS. Can check out later why.
+  // This may have to do with the bug in our suffix implementation
+  // (test_contains:test_misc1 - without the `WITHSUFFIXTRIE` argument we return a non-wanted result)
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
     TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 0, NULL);

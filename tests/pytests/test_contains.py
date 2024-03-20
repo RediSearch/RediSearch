@@ -240,6 +240,7 @@ def test_misc1(env):
   # this test check that `\*` is escaped correctly on contains queries
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
+  # env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
 
   conn.execute_command('HSET', 'doc1', 't', 'world')
   conn.execute_command('HSET', 'doc2', 't', 'keyword')
@@ -276,6 +277,7 @@ def test_misc1(env):
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
   res = env.cmd('ft.search', 'idx', '*less')
+  # Q: Upon removing the `WITHSUFFIXTRIE` from the schema, the `colorlessness` term is returned as well. BUG? The rest is working identically without `WITHSUFFIXTRIE`.
   actual_res = [2, 'doc3', ['t', 'doctorless'], 'doc6', ['t', 'floorless']]
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(actual_res))
 
