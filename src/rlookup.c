@@ -79,7 +79,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name/path of the field
     if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) ||
-        (kk->path != kk->name && !strncmp(kk->path, name, n))) {
+        (kk->path != kk->name && !strcmp(kk->path, name))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
