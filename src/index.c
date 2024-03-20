@@ -704,9 +704,9 @@ void IntersectIterator_Free(IndexIterator *it) {
       ui->testers[i]->Free(ui->testers[i]);
     }
   }
-  if (ui->bestIt) {
-    ui->bestIt->Free(ui->bestIt);
-  }
+  // if (ui->bestIt) {
+  //   ui->bestIt->Free(ui->bestIt);
+  // }
 
   rm_free(ui->docIds);
   rm_free(ui->its);
