@@ -5,6 +5,8 @@
  */
 
 #include "language.h"
+#include "rmutil/alloc.h"
+#include "util/strconv.h"
 #include <string.h>
 
 typedef struct langPair_s
@@ -96,7 +98,7 @@ RSLanguage RSLanguage_Find(const char *language, size_t len) {
     }
   } else {
     for (size_t i = 0; __langPairs[i].str != NULL; i++) {
-      if (!strncasecmp(language, __langPairs[i].str, len)) {
+      if (STR_EQCASE(language, len, __langPairs[i].str)) {
         return __langPairs[i].lang;
       }
     }
