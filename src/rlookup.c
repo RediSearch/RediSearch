@@ -394,7 +394,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
-static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
+static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -404,7 +404,7 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
-    return RS_OwnRedisStringVal(src);
+    return RS_OwnRedisStringVal((RedisModuleString *)src);
   }
 }
 
@@ -625,23 +625,20 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Get the actual hash value
-  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
 
-  if (rc == REDISMODULE_OK && val != NULL) {
+  if (val != NULL) {
     // `val` was created by `RedisModule_HashGet` and is owned by us.
     // This function might retain it, but it's thread-safe to free it afterwards without any locks
     // as it will hold the only reference to it after the next line.
     rsv = hvalToValue(val, (kk->flags & RLOOKUP_T_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
     RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strncmp(kk->path, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
-                                  keyPtr, strlen(keyPtr));
+  } else if (!strcmp(kk->path, UNDERSCORE_KEY)) {
+    const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
-    RedisModule_FreeString(options->sctx->redisCtx, keyName);
   } else {
     return REDISMODULE_OK;
   }
@@ -691,7 +688,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
-    if (!strncmp(kk->path, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+    if (!strcmp(kk->path, UNDERSCORE_KEY)) {
       rsv = RS_StringVal(rm_strdup(keyPtr), strlen(keyPtr));
     } else {
       return REDISMODULE_OK;

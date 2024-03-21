@@ -520,9 +520,10 @@ def testOptional(env):
 def testExplain(env):
 
     env.expect(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'foo', 'text', 'bar', 'numeric', 'sortable',
-        'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
+        'tag', 'TAG', 'g', 'GEOSHAPE', 'FLAT',
+        'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
     res = env.cmd('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
@@ -577,6 +578,54 @@ def testExplain(env):
     res = env.cmd('ft.explain', 'idx', *q)
     env.assertEqual(expected, res)
 
+    def _testExplain(env, idx, query, expected):
+        res = env.cmd('FT.EXPLAIN', idx, *query)
+        env.assertEqual(res, expected)
+
+        if not env.isCluster():
+            res = env.cmd('FT.EXPLAINCLI', idx, *query)
+            env.assertEqual(res, expected.split('\n'))
+
+    env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
+
+    # test empty query
+    _testExplain(env, 'idx', [""], "<empty>\n")
+
+    # test FUZZY
+    _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
+    
+    _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
+                 "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
+
+    # test wildcard with TAG field
+    _testExplain(env, 'idx', ["*"], "<WILDCARD>\n")
+
+    _testExplain(env, 'idx', ["@tag:{w'*'}"], "TAG:@tag {\n  WILDCARD{*}\n}\n")
+
+    _testExplain(env, 'idx', ["@tag:{w'*'}=>{$weight: 3;}"],
+                 "TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
+    
+    # test wildcard with TEXT field
+    _testExplain(env, 'idx', ["@t:(w'*')"], "@t:WILDCARD{*}\n")
+
+    _testExplain(env, 'idx', ["@t:(w'*')=>{$weight: 2; $slop:100}"],
+                 "@t:WILDCARD{*} => { $weight: 2; $slop: 100; $inorder: false; }\n")
+
+    _testExplain(env, 'idx', ["@t:(w'*')=>{$weight: 4; $slop:100; $inorder:true;}"],
+                 "@t:WILDCARD{*} => { $weight: 4; $slop: 100; $inorder: true; }\n")
+
+    _testExplain(env, 'idx', ["@t:(w'*')=>{$weight: 5; $inorder: true;}"],
+                 "@t:WILDCARD{*} => { $weight: 5; $inorder: true; }\n")
+
+    # test GEOSHAPES
+    _testExplain(env, 'idx', ['@g:[WITHIN $poly]', 'PARAMS', 2,
+                  'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))', 'DIALECT', 3],
+                  "GEOSHAPE{2 POLYGON((0 0, 0 1, 1 1, 0 0))}\n")
+
+    _testExplain(env, 'idx', ['@g:[CONTAINS $poly]=>{$weight: 3;}',
+                  'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))',
+                  'DIALECT', 3],
+                  "GEOSHAPE{1 POLYGON((0 0, 0 1, 1 1, 0 0))} => { $weight: 3; }\n")
 
 def testNoIndex(env):
     env.expect(
@@ -2623,6 +2672,7 @@ def testLimitBadArgument(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '1', '0').error().equal('The `offset` of the LIMIT must be 0 when `num` is 0')
 
 def testOnTimeoutBadArgument(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3112,7 +3162,7 @@ def testIssue1184(env):
 
 
         value = '42'
-        env.expect('FT.ADD idx doc0 1 FIELD field ' + value).ok()
+        env.expect('FT.ADD idx doc0 1 FIELDS field ' + value).ok()
         doc = env.cmd('FT.SEARCH idx *')
         env.assertEqual(doc, [1, 'doc0', ['field', value]])
 

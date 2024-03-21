@@ -12,8 +12,7 @@ static RSFunctionRegistry functions_g = {0};
 RSFunction RSFunctionRegistry_Get(const char *name, size_t len) {
 
   for (size_t i = 0; i < functions_g.len; i++) {
-    if (len == strlen(functions_g.funcs[i].name) &&
-        !strncasecmp(functions_g.funcs[i].name, name, len)) {
+    if (STR_EQCASE(name, len, functions_g.funcs[i].name)) {
       return functions_g.funcs[i].f;
     }
   }
