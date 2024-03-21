@@ -797,7 +797,41 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 1);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 1);
+}
+
+numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 0);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
+}
+
+numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -977,7 +1011,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (!strncasecmp("KNN", T.s, T.len)) {
+  if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
@@ -1019,7 +1053,7 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
 }
 
 vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
-  if (!strncasecmp("VECTOR_RANGE", T.s, T.len)) {
+  if (T.len == strlen("VECTOR_RANGE") && !strncasecmp("VECTOR_RANGE", T.s, T.len)) {
     C.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
   } else {
@@ -1040,11 +1074,6 @@ num(A) ::= SIZE(B). {
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
   A.inclusive = 1;
-}
-
-num(A) ::= LP num(B). {
-  A=B;
-  A.inclusive = 0;
 }
 
 num(A) ::= MINUS num(B). {
@@ -1112,7 +1141,13 @@ param_num(A) ::= num(B). {
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= LP ATTRIBUTE(B). {
+exclusive_param_num(A) ::= LP num(B). {
+  A.numval = B.num;
+  A.inclusive = 0;
+  A.type = QT_NUMERIC;
+}
+
+exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;

@@ -979,8 +979,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
-      // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
+        // We're at the end of the last block...
         goto eof;
       }
       IndexReader_AdvanceBlock(ir);
@@ -1231,13 +1231,13 @@ inline t_docId IR_LastDocId(void *ctx) {
 }
 
 void IR_Rewind(void *ctx) {
-
   IndexReader *ir = ctx;
   IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+  ir->sameId = 0;
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {

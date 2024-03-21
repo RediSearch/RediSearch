@@ -72,7 +72,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
         size_t sl = 0;
         const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
+          TrieMap_Add(dict, s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -299,8 +299,14 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   rm_free(ctx);
 }
 
-void searchRequestCtx_Free(searchRequestCtx *r) {
-  rm_free(r->queryString);
+static searchRequestCtx* searchRequestCtx_New(void) {
+  return rm_calloc(1, sizeof(searchRequestCtx));
+}
+
+static void searchRequestCtx_Free(searchRequestCtx *r) {
+  if(r->queryString) {
+    rm_free(r->queryString);
+  }
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -459,7 +465,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_malloc(sizeof *req);
+  searchRequestCtx *req = searchRequestCtx_New();
 
   req->initClock = clock();
 
@@ -692,18 +698,12 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
     res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  } else {
-    res->sortKey = NULL;
   }
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
-      char *eptr;
-      double d = strtod(res->sortKey + 1, &eptr);
-      if (eptr != res->sortKey + 1 && *eptr == 0) {
-        res->sortKeyNum = d;
-      }
-    } else if (!strncmp(res->sortKey, "none", 4)) {
-      res->sortKey = NULL;
+      char *endptr;
+      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -772,13 +772,9 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
-          char *eptr;
-          double d = strtod(res->sortKey + 1, &eptr);
-          if (eptr != res->sortKey + 1 && *eptr == 0) {
-            res->sortKeyNum = d;
-          }
-        } else if (!strncmp(res->sortKey, "none", 4)) {
-          res->sortKey = NULL;
+          char *endptr;
+          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -797,7 +793,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
    * ...           ---|
    * First field
    *
@@ -1526,6 +1522,14 @@ cleanup:
   return res;
 }
 
+static inline bool cannotBlockCtx(RedisModuleCtx *ctx) {
+  return RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+}
+
+static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *cmd) {
+  return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
+}
+
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
 // If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
 // Notice that only OSS cluster should deal with such redirections.
@@ -1536,6 +1540,9 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1558,6 +1565,9 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1582,6 +1592,9 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1617,6 +1630,9 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
     rm_free(localCmd);
     return RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1644,6 +1660,9 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                RSExecDistAggregate, ctx, argv, argc);
 }
@@ -1662,6 +1681,9 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // There is only one shard in the cluster. We can handle the command locally.
     return RSCursorCommand(ctx, argv, argc);
   }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc);
 }
@@ -1673,6 +1695,9 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -1693,6 +1718,9 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -1851,6 +1879,9 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));

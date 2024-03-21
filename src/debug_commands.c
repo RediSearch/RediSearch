@@ -5,6 +5,7 @@
  */
 
 #include "debug_commands.h"
+#include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -725,9 +726,6 @@ DEBUG_COMMAND(GCCleanNumeric) {
 
   NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
 
-  rt->numRanges += rv.numRanges;
-  rt->emptyLeaves = 0;
-
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -1107,6 +1105,77 @@ DEBUG_COMMAND(DeleteCursors) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
+	int **neighbours_data = NULL;
+	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
+	RedisModule_Reply reply = RedisModule_NewReply(ctx);
+	if (res == VecSimDebugCommandCode_LabelNotExists){
+		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+		RedisModule_EndReply(&reply);
+		return;
+	}
+	START_POSTPONED_LEN_ARRAY(response);
+	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
+
+	size_t level = 0;
+	while (neighbours_data[level]) {
+		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
+		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+		}
+    level++; ARRAY_LEN_VAR(response)++;
+	}
+	END_POSTPONED_LEN_ARRAY(response);
+	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+	RedisModule_EndReply(&reply);
+}
+
+DEBUG_COMMAND(dumpHNSWData) {
+  if (argc < 2 || argc > 3) { // it should be 2 or 3 (allowing specifying a certain doc)
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_VECTOR);
+  if (!keyName) {
+    RedisModule_ReplyWithError(ctx, "Vector index not found");
+	  goto cleanup;
+  }
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
+  if (info.algo != VecSimAlgo_HNSWLIB) {
+	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
+	  goto cleanup;
+  }
+  if (info.isMulti) {
+	  RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
+	  goto cleanup;
+  }
+
+  if (argc == 3) {  // we want the neighbors of a specific vector only
+	  size_t key_len;
+	  const char *key_name = RedisModule_StringPtrLen(argv[2], &key_len);
+	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
+	  if (doc_id == 0) {
+		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+		  goto cleanup;
+	  }
+	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
+	  goto cleanup;
+  }
+  // Otherwise, dump neighbors for every document in the index.
+  START_POSTPONED_LEN_ARRAY(num_docs);
+  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); (ARRAY_LEN_VAR(num_docs))++;})
+  END_POSTPONED_LEN_ARRAY(num_docs);
+
+  cleanup:
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 #ifdef MT_BUILD
 /**
  * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
@@ -1182,6 +1251,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               {"DUMP_HNSW", dumpHNSWData},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif

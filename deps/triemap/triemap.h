@@ -71,7 +71,7 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
  * node, and take care of freeing any unwanted pointers. The returned value
  * can be NULL and doesn't have to be either the old or new value.
  */
-int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
+int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
 
 /* Find the entry with a given string and length, and return its value, even if
  * that was NULL.
@@ -154,7 +154,7 @@ void TrieMapIterator_Free(TrieMapIterator *it);
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done and should exit 
+ * or 0 if we're done and should exit
  * NextContains is used by Contains and Suffix queries.
  * Wildcard is used by Wildcard queries.
  */
