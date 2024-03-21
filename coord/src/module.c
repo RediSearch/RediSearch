@@ -827,18 +827,12 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
     res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  } else {
-    res->sortKey = NULL;
   }
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
-      char *eptr;
-      double d = strtod(res->sortKey + 1, &eptr);
-      if (eptr != res->sortKey + 1 && *eptr == 0) {
-        res->sortKeyNum = d;
-      }
-    } else if (!strncmp(res->sortKey, "none", 4)) {
-      res->sortKey = NULL;
+      char *endptr;
+      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -907,13 +901,9 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
-          char *eptr;
-          double d = strtod(res->sortKey + 1, &eptr);
-          if (eptr != res->sortKey + 1 && *eptr == 0) {
-            res->sortKeyNum = d;
-          }
-        } else if (!strncmp(res->sortKey, "none", 4)) {
-          res->sortKey = NULL;
+          char *endptr;
+          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -932,7 +922,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
    * ...           ---|
    * First field
    *
