@@ -17,9 +17,7 @@ host = "localhost"
 port = 6379
 redis_conn = redis.Redis(decode_responses=True, host=host, port=port)
 
-n_vectors = int(sys.argv[1])
 dim = 768
-vecs_file = f"vectors_n_{n_vectors}_dim_{dim}.npy"
 
 def generate_and_store_random_vectors(n_vectors):
     print(f"generating random vectors, saving to {vecs_file}")
@@ -75,6 +73,9 @@ def run_queries(n_clients, stop_run, key):
             my_total_queries += 1
             if len(res.docs) < k:
                 print("less than k results which are: ", res)
+
+                # TODO : remove!!!!!!
+
             if (my_total_queries % 50_000) == 0:
                     print(redis_conn.execute_command("ft.debug worker_threads stats")[:4]) # ['totalJobsDone', 0, 'totalPendingJobs', 0]
                     redis_info = redis_conn.info()
@@ -105,6 +106,14 @@ def run_queries(n_clients, stop_run, key):
 
 
 if __name__ == '__main__':
+    if len(sys.argv) > 1:
+        n_vectors = int(sys.argv[1])
+    else:
+        n_vectors = 1_000_000  # Default value
+
+    vecs_file = f"vectors_n_{n_vectors}_dim_{dim}.npy"
+
+    print("n_vectors = ", n_vectors)
     if os.path.exists(vecs_file) == False:
         generate_and_store_random_vectors(n_vectors)
     else:
