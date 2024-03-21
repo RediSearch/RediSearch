@@ -47,9 +47,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      run: |
-        #source venv/bin/activate
-        make coverage QUICK=1 SHOW=1
+      run: make coverage QUICK=1 SHOW=1
     - name: Upload coverage
       uses: codecov/codecov-action@v3
       with:

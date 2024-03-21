@@ -70,9 +70,7 @@ jobs:
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
-        run: |
-          # source venv/bin/activate
-          pip install -q -r .install/build_package_requirments.txt
+        run: pip install -q -r .install/build_package_requirments.txt
 
       - name: Restore Boost
         id: restore-boost
@@ -89,6 +87,7 @@ jobs:
       - name: Define BOOST_DIR
         working-directory: .install/boost
         run: echo "BOOST_DIR=$PWD" >> $GITHUB_ENV
+
       # Get Redis
       - name: Get Redis
         uses: actions/checkout@v3
