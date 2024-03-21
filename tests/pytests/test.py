@@ -629,34 +629,34 @@ def testExplain(env):
 
     # test numeric operators - they are only supported in DIALECT 2
     
-    _testExplain(env, 'idx', ['@bar:>1'],
+    _testExplain(env, 'idx', ['@bar>1'],
                  'NUMERIC {1.000000 < @bar <= inf}\n')
 
-    _testExplain(env, 'idx', ['@bar:>=2'],
+    _testExplain(env, 'idx', ['@bar>=2'],
                  'NUMERIC {2.000000 <= @bar <= inf}\n')
 
-    _testExplain(env, 'idx', ['@bar:<-1'],
+    _testExplain(env, 'idx', ['@bar<-1'],
                  'NUMERIC {-inf <= @bar < -1.000000}\n')
 
-    _testExplain(env, 'idx', ['@bar:<=-3.14'],
+    _testExplain(env, 'idx', ['@bar<=-3.14'],
                  'NUMERIC {-inf <= @bar <= -3.140000}\n')
 
-    _testExplain(env, 'idx', ['@bar:==5.7'],
+    _testExplain(env, 'idx', ['@bar==5.7'],
                  'NUMERIC {5.700000 <= @bar <= 5.700000}\n')
 
-    _testExplain(env, 'idx', ['@bar:!=0'],
+    _testExplain(env, 'idx', ['@bar!=0'],
                  'NOT{\n  NUMERIC {0.000000 <= @bar <= 0.000000}\n}\n')
 
-    _testExplain(env, 'idx', ['@bar:==$n', 'PARAMS', '2', 'n', '9.3'],
+    _testExplain(env, 'idx', ['@bar==$n', 'PARAMS', '2', 'n', '9.3'],
                 'NUMERIC {9.300000 <= @bar <= 9.300000}\n')
 
-    _testExplain(env, 'idx', ['@bar:==+$n', 'PARAMS', 2, 'n', 10],
+    _testExplain(env, 'idx', ['@bar==+$n', 'PARAMS', 2, 'n', 10],
                  'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
 
-    _testExplain(env, 'idx', ['@bar:>=12 @bar:<inf'],
+    _testExplain(env, 'idx', ['@bar>=12 @bar<inf'],
                 'INTERSECT {\n  NUMERIC {12.000000 <= @bar <= inf}\n  NUMERIC {-inf <= @bar < inf}\n}\n')
 
-    _testExplain(env, 'idx', ['@bar:<-10 | @bar:>10'],
+    _testExplain(env, 'idx', ['@bar<-10 | @bar>10'],
                  'UNION {\n  NUMERIC {-inf <= @bar < -10.000000}\n  NUMERIC {10.000000 < @bar <= inf}\n}\n')
 
 def testNoIndex(env):
