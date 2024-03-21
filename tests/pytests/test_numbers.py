@@ -770,3 +770,4 @@ def testNumericOperators(env):
     env.expect('FT.SEARCH', 'idx', "@n!>=1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n>>1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n<<1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n*-").error().contains('Syntax error')
