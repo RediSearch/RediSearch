@@ -26,7 +26,7 @@
 %left AND.
 
 %left NOT_EQUAL EQUAL.
-%left GE GREATER SE SMALLER.
+%left GE GT LE LT.
 
 %left ARROW.
 %left COLON.
@@ -873,7 +873,7 @@ numeric_operator(A) ::= EQUAL EQUAL param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
-numeric_operator(A) ::= GREATER param_num(B). {
+numeric_operator(A) ::= GT param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
 }
 
@@ -881,11 +881,11 @@ numeric_operator(A) ::= GE param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
 }
 
-numeric_operator(A) ::= SMALLER param_num(B). {
+numeric_operator(A) ::= LT param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
 }
 
-numeric_operator(A) ::= SE param_num(B). {
+numeric_operator(A) ::= LE param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
 }
 

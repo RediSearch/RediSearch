@@ -18,9 +18,9 @@
 #define NOT_EQUAL                       18
 #define EQUAL                           19
 #define GE                              20
-#define GREATER                         21
-#define SE                              22
-#define SMALLER                         23
+#define GT                              21
+#define LE                              22
+#define LT                              23
 #define ARROW                           24
 #define COLON                           25
 #define NUMBER                          26

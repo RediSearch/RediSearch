@@ -49,10 +49,10 @@ percent = '%';
 exclamation = '!';
 not_equal = '!=';
 equal = '=';
-greater = '>';
+gt = '>';
 ge = '>=';
-smaller = '<';
-se = '<=';
+lt = '<';
+le = '<=';
 rsqb = ']';
 lsqb = '[';
 escape = '\\';
@@ -163,9 +163,9 @@ main := |*
     }
   };
 
-  greater => {
+  gt => {
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, GREATER, tok, q);
+    RSQuery_Parse_v2(pParser, GT, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -179,25 +179,25 @@ main := |*
     }
   };
 
-  smaller => {
+  lt => {
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, SMALLER, tok, q);
+    RSQuery_Parse_v2(pParser, LT, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  smaller => {
+  le => {
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, SMALLER, tok, q);
+    RSQuery_Parse_v2(pParser, LE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
 
-  se => {
+  lt => {
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, SE, tok, q);
+    RSQuery_Parse_v2(pParser, LT, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

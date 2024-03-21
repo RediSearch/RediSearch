@@ -117,9 +117,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 #define NOT_EQUAL                      18
 #define EQUAL                          19
 #define GE                             20
-#define GREATER                        21
-#define SE                             22
-#define SMALLER                        23
+#define GT                             21
+#define LE                             22
+#define LT                             23
 #define ARROW                          24
 #define COLON                          25
 #define NUMBER                         26
@@ -553,9 +553,9 @@ static const YYCODETYPE yyFallback[] = {
     0,  /*  NOT_EQUAL => nothing */
     0,  /*      EQUAL => nothing */
     0,  /*         GE => nothing */
-    0,  /*    GREATER => nothing */
-    0,  /*         SE => nothing */
-    0,  /*    SMALLER => nothing */
+    0,  /*         GT => nothing */
+    0,  /*         LE => nothing */
+    0,  /*         LT => nothing */
     0,  /*      ARROW => nothing */
     0,  /*      COLON => nothing */
     0,  /*     NUMBER => nothing */
@@ -681,9 +681,9 @@ static const char *const yyTokenName[] = {
   /*   18 */ "NOT_EQUAL",
   /*   19 */ "EQUAL",
   /*   20 */ "GE",
-  /*   21 */ "GREATER",
-  /*   22 */ "SE",
-  /*   23 */ "SMALLER",
+  /*   21 */ "GT",
+  /*   22 */ "LE",
+  /*   23 */ "LT",
   /*   24 */ "ARROW",
   /*   25 */ "COLON",
   /*   26 */ "NUMBER",
@@ -809,10 +809,10 @@ static const char *const yyRuleName[] = {
  /*  64 */ "expr ::= modifier COLON NOT_EQUAL param_num",
  /*  65 */ "expr ::= modifier COLON numeric_operator",
  /*  66 */ "numeric_operator ::= EQUAL EQUAL param_num",
- /*  67 */ "numeric_operator ::= GREATER param_num",
+ /*  67 */ "numeric_operator ::= GT param_num",
  /*  68 */ "numeric_operator ::= GE param_num",
- /*  69 */ "numeric_operator ::= SMALLER param_num",
- /*  70 */ "numeric_operator ::= SE param_num",
+ /*  69 */ "numeric_operator ::= LT param_num",
+ /*  70 */ "numeric_operator ::= LE param_num",
  /*  71 */ "expr ::= modifier COLON geo_filter",
  /*  72 */ "geo_filter ::= LSQB param_num param_num param_num param_term RSQB",
  /*  73 */ "expr ::= modifier COLON geometry_query",
@@ -1417,10 +1417,10 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     40,  /* (64) expr ::= modifier COLON NOT_EQUAL param_num */
     40,  /* (65) expr ::= modifier COLON numeric_operator */
     63,  /* (66) numeric_operator ::= EQUAL EQUAL param_num */
-    63,  /* (67) numeric_operator ::= GREATER param_num */
+    63,  /* (67) numeric_operator ::= GT param_num */
     63,  /* (68) numeric_operator ::= GE param_num */
-    63,  /* (69) numeric_operator ::= SMALLER param_num */
-    63,  /* (70) numeric_operator ::= SE param_num */
+    63,  /* (69) numeric_operator ::= LT param_num */
+    63,  /* (70) numeric_operator ::= LE param_num */
     40,  /* (71) expr ::= modifier COLON geo_filter */
     53,  /* (72) geo_filter ::= LSQB param_num param_num param_num param_term RSQB */
     40,  /* (73) expr ::= modifier COLON geometry_query */
@@ -1533,10 +1533,10 @@ static const signed char yyRuleInfoNRhs[] = {
    -4,  /* (64) expr ::= modifier COLON NOT_EQUAL param_num */
    -3,  /* (65) expr ::= modifier COLON numeric_operator */
    -3,  /* (66) numeric_operator ::= EQUAL EQUAL param_num */
-   -2,  /* (67) numeric_operator ::= GREATER param_num */
+   -2,  /* (67) numeric_operator ::= GT param_num */
    -2,  /* (68) numeric_operator ::= GE param_num */
-   -2,  /* (69) numeric_operator ::= SMALLER param_num */
-   -2,  /* (70) numeric_operator ::= SE param_num */
+   -2,  /* (69) numeric_operator ::= LT param_num */
+   -2,  /* (70) numeric_operator ::= LE param_num */
    -3,  /* (71) expr ::= modifier COLON geo_filter */
    -6,  /* (72) geo_filter ::= LSQB param_num param_num param_num param_term RSQB */
    -3,  /* (73) expr ::= modifier COLON geometry_query */
@@ -2087,7 +2087,7 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
   yymsp[-2].minor.yy56 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
 }
         break;
-      case 67: /* numeric_operator ::= GREATER param_num */
+      case 67: /* numeric_operator ::= GT param_num */
 {
   yymsp[-1].minor.yy56 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 0, 1);
 }
@@ -2097,12 +2097,12 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
   yymsp[-1].minor.yy56 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, NULL, 1, 1);
 }
         break;
-      case 69: /* numeric_operator ::= SMALLER param_num */
+      case 69: /* numeric_operator ::= LT param_num */
 {
   yymsp[-1].minor.yy56 = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 0);
 }
         break;
-      case 70: /* numeric_operator ::= SE param_num */
+      case 70: /* numeric_operator ::= LE param_num */
 {
   yymsp[-1].minor.yy56 = NewNumericFilterQueryParam_WithParams(ctx, NULL, &yymsp[0].minor.yy0, 1, 1);
 }

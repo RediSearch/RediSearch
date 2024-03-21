@@ -467,10 +467,10 @@ _eof_trans:
   }}
 	break;
 	case 19:
-/* #line 198 "lexer.rl" */
+/* #line 190 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, SE, tok, q);
+    RSQuery_Parse_v2(pParser, LE, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -729,7 +729,7 @@ _eof_trans:
 /* #line 166 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, GREATER, tok, q);
+    RSQuery_Parse_v2(pParser, GT, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -739,7 +739,7 @@ _eof_trans:
 /* #line 182 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts - q->raw;
-    RSQuery_Parse_v2(pParser, SMALLER, tok, q);
+    RSQuery_Parse_v2(pParser, LT, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
