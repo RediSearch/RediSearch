@@ -428,8 +428,14 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   rm_free(ctx);
 }
 
-void searchRequestCtx_Free(searchRequestCtx *r) {
-  rm_free(r->queryString);
+static searchRequestCtx* searchRequestCtx_New(void) {
+  return rm_calloc(1, sizeof(searchRequestCtx));
+}
+
+static void searchRequestCtx_Free(searchRequestCtx *r) {
+  if(r->queryString) {
+    rm_free(r->queryString);
+  }
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -588,7 +594,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_malloc(sizeof *req);
+  searchRequestCtx *req = searchRequestCtx_New();
 
   req->initClock = clock();
 
@@ -821,18 +827,12 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
     res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  } else {
-    res->sortKey = NULL;
   }
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
-      char *eptr;
-      double d = strtod(res->sortKey + 1, &eptr);
-      if (eptr != res->sortKey + 1 && *eptr == 0) {
-        res->sortKeyNum = d;
-      }
-    } else if (!strncmp(res->sortKey, "none", 4)) {
-      res->sortKey = NULL;
+      char *endptr;
+      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -901,13 +901,9 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
-          char *eptr;
-          double d = strtod(res->sortKey + 1, &eptr);
-          if (eptr != res->sortKey + 1 && *eptr == 0) {
-            res->sortKeyNum = d;
-          }
-        } else if (!strncmp(res->sortKey, "none", 4)) {
-          res->sortKey = NULL;
+          char *endptr;
+          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -926,7 +922,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwords comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
    * ...           ---|
    * First field
    *
