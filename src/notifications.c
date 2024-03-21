@@ -189,17 +189,17 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 /********************************************************
  *              Handling RedisJSON commands             *
  ********************************************************/
-  if (!strncmp(event, "json.", strlen("json."))) {
-    if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
-        !strncmp(event + JSON_LEN, "del", strlen("del")) ||
-        !strncmp(event + JSON_LEN, "numincrby", strlen("incrby")) ||
-        !strncmp(event + JSON_LEN, "nummultby", strlen("nummultby")) ||
-        !strncmp(event + JSON_LEN, "strappend", strlen("strappend")) ||
-        !strncmp(event + JSON_LEN, "arrappend", strlen("arrappend")) ||
-        !strncmp(event + JSON_LEN, "arrinsert", strlen("arrinsert")) ||
-        !strncmp(event + JSON_LEN, "arrpop", strlen("arrpop")) ||
-        !strncmp(event + JSON_LEN, "arrtrim", strlen("arrtrim")) ||
-        !strncmp(event + JSON_LEN, "toggle", strlen("toggle"))) {
+  if (!strncmp(event, "json.", JSON_LEN)) {
+    if (!strcmp(event + JSON_LEN, "set") ||
+        !strcmp(event + JSON_LEN, "del") ||
+        !strcmp(event + JSON_LEN, "numincrby") ||
+        !strcmp(event + JSON_LEN, "nummultby") ||
+        !strcmp(event + JSON_LEN, "strappend") ||
+        !strcmp(event + JSON_LEN, "arrappend") ||
+        !strcmp(event + JSON_LEN, "arrinsert") ||
+        !strcmp(event + JSON_LEN, "arrpop") ||
+        !strcmp(event + JSON_LEN, "arrtrim") ||
+        !strcmp(event + JSON_LEN, "toggle")) {
       // update index
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
     }

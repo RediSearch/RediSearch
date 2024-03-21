@@ -219,8 +219,9 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
   if (lang_rms == NULL) {
     goto done;
   }
-  const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
-  lang = RSLanguage_Find(lang_s, 0);
+  size_t len;
+  const char *lang_s = RedisModule_StringPtrLen(lang_rms, &len);
+  lang = RSLanguage_Find(lang_s, len);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;

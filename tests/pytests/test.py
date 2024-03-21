@@ -3127,7 +3127,7 @@ def testIssue1184(env):
 
 
         value = '42'
-        env.expect('FT.ADD idx doc0 1 FIELD field ' + value).ok()
+        env.expect('FT.ADD idx doc0 1 FIELDS field ' + value).ok()
         doc = env.cmd('FT.SEARCH idx *')
         env.assertEqual(doc, [1, 'doc0', ['field', value]])
 

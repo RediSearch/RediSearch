@@ -78,11 +78,8 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
-    if (len != strlen(spec->fields[i].name)) {
-      continue;
-    }
     const FieldSpec *fs = spec->fields + i;
-    if (!strncmp(fs->name, name, len)) {
+    if (STR_EQ(name, len, fs->name)) {
       return fs;
     }
   }
@@ -391,13 +388,13 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
+  if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT32))
     *type = VecSimType_FLOAT32;
-  else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT64))
     *type = VecSimType_FLOAT64;
-  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
+  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
-  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
+  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
   //   *type = VecSimType_INT64;
   else
     return AC_ERR_ENOENT;
@@ -408,16 +405,15 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
 // the supported distance metric functions list of VecSim.
 static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   const char *metricStr;
-  size_t len;
   int rc;
-  if ((rc = AC_GetString(ac, &metricStr, &len, 0)) != AC_OK) {
+  if ((rc = AC_GetString(ac, &metricStr, NULL, 0)) != AC_OK) {
     return rc;
   }
-  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len))
+  if (!strcasecmp(VECSIM_METRIC_IP, metricStr))
     *metric = VecSimMetric_IP;
-  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len))
+  else if (!strcasecmp(VECSIM_METRIC_L2, metricStr))
     *metric = VecSimMetric_L2;
-  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len))
+  else if (!strcasecmp(VECSIM_METRIC_COSINE, metricStr))
     *metric = VecSimMetric_Cosine;
   else
     return AC_ERR_ENOENT;
@@ -688,13 +684,13 @@ static int parseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryE
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
-  if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
+  if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, ac, status);
-  } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
+  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_HNSWLIB;
     fs->vectorOpts.vecSimParams.hnswParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.hnswParams.blockSize = 0;
@@ -2232,8 +2228,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
-    size_t dummy;
-    char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
+    char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
