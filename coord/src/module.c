@@ -416,8 +416,14 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   rm_free(ctx);
 }
 
-void searchRequestCtx_Free(searchRequestCtx *r) {
-  rm_free(r->queryString);
+static searchRequestCtx* searchRequestCtx_New(void) {
+  return rm_calloc(1, sizeof(searchRequestCtx));
+}
+
+static void searchRequestCtx_Free(searchRequestCtx *r) {
+  if(r->queryString) {
+    rm_free(r->queryString);
+  }
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -558,7 +564,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     return NULL;
   }
 
-  searchRequestCtx *req = rm_malloc(sizeof *req);
+  searchRequestCtx *req = searchRequestCtx_New();
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
