@@ -747,7 +747,9 @@ def testNumericOperators(env):
         .contains('Invalid numeric value')
     env.expect('FT.SEARCH', 'idx', "@n:==w'").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n:!!=1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:! =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:> =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n:< =1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n:!>=1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n:>>1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n:<<1").error().contains('Syntax error')
-

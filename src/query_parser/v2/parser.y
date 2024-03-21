@@ -22,10 +22,11 @@
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS EXCLAMATION .
+%left TILDE MINUS EXCLAMATION.
 %left AND.
 
-%left EQUAL GREATER SMALLER.
+%left NOT_EQUAL EQUAL.
+%left GE GREATER SE SMALLER.
 
 %left ARROW.
 %left COLON.
@@ -845,7 +846,7 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 // Numeric Operators
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON EXCLAMATION EQUAL param_num(C). {
+expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
   
   if (D) {
@@ -876,7 +877,7 @@ numeric_operator(A) ::= GREATER param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
 }
 
-numeric_operator(A) ::= GREATER EQUAL param_num(B). {
+numeric_operator(A) ::= GE param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
 }
 
@@ -884,7 +885,7 @@ numeric_operator(A) ::= SMALLER param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
 }
 
-numeric_operator(A) ::= SMALLER EQUAL param_num(B). {
+numeric_operator(A) ::= SE param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
 }
 
