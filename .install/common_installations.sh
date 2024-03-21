@@ -9,7 +9,7 @@ activate_venv() {
 		echo "source venv/bin/activate" >> ~/.bashrc
 		echo "source venv/bin/activate" >> ~/.zshrc
 	else
-		$MODE cp $PWD/venv/bin/activate /etc/profile.d/activate_venv.sh
+		echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
 	fi
 }
 
