@@ -534,13 +534,10 @@ def ShortReadSearch(env, rdbs_start_idx, rdbs_end_idx):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
 
-    if CODE_COVERAGE or SANITIZER:
-        env.skip()  # FIXME: enable coverage test
+    # if CODE_COVERAGE or SANITIZER:
+    #     env.skip()  # FIXME: enable coverage test
 
     if env.env.endswith('existing-env') and CI:
-        env.skip()
-
-    if OS == 'macos':
         env.skip()
 
     seed = str(time.time())
