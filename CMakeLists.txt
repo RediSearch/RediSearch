@@ -6,9 +6,6 @@ include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
-str_from_env(CONAN_BINDIR)
-set(CMAKE_MODULE_PATH ${CONAN_BINDIR})
-
 #----------------------------------------------------------------------------------------------
 
 option(BUILD_STATIC "Build a static library" OFF)
@@ -150,7 +147,7 @@ else() # OSS RediSearch
     target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
-    
+
     add_dependencies(redisearch VectorSimilarity)
 endif()
 
