@@ -172,8 +172,10 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
 
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
+  it->mode = MODE_SORTED;
   it->ctx = ctx;
   it->type = UNION_ITERATOR;
+  it->GetCriteriaTester = UI_GetCriteriaTester;
   it->NumEstimated = UI_NumEstimated;
   it->LastDocId = UI_LastDocId;
   it->Read = UI_ReadSorted;
@@ -187,9 +189,34 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
 
   for (size_t i = 0; i < num; ++i) {
     ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
+    if (its[i]->mode == MODE_UNSORTED) {
+      it->mode = MODE_UNSORTED;
+      it->Read = UI_ReadUnsorted;
+    }
   }
 
-  if (ctx->norig > config->minUnionIterHeap) {
+  const size_t maxresultsSorted = config->maxResultsToUnsortedMode;
+  // this code is normally (and should be) dead.
+  // i.e. the deepest-most IndexIterator does not have a CT
+  //      so it will always eventually return NULL CT
+  if (it->mode == MODE_SORTED && ctx->nexpected >= maxresultsSorted) {
+    // make sure all the children support CriteriaTester
+    int ctSupported = 1;
+    for (int i = 0; i < ctx->num; ++i) {
+      IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ctx->origits[i]);
+      if (!tester) {
+        ctSupported = 0;
+        break;
+      }
+      tester->Free(tester);
+    }
+    if (ctSupported) {
+      it->mode = MODE_UNSORTED;
+      it->Read = UI_ReadUnsorted;
+    }
+  }
+
+  if (it->mode == MODE_SORTED && ctx->norig > config->minUnionIterHeap) {
     it->Read = UI_ReadSortedHigh;
     it->SkipTo = UI_SkipToHigh;
     ctx->heapMinId = rm_malloc(heap_sizeof(num));
@@ -667,6 +694,9 @@ void IntersectIterator_Free(IndexIterator *it) {
   IntersectIterator *ui = it->ctx;
   for (int i = 0; i < ui->num; i++) {
     if (ui->its[i] != NULL) {
+      if(ui->its[i] == ui->bestIt) {
+        ui->bestIt = NULL;
+      }
       ui->its[i]->Free(ui->its[i]);
     }
     // IndexResult_Free(&ui->currentHits[i]);
@@ -676,6 +706,9 @@ void IntersectIterator_Free(IndexIterator *it) {
     if (ui->testers[i]) {
       ui->testers[i]->Free(ui->testers[i]);
     }
+  }
+  if (ui->bestIt) {
+    ui->bestIt->Free(ui->bestIt);
   }
 
   rm_free(ui->docIds);
