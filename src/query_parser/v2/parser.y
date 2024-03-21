@@ -797,7 +797,7 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 1);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
@@ -807,7 +807,7 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 1);
 }
 
 numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -817,7 +817,7 @@ numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, 0);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 0);
 }
 
 numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
@@ -828,6 +828,10 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
+}
+
+numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1072,11 +1076,6 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
-num(A) ::= LP num(B). {
-  A=B;
-  A.inclusive = 0;
-}
-
 term(A) ::= TERM(B) . {
   A = B;
 }
@@ -1148,6 +1147,12 @@ param_num(A) ::= PLUS ATTRIBUTE(B). {
 param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
+  A.type = QT_NUMERIC;
+}
+
+exclusive_param_num(A) ::= LP num(B). {
+  A.numval = B.num;
+  A.inclusive = 0;
   A.type = QT_NUMERIC;
 }
 

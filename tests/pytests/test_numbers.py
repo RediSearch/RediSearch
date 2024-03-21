@@ -441,12 +441,13 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT')
     env.assertEqual(res2, expected)
 
+    # TODO: this was removed by the PR#4486
     # Multiple parenthesis are allowed
-    expected = [1, 'doc05']
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]', 'NOCONTENT')
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]', 'NOCONTENT')
-    env.assertEqual(res, expected)
+    # expected = [1, 'doc05']
+    # res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]', 'NOCONTENT')
+    # env.assertEqual(res, expected)
+    # res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]', 'NOCONTENT')
+    # env.assertEqual(res, expected)
 
     # invalid syntax - multiple signs are not allowed
     env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
