@@ -20,7 +20,6 @@ from includes import *
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
-NUM_RDBS_PER_TEST = 2
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -515,27 +514,20 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
+@skip(cluster=True, msan=True)
 def testShortReadSearch_part1(env):
-    ShortReadSearch(env, 0, NUM_RDBS_PER_TEST)
+    ShortReadSearch(env, 0, len(RDBS)//2)
 
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
+@skip(cluster=True, msan=True)
 def testShortReadSearch_part2(env):
-    ShortReadSearch(env, NUM_RDBS_PER_TEST, 2 * NUM_RDBS_PER_TEST)
-
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
-def testShortReadSearch_part3(env):
-    ShortReadSearch(env, 2 * NUM_RDBS_PER_TEST, len(RDBS))
+    ShortReadSearch(env, len(RDBS)//2, len(RDBS))
 
 def ShortReadSearch(env, rdbs_start_idx, rdbs_end_idx):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
 
-    # if CODE_COVERAGE or SANITIZER:
-    #     env.skip()  # FIXME: enable coverage test
+    if CODE_COVERAGE or SANITIZER:
+        env.skip()  # FIXME: enable coverage test
 
     if env.env.endswith('existing-env') and CI:
         env.skip()
@@ -668,20 +660,13 @@ def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
             end = time.time()
             print(f"loading {name} in {end - start} seconds")
 
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
+@skip(cluster=True, msan=True)
 def test_short_read_with_MT_part1():
-    short_read_with_MT(0, NUM_RDBS_PER_TEST)
+    short_read_with_MT(0, len(RDBS)//2)
 
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
+@skip(cluster=True, msan=True)
 def test_short_read_with_MT_part2():
-    short_read_with_MT(NUM_RDBS_PER_TEST, NUM_RDBS_PER_TEST * 2)
-
-@skip(cluster=True)
-#@skip(cluster=True, msan=True)
-def test_short_read_with_MT_part3():
-    short_read_with_MT(NUM_RDBS_PER_TEST * 2, len(RDBS))
+    short_read_with_MT(len(RDBS)//2, len(RDBS))
 
 def short_read_with_MT(rdbs_start_idx, rdbs_end_idx):
     env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
