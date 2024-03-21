@@ -1027,3 +1027,57 @@ def test_mod6186(env):
     env.expect('FT.EXPLAINCLI idx *abc').equal(['SUFFIX{*abc}', ''])
     env.expect('FT.EXPLAINCLI idx *abc*').equal(['INFIX{*abc*}', ''])
 
+@skip(cluster=True)
+def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
+    dim = 1000
+    n_vectors = 50000
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
+
+    # Create HNSW index which is large enough, so we'll get timeout later on.
+    env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
+               f' t text').equal('OK')
+    for i in range(n_vectors):
+        env.expect('HSET', i, 'v', create_np_array_typed(np.random.rand(dim)).tobytes(), 't', f'meta data').equal(2)
+
+    # There was a bug causing this to unlock the tiered HNSW index locks twice (in case of timeout + adhoc BF mode).
+    query_vec = create_np_array_typed(np.random.rand(dim))
+    env.expect('FT.SEARCH', 'idx', 'meta=>[KNN 5 @v $vec_param HYBRID_POLICY ADHOC_BF]', 'NOCONTENT',
+                             'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'DIALECT', 2)\
+        .error().contains('Timeout limit was reached')
+    # Then, when we delete inplace and tried to acquire the locks again for write, we got a deadlock.
+    env.expect('DEL 0').equal(1)
+
+@skip(cluster=False)
+def test_mod_6541(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  cmds = [
+    ('FT.SEARCH', 'idx', '*'),
+    ('FT.AGGREGATE', 'idx', '*'),
+    ('FT.CURSOR', 'READ', 'idx', '0'),
+    ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'),
+    ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
+    ('FT.INFO', 'idx'),
+    ('FT.SPELLCHECK', 'idx', 'foo'),
+    ('FT.SUGLEN', 'idx', 'foo'),
+    ('FT.ALIASADD', 'alias', 'idx'),
+    # Deprecated commands
+    ('FT.TAGVALS', 'idx', 't'),
+    ('FT.MGET', 'idx', 'doc1', 'doc2'),
+  ]
+
+  def expect_error(cmd):
+    return f'Cannot perform `{cmd[0]}`: Cannot block'
+
+  # Test MULTI/EXEC
+  for cmd in cmds:
+    env.expect('MULTI').ok()
+    env.expect(*cmd).equal('QUEUED')
+    res = env.cmd('EXEC')
+    env.assertEqual(len(res), 1, message=cmd[0])
+    env.assertIsInstance(res[0], redis_exceptions.ResponseError)
+    env.assertEqual(str(res[0]), expect_error(cmd))
+
+  # Test Lua
+  for cmd in cmds:
+    env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
