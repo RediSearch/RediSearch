@@ -5,6 +5,7 @@ from redis import Redis, RedisCluster, cluster, exceptions
 
 from common import *
 from RLTest import Env
+from random import randint
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -1018,3 +1019,21 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
+
+def test_mod_6599_query(env):
+    docs = 1000
+    for i in range(docs):
+        key = "{doc}:" + str(i)
+        numstr = '' . join([str(randint(0,9)) for _ in range(11)])
+        env.cmd("HSET", key, "id", "docum" + numstr, "gender", i%2)
+
+    env.cmd('FT.CREATE idx ON HASH SCHEMA id TEXT gender NUMERIC')
+    waitForIndex(env, 'idx')
+
+    # Test that the query is not crashing if run multiple times
+    for i in range(12):
+        res = env.cmd("FT.SEARCH", "idx",
+                      "(@id: ~doc* ) | (@id: ~docum*)",
+                      "LIMIT", "0", "50", "NOCONTENT",
+                      "FILTER", "gender", "1", "1")
+        env.assertEqual(res[0], docs/2)
