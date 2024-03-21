@@ -707,6 +707,10 @@ def testNumericOperators(env):
                    'PARAMS', 2, 'n', '-inf', 'LIMIT', 0, 20,
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:!=+$n', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '-inf', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
 
     # Test range and operator in the same query
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:==3.14 | @n:[10 13]', 'NOCONTENT')

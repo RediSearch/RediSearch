@@ -848,15 +848,10 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 
 expr(A) ::= modifier(B) COLON NOT_EQUAL param_num(C). {
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-  
-  if (D) {
-    // we keep the capitalization as is
-    D->nf->fieldName = rm_strndup(B.s, B.len);
-    QueryNode* E = NewNumericNode(D);
-    A = NewNotNode(E);
-  } else {
-    A = NewQueryNode(QN_NULL);
-  }
+  // we keep the capitalization as is
+  D->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(D);
+  A = NewNotNode(E);
 }
 
 expr(A) ::= modifier(B) COLON numeric_operator(C). {

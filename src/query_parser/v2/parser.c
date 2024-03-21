@@ -2070,15 +2070,10 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
       case 64: /* expr ::= modifier COLON NOT_EQUAL param_num */
 {
   QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
-  
-  if (D) {
-    // we keep the capitalization as is
-    D->nf->fieldName = rm_strndup(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    QueryNode* E = NewNumericNode(D);
-    yylhsminor.yy47 = NewNotNode(E);
-  } else {
-    yylhsminor.yy47 = NewQueryNode(QN_NULL);
-  }
+  // we keep the capitalization as is
+  D->nf->fieldName = rm_strndup(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
+  QueryNode* E = NewNumericNode(D);
+  yylhsminor.yy47 = NewNotNode(E);
 }
   yymsp[-3].minor.yy47 = yylhsminor.yy47;
         break;
