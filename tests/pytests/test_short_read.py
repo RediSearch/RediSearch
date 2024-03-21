@@ -660,11 +660,11 @@ def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
             end = time.time()
             print(f"loading {name} in {end - start} seconds")
 
-@skip(cluster=True, msan=True)
+@skip(cluster=True, asan=True)
 def test_short_read_with_MT_part1():
     short_read_with_MT(0, len(RDBS)//2)
 
-@skip(cluster=True, msan=True)
+@skip(cluster=True, asan=True)
 def test_short_read_with_MT_part2():
     short_read_with_MT(len(RDBS)//2, len(RDBS))
 
