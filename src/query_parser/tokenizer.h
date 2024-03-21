@@ -54,6 +54,7 @@ typedef struct {
   double numval;
   int inclusive;
   QueryTokenType type;
+  int sign; // for numeric range, it stores the sign of the parameter
 } QueryToken;
 
 typedef struct {
