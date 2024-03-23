@@ -533,7 +533,7 @@ def testExplain(env):
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
-        'tag', 'TAG', 'g', 'GEOSHAPE', 'FLAT',
+        'tag', 'TAG', 'geom', 'GEOSHAPE', 'FLAT', 'g', 'GEO',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
     res = r.execute_command('ft.explain', 'idx', q)
@@ -629,14 +629,22 @@ def testExplain(env):
                  "@t:WILDCARD{*} => { $weight: 5; $inorder: true; }\n")
 
     # test GEOSHAPES
-    _testExplain(env, 'idx', ['@g:[WITHIN $poly]', 'PARAMS', 2,
+    _testExplain(env, 'idx', ['@geom:[WITHIN $poly]', 'PARAMS', 2,
                   'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))', 'DIALECT', 3],
                   "GEOSHAPE{2 POLYGON((0 0, 0 1, 1 1, 0 0))}\n")
 
-    _testExplain(env, 'idx', ['@g:[CONTAINS $poly]=>{$weight: 3;}',
+    _testExplain(env, 'idx', ['@geom:[CONTAINS $poly]=>{$weight: 3;}',
                   'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))',
                   'DIALECT', 3],
                   "GEOSHAPE{1 POLYGON((0 0, 0 1, 1 1, 0 0))} => { $weight: 3; }\n")
+
+    # test GEO
+    _testExplain(env, 'idx', ['@g:[$lat $lon $radius km]', 'PARAMS', '6',
+                    'lat', '10', 'lon', '20', 'radius', '30'],
+                    "GEO g:{10.000000,20.000000 --> 30.000000 km}\n")
+
+    _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
+                    "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
 
 def testNoIndex(env):
     r = env
