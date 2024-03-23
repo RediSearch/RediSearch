@@ -1626,9 +1626,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     s = sdscat(s, ":");
   }
 
-  bool printAttributes = (qs->opts.weight != 1 || qs->opts.maxSlop != -1 ||
-                          qs->opts.inOrder);
-
   switch (qs->type) {
     case QN_PHRASE:
       s = sdscatprintf(s, "%s {\n", qs->pn.exact ? "EXACT" : "INTERSECT");
@@ -1766,7 +1763,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
   }
 
   // print attributes if not the default
-  if (printAttributes) {
+  if (qs->opts.weight != 1 || qs->opts.maxSlop != -1 || qs->opts.inOrder) {
     s = sdscat(s, " => {");
     if (qs->opts.weight != 1) {
       s = sdscatprintf(s, " $weight: %g;", qs->opts.weight);
