@@ -150,6 +150,28 @@ commands:
         type: string
         default: "no"
     steps:
+    - run:
+        shell: /bin/bash -l -eo pipefail
+        working_directory: .install/boost
+        command: |
+          echo 'export BOOST_DIR=$PWD/.install/boost' >> ~/.bashrc
+          echo $PWD
+    - run:
+        shell: /bin/bash -l -eo pipefail
+        working_directory: .install/boost
+        command: |
+          echo ${BOOST_DIR}
+    - run:
+        shell: /bin/bash -l -eo pipefail
+        working_directory: .install/boost
+        command: |
+          echo 'export BOOST_DIR=$PWD/.install/boost' >> "$BASH_ENV"
+    - run:
+        shell: /bin/bash -l -eo pipefail
+        working_directory: .install/boost
+        command: |
+          echo ${BOOST_DIR}
+
       - early-returns
       - checkout-all
       - install-prerequisites:
@@ -166,7 +188,8 @@ commands:
           shell: /bin/bash -l -eo pipefail
           working_directory: .install/boost
           command: |
-            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
+            echo 'export BOOST_DIR=$PWD/.install/boost' >> ~/.bashrc
+            echo ${BOOST_DIR}
 
       - run:
           name: Build (Search)
