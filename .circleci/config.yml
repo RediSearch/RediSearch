@@ -158,13 +158,13 @@ commands:
       - run:
           name: Install boost
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install
+          working_directory: .install
           command: |
             ./install_boost.sh $BOOST_VERSION
       - run:
           name: Define BOOST_DIR
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install/boost
+          working_directory: .install/boost
           command: |
             echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
 
@@ -900,13 +900,13 @@ jobs:
       - run:
           name: Install boost
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install
+          working_directory: .install
           command: |
             ./install_boost.sh 1.83.0
       - run:
           name: Define BOOST_DIR
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install/boost
+          working_directory: .install/boost
           command: |
             echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
@@ -935,13 +935,13 @@ jobs:
       - run:
           name: Install boost
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install
+          working_directory: .install
           command: |
             ./install_boost.sh 1.83.0
       - run:
           name: Define BOOST_DIR
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install/boost
+          working_directory: .install/boost
           command: |
             echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
@@ -972,13 +972,13 @@ jobs:
       - run:
           name: Install boost
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install
+          working_directory: .install
           command: |
             ./install_boost.sh 1.83.0
       - run:
           name: Define BOOST_DIR
           shell: /bin/bash -l -eo pipefail
-          working-directory: .install/boost
+          working_directory: .install/boost
           command: |
             echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
