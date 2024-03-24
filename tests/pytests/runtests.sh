@@ -570,17 +570,16 @@ fi
 PARALLEL=${PARALLEL:-1}
 
 [[ $EXT == 1 || $EXT == run || $BB == 1 || $GDB == 1 ]] && PARALLEL=0
-[[ -z $COORD ]] && SHARDS=1
+
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
-		parallel="$(($($READIES/bin/nproc) / $SHARDS)) "
+		parallel="$($READIES/bin/nproc)"
 	else
-		parallel="$(($PARALLEL / $SHARDS))"
+		parallel="$PARALLEL"
 	fi
-	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
-	echo "Running tests in parallel using $parallel workers"
 fi
+
 #------------------------------------------------------------------------------- Test selection
 
 if [[ -n $TEST ]]; then
@@ -675,6 +674,7 @@ if [[ $GC == 0 ]]; then
 fi
 
 if [[ -z $COORD ]]; then
+
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
