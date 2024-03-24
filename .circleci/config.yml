@@ -1344,7 +1344,7 @@ workflows:
     #   - schedule:
     #       cron: "20 17 * * 0,3"
     #       <<: *on-integ-branch-cron
-   when:
+    when:
      << pipeline.parameters.run_default_flow >>
     jobs:
       # - build-macos-x64-search:
