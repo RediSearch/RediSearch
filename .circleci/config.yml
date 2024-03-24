@@ -166,7 +166,7 @@ commands:
           shell: /bin/bash -l -eo pipefail
           working_directory: .install/boost
           command: |
-            echo 'export BOOST_DIR=$PWD' >> ~/.bashrc
+            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
             echo ${BOOST_DIR}
 
       - run:
