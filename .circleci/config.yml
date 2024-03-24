@@ -161,13 +161,6 @@ commands:
           working_directory: .install
           command: |
             ./install_boost.sh $BOOST_VERSION
-      - run:
-          name: Define BOOST_DIR
-          shell: /bin/bash -l -eo pipefail
-          working_directory: .install/boost
-          command: |
-            echo 'export BOOST_DIR=$PWD/.install/boost' >> "$BASH_ENV"
-            echo ${BOOST_DIR}
 
       - run:
           name: Build (Search)
