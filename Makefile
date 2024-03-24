@@ -6,7 +6,7 @@ ROOT=.
 MK.cmake=1
 SRCDIR=.
 
-MACOS_PACKAGES=openssl boost
+MACOS_PACKAGES=openssl# boost
 
 include deps/readies/mk/main
 
@@ -251,7 +251,7 @@ _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 # CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
 # CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
 
-CC_INCLUDES.macos += $(BOOST_DIR)/include
+# CC_INCLUDES.macos += $(BOOST_DIR)/include
 
 #----------------------------------------------------------------------------------------------
 
