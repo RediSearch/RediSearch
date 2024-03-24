@@ -10,7 +10,7 @@ add_library(redisearch-geometry STATIC ${SOURCES})
 if(CANON_BOOST)
 	message(STATUS "using find_package")
 
-	find_package(Boost 1.82.0)
+	find_package(Boost 1.82.0 PATHS ${BOOST_DIR})
 	include_directories(${Boost_INCLUDE_DIR})
 	if(NOT Boost_FOUND)
 		message(FATAL_ERROR "Could not find boost!")
