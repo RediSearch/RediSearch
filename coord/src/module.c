@@ -1628,7 +1628,9 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
     // C - same client, M - respect OOM, 0 - same RESP protocol (and v - argv input)
     RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0", argv + 1, argc - 1);
     rm_free(localCmd);
-    return RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
+    RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
+    RedisModule_FreeCallReply(r);
+    return REDISMODULE_OK;
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
