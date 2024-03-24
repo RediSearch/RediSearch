@@ -896,13 +896,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           working_directory: .install
           command: |
-            ./install_boost.sh 1.83.0
-      - run:
-          name: Define BOOST_DIR
-          shell: /bin/bash -l -eo pipefail
-          working_directory: .install/boost
-          command: |
-            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
@@ -931,13 +925,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           working_directory: .install
           command: |
-            ./install_boost.sh 1.83.0
-      - run:
-          name: Define BOOST_DIR
-          shell: /bin/bash -l -eo pipefail
-          working_directory: .install/boost
-          command: |
-            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -968,13 +956,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           working_directory: .install
           command: |
-            ./install_boost.sh 1.83.0
-      - run:
-          name: Define BOOST_DIR
-          shell: /bin/bash -l -eo pipefail
-          working_directory: .install/boost
-          command: |
-            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
@@ -1334,12 +1316,10 @@ workflows:
   #             san-type: [address]
 
   nightly-twice-a-week:
-    # triggers:
-    #   - schedule:
-    #       cron: "20 17 * * 0,3"
-    #       <<: *on-integ-branch-cron
-    when:
-     << pipeline.parameters.run_default_flow >>
+    triggers:
+      - schedule:
+          cron: "20 17 * * 0,3"
+          <<: *on-integ-branch-cron
     jobs:
       # - build-macos-x64-search:
       #     context: common
