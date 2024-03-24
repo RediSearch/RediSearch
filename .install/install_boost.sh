@@ -10,7 +10,7 @@ wget https://boostorg.jfrog.io/artifactory/main/release/${VERSION}/source/${BOOS
 
 tar -xzf ${BOOST_NAME}.tar.gz
 mv ${BOOST_NAME} ${BOOST_DIR}
-cd ${BOOST_DIR}
+#cd ${BOOST_NAME}
 
-./bootstrap.sh --prefix=.
-$MODE ./b2 headers
+# ./bootstrap.sh --prefix=.
+# $MODE ./b2 headers --prefix=.
