@@ -171,7 +171,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t* thpool_p) 
   if (thpool_p->state != THPOOL_UNINITIALIZED) return; // Already initialized or should be kept dead
   thpool_p->state = THPOOL_KEEP_ALIVE;
   thpool_p->jobqueue.should_run = true;
-  // Threads from previous instalization might have exit the loop and terminate before trying to pull a job from the queue.
+  // Threads from previous initialization might have exit the loop and terminate before trying to pull a job from the queue.
   thpool_p->jobqueue.num_threads_working = 0;
 
   /* Thread init */
