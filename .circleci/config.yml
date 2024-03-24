@@ -156,10 +156,18 @@ commands:
           redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working-directory: .install
           command: |
-            make conan <<parameters.build_params>> SHOW=1 NPROC=16
+            ./install_boost.sh $BOOST_VERSION
+      - run:
+          name: Define BOOST_DIR
+          shell: /bin/bash -l -eo pipefail
+          working-directory: .install/boost
+          command: |
+            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
+
       - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
@@ -890,10 +898,17 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working-directory: .install
           command: |
-            make conan SHOW=1 NPROC=16
+            ./install_boost.sh 1.83.0
+      - run:
+          name: Define BOOST_DIR
+          shell: /bin/bash -l -eo pipefail
+          working-directory: .install/boost
+          command: |
+            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
@@ -918,10 +933,17 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working-directory: .install
           command: |
-            make conan SAN=<<parameters.san-type>> SHOW=1
+            ./install_boost.sh 1.83.0
+      - run:
+          name: Define BOOST_DIR
+          shell: /bin/bash -l -eo pipefail
+          working-directory: .install/boost
+          command: |
+            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -948,10 +970,17 @@ jobs:
       - early-returns
       - checkout-all
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working-directory: .install
           command: |
-            make conan VG=1 SHOW=1 NPROC=16
+            ./install_boost.sh 1.83.0
+      - run:
+          name: Define BOOST_DIR
+          shell: /bin/bash -l -eo pipefail
+          working-directory: .install/boost
+          command: |
+            echo 'export BOOST_DIR=$PWD' >> "$BASH_ENV"
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
@@ -1311,10 +1340,12 @@ workflows:
   #             san-type: [address]
 
   nightly-twice-a-week:
-    triggers:
-      - schedule:
-          cron: "20 17 * * 0,3"
-          <<: *on-integ-branch-cron
+    # triggers:
+    #   - schedule:
+    #       cron: "20 17 * * 0,3"
+    #       <<: *on-integ-branch-cron
+   when:
+     << pipeline.parameters.run_default_flow >>
     jobs:
       # - build-macos-x64-search:
       #     context: common
