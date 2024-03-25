@@ -514,11 +514,11 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, msan=True)
+@skip(cluster=True, macos=True, asan=True)
 def testShortReadSearch_part1(env):
     ShortReadSearch(env, 0, len(RDBS)//2)
 
-@skip(cluster=True, msan=True)
+@skip(cluster=True, macos=True, asan=True)
 def testShortReadSearch_part2(env):
     ShortReadSearch(env, len(RDBS)//2, len(RDBS))
 
@@ -643,28 +643,22 @@ def runShortRead(env, data, total_len, expected_index):
 
 def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
     with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
-        start = time.time()
         if not downloadFiles(temp_dir, rdbs_start_idx, rdbs_end_idx):
             env.assertTrue(False, "downloadFiles failed")
-        end = time.time()
-        print(f"Downloaded files in {end - start} seconds")
 
         for f, expected_index in zip(RDBS[rdbs_start_idx:rdbs_end_idx], RDBS_EXPECTED_INDICES[rdbs_start_idx:rdbs_end_idx]):
-            start = time.time()
             name, ext = os.path.splitext(f)
             if ext == '.zip':
                 f = name
             fullfilePath = os.path.join(temp_dir, f)
             env.assertNotEqual(fullfilePath, None, message=test_name)
             sendShortReads(env, fullfilePath, expected_index)
-            end = time.time()
-            print(f"loading {name} in {end - start} seconds")
 
-@skip(cluster=True, asan=True)
+@skip(cluster=True, macos=True, asan=True)
 def test_short_read_with_MT_part1():
     short_read_with_MT(0, len(RDBS)//2)
 
-@skip(cluster=True, asan=True)
+@skip(cluster=True, macos=True, asan=True)
 def test_short_read_with_MT_part2():
     short_read_with_MT(len(RDBS)//2, len(RDBS))
 
