@@ -840,6 +840,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFFLAT;
+    params->algoParams.raftIvfParams.usePQ = false;
     params->algoParams.raftIvfParams.multi = multi;
     return parseVectorField_raft(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, "RAFT_IVF_PQ")) {
@@ -850,6 +851,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFPQ;
+    params->algoParams.raftIvfParams.usePQ = true;
     params->algoParams.raftIvfParams.multi = multi;
     return parseVectorField_raft(fs, params, ac, status);
   } else {
