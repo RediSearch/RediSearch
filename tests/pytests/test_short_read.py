@@ -514,11 +514,11 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, macos=True, asan=True)
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
 def testShortReadSearch_part1(env):
     ShortReadSearch(env, 0, len(RDBS)//2)
 
-@skip(cluster=True, macos=True, asan=True)
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
 def testShortReadSearch_part2(env):
     ShortReadSearch(env, len(RDBS)//2, len(RDBS))
 
@@ -654,11 +654,11 @@ def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
             env.assertNotEqual(fullfilePath, None, message=test_name)
             sendShortReads(env, fullfilePath, expected_index)
 
-@skip(cluster=True, macos=True, asan=True)
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
 def test_short_read_with_MT_part1():
     short_read_with_MT(0, len(RDBS)//2)
 
-@skip(cluster=True, macos=True, asan=True)
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
 def test_short_read_with_MT_part2():
     short_read_with_MT(len(RDBS)//2, len(RDBS))
 
