@@ -238,12 +238,7 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-ifeq ($(wildcard $(ROOT)/.install/boost),)
-BOOST_DIR :=
-else
-BOOST_DIR := $(ROOT)/.install/boost
-endif
-
+BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
