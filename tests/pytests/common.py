@@ -331,7 +331,7 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None):
     def decorate(f):
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
@@ -339,6 +339,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if cluster == COORD:
                 raise SkipTest()
             if macos and OS == 'macos':
+                raise SkipTest()
+            if arch == platform.machine():
                 raise SkipTest()
             if asan and SANITIZER == 'address':
                 raise SkipTest()
