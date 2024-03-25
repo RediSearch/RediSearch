@@ -6,7 +6,7 @@ ROOT=.
 MK.cmake=1
 SRCDIR=.
 
-MACOS_PACKAGES=openssl boost
+MACOS_PACKAGES=openssl
 
 include deps/readies/mk/main
 
@@ -32,7 +32,8 @@ make build          # compile and link
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
-  BOOST_DIR= 		  # boost installation path (default: empty)
+  BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
+  					  # Can be left empty if boost is located in the standard system includes path.
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -237,6 +238,7 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
+BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
@@ -244,16 +246,6 @@ _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
-
-#----------------------------------------------------------------------------------------------
-
-# BOOST_INC_PATH.centos:=/usr/include/boost169
-# CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
-# CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
-
-CC_INCLUDES.macos += $(BOOST_DIR)/include
-
-#----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
 
