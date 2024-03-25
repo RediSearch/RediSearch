@@ -32,7 +32,8 @@ make build          # compile and link
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
-  BOOST_DIR= 		  # boost installation path (default: .install/boost)
+  BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
+  					  # Can be left empty if boost is located in the standard system includes path.
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -237,7 +238,12 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-BOOST_DIR ?= $(ROOT)/.install/boost
+ifeq ($(wildcard $(ROOT)/.install/boost),)
+BOOST_DIR :=
+else
+BOOST_DIR := $(ROOT)/.install/boost
+endif
+
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
