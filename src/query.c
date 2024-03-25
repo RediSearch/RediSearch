@@ -555,7 +555,7 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */

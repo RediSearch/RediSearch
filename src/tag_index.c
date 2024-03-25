@@ -198,6 +198,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
       if (idx->suffix && (*tok != '\0')) { // add to suffix triemap
+      // TODO: If we want to add the values' memory on the fly - here's the place.
+      // `ret` is added to `spec->stats.invertedSize`.
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
@@ -423,4 +425,24 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+  size_t overhead = 0;
+  TagIndex *idx = NULL;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  // TODO: Should we lock the index?
+  // RedisSearchCtx_LockSpecRead(&sctx);
+  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
+  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  if (idx) {
+    overhead = TrieMap_MemUsage(idx->values);
+    if (idx->suffix) {
+      // TODO: Count the values' memory as well
+      overhead += TrieMap_MemUsage(idx->suffix);
+    }
+  }
+  // TODO: If locked, unlock the index
+  // RedisSearchCtx_UnlockSpec(&sctx);
+  return overhead;
 }
