@@ -764,6 +764,20 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
 
     return parseVectorField_hnsw(fs, params, ac, status);
+  } else if (STR_EQCASE(algStr, len, "RAFT_IVF_FLAT")) {
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+
+    params->algo = VecSimAlgo_RAFT_IVFFLAT;
+    params->algoParams.raftIvfParams.multi = multi;
+  } else if (STR_EQCASE(algStr, len, "RAFT_IVF_PQ")) {
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+
+    params->algo = VecSimAlgo_RAFT_IVFPQ;
+    params->algoParams.raftIvfParams.multi = multi;
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
