@@ -156,10 +156,12 @@ commands:
           redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working_directory: .install
           command: |
-            make conan <<parameters.build_params>> SHOW=1 NPROC=16
+            ./install_boost.sh $BOOST_VERSION
+
       - run:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
@@ -890,10 +892,11 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working_directory: .install
           command: |
-            make conan SHOW=1 NPROC=16
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
@@ -918,10 +921,11 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working_directory: .install
           command: |
-            make conan SAN=<<parameters.san-type>> SHOW=1
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -948,10 +952,11 @@ jobs:
       - early-returns
       - checkout-all
       - run:
-          name: Prepare Conan dependencies
+          name: Install boost
           shell: /bin/bash -l -eo pipefail
+          working_directory: .install
           command: |
-            make conan VG=1 SHOW=1 NPROC=16
+            ./install_boost.sh $BOOST_VERSION
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
