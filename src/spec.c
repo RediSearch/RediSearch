@@ -708,6 +708,74 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
+static int parseVectorField_raft(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
+  int rc;
+
+  // RAFT mandatory params.
+  bool mandtype = false;
+  bool mandsize = false;
+  bool mandmetric = false;
+
+  // Get number of parameters
+  size_t expNumParam, numParam = 0;
+  if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
+    return 0;
+  } else if (expNumParam % 2) {
+    QERR_MKBADARGS_FMT(status, "Bad number of arguments for vector similarity index: got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    return 0;
+  } else {
+    expNumParam /= 2;
+  }
+
+  while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.raftIvfParams.type)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT index type", rc);
+        return 0;
+      }
+      mandtype = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.raftIvfParams.dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT index dim", rc);
+        return 0;
+      }
+      mandsize = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.raftIvfParams.metric)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT index metric", rc);
+        return 0;
+      }
+      mandmetric = true;
+    } else {
+      // TODO: distinguish between RAFT_IVFPQ and RAFT_IVFFLAT
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", "RAFT IVF", AC_GetStringNC(ac, NULL));
+      return 0;
+    }
+    numParam++;
+  }
+  if (expNumParam > numParam) {
+    QERR_MKBADARGS_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    return 0;
+  }
+  if (!mandtype) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_TYPE);
+    return 0;
+  }
+  if (!mandsize) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DIM);
+    return 0;
+  }
+  if (!mandmetric) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_BF, VECSIM_DISTANCE_METRIC);
+    return 0;
+  }
+  // Calculating expected blob size of a vector in bytes.
+  fs->vectorOpts.expBlobSize = params->algoParams.raftIvfParams.dim * VecSimType_sizeof(params->algoParams.raftIvfParams.type);
+
+  return 1;
+}
+
 static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
@@ -768,16 +836,22 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
     VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
+    params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFFLAT;
     params->algoParams.raftIvfParams.multi = multi;
+    return parseVectorField_raft(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, "RAFT_IVF_PQ")) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
     VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
+    params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFPQ;
     params->algoParams.raftIvfParams.multi = multi;
+    return parseVectorField_raft(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
     return 0;
