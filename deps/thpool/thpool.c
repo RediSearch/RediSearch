@@ -151,7 +151,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   for (size_t i = 0; i < num_threads; i++) {
     thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
     if (thpool_p->threads[i] == NULL) {
-	    LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
+      LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
       priority_queue_destroy(&thpool_p->jobqueue);
       for (size_t j = 0; j < i; j++) {
         rm_free(thpool_p->threads[j]);
