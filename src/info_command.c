@@ -46,8 +46,12 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
-    for (int i = 0; i < num_prefixes; ++i) {
-      RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
+    if (num_prefixes > 0) {
+      for (int i = 0; i < num_prefixes; ++i) {
+        RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
+      }
+    } else {
+      RedisModule_Reply_SimpleString(reply, "No prefixes");
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
@@ -229,6 +233,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  REPLY_KVNUM("tag_overhead_sz_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
+  REPLY_KVNUM("text_overhead_sz_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);

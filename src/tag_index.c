@@ -197,7 +197,9 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     if (tok) {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
-      if (idx->suffix && (*tok != '\0')) { // add to suffix triemap
+      if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
+        // TODO: Report this memory back to stats (sp->stats). Probably need to get sp as an argument so we can update both the `stats.invertedSize` and `stats.tagOverhead` fields.
+        // NOTICE: We don't need to report the memory of the Trie itself, only the values of it! The struct will be gathered via `TrieMap_MemUsage`.
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
@@ -423,4 +425,45 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+// TODO: This function is very costly, probably to the point of being unusable.
+static size_t TagIndex_GetSuffixOverhead(TagIndex *idx) {
+  if (!idx->suffix) {
+    return 0;
+  }
+  size_t overhead = 0;
+  TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+  char *str;
+  tm_len_t slen;
+  void *val;
+  while (TrieMapIterator_Next(it, &str, &slen, &val)) {
+    arrayof(char *) arr = ((suffixData *)val)->array;
+    // Count the size of the array
+    overhead += array_sizeof(array_hdr(arr));
+    // Count the term only if allocated
+    if (((suffixData *)val)->term) {
+      overhead += slen;
+    }
+  }
+
+  return overhead;
+}
+
+size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+  size_t overhead = 0;
+  TagIndex *idx = NULL;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
+  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
+  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  if (idx) {
+    overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
+    if (idx->suffix) {
+      overhead += TrieMap_MemUsage(idx->suffix);
+      overhead += TagIndex_GetSuffixOverhead(idx);
+    }
+  }
+  RedisSearchCtx_UnlockSpec(&sctx);
+  return overhead;
 }
