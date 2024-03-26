@@ -578,7 +578,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
-  if(sp->rule->lang_default) {
+  if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;
   }
 
