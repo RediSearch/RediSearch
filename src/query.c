@@ -613,7 +613,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
-  // TODO: This should be a single iterator - Fix in a separate PR.
+  // TODO: This should be a single iterator.
   // } else if (ctx.nits == 1) {
   //   // In case of a single iterator, we can just return it
   //   return ctx.its[0];

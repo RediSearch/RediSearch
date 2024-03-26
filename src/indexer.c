@@ -111,8 +111,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
                                             && entry->term[0] != PHONETIC_PREFIX
                                             && entry->term[0] != SYNONYM_PREFIX_CHAR) {
-      // TODO: If we want to count the values' memory on the fly - this is where
-      // we should do it.
+      // TODO: Count suffix Trie memory as well, add to stats.text_overhead.
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 

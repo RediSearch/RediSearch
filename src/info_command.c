@@ -235,7 +235,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
   REPLY_KVNUM("text_overhead_sz_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
-  // REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);

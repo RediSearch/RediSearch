@@ -349,11 +349,11 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp) {
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
+  res += IndexSpec_collect_text_overhead(sp); // TODO: Ensure there is an intersection with stats->termsSize. If so, can remove the termsSize as well.
   res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;             // TODO: Remove if always 0.
-  res += sp->stats.scoreIndexesSize;            // TODO: Remove if always 0.
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
@@ -2234,6 +2234,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   RedisModule_InfoAddFieldDouble("tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
   RedisModule_InfoAddFieldDouble("text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks);
@@ -2385,10 +2386,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
-    // TODO: I think we may have a non-needed suffixTrie here, since it is used
-    // for the TEXT case only, but the `FieldSpec_WithSuffixTrie` may be on for
-    // the TAG index type as well. Verify.
-    if (FieldSpec_HasSuffixTrie(fs)) {
+    if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {

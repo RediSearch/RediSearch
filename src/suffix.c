@@ -12,13 +12,6 @@
 #include <string.h>
 #include <strings.h>
 
-typedef struct suffixData {
-  // int wordExists; // exact match to string exists already
-  // rune *rune;
-  char *term;             // string is used in the array of all suffix tokens
-  arrayof(char *) array;  // list of words containing the string. weak pointers
-} suffixData;
-
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
@@ -94,6 +87,8 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   for (int i = 0; i < array_len(array); ++i) {
     if (!strncmp(array[i], str, rlen)) {
       array = array_del_fast(array, i);
+      // TODO: Report here success of deletion, for calling function to report
+      // the free'd memory to stats.
       return;
     }
   }
@@ -171,9 +166,6 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
 }
 
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
-  // Q: What about PREFIX? It is "swallowed" by CONTAINS. Can check out later why.
-  // This may have to do with the bug in our suffix implementation
-  // (test_contains:test_misc1 - without the `WITHSUFFIXTRIE` argument we return a non-wanted result)
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
     TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 0, NULL);
@@ -406,21 +398,19 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    // suffix trie is shared between all tag fields in index, even if they don't use it.
-    // if the trie is owned by other fields and not any one containing this suffix,
-    // then failure to find the suffix is not an error. just move along.
-    if (data == TRIEMAP_NOTFOUND) continue;
-    // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
-      // keep pointer to word string to free after it was found in al sub tokens.
+      // keep pointer to word string to free after it was found in all sub tokens.
       oldTerm = data->term;
       data->term = NULL;
     }
     // remove from array
+    // TODO: Report success of deletion, for calling function to report the free'd memory to stats.
     removeSuffix(str, len, data->array);
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
+      // TODO: Report this deletion memory wise (?)
       TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);
     }
   }
