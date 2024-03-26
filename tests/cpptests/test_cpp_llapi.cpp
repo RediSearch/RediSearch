@@ -8,6 +8,8 @@
 
 #define DOCID1 "doc1"
 #define DOCID2 "doc2"
+#define DOCID3 "doc3"
+#define DOCID4 "doc4"
 #define FIELD_NAME_1 "text1"
 #define FIELD_NAME_2 "text2"
 #define NUMERIC_FIELD_NAME "num"
@@ -1054,6 +1056,95 @@ TEST_F(LLApiTest, testGetters) {
   ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
   ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
   RediSearch_FreeDocument(d);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testIndexWithDefaultLanguage) {
+  // TEST using Default language: English
+  RSIndex* index = RediSearch_CreateIndex("index_en", NULL);
+  ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ENGLISH), RediSearch_IndexGetLanguage(index));
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // create a doc withoust specifying the language, 
+  // it should use the language per index: English
+  RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherry", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument2(DOCID2, strlen(DOCID2), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherries", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument2(DOCID3, strlen(DOCID3), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cheers", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  // Search without passing the language should use language per index, and 
+  // stemming should work
+  RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherries");
+  std::vector<std::string> res = search(index, qn);
+  ASSERT_EQ(2, res.size());
+
+  qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherry");
+  res = search(index, qn);
+  ASSERT_EQ(2, res.size());
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testIndexWithCustomLanguage) {
+  // create index using language Italian
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetLanguage(opt, RSLanguage_ToString(RS_LANG_ITALIAN));
+  RSIndex* index = RediSearch_CreateIndex("index_it", opt);
+  ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ITALIAN), RediSearch_IndexGetLanguage(index));
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // create a doc withoust specifying the language, 
+  // it should use the language per index: Italian
+  RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "arance", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument2(DOCID2, strlen(DOCID2), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "arancia", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument2(DOCID3, strlen(DOCID3), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherry", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  d = RediSearch_CreateDocument2(DOCID4, strlen(DOCID4), index, NAN, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherries", RSFLDTYPE_DEFAULT);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  RediSearch_SpecAddDocument(index, d);
+
+  // The search should use the language per index: Italian
+  RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "arancia");
+  std::vector<std::string> res = search(index, qn);
+  ASSERT_EQ(2, res.size());
+
+  qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "arance");
+  res = search(index, qn);
+  ASSERT_EQ(2, res.size());
+
+  // This returns 1 document, because the word "cherry" is not stemmed in Italian
+  qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherry");
+  res = search(index, qn);
+  ASSERT_EQ(1, res.size());
+
+  // This returns 1 document, because the word "cherries" is not stemmed in Italian
+  qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherries");
+  res = search(index, qn);
+  ASSERT_EQ(1, res.size());
 
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);
