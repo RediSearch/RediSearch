@@ -151,7 +151,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   for (size_t i = 0; i < num_threads; i++) {
     thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
     if (thpool_p->threads[i] == NULL) {
-	  LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
+	    LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
       priority_queue_destroy(&thpool_p->jobqueue);
       for (size_t j = 0; j < i; j++) {
         rm_free(thpool_p->threads[j]);
@@ -437,7 +437,7 @@ static void* thread_do(struct thread* thread_p) {
 
   while (thpool_p->state & (THPOOL_KEEP_ALIVE | THPOOL_TERMINATE_WHEN_EMPTY)) {
 
-   LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
+    LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
 
 
     /* Read job from queue and execute it */
@@ -454,7 +454,7 @@ static void* thread_do(struct thread* thread_p) {
     pthread_mutex_lock(&thpool_p->thcount_lock);
     if (job_p) thpool_p->total_jobs_done++;
     if (thpool_p->state == THPOOL_TERMINATE_WHEN_EMPTY && priority_queue_len(&thpool_p->jobqueue) == 0) {
-     LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
+      LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
       thpool_p->state = THPOOL_UNINITIALIZED;
       thpool_p->jobqueue.should_run = false;
       pthread_cond_broadcast(&thpool_p->jobqueue.has_jobs);
@@ -462,7 +462,7 @@ static void* thread_do(struct thread* thread_p) {
     pthread_mutex_unlock(&thpool_p->thcount_lock);
   }
   pthread_mutex_lock(&thpool_p->thcount_lock);
- LOG_IF_EXISTS("verbose", "Terminating thread %d", thread_p->id)
+  LOG_IF_EXISTS("verbose", "Terminating thread %d", thread_p->id)
   thpool_p->num_threads_alive--;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
