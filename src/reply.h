@@ -71,8 +71,6 @@ int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
 
-int RedisModule_ReplyKVorV_SimpleString(RedisModule_Reply *reply, const char *key, const char *val);
-
 void print_reply(RedisModule_Reply *reply);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
