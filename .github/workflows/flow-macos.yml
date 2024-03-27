@@ -3,6 +3,9 @@ name: Build on macOS
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       coordinator:
@@ -38,7 +41,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [macos-12] #, macos-13-xlarge] # macos-13-xlarge has M1 chip
+        # arch: [macos-12, macos-latest-xlarge] # macos-latest-xlarge has M1 chip
+        arch: [mmacos-latest-xlarge] # macos-latest-xlarge has M1 chip
     uses: ./.github/workflows/task-test.yml
     with:
       env: ${{ matrix.arch }}
