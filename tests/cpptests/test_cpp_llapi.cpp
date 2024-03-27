@@ -1067,7 +1067,7 @@ TEST_F(LLApiTest, testIndexWithDefaultLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ENGLISH), RediSearch_IndexGetLanguage(index));
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
-  // create a doc withoust specifying the language, 
+  // create a doc without specifying the language, 
   // it should use the language per index: English
   RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherry", RSFLDTYPE_DEFAULT);
@@ -1084,8 +1084,8 @@ TEST_F(LLApiTest, testIndexWithDefaultLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
   RediSearch_SpecAddDocument(index, d);
 
-  // Search without passing the language should use language per index, and 
-  // stemming should work
+  // The search should use language per index, and stemming should work, 
+  // returning 2 documents
   RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherries");
   std::vector<std::string> res = search(index, qn);
   ASSERT_EQ(2, res.size());
@@ -1105,7 +1105,7 @@ TEST_F(LLApiTest, testIndexWithCustomLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ITALIAN), RediSearch_IndexGetLanguage(index));
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
-  // create a doc withoust specifying the language, 
+  // create a doc without specifying the language, 
   // it should use the language per index: Italian
   RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "arance", RSFLDTYPE_DEFAULT);
@@ -1136,12 +1136,12 @@ TEST_F(LLApiTest, testIndexWithCustomLanguage) {
   res = search(index, qn);
   ASSERT_EQ(2, res.size());
 
-  // This returns 1 document, because the word "cherry" is not stemmed in Italian
+  // The search for cherry/cherries should return 1 document, because the word is 
+  // not stemmed correctly in Italian
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherry");
   res = search(index, qn);
   ASSERT_EQ(1, res.size());
 
-  // This returns 1 document, because the word "cherries" is not stemmed in Italian
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherries");
   res = search(index, qn);
   ASSERT_EQ(1, res.size());
