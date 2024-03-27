@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         # arch: [macos-12, macos-latest-xlarge] # macos-latest-xlarge has M1 chip
-        arch: [mmacos-latest-xlarge] # macos-latest-xlarge has M1 chip
+        arch: [macos-latest-xlarge] # macos-latest-xlarge has M1 chip
     uses: ./.github/workflows/task-test.yml
     with:
       env: ${{ matrix.arch }}
