@@ -3,7 +3,7 @@ name: Build on macOS
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
-  push:
+  pull_request:
     branches:
       - master
   workflow_dispatch:
