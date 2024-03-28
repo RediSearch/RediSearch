@@ -914,7 +914,7 @@ size_t RediSearch_TotalMemUsage(void) {
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
     // Collect memory usage of the index
-    total += RediSearch_MemUsage(ref.rm);
+    total += RediSearch_MemUsage((RSIndex *)ref.rm);
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
@@ -931,9 +931,6 @@ void RediSearch_IndexInfoFree(RSIdxInfo *info) {
 
 // Collect the gc stats of all the indexes currently existing
 InfoGCStats RediSearch_GC_total(void) {
-  // Lock all cursors
-  CursorList_Lock(&g_CursorsList);
-  CursorList_Lock(&g_CursorsListCoord);
 
   InfoGCStats stats = {0};
   // Traverse `specDict_g`, and aggregate the gc stats of each index
@@ -954,9 +951,5 @@ InfoGCStats RediSearch_GC_total(void) {
     }
   }
   dictReleaseIterator(iter);
-
-  // Unlock all cursors
-  CursorList_Unlock(&g_CursorsList);
-  CursorList_Unlock(&g_CursorsListCoord);
   return stats;
 }
