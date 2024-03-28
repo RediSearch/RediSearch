@@ -106,9 +106,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
-  if (reply->resp3) { // RESP3 variant
-    RedisModule_ReplyKV_Map(reply, PROFILE_STR); // profile
-
+  RedisModule_Reply_Map(reply);
       int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
       if (profile_verbose)
@@ -150,67 +148,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);
-
-      RedisModule_Reply_MapEnd(reply); // profile
-  }
-  //-------------------------------------------------------------------------------------------
-  else // ! has_map (RESP2 variant)
-  {
-    RedisModule_Reply_Array(reply);
-
-    int profile_verbose = req->reqConfig.printProfileClock;
-    // Print total time
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Total profile time");
-      if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->totalTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print query parsing time
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Parsing time");
-      if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print iterators creation time
-    RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
-    if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print whether a warning was raised throughout command execution
-    RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, "Warning");
-    if (timedout) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    }
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // print into array with a recursive function over result processors
-
-    // Print profile of iterators
-    IndexIterator *root = QITR_GetRootFilter(&req->qiter);
-    // Coordinator does not have iterators
-    if (root) {
-      RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, "Iterators profile");
-        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &config);
-      RedisModule_Reply_ArrayEnd(reply);
-    }
-
-    // Print profile of result processors
-    ResultProcessor *rp = req->qiter.endProc;
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Result processors profile");
-      printProfileRP(reply, rp, req->reqConfig.printProfileClock);
-    RedisModule_Reply_ArrayEnd(reply);
-
-    RedisModule_Reply_ArrayEnd(reply);
-  }
+  RedisModule_Reply_MapEnd(reply);
 }
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
