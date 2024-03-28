@@ -898,10 +898,49 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   return res;
 }
 
+// Calculate the memory usage of all the indexes currently existing
+size_t RediSearch_TotalMemUsage(void) {
+  size_t total = 0;
+  // Traverse `specDict_g`, and sum the memory usage of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    // Lock?
+    total += RediSearch_MemUsage(ref.rm);
+  }
+  dictReleaseIterator(iter);
+  return total;
+}
+
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
     rm_free(info->fields[i].name);
     rm_free(info->fields[i].path);
   }
   rm_free((void *)info->fields);
+}
+
+// Collect the gc stats of all the indexes currently existing
+InfoGCStats RediSearch_GC_total(void) {
+  InfoGCStats stats = {0};
+  // Traverse `specDict_g`, and sum the memory usage of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  uint count = 0;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = __RefManager_Get_Object(ref.rm);
+    if (sp->gc) {
+      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+      stats.totalCollectedBytes += gcStats.totalCollected;
+      stats.totalCycles += gcStats.numCycles;
+      size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
+      // Calculate new average
+      stats.avgCycleTime = (stats.avgCycleTime * count + gc_avg) / (count + 1);
+      count++;
+    }
+  }
+  dictReleaseIterator(iter);
+  return stats;
 }
