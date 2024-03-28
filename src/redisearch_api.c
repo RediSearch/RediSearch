@@ -947,10 +947,12 @@ InfoGCStats RediSearch_GC_total(void) {
       pthread_rwlock_unlock(&sp->rwlock);
       stats.totalCollectedBytes += gcStats.totalCollected;
       stats.totalCycles += gcStats.numCycles;
-      size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
-      // Calculate new average
-      stats.avgCycleTime = (stats.avgCycleTime * count + gc_avg) / (count + 1);
-      count++;
+      if (gcStats.numCycles > 0) {
+        // Calculate average run time (in ms)
+        size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
+        stats.avgCycleTime = (stats.avgCycleTime * count + gc_avg) / (count + 1);
+        count++;
+      }
     }
   }
   dictReleaseIterator(iter);
