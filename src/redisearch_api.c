@@ -940,8 +940,11 @@ InfoGCStats RediSearch_GC_total(void) {
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
-    if (sp->gc) {
+    if (sp && sp->gc) {
+      // Lock for read
+      pthread_rwlock_rdlock(&sp->rwlock);
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+      pthread_rwlock_unlock(&sp->rwlock);
       stats.totalCollectedBytes += gcStats.totalCollected;
       stats.totalCycles += gcStats.numCycles;
       size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;

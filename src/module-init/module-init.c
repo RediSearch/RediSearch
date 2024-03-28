@@ -126,10 +126,14 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // cursors
   RedisModule_InfoAddSection(ctx, "cursors");
+  CursorList_Lock(&g_CursorsList);
+  CursorList_Lock(&g_CursorsListCoord);
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle",
     ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) + ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **));
   RedisModule_InfoAddFieldLongLong(ctx, "global_total",
     kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup));
+  CursorList_Unlock(&g_CursorsListCoord);
+  CursorList_Unlock(&g_CursorsList);
 
   // GC stats
   RedisModule_InfoAddSection(ctx, "gc");
