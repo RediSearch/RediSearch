@@ -908,11 +908,12 @@ size_t RediSearch_TotalMemUsage(void) {
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
-    // Lock for read
     if (!sp) {
       continue;
     }
+    // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
+    // Collect memory usage of the index
     total += RediSearch_MemUsage(ref.rm);
     pthread_rwlock_unlock(&sp->rwlock);
   }
@@ -930,10 +931,10 @@ void RediSearch_IndexInfoFree(RSIdxInfo *info) {
 
 // Collect the gc stats of all the indexes currently existing
 InfoGCStats RediSearch_GC_total(void) {
+  // Lock all cursors
   CursorList_Lock(&g_CursorsList);
   CursorList_Lock(&g_CursorsListCoord);
 
-  // Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
   InfoGCStats stats = {0};
   // Traverse `specDict_g`, and aggregate the gc stats of each index
   dictIterator *iter = dictGetIterator(specDict_g);
@@ -941,7 +942,7 @@ InfoGCStats RediSearch_GC_total(void) {
   uint count = 0;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = __RefManager_Get_Object(ref.rm);
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
       stats.totalCollectedBytes += gcStats.totalCollected;
@@ -954,6 +955,7 @@ InfoGCStats RediSearch_GC_total(void) {
   }
   dictReleaseIterator(iter);
 
+  // Unlock all cursors
   CursorList_Unlock(&g_CursorsList);
   CursorList_Unlock(&g_CursorsListCoord);
   return stats;
