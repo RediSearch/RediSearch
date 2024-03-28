@@ -22,6 +22,9 @@
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
+#include "util/array.h"
+#include "cursor.h"
+#include "fork_gc.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -114,6 +117,26 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
+
+  // Memory
+  RedisModule_InfoAddSection(ctx, "memory");
+  size_t total_mem_indexes = RediSearch_TotalMemUsage();
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_mem_indexes);
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", total_mem_indexes / (float)0x100000);
+
+  // cursors
+  RedisModule_InfoAddSection(ctx, "cursors");
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle",
+    ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) + ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **));
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total",
+    kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup));
+
+  // GC stats
+  RedisModule_InfoAddSection(ctx, "gc");
+  InfoGCStats stats = RediSearch_GC_total();
+  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms", stats.avgCycleTime);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);
