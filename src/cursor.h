@@ -113,6 +113,17 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
  * that a client might accidentally refer to the same cursor twice.
  */
 
+
+/**
+ * Lock the cursor list
+ */
+void CursorList_Lock(CursorList *cl);
+
+/**
+ * Unlock the cursor list
+ */
+void CursorList_Unlock(CursorList *cl);
+
 /**
  * Initialize the cursor list
  */

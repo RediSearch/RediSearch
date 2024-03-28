@@ -23,6 +23,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "cursor.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -898,10 +899,62 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   return res;
 }
 
+// Calculate the memory usage of all the indexes currently existing
+size_t RediSearch_TotalMemUsage(void) {
+  size_t total = 0;
+  // Traverse `specDict_g`, and sum the memory usage of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
+    if (!sp) {
+      continue;
+    }
+    // Lock for read
+    pthread_rwlock_rdlock(&sp->rwlock);
+    // Collect memory usage of the index
+    total += RediSearch_MemUsage((RSIndex *)ref.rm);
+    pthread_rwlock_unlock(&sp->rwlock);
+  }
+  dictReleaseIterator(iter);
+  return total;
+}
+
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
     rm_free(info->fields[i].name);
     rm_free(info->fields[i].path);
   }
   rm_free((void *)info->fields);
+}
+
+// Collect the gc stats of all the indexes currently existing
+InfoGCStats RediSearch_GC_total(void) {
+
+  InfoGCStats stats = {0};
+  // Traverse `specDict_g`, and aggregate the gc stats of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  uint count = 0;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
+    if (sp && sp->gc) {
+      // Lock for read
+      pthread_rwlock_rdlock(&sp->rwlock);
+      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+      pthread_rwlock_unlock(&sp->rwlock);
+      stats.totalCollectedBytes += gcStats.totalCollected;
+      stats.totalCycles += gcStats.numCycles;
+      if (gcStats.numCycles > 0) {
+        // Calculate average run time (in ms)
+        size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
+        stats.avgCycleTime = (stats.avgCycleTime * count + gc_avg) / (count + 1);
+        count++;
+      }
+    }
+  }
+  dictReleaseIterator(iter);
+  return stats;
 }
