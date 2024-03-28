@@ -23,11 +23,11 @@ static uint64_t curTimeNs() {
   return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 
-static void CursorList_Lock(CursorList *cl) {
+void CursorList_Lock(CursorList *cl) {
   pthread_mutex_lock(&cl->lock);
 }
 
-static void CursorList_Unlock(CursorList *cl) {
+void CursorList_Unlock(CursorList *cl) {
   pthread_mutex_unlock(&cl->lock);
 }
 

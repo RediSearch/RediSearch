@@ -23,6 +23,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "cursor.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -906,8 +907,14 @@ size_t RediSearch_TotalMemUsage(void) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
-    // Lock?
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
+    // Lock for read
+    if (!sp) {
+      continue;
+    }
+    pthread_rwlock_rdlock(&sp->rwlock);
     total += RediSearch_MemUsage(ref.rm);
+    pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
   return total;
@@ -923,8 +930,12 @@ void RediSearch_IndexInfoFree(RSIdxInfo *info) {
 
 // Collect the gc stats of all the indexes currently existing
 InfoGCStats RediSearch_GC_total(void) {
+  CursorList_Lock(&g_CursorsList);
+  CursorList_Lock(&g_CursorsListCoord);
+
+  // Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
   InfoGCStats stats = {0};
-  // Traverse `specDict_g`, and sum the memory usage of each index
+  // Traverse `specDict_g`, and aggregate the gc stats of each index
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   uint count = 0;
@@ -942,5 +953,8 @@ InfoGCStats RediSearch_GC_total(void) {
     }
   }
   dictReleaseIterator(iter);
+
+  CursorList_Unlock(&g_CursorsList);
+  CursorList_Unlock(&g_CursorsListCoord);
   return stats;
 }
