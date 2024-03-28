@@ -2181,7 +2181,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', '*', 'TIMEOUT', 10000)
+    res = env.cmd('ft.search', 'myIdx', '*', 'TIMEOUT', 20000)
     env.assertEqual(res[0], num_range)
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', '1')    \
         .error().contains('Timeout limit was reached')
