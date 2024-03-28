@@ -99,13 +99,15 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  bool has_map = RedisModule_HasMap(reply);
+void Profile_Print(RedisModule_Reply *reply, void *ctx) {
+  ProfilePrinterCtx *profileCtx = ctx;
+  AREQ *req = profileCtx->req;
+  bool timedout = profileCtx->timedout;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
-  if (has_map) { // RESP3 variant
-    RedisModule_ReplyKV_Map(reply, "profile"); // profile
+  if (reply->resp3) { // RESP3 variant
+    RedisModule_ReplyKV_Map(reply, PROFILE_STR); // profile
 
       int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
@@ -209,4 +211,36 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
 
     RedisModule_Reply_ArrayEnd(reply);
   }
+}
+
+void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
+  if (reply->resp3) {
+    RedisModule_ReplyKV_Map(reply, "Results");
+  } else {
+    RedisModule_Reply_Map(reply);
+  }
+}
+
+void Profile_PrintInFormat(RedisModule_Reply *reply,
+                           ProfilePrinterCB shards_cb, void *shards_ctx,
+                           ProfilePrinterCB coordinator_cb, void *coordinator_ctx) {
+  if (reply->resp3) {
+    RedisModule_ReplyKV_Map(reply, PROFILE_STR); /* >profile */
+  } else {
+    RedisModule_Reply_Map(reply); /* >profile */
+  }
+  /* Print shards profile */
+  RedisModule_ReplyKV_Array(reply, "Shards"); /* >Shards */
+  if (shards_cb) shards_cb(reply, shards_ctx);
+  RedisModule_Reply_ArrayEnd(reply); /* Shards */
+  /* Print coordinator profile */
+  RedisModule_ReplyKV_Map(reply, "Coordinator"); /* >coordinator */
+  if (coordinator_cb) coordinator_cb(reply, coordinator_ctx);
+  RedisModule_Reply_MapEnd(reply); /* >coordinator */
+  RedisModule_Reply_MapEnd(reply); /* >profile */
+}
+
+void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout) {
+  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout};
+  Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
 }

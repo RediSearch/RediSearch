@@ -15,6 +15,7 @@
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/src/config.h"
+#include "dist_profile.h"
 
 #include <err.h>
 
@@ -615,36 +616,27 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   }
 }
 
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
+void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  clock_t finishTime = clock();
-
-  RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
-
-  // profileRP replace netRP as end PR
-  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-
-  // Print shards profile
-  if (reply->resp3) {
-    PrintShardProfile_resp3(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
-  } else {
-    PrintShardProfile_resp2(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
-  }
-
-  RedisModule_Reply_MapEnd(reply); // Shards
-  // Print coordinator profile
-
-  RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
-
+static void profileAggReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   RedisModule_ReplyKV_Map(reply, "Result processors profile");
-  Profile_Print(reply, req, timedout);
+  Profile_Print(reply, ctx);
   RedisModule_Reply_MapEnd(reply);
 
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  clock_t initClock = ((ProfilePrinterCtx *)ctx)->req->initClock;
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - initClock) / CLOCKS_PER_MILLISEC);
+}
 
-  RedisModule_Reply_MapEnd(reply); // >coordinator
+void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
+  // profileRP replace netRP as end PR
+  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
+  ProfilePrinterCtx cCtx = {req, timedout};
+  struct PrintShardProfile_ctx sCtx = {
+    .count = array_len(rpnet->shardsProfile),
+    .replies = rpnet->shardsProfile,
+    .isSearch = false,
+  };
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, profileAggReplyCoordinator, &cCtx);
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {

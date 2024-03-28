@@ -443,12 +443,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QOptimizer_UpdateTotalResults(req);
     }
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
-    }
+
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
-    if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
