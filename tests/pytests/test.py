@@ -2191,9 +2191,8 @@ def testTimeout(env):
     if VALGRIND:
         env.skip()
 
-    num_range = 1000
+    num_range = 20000
     env.cmd('ft.config', 'set', 'timeout', '1')
-    # TODO: Remove `TIMEOUT 1` arguments (see commands) once MOD-6286 is merged.
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -2207,7 +2206,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 10000)
+    res = env.cmd('ft.search', 'myIdx', '*', 'TIMEOUT', 10000)
     env.assertEqual(res[0], num_range)
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', '1')    \
         .error().contains('Timeout limit was reached')
