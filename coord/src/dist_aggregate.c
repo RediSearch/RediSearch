@@ -619,9 +619,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 static void profileAggReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
-  RedisModule_ReplyKV_Map(reply, "Result processors profile");
-  Profile_Print(reply, ctx);
-  RedisModule_Reply_MapEnd(reply);
+  RedisModule_Reply_SimpleString(reply, "Result processors profile"); // Name the map
+  Profile_Print(reply, ctx); // Print the profile data as a map
 
   clock_t initClock = ((ProfilePrinterCtx *)ctx)->req->initClock;
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - initClock) / CLOCKS_PER_MILLISEC);
