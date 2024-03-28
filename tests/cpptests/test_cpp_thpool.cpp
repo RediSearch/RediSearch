@@ -3,21 +3,35 @@
 #include <chrono>
 #include <thread>
 
-class PriorityThpoolTestBasic : public ::testing::Test {
 
+typedef struct {
+    size_t num_threads;
+    size_t num_priveleged_threads;
+} ThpoolParams;
 
-    public:
+class PriorityThpoolTestBase : public testing::TestWithParam<ThpoolParams> {
+public:
     redisearch_threadpool pool;
         virtual void SetUp() {
+            ThpoolParams params = GetParam();
             // Thread pool with a single thread which is also a "privileged thread" that
             // runs high priority tasks before low priority tasks.
-            this->pool = redisearch_thpool_create(1, 1, nullptr);
+            this->pool = redisearch_thpool_create(params.num_threads, params.num_priveleged_threads, nullptr);
         }
 
         virtual void TearDown() {
             redisearch_thpool_destroy(this->pool);
         }
 };
+#define THPOOL_TEST_SUITE(CLASS_NAME, NUM_THREADS, NUM_PRIVILEGED) \
+    class CLASS_NAME : public PriorityThpoolTestBase {}; \
+    INSTANTIATE_TEST_SUITE_P(CLASS_NAME, \
+                            CLASS_NAME, \
+                            testing::Values(ThpoolParams{NUM_THREADS, NUM_PRIVILEGED})); \
+                           // testing::Values(ThpoolParams(NUM_THREADS, NUM_PRIVILEGED))); \
+
+/* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 1 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
 
 struct test_struct {
     std::chrono::time_point<std::chrono::high_resolution_clock> *arr; // Pointer to the array of timestamps
@@ -27,7 +41,7 @@ struct test_struct {
 /* The purpose of the function is to sleep for 100ms and then set the timestamp
  * in the test_struct.
 */
-void sleep_and_set(test_struct *ts) {
+void sleep_and_set(test_struct *ts, int64_t sleep_time) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ts->arr[ts->index] = std::chrono::high_resolution_clock::now();
 }
@@ -37,7 +51,7 @@ void sleep_and_set(test_struct *ts) {
  * in FIFO manner. The test adds 10 tasks with low priority and checks that the
  * tasks are handled in the order they were added.
  */
-TEST_F(PriorityThpoolTestBasic, AllLowPriority) {
+TEST_P(PriorityThpoolTestBasic, AllLowPriority) {
     int array_len = 10;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[array_len];
     test_struct ts[array_len];
@@ -56,7 +70,7 @@ TEST_F(PriorityThpoolTestBasic, AllLowPriority) {
  * in FIFO manner. The test adds 10 tasks with HIGH priority and checks that the
  * tasks are handled in the order they were added.
  */
-TEST_F(PriorityThpoolTestBasic, AllHighPriority) {
+TEST_P(PriorityThpoolTestBasic, AllHighPriority) {
     int array_len = 10;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[array_len];
     test_struct ts[array_len];
@@ -77,7 +91,7 @@ TEST_F(PriorityThpoolTestBasic, AllHighPriority) {
  * single thread in the pool is a privileged thread that is handling high priority tasks before low
  * priority tasks.
  */
-TEST_F(PriorityThpoolTestBasic, HighLowHighTest) {
+TEST_P(PriorityThpoolTestBasic, HighLowHighTest) {
     int high_priority_tasks = 2;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[high_priority_tasks];
     std::chrono::time_point<std::chrono::high_resolution_clock> low_priority_timestamp;
@@ -100,23 +114,10 @@ TEST_F(PriorityThpoolTestBasic, HighLowHighTest) {
     }
 }
 
+/* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 0 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestWithoutPrivilegedThreads, 1, 0)
 
-class PriorityThpoolTestWithoutPrivilegedThreads : public ::testing::Test {
-
-   public:
-    redisearch_threadpool pool;
-    virtual void SetUp() {
-        // Thread pool with one thread which is not a "privileged thread", meaning that
-        // it runs high priority tasks and low priority alternately.
-        this->pool = redisearch_thpool_create(1, 0, nullptr);
-    }
-
-    virtual void TearDown() {
-        redisearch_thpool_destroy(this->pool);
-    }
-};
-
-TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
+TEST_P(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
     int total_tasks = 5;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[total_tasks];
 
@@ -146,4 +147,25 @@ TEST_F(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
     ASSERT_LT(arr[0], arr[2]);
     ASSERT_LT(arr[2], arr[4]);
     ASSERT_LT(arr[4], arr[3]);
+}
+
+/* ========================== NUM_THREADS = 2, NUM_PRIVILEGED = 0 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 2, 0)
+
+void sleep_1_and_set(void) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
+    // Pause the thread pool before adding tasks, to validate that jobs won't get executed before
+    // all other jobs are inserted into the queue.
+    redisearch_thpool_terminate_pause_threads(this->pool);
+
+    // Fill the job queue with tasks.
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, nullptr, THPOOL_PRIORITY_HIGH);
+
+    redisearch_thpool_resume_threads(this->pool);
+
+    redisearch_thpool_terminate_when_empty(this->pool);
+    redisearch_thpool_wait(this->pool);
 }

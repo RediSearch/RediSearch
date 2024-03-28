@@ -58,10 +58,9 @@ typedef struct priority_queue {
   pthread_mutex_t jobqueues_rwmutex;  /* used for queue r/w access */
   unsigned char pulls;                /* number of pulls from queue */
   unsigned char n_privileged_threads; /* number of threads that always run high priority tasks */
-  pthread_cond_t has_jobs;
-  bool should_run;
-  volatile atomic_size_t num_threads_not_idle; /* threads currently working */
-  pthread_cond_t threads_all_idle;     /* signal to thpool_wait     */
+  pthread_cond_t has_jobs;            /* Conditional variable to wake up threads waiting for new jobs */
+  bool should_run;                    /* Indicates wether the threads should pull jobs from the jobq*/
+  volatile atomic_size_t num_threads_working; /* threads currently working */
 } priority_queue;
 
 /* Thread */
@@ -110,6 +109,7 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p);
 static void priority_queue_destroy(priority_queue* priority_queue_p);
 static size_t priority_queue_len(priority_queue* priority_queue_p);
 static size_t priority_queue_len_unsafe(priority_queue* priority_queue_p);
+static bool priority_queue_all_jobs_done(priority_queue* priority_queue_p);
 
 /* ========================== THREADPOOL ============================ */
 
@@ -130,11 +130,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 
   /* Initialise the job queue */
   if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
-  if(priority_queue_init(&thpool_p->jobqueue, num_threads, num_privileged_threads) == -1) {
-    LOG_IF_EXISTS("warning", "redisearch_thpool_create(): Could not allocate memory for job queue")
-    rm_free(thpool_p);
-    return NULL;
-  }
+  priority_queue_init(&thpool_p->jobqueue, num_threads, num_privileged_threads);
 
   /* Make threads in pool */
   thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
@@ -167,8 +163,6 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t* thpool_p) 
   if (thpool_p->state != THPOOL_UNINITIALIZED) return; // Already initialized or should be kept dead
   thpool_p->state = THPOOL_KEEP_ALIVE;
   thpool_p->jobqueue.should_run = true;
-  // Threads from previous initialization might have exit the loop and terminate before trying to pull a job from the queue.
-  thpool_p->jobqueue.num_threads_not_idle = 0;
 
   /* Thread init */
   for (size_t n = 0; n < thpool_p->total_threads_count; n++) {
@@ -245,56 +239,21 @@ fail:
 /* Wait until all jobs have finished */
 void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   priority_queue* priority_queue_p = &thpool_p->jobqueue;
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  while (priority_queue_len_unsafe(&thpool_p->jobqueue) || priority_queue_p->num_threads_not_idle) {
-    pthread_cond_wait(&priority_queue_p->threads_all_idle, &priority_queue_p->jobqueues_rwmutex);
-
+  long usec_timeout = 1000 * 100;
+  while (!priority_queue_all_jobs_done(priority_queue_p)) {
+    usleep(usec_timeout);
   }
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 
 }
 
 void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
                                  yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
 
-  // Set the *absolute* time for waiting the condition variable
-  struct timespec time_spec;
-  struct timeval tp;
-  gettimeofday(&tp, NULL);
-  time_spec.tv_sec = tp.tv_sec;
-  time_spec.tv_nsec = tp.tv_usec * 1000;
-  time_spec.tv_nsec += timeout * 1000000;
-  // Check if the nanoseconds field has a carry-out (it cannot hold a value which is lager
-  // than 1 sec).
-  if (time_spec.tv_nsec >= 1000000000) {
-    time_spec.tv_sec++;
-    time_spec.tv_nsec -= 1000000000;
+  long usec_timeout = 1000 * timeout;
+  while (priority_queue_len(&thpool_p->jobqueue) > threshold) {
+    usleep(usec_timeout);
+    yieldCB(yield_ctx);
   }
-
-  priority_queue* priority_queue_p = &thpool_p->jobqueue;
-
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  while (priority_queue_len_unsafe(&thpool_p->jobqueue) > threshold) {
-    int rc = pthread_cond_timedwait(&priority_queue_p->threads_all_idle, &priority_queue_p->jobqueues_rwmutex, &time_spec);
-    if (rc == ETIMEDOUT) {
-      pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
-      yieldCB(yield_ctx);
-      gettimeofday(&tp, NULL);
-      time_spec.tv_sec = tp.tv_sec;
-      time_spec.tv_nsec = tp.tv_usec * 1000;
-      time_spec.tv_nsec += timeout * 1000000;
-      // Check if the nanoseconds field has a carry-out (it cannot hold a value which is lager
-      // than 1 sec).
-      if (time_spec.tv_nsec >= 1000000000) {
-        time_spec.tv_sec++;
-        time_spec.tv_nsec -= 1000000000;
-      }
-      pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-    } else {
-      assert(rc == 0);
-    }
-  }
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 }
 
 static void redisearch_thpool_terminate_threads_common(redisearch_thpool_t* thpool_p, thpool_state new_state) {
@@ -356,7 +315,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
   priority_queue* priority_queue_p = &thpool_p->jobqueue;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  size_t res = priority_queue_p->num_threads_not_idle;
+  size_t res = priority_queue_p->num_threads_working;
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
   return res;
 }
@@ -371,7 +330,8 @@ thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
   thpool_stats res = {.total_jobs_done = thpool_p->total_jobs_done,
                       .high_priority_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len,
                       .low_priority_pending_jobs = thpool_p->jobqueue.low_priority_jobqueue.len,
-                      .total_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len+thpool_p->jobqueue.low_priority_jobqueue.len
+                      .total_pending_jobs = thpool_p->jobqueue.high_priority_jobqueue.len+thpool_p->jobqueue.low_priority_jobqueue.len,
+                      .num_threads_alive = thpool_p->num_threads_alive,
   };
   pthread_mutex_unlock(&thpool_p->jobqueue.jobqueues_rwmutex);
   return res;
@@ -389,8 +349,6 @@ static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, 
 
   (*thread_p)->thpool_p = thpool_p;
   (*thread_p)->id = id;
-
-  thpool_p->jobqueue.num_threads_not_idle++;
 
   pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
   pthread_detach((*thread_p)->pthread);
@@ -431,7 +389,6 @@ static void* thread_do(struct thread* thread_p) {
 
     LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
 
-
     /* Read job from queue and execute it */
     void (*func_buff)(void*);
     void* arg_buff;
@@ -443,7 +400,11 @@ static void* thread_do(struct thread* thread_p) {
       rm_free(job_p);
     }
 
-    if (job_p) thpool_p->total_jobs_done++;
+    if (job_p) {
+      // Both variables are atomic, so we can do this without a lock.
+      thpool_p->total_jobs_done++;
+      thpool_p->jobqueue.num_threads_working--;
+    }
     if (thpool_p->state == THPOOL_TERMINATE_WHEN_EMPTY) {
       pthread_mutex_lock(&thpool_p->jobqueue.jobqueues_rwmutex);
       if (priority_queue_len_unsafe(&thpool_p->jobqueue) == 0) {
@@ -552,9 +513,8 @@ static int priority_queue_init(priority_queue* priority_queue_p, size_t num_thre
   priority_queue_p->pulls = 0;
   priority_queue_p->n_privileged_threads = num_privileged_threads;
   priority_queue_p->should_run = true;
-  priority_queue_p->num_threads_not_idle = 0;
+  priority_queue_p->num_threads_working = 0;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);
-  pthread_cond_init(&priority_queue_p->threads_all_idle, NULL);
 
   return 0;
 }
@@ -587,11 +547,6 @@ static void priority_queue_push_chain(redisearch_thpool_t* thpool_p, struct job*
 static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
   struct job* job_p = NULL;
   pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  priority_queue_p->num_threads_not_idle--;
-
-  if (priority_queue_p->num_threads_not_idle == 0) {
-    pthread_cond_signal(&priority_queue_p->threads_all_idle);
-  }
 
   while (jobqueue_is_empty(&priority_queue_p->high_priority_jobqueue) &&
          jobqueue_is_empty(&priority_queue_p->low_priority_jobqueue) &&
@@ -605,7 +560,7 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
     return NULL;
   }
 
-  if (priority_queue_p->num_threads_not_idle < priority_queue_p->n_privileged_threads) {
+  if (priority_queue_p->num_threads_working < priority_queue_p->n_privileged_threads) {
     // This is a privileged thread id, try taking from the high priority queue.
     job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
     // If the higher priority queue is empty, pull from the low priority queue.
@@ -629,7 +584,9 @@ static struct job* priority_queue_pull(priority_queue* priority_queue_p) {
     }
     priority_queue_p->pulls++;
   }
-  priority_queue_p->num_threads_not_idle++;
+  // Increasing the counter should be guarded in the same code block as pulling from the queue since we may want
+  // to check the jobq length and num_threads_working together.
+  priority_queue_p->num_threads_working++;
   pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
 
   return job_p;
@@ -652,4 +609,12 @@ static size_t priority_queue_len(priority_queue* priority_queue_p) {
 
 static size_t priority_queue_len_unsafe(priority_queue* priority_queue_p) {
   return priority_queue_p->high_priority_jobqueue.len + priority_queue_p->low_priority_jobqueue.len;
+}
+
+static bool priority_queue_all_jobs_done(priority_queue* priority_queue_p) {
+  bool ret = false;
+  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
+  ret = priority_queue_len_unsafe(priority_queue_p) == 0 && priority_queue_p->num_threads_working == 0;
+  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
+  return ret;
 }
