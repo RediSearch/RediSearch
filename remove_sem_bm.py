@@ -58,6 +58,7 @@ def run_queries(n_clients, stop_run, key):
             print(f"client {my_id} is running queries")
         k = 10
         my_total_queries = 0
+        rng = np.random.default_rng(seed=42)
         start = time.time()
         while stop_running.value == 0:
             query = f"*=>[KNN {k} @vector $BLOB]"
@@ -68,7 +69,7 @@ def run_queries(n_clients, stop_run, key):
                 .paging(0, k)
                 .dialect(2)
             )
-            query_vec = np.array(np.random.rand(dim), dtype=np.float32)
+            query_vec = rng.random(dim, dtype=np.float32)
             res = redis_conn.ft().search(q, query_params={"BLOB": query_vec.tobytes()})
             my_total_queries += 1
             if len(res.docs) < k:
