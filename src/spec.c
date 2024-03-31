@@ -840,8 +840,15 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFFLAT;
-    params->algoParams.raftIvfParams.usePQ = false;
-    params->algoParams.raftIvfParams.multi = multi;
+    params->algoParams.raftIvfParams = (RaftIvfParams){
+        .multi = multi,
+        .nLists = 1023, // Has to be smaller than `tieredVecSimIndexBufferLimit`
+        .kmeans_nIters = 20,
+        .kmeans_trainsetFraction = 0.5,
+        .nProbes = 20,
+        .usePQ = false,
+        .adaptiveCenters = true,
+    };
     return parseVectorField_raft(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, "RAFT_IVF_PQ")) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
@@ -851,8 +858,20 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
 
     params->algo = VecSimAlgo_RAFT_IVFPQ;
-    params->algoParams.raftIvfParams.usePQ = true;
-    params->algoParams.raftIvfParams.multi = multi;
+    params->algoParams.raftIvfParams = (RaftIvfParams){
+        .multi = multi,
+        .nLists = 1023, // Has to be smaller than `tieredVecSimIndexBufferLimit`
+        .kmeans_nIters = 20,
+        .kmeans_trainsetFraction = 0.5,
+        .nProbes = 20,
+        .usePQ = true,
+        .pqBits = 8,
+        .pqDim = 0,
+        .codebookKind = RaftIVFPQCodebookKind_PerSubspace,
+        .lutType = CUDAType_R_32F,
+        .internalDistanceType = CUDAType_R_32F,
+        .preferredShmemCarveout = 1.0,
+    };
     return parseVectorField_raft(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
