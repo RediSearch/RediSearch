@@ -65,6 +65,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
   newCmd.forCursor = cmd->forCursor;
+  newCmd.forProfiling = cmd->forProfiling;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
@@ -131,6 +132,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
+      if (cmd->forProfiling) results = MRReply_MapElement(results, "results"); // profile has an extra level
       if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
@@ -273,6 +275,20 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
+  if (nc->cmd.forProfiling && nc->cmd.protocol == 3) {
+    /* On RESP3, FT.PROFILE AGGREGATE returns:
+      [
+        {
+          "Results": { <FT.AGGREGATE reply> },
+          "Profile": { <profile data> }
+        },
+        cursor_id
+      ]
+     * So we need to extract the "Results" map from the first element of the array
+     */
+
+    rows = MRReply_MapElement(rows, "results");
+  }
   if (   rows == NULL
       || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
       || MRReply_Length(rows) == 0) {
@@ -708,6 +724,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain

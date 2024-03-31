@@ -1453,19 +1453,31 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  for (int i = 0; i < count; ++i) {
-    MRReply *mr_reply;
-    if (reply->resp3) {
-      mr_reply = replies[i];
-    } else {
-      mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
-    }
-    rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+  if (!profile) {
+    for (int i = 0; i < count; ++i) {
+      rCtx.processReply(replies[i], (struct searchReducerCtx *)&rCtx, ctx);
 
-    // If we timed out on strict timeout policy, return a timeout error
-    if (should_return_timeout_error(req)) {
-      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-      goto cleanup;
+      // If we timed out on strict timeout policy, return a timeout error
+      if (should_return_timeout_error(req)) {
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        goto cleanup;
+      }
+    }
+  } else {
+    for (int i = 0; i < count; ++i) {
+      MRReply *mr_reply;
+      if (reply->resp3) {
+        mr_reply = MRReply_MapElement(replies[i], "Results");
+      } else {
+        mr_reply = MRReply_ArrayElement(replies[i], 0);
+      }
+      rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+
+      // If we timed out on strict timeout policy, return a timeout error
+      if (should_return_timeout_error(req)) {
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        goto cleanup;
+      }
     }
   }
 
