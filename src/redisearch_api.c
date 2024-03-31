@@ -899,28 +899,6 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   return res;
 }
 
-// Calculate the memory usage of all the indexes currently existing
-size_t RediSearch_TotalMemUsage(void) {
-  size_t total = 0;
-  // Traverse `specDict_g`, and sum the memory usage of each index
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
-    if (!sp) {
-      continue;
-    }
-    // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
-    // Collect memory usage of the index
-    total += RediSearch_MemUsage((RSIndex *)ref.rm);
-    pthread_rwlock_unlock(&sp->rwlock);
-  }
-  dictReleaseIterator(iter);
-  return total;
-}
-
 // Collect mem-usage, indexing time and gc statistics of all the currently
 // existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
