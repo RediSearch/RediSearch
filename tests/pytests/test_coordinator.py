@@ -210,6 +210,8 @@ def test_single_shard_optimization():
     # Profile
     # A simple validation that we get a standalone error response
     env.expect('FT.PROFILE', 'idx', 'SEARCH', 'hello', 'world').error().contains('The QUERY keyword is expected')
+    # Verify that PROFILE does not support WITHCURSOR
+    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'WITHCURSOR').error().contains('FT.PROFILE does not support cursor')
 
     # SpellCheck
     env.expect('FT.SPELLCHECK', 'idx', 'hell').equal([['TERM', 'hell', [['1', 'hello']]]])

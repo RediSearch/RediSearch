@@ -1903,16 +1903,18 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return RSProfileCommand(ctx, argv, argc);
-  }
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
 
   if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
+  }
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    // We must first check that we don't have a cursor, as the local command handler allows cursors
+    // for multi-shard clusters support.
+    return RSProfileCommand(ctx, argv, argc);
   }
 
   const char *typeStr = RedisModule_StringPtrLen(argv[2], NULL);
