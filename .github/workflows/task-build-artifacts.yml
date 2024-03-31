@@ -23,6 +23,7 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
+  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
 
 jobs:
   build:
@@ -58,15 +59,22 @@ jobs:
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli
+        working-directory: setup/.install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: Setup common
-        run: |
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-          pip install -q -r .install/build_package_requirments.txt
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+      - name: install build artifacts req
+        run: pip install -q -r .install/build_package_requirments.txt
+
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       # Get Redis
       - name: Get Redis

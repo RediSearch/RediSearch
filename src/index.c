@@ -694,6 +694,9 @@ void IntersectIterator_Free(IndexIterator *it) {
   IntersectIterator *ui = it->ctx;
   for (int i = 0; i < ui->num; i++) {
     if (ui->its[i] != NULL) {
+      if(ui->its[i] == ui->bestIt) {
+        ui->bestIt = NULL;
+      }
       ui->its[i]->Free(ui->its[i]);
     }
     // IndexResult_Free(&ui->currentHits[i]);

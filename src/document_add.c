@@ -82,7 +82,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     } else if (rv == AC_ERR_ENOENT) {
       size_t narg;
       const char *s = AC_GetStringNC(ac, &narg);
-      if (!strncasecmp("FIELDS", s, narg)) {
+      if (STR_EQCASE(s, narg, "FIELDS")) {
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
           QueryError_SetError(status, QUERY_EADDARGS,
@@ -114,7 +114,9 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   }
 
   if (opts->languageStr != NULL) {
-    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL), 0);
+    size_t len;
+    const char *lang = RedisModule_StringPtrLen(opts->languageStr, &len);
+    opts->language = RSLanguage_Find(lang, len);
     if (opts->language == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
       return REDISMODULE_ERR;
@@ -235,7 +237,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   sp = StrongRef_Get(ref);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");

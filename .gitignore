@@ -26,3 +26,4 @@ callgrind.out.*
 /tests/pytests/logs/
 /deps/RedisJSON/
 /1/
+/.install/boost*
