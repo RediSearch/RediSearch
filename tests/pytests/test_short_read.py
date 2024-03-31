@@ -21,7 +21,6 @@ from includes import *
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
-
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
     'short-reads/rejson_2.0.0.rdb.zip',
@@ -62,8 +61,8 @@ def unzip(zip_path, to_dir):
     return True
 
 
-def downloadFiles(target_dir):
-    for f in RDBS:
+def downloadFiles(target_dir, rdbs_start_idx, rdbs_end_idx):
+    for f in RDBS[rdbs_start_idx:rdbs_end_idx]:
         path = os.path.join(target_dir, f)
         path_dir = os.path.dirname(path)
         if not os.path.exists(path_dir):
@@ -193,12 +192,12 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
                        get_identifier('field6', isHash), 'as', 'f6', 'tag', 'empty',
                        get_identifier('field6', isHash), 'as', 'f7', 'tag', 'empty', 'SORTABLE',
-                       
+
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
                        get_identifier('field13', isHash), 'geo',
                        get_identifier('field14', isHash), 'tag', 'noindex',
-                       
+
                        get_identifier('myLang', isHash), 'text',
                        get_identifier('myScore', isHash), 'numeric',
                        ])
@@ -515,8 +514,15 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, msan=True)
-def testShortReadSearch(env):
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
+def testShortReadSearch_part1(env):
+    ShortReadSearch(env, 0, len(RDBS)//2)
+
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
+def testShortReadSearch_part2(env):
+    ShortReadSearch(env, len(RDBS)//2, len(RDBS))
+
+def ShortReadSearch(env, rdbs_start_idx, rdbs_end_idx):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
 
@@ -526,24 +532,11 @@ def testShortReadSearch(env):
     if env.env.endswith('existing-env') and CI:
         env.skip()
 
-    if OS == 'macos':
-        env.skip()
-
     seed = str(time.time())
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
-        if not downloadFiles(temp_dir):
-            env.assertTrue(False, "downloadFiles failed")
-
-        for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
-            name, ext = os.path.splitext(f)
-            if ext == '.zip':
-                f = name
-            fullfilePath = os.path.join(temp_dir, f)
-            env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
-            sendShortReads(env, fullfilePath, expected_index)
+    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'testShortReadSearch')
 
 
 def sendShortReads(env, rdb_file, expected_index):
@@ -553,7 +546,7 @@ def sendShortReads(env, rdb_file, expected_index):
     env.flush()
     add_index(env, True,  'idxBackup1', 'a', 5, 10, 5)
     add_index(env, False, 'idxBackup2', 'b', 5, 10, 5)
-    
+
     res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
     env.assertEqual(res[0], 5)
     res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
@@ -648,9 +641,28 @@ def runShortRead(env, data, total_len, expected_index):
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
 
+def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
+    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
+        if not downloadFiles(temp_dir, rdbs_start_idx, rdbs_end_idx):
+            env.assertTrue(False, "downloadFiles failed")
 
-@skip(cluster=True, macos=True, msan=True)
-def test_short_read_with_MT():
+        for f, expected_index in zip(RDBS[rdbs_start_idx:rdbs_end_idx], RDBS_EXPECTED_INDICES[rdbs_start_idx:rdbs_end_idx]):
+            name, ext = os.path.splitext(f)
+            if ext == '.zip':
+                f = name
+            fullfilePath = os.path.join(temp_dir, f)
+            env.assertNotEqual(fullfilePath, None, message=test_name)
+            sendShortReads(env, fullfilePath, expected_index)
+
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
+def test_short_read_with_MT_part1():
+    short_read_with_MT(0, len(RDBS)//2)
+
+@skip(cluster=True, macos=True, asan=True, arch='aarch64')
+def test_short_read_with_MT_part2():
+    short_read_with_MT(len(RDBS)//2, len(RDBS))
+
+def short_read_with_MT(rdbs_start_idx, rdbs_end_idx):
     env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
@@ -661,14 +673,4 @@ def test_short_read_with_MT():
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
-        if not downloadFiles(temp_dir):
-            env.assertTrue(False, "downloadFiles failed")
-
-        for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
-            name, ext = os.path.splitext(f)
-            if ext == '.zip':
-                f = name
-            fullfilePath = os.path.join(temp_dir, f)
-            env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
-            sendShortReads(env, fullfilePath, expected_index)
+    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'test_short_read_with_MT')
