@@ -127,8 +127,7 @@ elseif (BUILD_STATIC)
     add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     target_compile_definitions(redisearch-static PRIVATE
-        RS_NO_ONLOAD
-        RS_NO_RMAPI)
+        RS_NO_ONLOAD)
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 

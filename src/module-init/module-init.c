@@ -62,7 +62,8 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
   // embedded newline in them
   if (tolower(*value) == 'n') {
-    RedisModule_Log(RSDummyContext, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
+    RedisModule_Log(RSDummyContext, "warning",
+                    "FATAL: aof-use-rdb-preamble required if AOF is used!");
     rc = 0;
   }
   RedisModule_FreeCallReply(reply);
@@ -97,7 +98,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddSection(ctx, "version");
   char ver[64];
   // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
+  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR,
+          REDISEARCH_VERSION_PATCH);
   RedisModule_InfoAddFieldCString(ctx, "version", ver);
   // Redis version
   GetFormattedRedisVersion(ver, sizeof(ver));
@@ -121,7 +123,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Run time configuration
   RSConfig_AddToInfo(ctx);
 
-  #ifdef FTINFO_FOR_INFO_MODULES
+#ifdef FTINFO_FOR_INFO_MODULES
   // FT.INFO for some of the indexes
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
@@ -134,10 +136,10 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     }
   }
   dictReleaseIterator(iter);
-  #endif
+#endif
 }
 
-static inline const char* RS_GetExtraVersion() {
+static inline const char *RS_GetExtraVersion() {
 #ifdef GIT_VERSPEC
   return GIT_VERSPEC;
 #else
@@ -147,6 +149,84 @@ static inline const char* RS_GetExtraVersion() {
 
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
+
+typedef struct RS_String {
+  size_t ref_count;
+  size_t len;
+  char *ptr;
+} RS_String;
+
+static RedisModuleString *RS_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t len) {
+  RS_String *res = rm_malloc(sizeof(*res));
+  res->ref_count = 1;
+  res->ptr = rm_malloc(len + 1);
+  res->len = len;
+  memcpy(res->ptr, ptr, len);
+  res->ptr[len] = '\0';
+  return (RedisModuleString *)res;
+}
+
+static void RS_TrimStringAllocation(RedisModuleString *str) {
+}
+
+static void RS_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
+  RS_String *s = (RS_String *)str;
+  s->ref_count--;
+  if (s->ref_count == 0) {
+    rm_free(s->ptr);
+    rm_free(s);
+  }
+}
+
+static RedisModuleString *RS_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
+  RS_String *s = (RS_String *)str;
+  s->ref_count++;
+  return str;
+}
+
+static void RS_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {
+}
+
+static RedisModuleCtx *RS_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
+  return NULL;
+}
+
+int vasprintf(char **__restrict __ptr, const char *__restrict __fmt, va_list __arg) {
+  va_list args_copy;
+  va_copy(args_copy, __arg);
+
+  size_t needed = vsnprintf(NULL, 0, __fmt, __arg) + 1;
+  *__ptr = rm_malloc(needed);
+
+  int res = vsprintf(*__ptr, __fmt, args_copy);
+
+  va_end(args_copy);
+
+  return res;
+}
+
+static RedisModuleString *RS_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, ...) {
+  RS_String *res = rm_malloc(sizeof(*res));
+  res->ref_count = 1;
+  va_list ap;
+  va_start(ap, fmt);
+
+  res->len = vasprintf(&res->ptr, fmt, ap);
+
+  va_end(ap);
+
+  return (RedisModuleString *)res;
+}
+
+int RediSearch_InitRedisAPI(RedisModuleCtx *ctx, int mode) {
+  RedisModule_CreateString = RS_CreateString;
+  RedisModule_TrimStringAllocation = RS_TrimStringAllocation;
+  RedisModule_FreeString = RS_FreeString;
+  RedisModule_HoldString = RS_HoldString;
+  RedisModule_Log = RS_Log;
+  RedisModule_GetThreadSafeContext = RS_GetThreadSafeContext;
+  RedisModule_CreateStringPrintf = RS_CreateStringPrintf;
+}
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                                 \
@@ -196,12 +276,16 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #ifdef MT_BUILD
   // Init threadpool.
   // Threadpool size can only be set on load.
-  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
+  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS ||
+       RSGlobalConfig.mt_mode == MT_MODE_FULL) &&
+      RSGlobalConfig.numWorkerThreads == 0) {
+    DO_LOG("warning",
+           "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while "
+           "WORKERS_THREADS"
            " number is set to zero");
     return REDISMODULE_ERR;
   }
-  if(RSGlobalConfig.numWorkerThreads) {
+  if (RSGlobalConfig.numWorkerThreads) {
     if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
@@ -209,8 +293,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       // If the module configuration states that worker threads should always be active,
       // we log about the threadpool creation.
       DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-      DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
-             " when possible", RSGlobalConfig.privilegedThreadsNum);
+      DO_LOG("verbose",
+             "threadpool contains %lu privileged threads that always prefer running queries"
+             " when possible",
+             RSGlobalConfig.privilegedThreadsNum);
     } else {
       // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
       // VSS lib is async by default.
@@ -220,7 +306,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #endif
   {
     // If we don't have a thread pool,
-    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+    // we have to make sure that we tell the vecsim library to add and delete in place (can't use
+    // submit at all)
     VecSim_SetWriteMode(VecSim_WriteInPlace);
   }
 
@@ -249,7 +336,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   // Register to Info function
-  if (RedisModule_RegisterInfoFunc && RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
+  if (RedisModule_RegisterInfoFunc &&
+      RedisModule_RegisterInfoFunc(ctx, RS_moduleInfoFunc) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
@@ -259,7 +347,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_RoleChangeNotifications(ctx);
 
   // Register rm_malloc memory functions as vector similarity memory functions.
-  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
+  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc,
+                                                 .callocFunction = rm_calloc,
+                                                 .reallocFunction = rm_realloc,
+                                                 .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);

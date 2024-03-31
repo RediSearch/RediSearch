@@ -7,8 +7,10 @@
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 
-#include "redismodule.h"
+// #include "redismodule.h"
 #include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +32,8 @@ typedef struct Document RSDoc;
 typedef struct RSQueryNode RSQNode;
 typedef struct RS_ApiIter RSResultsIterator;
 typedef struct RSIdxOptions RSIndexOptions;
+typedef struct RedisModuleString RedisModuleString;
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 #define RSVALTYPE_NOTFOUND 0
 #define RSVALTYPE_STRING 1
@@ -92,15 +96,15 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
-  char **stopwords;
+  char** stopwords;
   int stopwordsLen;
   double score;
-  const char *lang;
+  const char* lang;
 };
 
 struct RSIdxField {
-  char *path;
-  char *name;
+  char* path;
+  char* name;
 
   int types;
   int options;
@@ -119,10 +123,10 @@ typedef struct RSIdxInfo {
   // spec params
   int gcPolicy;
   double score;
-  const char *lang;
+  const char* lang;
 
   // fields params
-  struct RSIdxField *fields;
+  struct RSIdxField* fields;
   size_t numFields;
 
   // stats
@@ -163,9 +167,9 @@ MODULE_API_FUNC(void, RediSearch_FreeIndexOptions)(RSIndexOptions*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
-(RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
+(RSIndexOptions* opts, const char** stopwords, int stopwordsLen);
 MODULE_API_FUNC(int, RediSearch_IndexOptionsSetScore)(RSIndexOptions*, double);
-MODULE_API_FUNC(int, RediSearch_IndexOptionsSetLanguage)(RSIndexOptions*, const char *);
+MODULE_API_FUNC(int, RediSearch_IndexOptionsSetLanguage)(RSIndexOptions*, const char*);
 MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 
 /** Set flags modifying index creation. */
@@ -177,13 +181,13 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
 /** Handle Stopwords list */
-MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
-MODULE_API_FUNC(void, RediSearch_StopwordsList_Free)(char **list, size_t size);
+MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char* term, size_t len);
+MODULE_API_FUNC(void, RediSearch_StopwordsList_Free)(char** list, size_t size);
 
 /** Getter functions */
-MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
+MODULE_API_FUNC(char**, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
 MODULE_API_FUNC(double, RediSearch_IndexGetScore)(RSIndex*);
-MODULE_API_FUNC(const char *, RediSearch_IndexGetLanguage)(RSIndex*);
+MODULE_API_FUNC(const char*, RediSearch_IndexGetLanguage)(RSIndex*);
 
 /**
  * Create a new field in the index
@@ -206,7 +210,7 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 #define RediSearch_CreateVectorField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
-// TODO: GEOMETRY 
+// TODO: GEOMETRY
 // #define RediSearch_CreateGeometryField(idx, name) \
 //   RediSearch_CreateField(idx, name, RSFLDTYPE_GEOMETRY, RSFLDOPT_NONE)
 
@@ -219,7 +223,8 @@ MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument2)
 (const void* docKey, size_t len, RSIndex* sp, double score, const char* lang);
-#define RediSearch_CreateDocument2Simple(s, sp) RediSearch_CreateDocument2(s, strlen(s), sp, NAN, NULL)
+#define RediSearch_CreateDocument2Simple(s, sp) \
+  RediSearch_CreateDocument2(s, strlen(s), sp, NAN, NULL)
 
 MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 
@@ -292,8 +297,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagContainsNode)
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagSuffixNode)
 (RSIndex* sp, const char* s);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
-(RSIndex* sp, const char* begin, const char* end, int includeBegin,
- int includeEnd);
+(RSIndex* sp, const char* begin, const char* end, int includeBegin, int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
@@ -361,8 +365,8 @@ MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
  * @param sp the index
  * @param info a pointer to RSIdxInfo struct with `.version = RS_INFO_CURRENT`
  */
-MODULE_API_FUNC(int, RediSearch_IndexInfo)(RSIndex* sp, RSIdxInfo *info);
-MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
+MODULE_API_FUNC(int, RediSearch_IndexInfo)(RSIndex* sp, RSIdxInfo* info);
+MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo* info);
 
 #define RS_XAPIFUNC(X)               \
   X(GetCApiVersion)                  \
@@ -467,6 +471,8 @@ MODULE_API_FUNC(void, RediSearch_IndexInfoFree)(RSIdxInfo *info);
  * This is an internal function
  */
 int RediSearch_ExportCapi(RedisModuleCtx* ctx);
+
+int RediSearch_InitRedisAPI();
 
 #define REDISEARCH_INIT_MODULE 0x01
 #define REDISEARCH_INIT_LIBRARY 0x02

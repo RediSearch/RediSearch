@@ -12,7 +12,7 @@
 #include <stdarg.h>
 #include "redismodule.h"
 
-#ifdef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
+#ifndef REDIS_MODULE_TARGET /* Set this when compiling your code as a module */
 
 static inline void *rm_malloc(size_t n) {
   return RedisModule_Alloc(n);
@@ -69,7 +69,7 @@ static int rm_asprintf(char **__ptr, const char *__restrict __fmt, ...) {
   return res;
 }
 #endif
-#ifndef REDIS_MODULE_TARGET
+#ifdef REDIS_MODULE_TARGET
 /* for non redis module targets */
 #define rm_malloc malloc
 #define rm_free free
