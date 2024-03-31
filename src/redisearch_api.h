@@ -10,6 +10,7 @@
 #include "redismodule.h"
 #include <limits.h>
 #include "fork_gc.h"
+#include "info_command.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -358,6 +359,8 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
 MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
 
 MODULE_API_FUNC(size_t, RediSearch_TotalMemUsage)(void);
+
+MODULE_API_FUNC(TotalSpecsInfo, RediSearch_TotalInfo)(void);
 
 MODULE_API_FUNC(InfoGCStats, RediSearch_GC_total)(void);
 
