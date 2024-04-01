@@ -16,18 +16,17 @@
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
-
 static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
   return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 
-void CursorList_Lock(CursorList *cl) {
+static void CursorList_Lock(CursorList *cl) {
   pthread_mutex_lock(&cl->lock);
 }
 
-void CursorList_Unlock(CursorList *cl) {
+static void CursorList_Unlock(CursorList *cl) {
   pthread_mutex_unlock(&cl->lock);
 }
 
@@ -156,6 +155,18 @@ int Cursors_CollectIdle(CursorList *cl) {
   int rc = Cursors_GCInternal(cl, 1);
   CursorList_Unlock(cl);
   return rc;
+}
+
+CursorsInfoStats Cursors_GetInfoStats(void) {
+  CursorsInfoStats stats = {0};
+  CursorList_Lock(&g_CursorsList);
+  CursorList_Lock(&g_CursorsListCoord);
+  stats.total = kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup);
+  stats.total_idle = ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) +
+                     ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **);
+  CursorList_Unlock(&g_CursorsListCoord);
+  CursorList_Unlock(&g_CursorsList);
+  return stats;
 }
 
 // The cursors list is assumed to be locked upon calling this function
