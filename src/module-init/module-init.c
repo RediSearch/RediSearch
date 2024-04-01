@@ -127,16 +127,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", total_info.total_mem / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
 
-  // cursors
+  // Cursors
   RedisModule_InfoAddSection(ctx, "cursors");
-  CursorList_Lock(&g_CursorsList);
-  CursorList_Lock(&g_CursorsListCoord);
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle",
-    ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) + ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **));
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total",
-    kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup));
-  CursorList_Unlock(&g_CursorsListCoord);
-  CursorList_Unlock(&g_CursorsList);
+  CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
 
   // GC stats
   RedisModule_InfoAddSection(ctx, "gc");
