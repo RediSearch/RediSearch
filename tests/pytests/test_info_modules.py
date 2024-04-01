@@ -136,7 +136,7 @@ def test_redis_info():
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'tag', 'TAG', 'SORTABLE')
 
   # Add some data
-  n_docs = 1000
+  n_docs = 10000
   for i in range(n_docs):
     conn.execute_command('HSET', f'h{i}', 'txt', f'hello{i}', 'tag', 'tag{i}')
 
