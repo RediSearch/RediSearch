@@ -2223,15 +2223,9 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
-
-    time.sleep(0.01)
-    while cursor != 0:
-        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
-        l += (len(r) - 1)
-    env.assertEqual(l, num_range)
+    env.expect(
+        'FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'COUNT', num_range, 'TIMEOUT', 1
+    ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
