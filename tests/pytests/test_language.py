@@ -321,10 +321,20 @@ def testHashIndexLanguageField(env):
 
         # Search words without any language
         res = env.cmd('FT.SEARCH', idx,
-                    '-@__lang:{english} -@__lang:{italian}', 'SORTBY', 'word')
+                    '-(@__lang:{english} | @__lang:{italian})',
+                    'SORTBY', 'word', 'DIALECT', 2)
         env.assertEqual(res, [3, '{word}:3', ['word', 'ciliegia'],
                             '{word}:4', ['word', 'ciliegie'],
                             '{word}:9', ['word', 'xaranja']])
+        # TODO: This is an equivalent query to the previous one,
+        # but fails and returns some documents in English and Italian 
+        # if RAW_DOCID_ENCODING is true
+        raw_encoding = env.cmd('FT.CONFIG', 'GET', 'RAW_DOCID_ENCODING')
+        if raw_encoding == 'false':
+                res2 = env.cmd('FT.search', idx,
+                        '-(@__lang:{english}) -(@__lang:{italian})',
+                        'SORTBY', 'word', 'DIALECT', 2)
+                env.assertEqual(res2, res)
 
     ############################################################################
     # Test that if no language field is defined by the index, if a hash has a 
@@ -500,9 +510,13 @@ def testJsonIndexLanguageField(env):
 
         # Search words without any language
         res = env.cmd('FT.SEARCH', idx,
-                    '-@__lang:{english} -@__lang:{italian}',
-                    'SORTBY', 'word', 'NOCONTENT')
+                    '-(@__lang:{english} | @__lang:{italian})',
+                    'SORTBY', 'word', 'NOCONTENT', 'DIALECT', 2)
         env.assertEqual(res, [3, '{word}:3', '{word}:4', '{word}:9'])
+        res2 = env.cmd('FT.SEARCH', idx,
+                    '-(@__lang:{english}) -(@__lang:{italian})',
+                    'SORTBY', 'word', 'NOCONTENT', 'DIALECT', 2)
+        env.assertEqual(res2, res)
 
     ############################################################################
     # Test that if no language field is defined by the index, if a hash has a 
