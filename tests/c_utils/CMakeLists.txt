@@ -1,4 +1,4 @@
-add_library(apistubs STATIC api_stubs.c)
+add_library(apistubs OBJECT api_stubs.c)
 
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
