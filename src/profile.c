@@ -136,11 +136,10 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       IndexIterator *root = QITR_GetRootFilter(&req->qiter);
       // Coordinator does not have iterators
       if (root) {
-        RedisModule_ReplyKV_Array(reply, "Iterators profile");
-          PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                       .printProfileClock = profile_verbose};
-          printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
-        RedisModule_Reply_ArrayEnd(reply);
+        RedisModule_Reply_SimpleString(reply, "Iterators profile");
+        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                     .printProfileClock = profile_verbose};
+        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors
