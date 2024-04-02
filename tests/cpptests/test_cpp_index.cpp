@@ -144,7 +144,12 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   IndexFlags indexFlags = (IndexFlags)GetParam();
   size_t index_memsize;
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
-  ASSERT_TRUE(index_memsize > 0);
+  int useFieldMask = indexFlags & Index_StoreFieldFlags;
+  int useNumEntries = indexFlags & Index_StoreNumeric;
+  unsigned int expectedIndexSize = (useFieldMask || useNumEntries) ? 102 : 86;
+  // The memory occupied by a new inverted index depends of its flags
+  // see NewInvertedIndex() and sizeof_InvertedIndex() for details
+  ASSERT_EQ(expectedIndexSize, index_memsize);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
   IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
