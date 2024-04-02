@@ -313,11 +313,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 }
 
 size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
-  priority_queue* priority_queue_p = &thpool_p->jobqueue;
-  pthread_mutex_lock(&priority_queue_p->jobqueues_rwmutex);
-  size_t res = priority_queue_p->num_threads_working;
-  pthread_mutex_unlock(&priority_queue_p->jobqueues_rwmutex);
-  return res;
+  return thpool_p->jobqueue.num_threads_working;
 }
 
 int redisearch_thpool_paused(redisearch_thpool_t *thpool_p) {
@@ -398,13 +394,12 @@ static void* thread_do(struct thread* thread_p) {
       arg_buff = job_p->arg;
       func_buff(arg_buff);
       rm_free(job_p);
-    }
 
-    if (job_p) {
       // Both variables are atomic, so we can do this without a lock.
       thpool_p->total_jobs_done++;
       thpool_p->jobqueue.num_threads_working--;
     }
+
     if (thpool_p->state == THPOOL_TERMINATE_WHEN_EMPTY) {
       pthread_mutex_lock(&thpool_p->jobqueue.jobqueues_rwmutex);
       if (priority_queue_len_unsafe(&thpool_p->jobqueue) == 0) {

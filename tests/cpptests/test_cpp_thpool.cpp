@@ -27,8 +27,7 @@ public:
     class CLASS_NAME : public PriorityThpoolTestBase {}; \
     INSTANTIATE_TEST_SUITE_P(CLASS_NAME, \
                             CLASS_NAME, \
-                            testing::Values(ThpoolParams{NUM_THREADS, NUM_PRIVILEGED})); \
-                           // testing::Values(ThpoolParams(NUM_THREADS, NUM_PRIVILEGED))); \
+                            testing::Values(ThpoolParams{NUM_THREADS, NUM_PRIVILEGED}));
 
 /* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 1 ========================== */
 THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
@@ -41,7 +40,7 @@ struct test_struct {
 /* The purpose of the function is to sleep for 100ms and then set the timestamp
  * in the test_struct.
 */
-void sleep_and_set(test_struct *ts, int64_t sleep_time) {
+void sleep_and_set(test_struct *ts) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     ts->arr[ts->index] = std::chrono::high_resolution_clock::now();
 }
