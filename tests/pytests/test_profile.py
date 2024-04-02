@@ -561,16 +561,10 @@ def TimedOutWarningtestCoord(env):
 
   # Test that a timeout warning is returned for all shards
   if env.protocol == 2:
-    profile = res[-1]
-    for i in range(env.shardsCount):
-      shard_profile_idx = i * 7
-      warning = profile[shard_profile_idx + 4]
-      env.assertEqual(len(warning), 2)
-      env.assertEqual(warning[1], 'Timeout limit was reached')
+    for shard_profile in res[1][1]:
+      env.assertEqual(to_dict(shard_profile)['Warning'], 'Timeout limit was reached')
   else:
-    profile = res['shards']
-    for i in range(1, env.shardsCount + 1):
-      shard_profile = profile[f'Shard #{i}']
+    for shard_profile in res['Profile']['Shards']:
       env.assertEquals(shard_profile['Warning'], 'Timeout limit was reached')
 
   # Current test is only for the coordinator's component of the profile output.
@@ -580,14 +574,11 @@ def TimedOutWarningtestCoord(env):
   )
 
   if env.protocol == 2:
-    coord_profile = res[-1]
-    warning_arr = coord_profile[1][0][3]
-    env.assertEqual(len(warning_arr), 2)
-    env.assertEqual(warning_arr[1], "Timeout limit was reached")
+    coord_profile = res[-1][-1]
+    env.assertEqual(to_dict(coord_profile)['Warning'], "Timeout limit was reached")
   else:
-    coord_profile = res['Coordinator']
-    warning = coord_profile['Result processors profile']['profile']['Warning']
-    env.assertEqual(warning, 'Timeout limit was reached')
+    coord_profile = res['Profile']['Coordinator']
+    env.assertEqual(coord_profile['Warning'], 'Timeout limit was reached')
 
 @skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoord(env):
