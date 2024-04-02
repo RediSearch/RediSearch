@@ -169,9 +169,8 @@ def test_profile(env):
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
           'Warning': 'None',
-          'Iterators profile': [
-            {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
-          ],
+          'Iterators profile':
+            {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2},
           'Result processors profile': [
             {'Type': 'Index',  'Time': ANY, 'Counter': 2},
             {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
@@ -208,7 +207,7 @@ def test_coord_profile():
       ],
       'shards': env.shardsCount * [
                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
-                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
+                      'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
                       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                     {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
@@ -594,7 +593,7 @@ def test_profile_crash_mod5323():
       },
       'Profile': {
         'Shards': [{
-          'Iterators profile': [
+          'Iterators profile':
             { 'Child iterators': [
               { 'Child iterators': 'The number of iterators in the union is 3',
                 'Counter': 3,
@@ -612,8 +611,7 @@ def test_profile_crash_mod5323():
               'Counter': 3,
               'Time': ANY,
               'Type': 'INTERSECT'
-            }
-          ],
+            },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
           'Warning': 'None',
@@ -652,7 +650,7 @@ def test_profile_child_itrerators_array():
       },
       'Profile': {
         'Shards': [{
-          'Iterators profile': [
+          'Iterators profile':
             { 'Child iterators': [
                 {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
                 {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
@@ -661,8 +659,7 @@ def test_profile_child_itrerators_array():
               'Query type': 'UNION',
               'Time': ANY,
               'Type': 'UNION'
-            }
-          ],
+            },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
           'Warning': 'None',
@@ -691,7 +688,7 @@ def test_profile_child_itrerators_array():
       },
       'Profile': {
         'Shards': [{
-          'Iterators profile': [
+          'Iterators profile':
             { 'Child iterators': [
                 {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
                 {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
@@ -699,8 +696,7 @@ def test_profile_child_itrerators_array():
               'Counter': 0,
               'Time': ANY,
               'Type': 'INTERSECT'
-            }
-          ],
+            },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
           'Warning': 'None',
@@ -1400,7 +1396,7 @@ def test_vecsim_1():
                "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
-                    exclude_regex_paths=["\['sortkey'\]"]), {})
+                    exclude_regex_paths=[r"\['sortkey'\]"]), {})
 
 def test_error_propagation_from_shards_resp3():
     env = Env(protocol=3)

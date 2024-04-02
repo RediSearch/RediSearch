@@ -593,7 +593,7 @@ def testExplain(env):
 
     # test FUZZY
     _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
-    
+
     _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
                  "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
 
@@ -604,7 +604,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ["@tag:{w'*'}=>{$weight: 3;}"],
                  "TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
-    
+
     # test wildcard with TEXT field
     _testExplain(env, 'idx', ["@t:(w'*')"], "@t:WILDCARD{*}\n")
 
@@ -3690,7 +3690,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][4][1][7] # get the list iterator profile
+    res = res[1][1][0][9][7][0] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
