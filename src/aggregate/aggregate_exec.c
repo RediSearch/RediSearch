@@ -333,7 +333,6 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
-  // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
          && !IsProfile(req);
@@ -906,7 +905,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (RunInThread()) {
     // Prepare context for the worker thread
     // Since we are still in the main thread, and we already validated the
-    // spec'c existence, it is safe to directly get the strong reference from the spec
+    // spec's existence, it is safe to directly get the strong reference from the spec
     // found in buildRequest.
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);

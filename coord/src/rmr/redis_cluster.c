@@ -99,7 +99,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       if (n == 0) node.flags |= MRNode_Master;
 
       // compare the node id to our id
-      if (!strncmp(node.id, myId, idlen)) {
+      if (STR_EQ(myId, idlen, node.id)) {
         // printf("Found myself %s!\n", myId);
         node.flags |= MRNode_Self;
       }
