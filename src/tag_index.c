@@ -198,8 +198,6 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
       if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
-        // TODO: Report this memory back to stats (sp->stats). Probably need to get sp as an argument so we can update both the `stats.invertedSize` and `stats.tagOverhead` fields.
-        // NOTICE: We don't need to report the memory of the Trie itself, only the values of it! The struct will be gathered via `TrieMap_MemUsage`.
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
@@ -427,7 +425,6 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-// TODO: This function is very costly, probably to the point of being unusable.
 static size_t TagIndex_GetSuffixOverhead(TagIndex *idx) {
   if (!idx->suffix) {
     return 0;
@@ -461,7 +458,9 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {
       overhead += TrieMap_MemUsage(idx->suffix);
-      overhead += TagIndex_GetSuffixOverhead(idx);
+      // We currently avoid counting the suffix values' overhead for performace.
+      // We should count it on the fly as we do for the rest of the memory fields.
+      // overhead += TagIndex_GetSuffixOverhead(idx);
     }
   }
   RedisSearchCtx_UnlockSpec(&sctx);

@@ -124,10 +124,6 @@ typedef struct {
   size_t skipIndexesSize;
   size_t scoreIndexesSize;
   size_t offsetVecsSize;
-  size_t termOverhead;      // Memory overhead used by the terms Trie
-  size_t TagSuffixOverhead; // Memory overhead used by the TAG suffix TrieMap
-  size_t TagValuesOverhead; // Memory overhead used by the TAG values TrieMap
-  size_t total_mem;         // Total memory used by the index
   size_t offsetVecRecords;
   size_t termsSize;
   size_t totalIndexTime;

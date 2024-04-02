@@ -87,8 +87,6 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   for (int i = 0; i < array_len(array); ++i) {
     if (!strncmp(array[i], str, rlen)) {
       array = array_del_fast(array, i);
-      // TODO: Report here success of deletion, for calling function to report
-      // the free'd memory to stats.
       return;
     }
   }
@@ -405,12 +403,10 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
       data->term = NULL;
     }
     // remove from array
-    // TODO: Report success of deletion, for calling function to report the free'd memory to stats.
     removeSuffix(str, len, data->array);
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      // TODO: Report this deletion memory wise (?)
       TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);
     }
   }
