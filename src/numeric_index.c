@@ -516,6 +516,12 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
   NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   NumericRangeNode_RemoveChild(&t->root, &rv);
+  if (rv.changed) {
+    // Update the NumericTree
+    t->revisionId++;
+    t->numRanges += rv.numRanges;
+    t->emptyLeaves = 0;
+  }
   return rv;
 }
 
