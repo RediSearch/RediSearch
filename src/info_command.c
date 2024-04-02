@@ -206,6 +206,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
+  // Lock the spec
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
 
   REPLY_KVINT("num_docs", sp->stats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
@@ -260,6 +263,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
+
+  // Unlock spec
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

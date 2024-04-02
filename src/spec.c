@@ -341,7 +341,6 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
 }
 
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp) {
-  // TODO: Need locking if we use this in `FT.INFO`?
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
