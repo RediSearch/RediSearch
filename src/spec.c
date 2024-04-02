@@ -345,7 +345,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp) {
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp); // TODO: Ensure there is an intersection with stats->termsSize. If so, can remove the termsSize as well.
+  res += IndexSpec_collect_text_overhead(sp);
   res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.skipIndexesSize;

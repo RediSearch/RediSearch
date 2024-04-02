@@ -451,7 +451,6 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
   idx = TagIndex_Open(&sctx, keyName, 0, NULL);
   if (idx) {
@@ -463,6 +462,5 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
       // overhead += TagIndex_GetSuffixOverhead(idx);
     }
   }
-  RedisSearchCtx_UnlockSpec(&sctx);
   return overhead;
 }
