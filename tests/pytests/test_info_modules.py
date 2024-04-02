@@ -125,3 +125,68 @@ def testInfoModulesAfterReload(env):
     env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,Sortable=1')
     env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1,Sortable=1,NoIndex=1')
     env.assertEqual(fieldsInfo['search_fields_tag'], 'Tag=1,NoIndex=1')
+
+def test_redis_info():
+  """Tests that the Redis `INFO` command works as expected"""
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create an index
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'tag', 'TAG', 'SORTABLE')
+
+  # Add some data
+  n_docs = 10000
+  for i in range(n_docs):
+    conn.execute_command('HSET', f'h{i}', 'txt', f'hello{i}', 'tag', 'tag{i}')
+
+  # Call `INFO` and check that the index is there
+  res = env.cmd('INFO', 'MODULES')
+
+  env.assertEqual(res['search_number_of_indexes'], 1)
+  env.assertEqual(res['search_fields_text'], 'Text=1')
+  env.assertEqual(res['search_fields_tag']['Tag'], 1)
+  env.assertEqual(res['search_fields_tag']['Sortable'], 1)
+  env.assertGreater(res['search_used_memory_indexes'], 0)
+  env.assertGreater(res['search_used_memory_indexes_human'], 0)
+  env.assertGreater(res['search_total_indexing_time'], 0)
+  env.assertEqual(res['search_global_idle'], 0)
+  env.assertEqual(res['search_global_total'], 0)
+  env.assertEqual(res['search_bytes_collected'], 0)
+  env.assertEqual(res['search_total_cycles'], 0)
+  env.assertEqual(res['search_average_cycle_time_ms'], 0)
+  env.assertEqual(res['search_dialect_1'], 0)
+  env.assertEqual(res['search_dialect_2'], 0)
+  env.assertEqual(res['search_dialect_3'], 0)
+  env.assertEqual(res['search_dialect_4'], 0)
+
+  # Create a cursor
+  res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
+
+  # Dispatch a query
+  env.cmd('FT.SEARCH', 'idx', '*')
+
+  # Call `INFO` and check that the data is updated accordingly
+  res = env.cmd('INFO', 'MODULES')
+  # On cluster mode, we have shard cursor on each master shard for the
+  # aggregation command, yet the `INFO` command is per-shard, so the master shard
+  # we enquery has 2 cursors (coord & shard).
+  env.assertEqual(res['search_global_idle'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_global_total'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_dialect_2'], 1)
+
+  # Delete all docs
+  for i in range(n_docs):
+    conn.execute_command('DEL', f'h{i}')
+
+  # Force-invoke the GC
+  forceInvokeGC(env, 'idx')
+
+  # Wait for GC to finish
+  time.sleep(2)
+
+  # Call `INFO` and check that the data is updated accordingly
+  res = env.cmd('INFO', 'MODULES')
+  env.assertGreater(res['search_bytes_collected'], 0)
+  env.assertGreater(res['search_total_cycles'], 0)
+  env.assertGreater(res['search_average_cycle_time_ms'], 0)

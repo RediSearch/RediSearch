@@ -15,8 +15,6 @@
 #include "reply_macros.h"
 #include "redis_index.h"
 
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
-
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \

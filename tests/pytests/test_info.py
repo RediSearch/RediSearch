@@ -1,4 +1,5 @@
 from common import *
+import time
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
