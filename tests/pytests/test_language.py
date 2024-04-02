@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, config_cmd
 from RLTest import Env
 from common import index_info
 import time
@@ -329,7 +329,7 @@ def testHashIndexLanguageField(env):
         # TODO: This is an equivalent query to the previous one,
         # but fails and returns some documents in English and Italian 
         # if RAW_DOCID_ENCODING is true
-        raw_encoding = env.cmd('FT.CONFIG', 'GET', 'RAW_DOCID_ENCODING')
+        raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
         if raw_encoding == 'false':
                 res2 = env.cmd('FT.search', idx,
                         '-(@__lang:{english}) -(@__lang:{italian})',
