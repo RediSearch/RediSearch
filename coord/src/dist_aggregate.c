@@ -634,14 +634,6 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-static void profileAggReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
-  RedisModule_Reply_SimpleString(reply, "Result processors profile"); // Name the map
-  Profile_Print(reply, ctx); // Print the profile data as a map
-
-  clock_t initClock = ((ProfilePrinterCtx *)ctx)->req->initClock;
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - initClock) / CLOCKS_PER_MILLISEC);
-}
-
 void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
@@ -651,7 +643,7 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
-  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, profileAggReplyCoordinator, &cCtx);
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, &cCtx);
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {

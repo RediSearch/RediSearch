@@ -60,6 +60,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
+int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);

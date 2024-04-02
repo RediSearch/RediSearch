@@ -1306,7 +1306,7 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
-    MRReply *profile;// = MRReply_MapElement(replies[i], PROFILE_STR);
+    MRReply *profile;
     if (!isSearch) {
       // On aggregate commands, take the results from the response (second component is the cursor-id)
       MRReply *results = MRReply_ArrayElement(replies[i], 0);
@@ -1336,8 +1336,10 @@ struct PrintCoordProfile_ctx {
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
+  RedisModule_Reply_Map(reply);
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
   RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,

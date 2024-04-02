@@ -171,9 +171,12 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   if (shards_cb) shards_cb(reply, shards_ctx);
   RedisModule_Reply_ArrayEnd(reply); /* Shards */
   /* Print coordinator profile */
-  RedisModule_ReplyKV_Map(reply, "Coordinator"); /* >coordinator */
-  if (coordinator_cb) coordinator_cb(reply, coordinator_ctx);
-  RedisModule_Reply_MapEnd(reply); /* >coordinator */
+  RedisModule_Reply_SimpleString(reply, "Coordinator"); /* >coordinator */
+  if (coordinator_cb) {
+    coordinator_cb(reply, coordinator_ctx); /* reply is already a map */
+  } else {
+    RedisModule_Reply_EmptyMap(reply);
+  }
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
