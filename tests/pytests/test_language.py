@@ -326,8 +326,8 @@ def testHashIndexLanguageField(env):
         env.assertEqual(res, [3, '{word}:3', ['word', 'ciliegia'],
                             '{word}:4', ['word', 'ciliegie'],
                             '{word}:9', ['word', 'xaranja']])
-        # TODO: This is an equivalent query to the previous one,
-        # but fails and returns some documents in English and Italian 
+        # TODO: Bug MOD-6886 - This is an equivalent query to the previous one,
+        # but it fails and returns some documents in English and Italian 
         # if RAW_DOCID_ENCODING is true
         raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
         if raw_encoding == 'false':
