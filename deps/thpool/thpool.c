@@ -59,7 +59,7 @@ typedef struct priority_queue {
   unsigned char pulls;                /* number of pulls from queue */
   unsigned char n_privileged_threads; /* number of threads that always run high priority tasks */
   pthread_cond_t has_jobs;            /* Conditional variable to wake up threads waiting for new jobs */
-  bool should_run;                    /* Indicates wether the threads should pull jobs from the jobq*/
+  volatile bool should_run;                    /* Indicates wether the threads should pull jobs from the jobq*/
   volatile atomic_size_t num_threads_working; /* threads currently working */
 } priority_queue;
 
