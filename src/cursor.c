@@ -306,7 +306,7 @@ int Cursor_Free(Cursor *cur) {
 
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
-  cursorList_Lock(cl_coord);
+  CursorList_Lock(cl_coord);
 
   RedisModule_ReplyKV_Map(reply, "cursor_stats");
 
