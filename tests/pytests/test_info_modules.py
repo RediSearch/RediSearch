@@ -168,8 +168,11 @@ def test_redis_info():
 
   # Call `INFO` and check that the data is updated accordingly
   res = env.cmd('INFO', 'MODULES')
-  env.assertEqual(res['search_global_idle'], 1)
-  env.assertEqual(res['search_global_total'], 1)
+  # On cluster mode, we have shard cursor on each master shard for the
+  # aggregation command, yet the `INFO` command is per-shard, so the master shard
+  # we enquery has 2 cursors (coord & shard).
+  env.assertEqual(res['search_global_idle'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_global_total'], 1 if not env.isCluster() else 2)
   env.assertEqual(res['search_dialect_2'], 1)
 
   # Delete all docs
