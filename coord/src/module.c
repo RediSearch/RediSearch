@@ -1314,7 +1314,7 @@ static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply
     } else {
       profile = MRReply_MapElement(replies[i], PROFILE_STR);
     }
-    MRReply *shards = MRReply_MapElement(profile, "Shards");
+    MRReply *shards = MRReply_MapElement(profile, PROFILE_SHARDS_STR);
     MRReply *shard = MRReply_ArrayElement(shards, 0);
 
     MR_ReplyWithMRReply(reply, shard);
@@ -1322,7 +1322,7 @@ static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
-  struct PrintShardProfile_ctx *pCtx = ctx;
+  PrintShardProfile_ctx *pCtx = ctx;
   if (reply->resp3) {
     PrintShardProfile_resp3(reply, pCtx->count, pCtx->replies, pCtx->isSearch);
   } else {
@@ -1354,7 +1354,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     sendSearchResults(reply, rCtx);
 
     // print profile of shards & coordinator
-    struct PrintShardProfile_ctx shardsCtx = {
+    PrintShardProfile_ctx shardsCtx = {
         .count = count,
         .replies = replies,
         .isSearch = true,

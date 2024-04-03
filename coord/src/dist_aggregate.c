@@ -638,7 +638,7 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
   ProfilePrinterCtx cCtx = {req, timedout};
-  struct PrintShardProfile_ctx sCtx = {
+  PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
     .isSearch = false,

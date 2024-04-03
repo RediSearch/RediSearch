@@ -9,8 +9,8 @@
 #include "reply.h"
 #include "rmr/reply.h"
 
-struct PrintShardProfile_ctx {
+typedef struct PrintShardProfile_ctx {
   MRReply **replies;
   int count;
   bool isSearch;
-};
+} PrintShardProfile_ctx;

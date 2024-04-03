@@ -28,6 +28,8 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
                  PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"
+#define PROFILE_SHARDS_STR "Shards"
+#define PROFILE_COORDINATOR_STR "Coordinator"
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
