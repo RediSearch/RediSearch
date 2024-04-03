@@ -8,16 +8,12 @@ from RLTest import Env
 
 ##########################################################################
 
-def check_index_info(env, idx, exp_num_records, exp_inv_idx_size = None,
-                     exp_bytes_per_doc = None):
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
     d = index_info(env, idx)
     env.assertEqual(float(d['num_records']), exp_num_records)
 
     if(exp_inv_idx_size != None):
         env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
-
-    if(exp_num_records != 0 and exp_bytes_per_doc != None):
-        env.assertLessEqual(float(d['inverted_sz_mb'])*1024*1024 / exp_num_records, exp_bytes_per_doc)
 
 ##########################################################################
 
@@ -32,8 +28,9 @@ def runTestWithSeed(env, s=None):
     seed(s)
 
     idx = 'idx'
-    count = 10000
-    cleaning_loops = 5
+    count = 100
+    num_values = 4
+    cleaning_loops = 4
     loop_count = int(count / cleaning_loops)
 
     ### test increasing integers
@@ -41,27 +38,38 @@ def runTestWithSeed(env, s=None):
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_index_info(env, idx, 0, 0)
-    # This is an approximation of the expected size of the 
-    # inverted index bytes per doc
+
+    value_offset = 4096
+    # Each value written to the buffer will occupy 4 bytes:
     # 1 byte for the header
-    # 1 byte for the delta (since the numbers are increasing by 1)
-    # 2 bytes for the actual number
-    # 1 byte (20%) to consider the preallocated size in the block
-    exp_bytes_per_doc = 5
+    # 1 byte for the delta
+    # 2 bytes for the actual number (4096-4099)
 
     for i in range(count):
-        conn.execute_command('HSET', 'doc%d' % i, 'n', i)
-        exp_num_records = i + 1
-        if exp_num_records % 100 == 0 and exp_num_records > 100:
-            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+        # write only 4 different values to get a range tree with a root node 
+        # with a left child and a right child. Each child has an inverted index.
+        conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
+    
+    # Expected inverted index size total: 606 bytes
+    # 2 * (buffer size + inverted index structure size)
+    # 2 * (207 + 96) = 606
+
+    # 207 is the buffer size after writing 4 bytes 50 times.
+    # The buffer grows according to Buffer_Grow() in buffer.c
+    # 96 is the size of the inverted index structure without counting the
+    # buffer capacity.
+    expected_inv_idx_size = 606 / (1024 * 1024)
+    check_index_info(env, idx, count, expected_inv_idx_size)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([1, 'doc%d' % i, ['n', str(i)]])
+         x = (i % num_values) + value_offset
+         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (x, x), 'LIMIT', 0, 0).\
+            equal([count / num_values])
 
     for i in range(cleaning_loops):
         exp_num_records = count - (loop_count * i)
-        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+        check_index_info(env, idx, exp_num_records, None)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
@@ -73,25 +81,20 @@ def runTestWithSeed(env, s=None):
     ### test random integers
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    # This is an approximation of the expected size of the 
-    # inverted index bytes per doc
-    # 1 byte for the header
-    # 2 byte for the delta (since the numbers are random)
-    # 2 bytes for the actual number
-    # 2 byte to consider the preallocated size in the block
-    exp_bytes_per_doc = 7
+
     for i in range(count):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
-        exp_num_records = i + 1
-        if exp_num_records % 100 == 0 and exp_num_records > 100:
-            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+
+    # Test only the number of records, because the memory size depends on 
+    # the random values.
+    check_index_info(env, idx, count, None)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
 
     for i in range(cleaning_loops):
         exp_num_records = count - loop_count * i
-        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+        check_index_info(env, idx, exp_num_records, None)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
@@ -105,25 +108,25 @@ def runTestWithSeed(env, s=None):
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_index_info(env, idx, 0, 0)
-    # This is an approximation of the expected size of the 
-    # inverted index bytes per doc
+
+    # Each value written to the buffer will occupy 10 bytes:
     # 1 byte for the header
-    # 2 byte for the delta (since the numbers are random)
+    # 1 byte for the delta
     # 8 bytes for the actual number (NUM_ENCODING_COMMON_TYPE_FLOAT)
-    # 3 byte to consider the preallocated size in the block
-    exp_bytes_per_doc = 14
     for i in range(count):
         temp = (random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
         exp_num_records = i + 1
-        if exp_num_records % 100 == 0 and exp_num_records > 100:
-            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+
+    # Check only the number of records, because the memory size depends on
+    # the random values.
+    check_index_info(env, idx, count, None)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
 
     for i in range(cleaning_loops):
         exp_num_records = count - loop_count * i
-        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
+        check_index_info(env, idx, exp_num_records, None)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
