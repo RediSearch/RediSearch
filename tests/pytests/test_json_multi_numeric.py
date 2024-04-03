@@ -301,10 +301,6 @@ def testInvertedIndexMultipleBlocks(env):
     expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
-def check_empty(env, idx, mem_usage):
-    d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), 0)
-    env.assertGreaterEqual(mem_usage, float(d['inverted_sz_mb']))
 
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
@@ -332,7 +328,9 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    check_empty(env, idx, 106 / (1024 * 1024)) # TODO: check the size with JSON docs
+    # 102 bytes is the size of an empty inverted index 
+    # (See NewInvertedIndex() in inverted_index.c)
+    env.assertEqual(float(info['inverted_sz_mb']), 102 / (1024 * 1024))
 
 def printSeed(env):
     # Print the random seed for reproducibility
