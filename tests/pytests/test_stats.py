@@ -8,15 +8,16 @@ from RLTest import Env
 
 ##########################################################################
 
-def check_empty(env, idx, memory_consumption):
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size = None,
+                     exp_bytes_per_doc = None):
     d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), 0)
-    env.assertEqual(memory_consumption, float(d['inverted_sz_mb']))
+    env.assertEqual(float(d['num_records']), exp_num_records)
 
-def check_not_empty(env, idx):
-    d = index_info(env, idx)
-    env.assertGreater(float(d['inverted_sz_mb']), 0)
-    env.assertGreater(float(d['num_records']), 0)
+    if(exp_inv_idx_size != None):
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
+
+    if(exp_num_records != 0 and exp_bytes_per_doc != None):
+        env.assertLessEqual(float(d['inverted_sz_mb'])*1024*1024 / exp_num_records, exp_bytes_per_doc)
 
 ##########################################################################
 
@@ -39,62 +40,94 @@ def runTestWithSeed(env, s=None):
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    check_empty(env, idx, 0)
+    check_index_info(env, idx, 0, 0)
+    # This is an approximation of the expected size of the 
+    # inverted index bytes per doc
+    # 1 byte for the header
+    # 1 byte for the delta (since the numbers are increasing by 1)
+    # 2 bytes for the actual number
+    # 1 byte (20%) to consider the preallocated size in the block
+    exp_bytes_per_doc = 5
 
     for i in range(count):
         conn.execute_command('HSET', 'doc%d' % i, 'n', i)
+        exp_num_records = i + 1
+        if exp_num_records % 100 == 0 and exp_num_records > 100:
+            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([1, 'doc%d' % i, ['n', str(i)]])
-    check_not_empty(env, idx)
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([1, 'doc%d' % i, ['n', str(i)]])
 
     for i in range(cleaning_loops):
-        check_not_empty(env, idx)
+        exp_num_records = count - (loop_count * i)
+        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
 
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
-    check_empty(env, idx, expected_empty_inverted_sz_mb)
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
+    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
 
     ### test random integers
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    # This is an approximation of the expected size of the 
+    # inverted index bytes per doc
+    # 1 byte for the header
+    # 2 byte for the delta (since the numbers are random)
+    # 2 bytes for the actual number
+    # 2 byte to consider the preallocated size in the block
+    exp_bytes_per_doc = 7
     for i in range(count):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
+        exp_num_records = i + 1
+        if exp_num_records % 100 == 0 and exp_num_records > 100:
+            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
-    check_not_empty(env, idx)
 
     for i in range(cleaning_loops):
-        check_not_empty(env, idx)
+        exp_num_records = count - loop_count * i
+        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_empty(env, idx, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
 
     for i in range(count):
-        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0])
-    check_empty(env, idx, expected_empty_inverted_sz_mb)
+        env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
+    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
 
     ## test random floats
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    check_index_info(env, idx, 0, 0)
+    # This is an approximation of the expected size of the 
+    # inverted index bytes per doc
+    # 1 byte for the header
+    # 2 byte for the delta (since the numbers are random)
+    # 8 bytes for the actual number (NUM_ENCODING_COMMON_TYPE_FLOAT)
+    # 3 byte to consider the preallocated size in the block
+    exp_bytes_per_doc = 14
     for i in range(count):
-        conn.execute_command('HSET', 'doc%d' % i, 'n', int(random()))
+        temp = (random() * count / 10)
+        conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
+        exp_num_records = i + 1
+        if exp_num_records % 100 == 0 and exp_num_records > 100:
+            check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
-    check_not_empty(env, idx)
 
     for i in range(cleaning_loops):
-        check_not_empty(env, idx)
+        exp_num_records = count - loop_count * i
+        check_index_info(env, idx, exp_num_records, None, exp_bytes_per_doc)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_empty(env, idx, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testRandom(env):
@@ -141,7 +174,7 @@ def testMemoryAfterDrop(env):
     expected_inverted_sz_mb = (54 * 2 * doc_count) / (1024 * 1024) \
                     + (102 * 2) / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testIssue1497(env):
@@ -156,20 +189,16 @@ def testIssue1497(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
     res = env.cmd('ft.info', 'idx')
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    env.assertEqual(d['inverted_sz_mb'], '0')
-    env.assertEqual(d['num_records'], 0)
+    check_index_info(env, 'idx', 0, 0)
     for i in range(count):
         geo = '1.23456,' + str(float(i) / divide_by)
         env.expect('HSET', 'doc%d' % i, 't', 'hello%d' % i, 'tg', 'world%d' % i, 'n', i * 1.01, 'g', geo)
-    res = env.cmd('FT.SEARCH idx *')
-    check_not_empty(env, 'idx')
-    env.assertEqual(res[0], count)
 
-    res = env.cmd('ft.info', 'idx')
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    env.assertGreater(d['inverted_sz_mb'], '0')
-    env.assertGreaterEqual(int(d['num_records']), count * number_of_fields)
+    res = env.cmd('FT.SEARCH idx *')
+    env.assertEqual(res[0], count)
+    exp_num_records = count * number_of_fields
+    check_index_info(env, 'idx', exp_num_records, None)
+
     for i in range(count):
         env.expect('DEL', 'doc%d' % i)
 
@@ -181,7 +210,7 @@ def testIssue1497(env):
     # The memory occupied by a empty NUMERIC and GEO inverted index is 102 bytes.
     expected_inverted_sz_mb = (54 * 2 * count) / (1024 * 1024) \
                     + (102 * 2) / (1024 * 1024)
-    check_empty(env, 'idx', expected_inverted_sz_mb)
+    check_index_info(env, 'idx', 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_numeric(env):
@@ -218,7 +247,7 @@ def testMemoryAfterDrop_numeric(env):
     # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_geo(env):
@@ -257,7 +286,7 @@ def testMemoryAfterDrop_geo(env):
     # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_text(env):
@@ -295,7 +324,7 @@ def testMemoryAfterDrop_text(env):
     # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_tag(env):
@@ -333,7 +362,7 @@ def testMemoryAfterDrop_tag(env):
     # INDEX_BLOCK_INITIAL_CAP               6
     expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
-        check_empty(env, 'idx%d' % i, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)

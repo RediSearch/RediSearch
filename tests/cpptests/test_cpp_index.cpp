@@ -522,6 +522,10 @@ TEST_F(IndexTest, testNumericInverted) {
 }
 
 TEST_F(IndexTest, testNumericVaried) {
+  // For various numeric values, of different types (NUM_ENCODING_COMMON_TYPE_TINY, 
+  // NUM_ENCODING_COMMON_TYPE_FLOAT, etc..) check that the number of allocated
+  // bytes in buffers is as expected.
+
   size_t index_memsize;
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
 
@@ -543,6 +547,8 @@ TEST_F(IndexTest, testNumericVaried) {
       min_data_len = 10;
     }
 
+    // if there was not enough space to store the entry,
+    // the capacity of the block was increased and sz > 0
     if(cap - offset < min_data_len) {
       ASSERT_TRUE(sz > 0);
     } else {
