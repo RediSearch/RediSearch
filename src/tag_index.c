@@ -453,6 +453,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
   idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {
