@@ -159,6 +159,35 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
 //   return ret;
 // }
 
+enum {
+  O32_LITTLE_ENDIAN = 0x03020100ul,
+  O32_BIG_ENDIAN = 0x00010203ul,
+  // O32_PDP_ENDIAN = 0x01000302ul,      /* DEC PDP-11 (aka ENDIAN_LITTLE_WORD) */
+  // O32_HONEYWELL_ENDIAN = 0x02030001ul /* Honeywell 316 (aka ENDIAN_BIG_WORD) */
+};
+
+static const union { unsigned char bytes[4]; uint32_t value; } o32_host_order =
+    { { 0, 1, 2, 3 } };
+
+#define O32_HOST_ORDER (o32_host_order.value)
+
+static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  if (REDISMODULE_OK == ret) {
+    uint16_t buff[2];
+    *((float *)buff) = (float)temp;
+    if (O32_HOST_ORDER == O32_LITTLE_ENDIAN) {
+      *val = buff[0];
+    } else if (O32_HOST_ORDER == O32_BIG_ENDIAN) {
+      *val = buff[1];
+    } else {
+      RS_LOG_ASSERT(0, "Unsupported host byte order");
+    }
+  }
+  return ret;
+}
+
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
@@ -208,6 +237,8 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
       return (getJSONElementFunc)JSON_getFloat32;
     case VecSimType_FLOAT64:
       return (getJSONElementFunc)JSON_getFloat64;
+    case VecSimType_BFLOAT16:
+      return (getJSONElementFunc)JSON_getBFloat16;
     // Uncomment when support for more types is added
     // case VecSimType_INT32:
     //   return (getJSONElementFunc)JSON_getInt32;
