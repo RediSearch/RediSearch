@@ -159,31 +159,23 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
 //   return ret;
 // }
 
-enum {
-  O32_LITTLE_ENDIAN = 0x03020100ul,
-  O32_BIG_ENDIAN = 0x00010203ul,
-  // O32_PDP_ENDIAN = 0x01000302ul,      /* DEC PDP-11 (aka ENDIAN_LITTLE_WORD) */
-  // O32_HONEYWELL_ENDIAN = 0x02030001ul /* Honeywell 316 (aka ENDIAN_BIG_WORD) */
-};
-
-static const union { unsigned char bytes[4]; uint32_t value; } o32_host_order =
-    { { 0, 1, 2, 3 } };
-
-#define O32_HOST_ORDER (o32_host_order.value)
+// Rounding the input to nearest even (float with 16 trailing zeros),
+// and returning the 16 significant bits of the float as uint16_t.
+// Calculation inspired by:
+// https://gitlab.com/libeigen/eigen/-/blob/d626762e3ff6cdcdf65325e6edf27c995029786d/Eigen/src/Core/arch/Default/BFloat16.h#L403
+static inline uint16_t floatToBF16bits(float input) {
+  uint32_t f32 = *((uint32_t *)&input);
+  uint32_t lsb = (f32 >> 16) & 1;
+  uint32_t round = lsb + 0x7FFF;
+  f32 += round;
+  return (f32 >> 16);
+}
 
 static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
   if (REDISMODULE_OK == ret) {
-    uint16_t buff[2];
-    *((float *)buff) = (float)temp;
-    if (O32_HOST_ORDER == O32_LITTLE_ENDIAN) {
-      *val = buff[0];
-    } else if (O32_HOST_ORDER == O32_BIG_ENDIAN) {
-      *val = buff[1];
-    } else {
-      RS_LOG_ASSERT(0, "Unsupported host byte order");
-    }
+    *val = floatToBF16bits((float)temp);
   }
   return ret;
 }
