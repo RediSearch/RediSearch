@@ -201,6 +201,7 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
     case VecSimType_INT32: return VECSIM_TYPE_INT32;
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
+    case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
   }
   return NULL;
 }
@@ -211,6 +212,7 @@ size_t VecSimType_sizeof(VecSimType type) {
         case VecSimType_FLOAT64: return sizeof(double);
         case VecSimType_INT32: return sizeof(int32_t);
         case VecSimType_INT64: return sizeof(int64_t);
+        case VecSimType_BFLOAT16: return sizeof(float)/2;
     }
     return 0;
 }

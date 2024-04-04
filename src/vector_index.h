@@ -11,6 +11,10 @@
 #include "query_node.h"
 #include "query_ctx.h"
 
+// TODO: delete when aligned with VecSim
+#define VecSimType_BFLOAT16 5
+
+#define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
 #define VECSIM_TYPE_INT32 "INT32"
