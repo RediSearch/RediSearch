@@ -25,7 +25,20 @@ TEST_F(TagIndexTest, testCreate) {
   }
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
-  ASSERT_EQ(337596, totalSZ);
+
+  // expectedTotalSZ should include the memory occupied by the inverted index 
+  // structure and its blocks.
+
+  // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
+  size_t buffer_cap = 1077;
+  size_t num_blocks = N / 1000;
+
+  // The size of the inverted index structure is 32 bytes
+  size_t iv_index_size;
+  NewInvertedIndex(Index_DocIdsOnly, 0, &iv_index_size);
+
+  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + sizeof(IndexBlock)) * num_blocks));
+  ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
   ASSERT_TRUE(it != NULL);
