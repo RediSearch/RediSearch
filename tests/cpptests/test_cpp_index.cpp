@@ -1387,8 +1387,8 @@ TEST_F(IndexTest, testIndexFlags) {
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
   // sizeof_InvertedIndex(index->flags)   48
-  // sizeof(IndexBlock)                   48	
-	// INDEX_BLOCK_INITIAL_CAP               6
+  // sizeof(IndexBlock)                   48
+  // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(102, index_memsize);
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT_TRUE(w->flags == flags);

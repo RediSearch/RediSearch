@@ -3151,40 +3151,51 @@ def testIssue1169(env):
 @skip(cluster=True)
 def testIssue1184(env):
 
-    field_types = ['TEXT', 'NUMERIC', 'TAG']
+    field_types = ['TEXT', 'NUMERIC', 'TAG', 'GEO']
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-    for ft in field_types:
-        env.expect('FT.CREATE idx ON HASH SCHEMA  field ' + ft).ok()
+    num_docs = 5
 
-        res = env.cmd('ft.info', 'idx')
-        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    for ft in field_types:
+        env.expect('FT.CREATE idx ON HASH SCHEMA field ' + ft).ok()
+
+        d = index_info(env, 'idx')
         env.assertEqual(d['inverted_sz_mb'], '0')
         env.assertEqual(d['num_records'], 0)
 
+        if ft == 'NUMERIC':
+            value = '3.14'
+        elif ft == 'GEO':
+            value = '1.23,4.56'
+        else:
+            value = 'hello'
 
-        value = '42'
-        env.expect('FT.ADD idx doc0 1 FIELDS field ' + value).ok()
-        doc = env.cmd('FT.SEARCH idx *')
-        env.assertEqual(doc, [1, 'doc0', ['field', value]])
+        for i in range(num_docs):
+            env.expect('HSET doc%d field %s' % (i, value)).equal(1)
+        
+        res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
+        env.assertEqual(res[0], num_docs)
 
-        res = env.cmd('ft.info', 'idx')
-        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], 1)
+        env.assertEqual(d['num_records'], num_docs)
 
-        env.assertEqual(env.cmd('FT.DEL idx doc0'), 1)
+        for i in range(num_docs):
+            env.expect('FT.DEL idx doc%d' % i).equal(1)
 
         forceInvokeGC(env, 'idx')
 
-        res = env.cmd('ft.info', 'idx')
-        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-
-        # When inverted index is empty we expect the size to be 102 bytes
-        env.assertGreaterEqual(102 / ( 1024 * 1024 ), float(d['inverted_sz_mb']))
+        # When inverted index is empty we expect the size to be 86 or 102 bytes
+        # according to the field type, because altough the inverted index has 0
+        # entries, the index remains allocated with a default block capacity of 6
+        d = index_info(env, 'idx')
+        if(ft == 'TAG'):
+            exp_size = 86
+        else:
+            exp_size = 102
+        env.assertEqual(exp_size / ( 1024 * 1024 ), float(d['inverted_sz_mb']))
         env.assertEqual(int(d['num_records']), 0)
 
         env.cmd('FT.DROP idx')
-        env.cmd('DEL doc0')
 
 def testIndexListCommand(env):
     env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()

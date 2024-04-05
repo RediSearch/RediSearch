@@ -769,7 +769,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
   if (idx->numDocs == 0) {
-    info.nbytesCollected += sizeof_InvertedIndex(idx->flags);
 
     // inverted index was cleaned entirely lets free it
     RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
@@ -1061,7 +1060,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     // if tag value is empty, let's remove it.
     if (idx->numDocs == 0) {
-      info.nbytesCollected += sizeof_InvertedIndex(idx->flags);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
 
       if (tagIdx->suffix) {

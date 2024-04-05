@@ -167,15 +167,16 @@ def testMemoryAfterDrop(env):
         pl.execute()
         d = index_info(env, 'idx%d' % i)
         env.assertEqual(d['num_docs'], 0)
-        for _ in range(10):
-            forceInvokeGC(env, 'idx%d' % i)
+        forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty TEXT and TAG inverted index is 
-    # 54 bytes * doc_count, because FGC_applyInvertedIndex() is calling 
-    # InvertedIndex_AddBlock() for each delete doc.
-    # The memory occupied by a empty NUMERIC and GEO inverted index is 102 bytes.
-    expected_inverted_sz_mb = (54 * 2 * doc_count) / (1024 * 1024) \
-                    + (102 * 2) / (1024 * 1024)
+    # The memory occupied by empty TEXT and TAG inverted index is
+    # (102 * doc_count) and (86 * doc_count) respectively, because
+    # FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for each
+    # deleted doc.
+    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes.
+    expected_inverted_sz_mb = (86 * doc_count) / (1024 * 1024)   # TAG
+    expected_inverted_sz_mb += (102 * doc_count) / (1024 * 1024) # TEXT
+    expected_inverted_sz_mb += (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
@@ -207,12 +208,14 @@ def testIssue1497(env):
 
     forceInvokeGC(env, 'idx')
 
-    # The memory occupied by a empty TEXT and TAG inverted index is 
-    # 54 bytes * doc_count, because FGC_applyInvertedIndex() is calling 
-    # InvertedIndex_AddBlock() for each delete doc.
-    # The memory occupied by a empty NUMERIC and GEO inverted index is 102 bytes.
-    expected_inverted_sz_mb = (54 * 2 * count) / (1024 * 1024) \
-                    + (102 * 2) / (1024 * 1024)
+    # The memory occupied by empty TEXT and TAG inverted index is
+    # (102 * doc_count) and (86 * doc_count) respectively, because
+    # FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for each
+    # deleted doc.
+    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes.
+    expected_inverted_sz_mb = (86 * count) / (1024 * 1024)   # TAG
+    expected_inverted_sz_mb += (102 * count) / (1024 * 1024) # TEXT
+    expected_inverted_sz_mb += (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
     check_index_info(env, 'idx', 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
@@ -319,13 +322,14 @@ def testMemoryAfterDrop_text(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty TEXT inverted index is 54 bytes * doc_count,
+    # The memory occupied by a empty TEXT inverted index is 102 bytes * doc_count,
     # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
-    # The size of a new block is 54 bytes, which is the sum of:
+    # The size of a new block is 102 bytes, which is the sum of:
+    # sizeof_InvertedIndex(flags)          48
     # sizeof(IndexBlock)                   48
     # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
+    expected_inverted_sz_mb = (102 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
@@ -357,13 +361,14 @@ def testMemoryAfterDrop_tag(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty TAG inverted index is 54 bytes * doc_count,
+    # The memory occupied by a empty TAG inverted index is 86 bytes * doc_count,
     # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
     # each delete doc. 
-    # The size of a new block is 54 bytes, which is the sum of:
+    # The size of a new block is 86 bytes, which is the sum of:
+    # sizeof_InvertedIndex(flags)          32
     # sizeof(IndexBlock)                   48
     # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = (54 * doc_count) / (1024 * 1024)
+    expected_inverted_sz_mb = (86 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
