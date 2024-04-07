@@ -156,25 +156,29 @@ def test_profile(env):
 
     # test with profile
     exp = {
-      'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
-      'results': [
-        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
-        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
-      ],
-      'profile': {
-        'Total profile time': ANY,
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Warning': 'None',
-        'Iterators profile': [
-          {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2}
+      'Results': {
+        'attributes': [], 'warning': [], 'total_results': 2, 'format': 'STRING',
+        'results': [
+          {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+          {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
         ],
-        'Result processors profile': [
-          {'Type': 'Index',  'Time': ANY, 'Counter': 2},
-          {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
-          {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
-        ]
+      },
+      'Profile': {
+        'Shards': [{
+          'Total profile time': ANY,
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Iterators profile':
+            {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2},
+          'Result processors profile': [
+            {'Type': 'Index',  'Time': ANY, 'Counter': 2},
+            {'Type': 'Scorer', 'Time': ANY, 'Counter': 2},
+            {'Type': 'Sorter', 'Time': ANY, 'Counter': 2},
+            {'Type': 'Loader', 'Time': ANY, 'Counter': 2}
+          ]
+        }],
+        'Coordinator': {}
       }
     }
     env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
@@ -192,30 +196,67 @@ def test_coord_profile():
     waitForIndex(env, 'idx1')
 
     # test with profile
-    shards_exp = {
-      f'Shard #{i}': {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
-                      'Iterators profile': [{'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY}],
-                      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
-                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}
-      for i in range(1, env.shardsCount + 1)
-    }
-    shards_exp['Coordinator'] = {'Total Coordinator time': ANY, 'Post Processing time': ANY}
     exp = {
-      'attributes': [],
-      'warning': [],
-      'total_results': 2,
-      'format': 'STRING',
-      'results': [
-        {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
-        {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
-      ],
-      'shards': shards_exp
+      'Results': {
+        'attributes': [],
+        'warning': [],
+        'total_results': 2,
+        'format': 'STRING',
+        'results': [
+          {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
+          {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
+        ],
+      },
+      'Profile': {
+        'Shards': env.shardsCount * [
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+                        'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
+                        'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
+                                                      {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
+                                                      {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
+                                                      {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]}],
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
+      },
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
-    res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
+    res['Results']['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
+
+    exp = {
+      'Results': {
+        'attributes': [],
+        'warning': [],
+        'total_results': 1,
+        'format': 'STRING',
+        'results': [
+          {'extra_attributes': {}, 'values': []},
+          {'extra_attributes': {}, 'values': []}
+        ],
+      },
+      'Profile': {
+        'Shards': ANY, # Checking separately. When profiling Aggregation, the number of shards is not fixed (empty replies are not returned)
+        'Coordinator': {
+          'Total profile time': ANY,
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
+        }
+      }
+    }
+    shard = {
+      'Total profile time': ANY,
+      'Parsing time': ANY,
+      'Pipeline creation time': ANY,
+      'Warning': 'None',
+      'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
+      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
+    }
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
+    env.assertEqual(res, exp)
+    env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
+    for shard_res in res['Profile']['Shards']:
+      env.assertEqual(shard_res, shard)
 
 @skip(redis_less_than="7.0.0")
 def test_aggregate():
@@ -580,45 +621,49 @@ def test_profile_crash_mod5323():
 
     res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
     exp = {
-      'warning': [],
-      'attributes': [],
-      'profile': {
-        'Iterators profile': [
-          { 'Child iterators': [
-             { 'Child iterators': 'The number of iterators in the union is 3',
-               'Counter': 3,
-               'Query type': 'FUZZY - hell',
-               'Time': ANY,
-               'Type': 'UNION'
-              },
-              { 'Child iterators': 'The number of iterators in the union is 4',
+      'Results': {
+        'warning': [],
+        'attributes': [],
+        'results': [
+          {'values': [], 'id': '1'},
+          {'values': [], 'id': '2'},
+          {'values': [], 'id': '3'}],
+        'total_results': 3,
+        'format': 'STRING',
+      },
+      'Profile': {
+        'Shards': [{
+          'Iterators profile':
+            { 'Child iterators': [
+              { 'Child iterators': 'The number of iterators in the union is 3',
                 'Counter': 3,
-                'Query type': 'PREFIX - hel',
+                'Query type': 'FUZZY - hell',
                 'Time': ANY,
                 'Type': 'UNION'
-              }
-            ],
-            'Counter': 3,
-            'Time': ANY,
-            'Type': 'INTERSECT'
-          }
-        ],
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Warning': 'None',
-        'Result processors profile': [
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
-          { 'Counter': 3, 'Time': ANY, 'Type': 'Sorter' }
-        ],
-        'Total profile time': ANY
+                },
+                { 'Child iterators': 'The number of iterators in the union is 4',
+                  'Counter': 3,
+                  'Query type': 'PREFIX - hel',
+                  'Time': ANY,
+                  'Type': 'UNION'
+                }
+              ],
+              'Counter': 3,
+              'Time': ANY,
+              'Type': 'INTERSECT'
+            },
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Result processors profile': [
+            { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
+            { 'Counter': 3, 'Time': ANY, 'Type': 'Scorer' },
+            { 'Counter': 3, 'Time': ANY, 'Type': 'Sorter' }
+          ],
+          'Total profile time': ANY
+        }],
+        'Coordinator': {},
        },
-       'results': [
-         {'values': [], 'id': '1'},
-         {'values': [], 'id': '2'},
-         {'values': [], 'id': '3'}],
-       'total_results': 3,
-       'format': 'STRING'
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -633,36 +678,40 @@ def test_profile_child_itrerators_array():
     # test UNION
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
     exp = {
-      'warning': [],
-      'attributes': [],
-      'profile': {
-        'Iterators profile': [
-          { 'Child iterators': [
-              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
-            ],
-            'Counter': 2,
-            'Query type': 'UNION',
-            'Time': ANY,
-            'Type': 'UNION'
-          }
+      'Results': {
+        'warning': [],
+        'attributes': [],
+        'results': [
+          { 'values': [], 'id': '1' },
+          { 'values': [], 'id': '2' }
         ],
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Warning': 'None',
-        'Result processors profile': [
-          {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
-          {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
-          {'Counter': 2, 'Time': ANY, 'Type': 'Sorter'}
-        ],
-        'Total profile time': ANY
+        'total_results': 2,
+        'format': 'STRING',
       },
-      'results': [
-        { 'values': [], 'id': '1' },
-        { 'values': [], 'id': '2' }
-      ],
-      'total_results': 2,
-      'format': 'STRING'
+      'Profile': {
+        'Shards': [{
+          'Iterators profile':
+            { 'Child iterators': [
+                {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+                {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              ],
+              'Counter': 2,
+              'Query type': 'UNION',
+              'Time': ANY,
+              'Type': 'UNION'
+            },
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Result processors profile': [
+            {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
+            {'Counter': 2, 'Time': ANY, 'Type': 'Scorer'},
+            {'Counter': 2, 'Time': ANY, 'Type': 'Sorter'}
+          ],
+          'Total profile time': ANY
+        }],
+        'Coordinator': {},
+      },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -670,32 +719,36 @@ def test_profile_child_itrerators_array():
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
     exp = {
-      'warning': [],
-      'attributes': [],
-      'profile': {
-        'Iterators profile': [
-          { 'Child iterators': [
-              {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
-              {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
-            ],
-            'Counter': 0,
-            'Time': ANY,
-            'Type': 'INTERSECT'
-          }
-        ],
-        'Parsing time': ANY,
-        'Pipeline creation time': ANY,
-        'Warning': 'None',
-        'Result processors profile': [
-          { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},
-          { 'Counter': 0, 'Time': ANY, 'Type': 'Scorer'},
-          {'Counter': 0, 'Time': ANY, 'Type': 'Sorter'}
-        ],
-        'Total profile time': ANY
+      'Results': {
+        'warning': [],
+        'attributes': [],
+        'results': [],
+        'total_results': 0,
+        'format': 'STRING',
       },
-      'results': [],
-      'total_results': 0,
-      'format': 'STRING'
+      'Profile': {
+        'Shards': [{
+          'Iterators profile':
+            { 'Child iterators': [
+                {'Counter': 1, 'Size': 1, 'Term': 'hello', 'Time': ANY, 'Type': 'TEXT'},
+                {'Counter': 1, 'Size': 1, 'Term': 'world', 'Time': ANY, 'Type': 'TEXT'}
+              ],
+              'Counter': 0,
+              'Time': ANY,
+              'Type': 'INTERSECT'
+            },
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Result processors profile': [
+            { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},
+            { 'Counter': 0, 'Time': ANY, 'Type': 'Scorer'},
+            {'Counter': 0, 'Time': ANY, 'Type': 'Sorter'}
+          ],
+          'Total profile time': ANY
+        }],
+        'Coordinator': {},
+      },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
@@ -1383,7 +1436,7 @@ def test_vecsim_1():
                "__vector_FLAT_score", "ASC", "DIALECT", "2", "LIMIT", "0", "4",
                "params", "2", "BLOB", "\x00\x00\x00\x00\x00\x00\x00\x00")
     env.assertEqual(dict_diff(res, exp3 if env.protocol == 3 else exp2, show=True,
-                    exclude_regex_paths=["\['sortkey'\]"]), {})
+                    exclude_regex_paths=[r"\['sortkey'\]"]), {})
 
 def test_error_propagation_from_shards_resp3():
     env = Env(protocol=3)

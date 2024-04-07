@@ -15,6 +15,7 @@
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/src/config.h"
+#include "dist_profile.h"
 
 #include <err.h>
 
@@ -64,6 +65,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
   newCmd.targetSlot = cmd->targetSlot;
   newCmd.protocol = cmd->protocol;
   newCmd.forCursor = cmd->forCursor;
+  newCmd.forProfiling = cmd->forProfiling;
   MRCommand_Free(cmd);
   *cmd = newCmd;
 
@@ -130,6 +132,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply *results = NULL;
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
+      if (cmd->forProfiling) results = MRReply_MapElement(results, "results"); // profile has an extra level
       if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
@@ -272,6 +275,20 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
+  if (nc->cmd.forProfiling && nc->cmd.protocol == 3) {
+    /* On RESP3, FT.PROFILE AGGREGATE returns:
+      [
+        {
+          "Results": { <FT.AGGREGATE reply> },
+          "Profile": { <profile data> }
+        },
+        cursor_id
+      ]
+     * So we need to extract the "Results" map from the first element of the array
+     */
+
+    rows = MRReply_MapElement(rows, "results");
+  }
   if (   rows == NULL
       || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
       || MRReply_Length(rows) == 0) {
@@ -615,36 +632,18 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   }
 }
 
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
+void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  clock_t finishTime = clock();
-
-  RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
-
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-
-  // Print shards profile
-  if (reply->resp3) {
-    PrintShardProfile_resp3(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
-  } else {
-    PrintShardProfile_resp2(reply, array_len(rpnet->shardsProfile), rpnet->shardsProfile, false);
-  }
-
-  RedisModule_Reply_MapEnd(reply); // Shards
-  // Print coordinator profile
-
-  RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
-
-  RedisModule_ReplyKV_Map(reply, "Result processors profile");
-  Profile_Print(reply, req, timedout);
-  RedisModule_Reply_MapEnd(reply);
-
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
-
-  RedisModule_Reply_MapEnd(reply); // >coordinator
+  ProfilePrinterCtx cCtx = {req, timedout};
+  PrintShardProfile_ctx sCtx = {
+    .count = array_len(rpnet->shardsProfile),
+    .replies = rpnet->shardsProfile,
+    .isSearch = false,
+  };
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, &cCtx);
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
@@ -717,6 +716,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
