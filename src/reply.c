@@ -297,6 +297,18 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
+  if (reply->resp3) {
+    json_add(reply, false, "{}");
+    RedisModule_ReplyWithMap(reply->ctx, 0);
+  } else {
+    json_add(reply, false, "[]");
+    RedisModule_ReplyWithArray(reply->ctx, 0);
+  }
+  _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_Set(RedisModule_Reply *reply) {
   int type;
   if (reply->resp3) {

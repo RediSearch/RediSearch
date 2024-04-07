@@ -28,6 +28,7 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 #include "resp3.h"
+#include "dist_profile.h"
 
 #include "libuv/include/uv.h"
 
@@ -462,10 +463,6 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
 }
 
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
-  /* A search request must have at least 3 args */
-  if (argc < 3) {
-    return NULL;
-  }
 
   searchRequestCtx *req = searchRequestCtx_New();
 
@@ -517,7 +514,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Parse SORTBY ... ASC.
   // Parse it ALWAYS first so the sortkey will be send first
   int sortByIndex = RMUtil_ArgIndex("SORTBY", argv, argc);
-  if(sortByIndex > 2) {
+  if (sortByIndex > 2) {
     req->withSortby = true;
     // Check for command error where no sortkey is given.
     if(sortByIndex + 1 >= argc) {
@@ -525,8 +522,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
       return NULL;
     }
     prepareSortbyCase(req, argv, argc, sortByIndex);
-  }
-  else {
+  } else {
     req->withSortby = false;
   }
 
@@ -1178,6 +1174,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   rCtx->pq = NULL;
 
   //-------------------------------------------------------------------------------------------
+  RedisModule_Reply_Map(reply);
   if (reply->resp3) // RESP3
   {
     RedisModule_Reply_SimpleString(reply, "attributes");
@@ -1280,6 +1277,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       }
     }
   }
+  RedisModule_Reply_MapEnd(reply);
   //-------------------------------------------------------------------------------------------
 
   // Free the sorted results
@@ -1293,48 +1291,55 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * This function is used to print profiles received from the shards.
  * It is used by both SEARCH and AGGREGATE.
  */
-void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
+static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
+  // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
+  // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
+  // profile information of the shard.
+  const int profile_data_idx = isSearch ? 1 : 2;
   for (int i = 0; i < count; ++i) {
-    char *shard_i;
-    rm_asprintf(&shard_i, "Shard #%d", i + 1);
-    RedisModule_Reply_SimpleString(reply, shard_i);
-    rm_free(shard_i);
-
-    // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
-    // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
-    // profile information of the shard.
-
-    int idx = isSearch ? 1 : 2;
-    MRReply *mr_reply = MRReply_ArrayElement(replies[i], idx);
-    int len = MRReply_Length(mr_reply);
-    for (int j = 0; j < len; ++j) {
-      MR_ReplyWithMRReply(reply, MRReply_ArrayElement(mr_reply, j));
-    }
+    MRReply *shards_reply = MRReply_ArrayElement(replies[i], profile_data_idx);
+    MRReply *shards_array_profile = MRReply_ArrayElement(shards_reply, 1);
+    MRReply *shard_profile = MRReply_ArrayElement(shards_array_profile, 0);
+    MR_ReplyWithMRReply(reply, shard_profile);
   }
 }
 
-void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
+static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
-    char *shard_i;
-    rm_asprintf(&shard_i, "Shard #%d", i + 1);
-    RedisModule_Reply_SimpleString(reply, shard_i);
-    rm_free(shard_i);
-
     MRReply *profile;
     if (!isSearch) {
       // On aggregate commands, take the results from the response (second component is the cursor-id)
       MRReply *results = MRReply_ArrayElement(replies[i], 0);
-      profile = MRReply_MapElement(results, "profile");
+      profile = MRReply_MapElement(results, PROFILE_STR);
     } else {
-      profile = MRReply_MapElement(replies[i], "profile");
+      profile = MRReply_MapElement(replies[i], PROFILE_STR);
     }
+    MRReply *shards = MRReply_MapElement(profile, PROFILE_SHARDS_STR);
+    MRReply *shard = MRReply_ArrayElement(shards, 0);
 
-    if (profile) {
-      MR_ReplyWithMRReply(reply, profile);
-    } else {
-      RedisModule_Reply_SimpleString(reply, "None");
-    }
+    MR_ReplyWithMRReply(reply, shard);
   }
+}
+
+void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
+  PrintShardProfile_ctx *pCtx = ctx;
+  if (reply->resp3) {
+    PrintShardProfile_resp3(reply, pCtx->count, pCtx->replies, pCtx->isSearch);
+  } else {
+    PrintShardProfile_resp2(reply, pCtx->count, pCtx->replies, pCtx->isSearch);
+  }
+}
+
+struct PrintCoordProfile_ctx {
+  clock_t totalTime;
+  clock_t postProcessTime;
+};
+static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
+  struct PrintCoordProfile_ctx *pCtx = ctx;
+  RedisModule_Reply_Map(reply);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
@@ -1342,40 +1347,25 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                clock_t totalTime, clock_t postProcessTime) {
   bool has_map = RedisModule_HasMap(reply);
   RedisModule_Reply_Map(reply); // root
-    // print results
+    // Have a named map for the results for RESP3
+    if (has_map) {
+      RedisModule_Reply_SimpleString(reply, "Results"); // >results
+    }
     sendSearchResults(reply, rCtx);
 
     // print profile of shards & coordinator
-    if (has_map) {
-      RedisModule_ReplyKV_Map(reply, "shards"); // >shards
-    } else {
-      RedisModule_Reply_Map(reply); // >shards
-    }
+    PrintShardProfile_ctx shardsCtx = {
+        .count = count,
+        .replies = replies,
+        .isSearch = true,
+    };
+    struct PrintCoordProfile_ctx coordCtx = {
+        .totalTime = totalTime,
+        .postProcessTime = postProcessTime,
+    };
+    Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
 
-    if (has_map) {
-      PrintShardProfile_resp3(reply, count, replies, true);
-	} else {
-      PrintShardProfile_resp2(reply, count, replies, true);
-    }
-
-    // print coordinator stats
-    if (has_map) {
-      RedisModule_ReplyKV_Map(reply, "Coordinator");
-        // search cmd only do the heap so there is no parsing time
-        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
-      RedisModule_Reply_MapEnd(reply);
-    } else {
-      RedisModule_Reply_SimpleString(reply, "Coordinator");
-      RedisModule_Reply_Array(reply);
-        // search cmd only do the heap so there is no parsing time
-        RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
-        RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - postProcessTime) / CLOCKS_PER_MILLISEC);
-      RedisModule_Reply_ArrayEnd(reply);
-    }
-
-    RedisModule_Reply_MapEnd(reply); // >shards
-  RedisModule_Reply_MapEnd(reply); // root
+    RedisModule_Reply_MapEnd(reply); // >root
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {
@@ -1465,19 +1455,31 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  for (int i = 0; i < count; ++i) {
-    MRReply *mr_reply;
-    if (reply->resp3) {
-      mr_reply = replies[i];
-    } else {
-      mr_reply = !profile ? replies[i] : MRReply_ArrayElement(replies[i], 0);
-    }
-    rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+  if (!profile) {
+    for (int i = 0; i < count; ++i) {
+      rCtx.processReply(replies[i], (struct searchReducerCtx *)&rCtx, ctx);
 
-    // If we timed out on strict timeout policy, return a timeout error
-    if (should_return_timeout_error(req)) {
-      RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-      goto cleanup;
+      // If we timed out on strict timeout policy, return a timeout error
+      if (should_return_timeout_error(req)) {
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        goto cleanup;
+      }
+    }
+  } else {
+    for (int i = 0; i < count; ++i) {
+      MRReply *mr_reply;
+      if (reply->resp3) {
+        mr_reply = MRReply_MapElement(replies[i], "Results");
+      } else {
+        mr_reply = MRReply_ArrayElement(replies[i], 0);
+      }
+      rCtx.processReply(mr_reply, (struct searchReducerCtx *)&rCtx, ctx);
+
+      // If we timed out on strict timeout policy, return a timeout error
+      if (should_return_timeout_error(req)) {
+        RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+        goto cleanup;
+      }
     }
   }
 
@@ -1491,9 +1493,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   if (!profile) {
-    RedisModule_Reply_Map(reply);
     sendSearchResults(reply, &rCtx);
-    RedisModule_Reply_MapEnd(reply);
   } else {
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
   }
@@ -1888,7 +1888,6 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
   }
 
-  const char *typeStr = RedisModule_StringPtrLen(argv[2], NULL);
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
     return DistSearchCommand(ctx, argv, argc);
   }
