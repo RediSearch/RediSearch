@@ -222,6 +222,42 @@ def test_coord_profile():
     res['Results']['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
 
+    exp = {
+      'Results': {
+        'attributes': [],
+        'warning': [],
+        'total_results': 1,
+        'format': 'STRING',
+        'results': [
+          {'extra_attributes': {}, 'values': []},
+          {'extra_attributes': {}, 'values': []}
+        ],
+      },
+      'Profile': {
+        'Shards': ANY, # Checking separately. When profiling Aggregation, the number of shards is not fixed (empty replies are not returned)
+        'Coordinator': {
+          'Total profile time': ANY,
+          'Parsing time': ANY,
+          'Pipeline creation time': ANY,
+          'Warning': 'None',
+          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
+        }
+      }
+    }
+    shard = {
+      'Total profile time': ANY,
+      'Parsing time': ANY,
+      'Pipeline creation time': ANY,
+      'Warning': 'None',
+      'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
+      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
+    }
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
+    env.assertEqual(res, exp)
+    env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
+    for shard_res in res['Profile']['Shards']:
+      env.assertEqual(shard_res, shard)
+
 @skip(redis_less_than="7.0.0")
 def test_aggregate():
     env = Env(protocol=3)
