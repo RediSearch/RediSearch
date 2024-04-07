@@ -208,6 +208,7 @@ def test_single_shard_optimization():
     env.assertEqual(cid, 0)
 
     # Profile
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello').noError().apply(lambda res: to_dict(res[1])['Coordinator']).equal([])
     # A simple validation that we get a standalone error response
     env.expect('FT.PROFILE', 'idx', 'SEARCH', 'hello', 'world').error().contains('The QUERY keyword is expected')
     # Verify that PROFILE does not support WITHCURSOR
