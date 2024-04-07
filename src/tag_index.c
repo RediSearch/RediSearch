@@ -425,27 +425,27 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-static size_t TagIndex_GetSuffixOverhead(TagIndex *idx) {
-  if (!idx->suffix) {
-    return 0;
-  }
-  size_t overhead = 0;
-  TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
-  char *str;
-  tm_len_t slen;
-  void *val;
-  while (TrieMapIterator_Next(it, &str, &slen, &val)) {
-    arrayof(char *) arr = ((suffixData *)val)->array;
-    // Count the size of the array
-    overhead += array_sizeof(array_hdr(arr));
-    // Count the term only if allocated
-    if (((suffixData *)val)->term) {
-      overhead += slen;
-    }
-  }
+// static size_t TagIndex_GetSuffixOverhead(TagIndex *idx) {
+//   if (!idx->suffix) {
+//     return 0;
+//   }
+//   size_t overhead = 0;
+//   TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+//   char *str;
+//   tm_len_t slen;
+//   void *val;
+//   while (TrieMapIterator_Next(it, &str, &slen, &val)) {
+//     arrayof(char *) arr = ((suffixData *)val)->array;
+//     // Count the size of the array
+//     overhead += array_sizeof(array_hdr(arr));
+//     // Count the term only if allocated
+//     if (((suffixData *)val)->term) {
+//       overhead += slen;
+//     }
+//   }
 
-  return overhead;
-}
+//   return overhead;
+// }
 
 size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
@@ -458,7 +458,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {
       overhead += TrieMap_MemUsage(idx->suffix);
-      // We currently avoid counting the suffix values' overhead for performace.
+      // We currently avoid counting the suffix values' overhead for performance.
       // We should count it on the fly as we do for the rest of the memory fields.
       // overhead += TagIndex_GetSuffixOverhead(idx);
     }

@@ -340,13 +340,13 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp) {
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
+  res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
+  res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
+  res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.skipIndexesSize;
   res += sp->stats.scoreIndexesSize;

@@ -581,8 +581,9 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
 //---------------------------------------------------------------------------------------------
 
