@@ -25,6 +25,9 @@ jobs:
           tag = '${{ github.event.release.tag_name }}'
           if tag != f"v{major}.{minor}.{patch}":
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
+          version_branch = '${{ github.event.release.target_commitish }}'
+          if version_branch != f"{major}.{minor}":
+            raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:

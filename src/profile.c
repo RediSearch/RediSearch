@@ -99,14 +99,14 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  bool has_map = RedisModule_HasMap(reply);
+void Profile_Print(RedisModule_Reply *reply, void *ctx) {
+  ProfilePrinterCtx *profileCtx = ctx;
+  AREQ *req = profileCtx->req;
+  bool timedout = profileCtx->timedout;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
-  if (has_map) { // RESP3 variant
-    RedisModule_ReplyKV_Map(reply, "profile"); // profile
-
+  RedisModule_Reply_Map(reply);
       int profile_verbose = req->reqConfig.printProfileClock;
       // Print total time
       if (profile_verbose)
@@ -136,11 +136,10 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
       IndexIterator *root = QITR_GetRootFilter(&req->qiter);
       // Coordinator does not have iterators
       if (root) {
-        RedisModule_ReplyKV_Array(reply, "Iterators profile");
-          PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                       .printProfileClock = profile_verbose};
-          printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
-        RedisModule_Reply_ArrayEnd(reply);
+        RedisModule_Reply_SimpleString(reply, "Iterators profile");
+        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
+                                     .printProfileClock = profile_verbose};
+        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors
@@ -148,65 +147,40 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout) {
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);
+  RedisModule_Reply_MapEnd(reply);
+}
 
-      RedisModule_Reply_MapEnd(reply); // profile
+void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
+  if (reply->resp3) {
+    RedisModule_ReplyKV_Map(reply, "Results");
+  } else {
+    RedisModule_Reply_Map(reply);
   }
-  //-------------------------------------------------------------------------------------------
-  else // ! has_map (RESP2 variant)
-  {
-    RedisModule_Reply_Array(reply);
+}
 
-    int profile_verbose = req->reqConfig.printProfileClock;
-    // Print total time
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Total profile time");
-      if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->totalTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print query parsing time
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Parsing time");
-      if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print iterators creation time
-    RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
-    if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // Print whether a warning was raised throughout command execution
-    RedisModule_Reply_Array(reply);
-    RedisModule_Reply_SimpleString(reply, "Warning");
-    if (timedout) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    }
-    RedisModule_Reply_ArrayEnd(reply);
-
-    // print into array with a recursive function over result processors
-
-    // Print profile of iterators
-    IndexIterator *root = QITR_GetRootFilter(&req->qiter);
-    // Coordinator does not have iterators
-    if (root) {
-      RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, "Iterators profile");
-        PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
-                                     .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0 ,0, 2, (req->reqflags & QEXEC_F_PROFILE_LIMITED), &config);
-      RedisModule_Reply_ArrayEnd(reply);
-    }
-
-    // Print profile of result processors
-    ResultProcessor *rp = req->qiter.endProc;
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_SimpleString(reply, "Result processors profile");
-      printProfileRP(reply, rp, req->reqConfig.printProfileClock);
-    RedisModule_Reply_ArrayEnd(reply);
-
-    RedisModule_Reply_ArrayEnd(reply);
+void Profile_PrintInFormat(RedisModule_Reply *reply,
+                           ProfilePrinterCB shards_cb, void *shards_ctx,
+                           ProfilePrinterCB coordinator_cb, void *coordinator_ctx) {
+  if (reply->resp3) {
+    RedisModule_ReplyKV_Map(reply, PROFILE_STR); /* >profile */
+  } else {
+    RedisModule_Reply_Map(reply); /* >profile */
   }
+  /* Print shards profile */
+  RedisModule_ReplyKV_Array(reply, PROFILE_SHARDS_STR); /* >Shards */
+  if (shards_cb) shards_cb(reply, shards_ctx);
+  RedisModule_Reply_ArrayEnd(reply); /* Shards */
+  /* Print coordinator profile */
+  RedisModule_Reply_SimpleString(reply, PROFILE_COORDINATOR_STR); /* >coordinator */
+  if (coordinator_cb) {
+    coordinator_cb(reply, coordinator_ctx); /* reply is already a map */
+  } else {
+    RedisModule_Reply_EmptyMap(reply);
+  }
+  RedisModule_Reply_MapEnd(reply); /* >profile */
+}
+
+void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout) {
+  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout};
+  Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
 }

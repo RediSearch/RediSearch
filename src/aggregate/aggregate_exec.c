@@ -333,7 +333,6 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
-  // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
          && !IsProfile(req);
@@ -443,12 +442,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QOptimizer_UpdateTotalResults(req);
     }
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
-    }
+
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
-    if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
@@ -547,6 +546,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Map(reply);
 
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    }
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
@@ -622,6 +625,7 @@ done_3:
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
     if (IsProfile(req)) {
+      RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
         req->profile(reply, req, has_timedout);
       }
@@ -906,7 +910,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (RunInThread()) {
     // Prepare context for the worker thread
     // Since we are still in the main thread, and we already validated the
-    // spec'c existence, it is safe to directly get the strong reference from the spec
+    // spec's existence, it is safe to directly get the strong reference from the spec
     // found in buildRequest.
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
