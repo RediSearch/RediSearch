@@ -13,8 +13,6 @@
 #include "rmr/reply.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
-#include "crc16_tags.h"
-#include "crc12_tags.h"
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
 #include "config.h"
@@ -1588,6 +1586,9 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (NumShards == 0) {
     // Cluster state is not ready
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return SpellCheckCommand(ctx, argv, argc);
   }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -1617,6 +1618,19 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    size_t len;
+    const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
+    RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
+    char *localCmd;
+    rm_asprintf(&localCmd, "_%.*s", len, cmd);
+    // C - same client, M - respect OOM, 0 - same RESP protocol (and v - argv input)
+    RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0", argv + 1, argc - 1);
+    rm_free(localCmd);
+    RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
+    RedisModule_FreeCallReply(r);
+    return REDISMODULE_OK;
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1640,6 +1654,9 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSAggregateCommand(ctx, argv, argc);
   }
 
   if (argc < 3) {
@@ -1662,6 +1679,9 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSCursorCommand(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1855,6 +1875,9 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSSearchCommand(ctx, argv, argc);
   }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -1886,6 +1909,12 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
+  }
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    // We must first check that we don't have a cursor, as the local command handler allows cursors
+    // for multi-shard clusters support.
+    return RSProfileCommand(ctx, argv, argc);
   }
 
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
