@@ -442,12 +442,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QOptimizer_UpdateTotalResults(req);
     }
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
-    }
+
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
-    if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
@@ -546,6 +546,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Map(reply);
 
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    }
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
@@ -621,6 +625,7 @@ done_3:
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
     if (IsProfile(req)) {
+      RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
         req->profile(reply, req, has_timedout);
       }
