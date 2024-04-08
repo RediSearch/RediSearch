@@ -94,6 +94,7 @@ static int initAsModule(RedisModuleCtx *ctx) {
 static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
   RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
+  RSGlobalConfig.iteratorsConfigParams.minStemLength = 4;
   return REDISMODULE_OK;
 }
 

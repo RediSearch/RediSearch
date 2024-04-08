@@ -61,6 +61,17 @@ CONFIG_GETTER(getMinPrefix) {
   return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
 }
 
+// MINSTEMLEN
+CONFIG_SETTER(setMinStemLen) {
+  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minStemLength, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMinStemLen) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minStemLength);
+}
+
 CONFIG_SETTER(setForkGCSleep) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -582,6 +593,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
          .getValue = getMinPrefix},
+        {.name = "MINSTEMLEN",
+         .helpText = "Set the minimum word length to stem (default 4)",
+         .setValue = setMinStemLen,
+         .getValue = getMinStemLen},
         {.name = "FORKGC_SLEEP_BEFORE_EXIT",
          .helpText = "set the amount of seconds for the fork GC to sleep before exists, should "
                      "always be set to 0 (other then on tests).",
@@ -782,6 +797,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "min word length to stem: %lld, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
@@ -891,6 +907,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
   RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
   RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_stem_length", RSGlobalConfig.iteratorsConfigParams.minStemLength);
   RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
   RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
