@@ -70,6 +70,8 @@ typedef struct {
   long long maxPrefixExpansions;
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
+  // The minimal word length to stem. Default 4
+  long long minStemLength;
   long long minUnionIterHeap;
 } IteratorsConfig;
 
@@ -243,6 +245,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
+    .iteratorsConfigParams.minStemLength = 4,                                                                         \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
