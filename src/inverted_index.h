@@ -22,6 +22,10 @@
 extern "C" {
 #endif
 
+// The number of entries in each index block. A new block will be created after every N entries
+#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
+
 extern uint64_t TotalIIBlocks;
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */

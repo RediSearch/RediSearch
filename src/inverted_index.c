@@ -22,10 +22,6 @@
 
 uint64_t TotalIIBlocks = 0;
 
-// The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 100
-#define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
-
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 
