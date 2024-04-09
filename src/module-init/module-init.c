@@ -178,10 +178,38 @@ static void RS_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
   }
 }
 
+static RedisModuleString *RS_CreateStringFromString(RedisModuleCtx *ctx,
+                                                    const RedisModuleString *str) {
+  RS_String *s = (RS_String *)str;
+  return RS_CreateString(ctx, s->ptr, s->len);
+}
+
+static const char *RS_StringPtrLen(const RedisModuleString *str, size_t *len) {
+  RS_String *s = (RS_String *)str;
+  if (len) {
+    *len = s->len;
+  }
+  return s->ptr;
+}
+
 static RedisModuleString *RS_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
   RS_String *s = (RS_String *)str;
   s->ref_count++;
   return str;
+}
+static void RS_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
+  RS_HoldString(ctx, str);
+}
+
+static int RS_StringCompare(const RedisModuleString *arg1, const RedisModuleString *arg2) {
+  int cmp;
+  RS_String *a = (RS_String *)arg1;
+  RS_String *b = (RS_String *)arg2;
+
+  size_t minlen = (a->len < b->len) ? a->len : b->len;
+  cmp = memcmp(a->ptr, b->ptr, minlen);
+  if (cmp == 0) return a->len - b->len;
+  return cmp;
 }
 
 static void RS_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {
@@ -189,6 +217,9 @@ static void RS_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...)
 
 static RedisModuleCtx *RS_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
   return NULL;
+}
+
+static void RS_FreeThreadSafeContext(RedisModuleCtx *ctx) {
 }
 
 int vasprintf(char **__restrict __ptr, const char *__restrict __fmt, va_list __arg) {
@@ -223,9 +254,19 @@ int RediSearch_InitRedisAPI(RedisModuleCtx *ctx, int mode) {
   RedisModule_TrimStringAllocation = RS_TrimStringAllocation;
   RedisModule_FreeString = RS_FreeString;
   RedisModule_HoldString = RS_HoldString;
+  RedisModule_CreateStringFromString = RS_CreateStringFromString;
+  RedisModule_StringPtrLen = RS_StringPtrLen;
+  RedisModule_RetainString = RS_RetainString;
+  RedisModule_StringCompare = RS_StringCompare;
   RedisModule_Log = RS_Log;
   RedisModule_GetThreadSafeContext = RS_GetThreadSafeContext;
+  RedisModule_FreeThreadSafeContext = RS_FreeThreadSafeContext;
   RedisModule_CreateStringPrintf = RS_CreateStringPrintf;
+  RediSearch_LockInit(ctx);
+  RSGlobalConfig.freeResourcesThread = false;
+  Extensions_Init();
+  // Register the default hard coded extension
+  Extension_Load("DEFAULT", DefaultExtensionInit);
 }
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
