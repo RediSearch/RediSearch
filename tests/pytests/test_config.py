@@ -17,6 +17,8 @@ def testConfigErrors(env):
     env.expect('ft.config', 'idx').error().contains('wrong number of arguments')
     env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
         .equal('Max depth for range cannot be higher than max depth for balance')
+    env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
+        .contains('Minimum stem length cannot be lower than')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -56,6 +58,7 @@ def testGetConfigOptions(env):
     check_config('_FREE_RESOURCE_ON_THREAD')
     check_config('BG_INDEX_SLEEP_GAP')
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
+    check_config('MINSTEMLEN')
 
 '''
 
@@ -164,6 +167,7 @@ def testInitConfig():
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
+    test_arg_num('MINSTEMLEN', 3)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
