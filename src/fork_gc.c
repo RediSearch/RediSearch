@@ -775,7 +775,10 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     size_t formatedTremLen;
     const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
     if (sctx->spec->keysDict) {
-      dictDelete(sctx->spec->keysDict, termKey);
+      size_t inv_idx_size = InvertedIndex_MemUsage(idx);
+      if (dictDelete(sctx->spec->keysDict, termKey) == DICT_OK) {
+        info.nbytesCollected += inv_idx_size;
+      }
     }
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
@@ -1059,7 +1062,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
     // if tag value is empty, let's remove it.
-    if (idx->numDocs == 0) {
+    if (idx->numDocs == 0) { 
+      info.nbytesCollected += InvertedIndex_MemUsage(idx);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
 
       if (tagIdx->suffix) {

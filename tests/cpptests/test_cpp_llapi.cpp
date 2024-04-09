@@ -1216,14 +1216,14 @@ TEST_F(LLApiTest, testInfoSize) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 407);
+  ASSERT_EQ(RediSearch_MemUsage(index), 305);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 308);
+  ASSERT_EQ(RediSearch_MemUsage(index), 206);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 308);
+  ASSERT_EQ(RediSearch_MemUsage(index), 104);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
   // The inverted index sizes remains remains allocated because when we delete

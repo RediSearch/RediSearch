@@ -20,6 +20,7 @@ def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
 def runTestWithSeed(env, s=None):
     conn = getConnectionByEnv(env)
 
+    # size of empty inverted index with the default capacity
     expected_empty_inverted_sz_mb = 102 / (1024 * 1024)
     env.expect('FLUSHALL')
     if s == None:
@@ -169,14 +170,10 @@ def testMemoryAfterDrop(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by empty TEXT and TAG inverted index is
-    # (102 * doc_count) and (86 * doc_count) respectively, because
-    # FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for each
-    # deleted doc.
-    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes.
-    expected_inverted_sz_mb = (86 * doc_count) / (1024 * 1024)   # TAG
-    expected_inverted_sz_mb += (102 * doc_count) / (1024 * 1024) # TEXT
-    expected_inverted_sz_mb += (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
+    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes,
+    # which is the size of an empty inverted index with default capacity
+    # (See NewInvertedIndex()).
+    expected_inverted_sz_mb = (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
 
@@ -208,14 +205,8 @@ def testIssue1497(env):
 
     forceInvokeGC(env, 'idx')
 
-    # The memory occupied by empty TEXT and TAG inverted index is
-    # (102 * doc_count) and (86 * doc_count) respectively, because
-    # FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for each
-    # deleted doc.
     # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes.
-    expected_inverted_sz_mb = (86 * count) / (1024 * 1024)   # TAG
-    expected_inverted_sz_mb += (102 * count) / (1024 * 1024) # TEXT
-    expected_inverted_sz_mb += (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
+    expected_inverted_sz_mb = (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
     check_index_info(env, 'idx', 0, expected_inverted_sz_mb)
 
 @skip(cluster=True, gc_no_fork=True)
@@ -297,8 +288,8 @@ def testMemoryAfterDrop_geo(env):
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_text(env):
 
-    idx_count = 1
-    doc_count = 100
+    idx_count = 10
+    doc_count = 150
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -322,16 +313,8 @@ def testMemoryAfterDrop_text(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty TEXT inverted index is 102 bytes * doc_count,
-    # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
-    # each delete doc. 
-    # The size of a new block is 102 bytes, which is the sum of:
-    # sizeof_InvertedIndex(flags)          48
-    # sizeof(IndexBlock)                   48
-    # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = (102 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_tag(env):
@@ -361,16 +344,8 @@ def testMemoryAfterDrop_tag(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty TAG inverted index is 86 bytes * doc_count,
-    # because FGC_applyInvertedIndex() is calling InvertedIndex_AddBlock() for 
-    # each delete doc. 
-    # The size of a new block is 86 bytes, which is the sum of:
-    # sizeof_InvertedIndex(flags)          32
-    # sizeof(IndexBlock)                   48
-    # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = (86 * doc_count) / (1024 * 1024)
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, 0)
 
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
