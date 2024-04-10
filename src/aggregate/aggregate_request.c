@@ -259,6 +259,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
 
+    if (arng->limit == 0 && arng->offset != 0) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+      return ARG_ERROR;
+    }
+
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
@@ -859,7 +864,7 @@ AREQ *AREQ_New(void) {
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
-  req->profile = Profile_Print;
+  req->profile = Profile_PrintDefault;
   return req;
 }
 

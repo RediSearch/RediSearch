@@ -30,6 +30,7 @@ on:
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
+  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
 
 jobs:
   common-flow:
@@ -66,6 +67,10 @@ jobs:
           submodules: recursive
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis
         if: inputs.get-redis != 'skip getting redis'

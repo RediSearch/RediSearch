@@ -49,16 +49,16 @@ TEST_F(TagIndexTest, testCreate) {
   TagIndex_Free(idx);
 }
 
-#define TEST_MY_SEP(sep, str)                     \
-  orig = s = strdup(str);                         \
-  token = TagIndex_SepString(sep, &s, &tokenLen); \
-  EXPECT_STREQ(token, "foo");                     \
-  ASSERT_EQ(tokenLen, 3);                         \
-  token = TagIndex_SepString(sep, &s, &tokenLen); \
-  EXPECT_STREQ(token, "bar");                     \
-  ASSERT_EQ(tokenLen, 3);                         \
-  token = TagIndex_SepString(sep, &s, &tokenLen); \
-  ASSERT_FALSE(token);                            \
+#define TEST_MY_SEP(sep, str)                            \
+  orig = s = strdup(str);                                \
+  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
+  EXPECT_STREQ(token, "foo");                            \
+  ASSERT_EQ(tokenLen, 3);                                \
+  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
+  EXPECT_STREQ(token, "bar");                            \
+  ASSERT_EQ(tokenLen, 3);                                \
+  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
+  ASSERT_FALSE(token);                                   \
   free(orig);
 
 TEST_F(TagIndexTest, testSepString) {
@@ -67,16 +67,16 @@ TEST_F(TagIndexTest, testSepString) {
   char *token;
 
   orig = s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
-  token = TagIndex_SepString(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen, false);
   ASSERT_FALSE(token);
-  token = TagIndex_SepString(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen, false);
   ASSERT_FALSE(token);
   free(orig);
 
   orig = s = strdup("");
-  token = TagIndex_SepString(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen, false);
   ASSERT_FALSE(token);
-  token = TagIndex_SepString(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen, false);
   ASSERT_FALSE(token);
   free(orig);
 

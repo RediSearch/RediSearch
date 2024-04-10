@@ -25,13 +25,16 @@ typedef struct {
   uint32_t num;
 
   /* if not -1, this value indicate to which slot the command should be sent */
-  int targetSlot;
+  int16_t targetSlot;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;
 
- /* Whether the user asked for a cursor */
+  /* Whether the user asked for a cursor */
   bool forCursor;
+
+  /* Whether the command is for profiling */
+  bool forProfiling;
 
   /* Whether the command chain is depleted - don't resend */
   bool depleted;

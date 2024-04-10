@@ -24,8 +24,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 
-
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
@@ -331,7 +330,7 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None):
     def decorate(f):
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
@@ -339,6 +338,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if cluster == COORD:
                 raise SkipTest()
             if macos and OS == 'macos':
+                raise SkipTest()
+            if arch == platform.machine():
                 raise SkipTest()
             if asan and SANITIZER == 'address':
                 raise SkipTest()
@@ -611,3 +612,7 @@ def verify_shard_init(env, shard=None):
         raise Exception('Expected FT.SEARCH to fail')
     except redis_exceptions.ResponseError as e:
         env.assertContains('no such index', str(e))
+
+def cmd_assert(env, cmd, res):
+    db_res = env.cmd(*cmd)
+    env.assertEqual(db_res, res)

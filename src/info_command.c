@@ -14,8 +14,6 @@
 #include "redismodule.h"
 #include "reply_macros.h"
 
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
-
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \
@@ -195,6 +193,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (FieldSpec_HasSuffixTrie(fs)) {
       RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
+    }
+    if (FieldSpec_IndexesEmpty(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXEMPTY_STR);
     }
 
     if (has_map) {
