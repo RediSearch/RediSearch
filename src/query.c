@@ -292,6 +292,7 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
+  ret->tag.nen = NON_EXIST_NONE;
   return ret;
 }
 
@@ -821,6 +822,8 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   IndexIterator *ret;
 
+  // TODO: Is this a bug? Or it the number of children here always 1? Even if so
+  // there is no reason to wrap with an intersect iterator.
   if (node->exact) {
     ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
@@ -1249,20 +1252,9 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
 
-  if (n->tn.str) {
-    tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
-  }
-
-  // Support for EMPTY TAG values (searched via the "__empty" token).
-  if (FieldSpec_IndexesEmpty(fs) && n->tn.str && strcmp(n->tn.str, "__empty") == 0) {
-    // Transform the query to an empty string query.
-    rm_free(n->tn.str);
-    n->tn.str = rm_strdup("");
-    n->tn.len = 0;
-  }
-
   switch (n->type) {
     case QN_TOKEN: {
+      tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
       ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
@@ -1321,9 +1313,19 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!idx) {
     goto done;
   }
-  // a union stage with one child is the same as the child, so we just return it
-  if (QueryNode_NumChildren(qn) == 1) {
+  if (qn->tag.nen == NON_EXIST_EMPTY) {
+    // Tag node searching for empty strings (0 children)
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
+    if (ret) {
+      *array_ensure_tail(&total_its, IndexIterator *) = ret;
+    }
+  } else if (QueryNode_NumChildren(qn) == 1) {
+    // a union stage with one child is the same as the child, so we just return it
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
+  }
+
+  if (QueryNode_NumChildren(qn) < 2) {
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -2030,5 +2032,8 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
   } else {
     return 1;
   }
+}
 
+QueryNodeType QueryNode_Type(QueryNode *qn) {
+  return qn->type;
 }

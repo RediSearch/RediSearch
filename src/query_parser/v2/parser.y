@@ -38,6 +38,7 @@
 %left PERCENT.
 %left ATTRIBUTE.
 %left VERBATIM WILDCARD.
+%left ISEMPTY.  // TODO: Think about priority. Use %fallback directive.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -138,7 +139,7 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 // Notice about the %destructor directive:
 // If a non-terminal is used by C-code, e.g., expr(A)
-// then %destructor code will bot be called for it
+// then %destructor code will not be called for it
 // (C-code is responsible for destroying it)
 // Unless during error handling
 
@@ -714,6 +715,28 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
+expr(A) ::= ISEMPTY LP modifier(B) RP . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen((char*)s, B.len);
+
+  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
+  if (!fs) {
+    // Non-existing field
+    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
+    A = NULL;
+  } else {
+    switch (fs->types) {
+      case INDEXFLD_T_TAG:
+        A = NewTagNode(s, slen);
+        A->tag.nen = NON_EXIST_EMPTY;
+        break;
+      default:
+        reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
+        A = NULL;
+        break;
+    }
+  }
+}
 
 /////////////////////////////////////////////////////////////////
 // Tag Lists - curly braces separated lists of words

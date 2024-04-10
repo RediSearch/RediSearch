@@ -57,9 +57,10 @@ attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
-as = 'AS'|'aS'|'As'|'as';
+as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
+isempty = 'isempty'i $1;
 
 main := |*
 
@@ -70,6 +71,15 @@ main := |*
     tok.numval = strtod(tok.s, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, SIZE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  isempty => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, ISEMPTY, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -325,8 +335,8 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
 
   
   int cs, act;
-  const char* ts = q->raw;
-  const char* te = q->raw + q->len;
+  const char* ts = q->raw;          // query start
+  const char* te = q->raw + q->len; // query end
   %% write init;
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   

@@ -28,5 +28,6 @@
 #define ATTRIBUTE                       28
 #define VERBATIM                        29
 #define WILDCARD                        30
-#define AS_T                            31
-#define SEMICOLON                       32
+#define ISEMPTY                         31
+#define AS_T                            32
+#define SEMICOLON                       33

@@ -68,7 +68,16 @@ typedef enum {
   QN_NULL
 } QueryNodeType;
 
-/* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
+// Denotes that a node is searching for an empty, missing or NULL value.
+typedef enum NonExistNode {
+  NON_EXIST_NONE = 0,
+  NON_EXIST_EMPTY = 1,
+  // To be added in the future
+  // NON_EXIST_MISSING = 2,
+  // NON_EXIST_NULL = 3
+} NonExistNode;
+
+/* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
   int exact;
@@ -85,6 +94,7 @@ typedef struct {
 typedef struct {
   const char *fieldName;
   size_t len;
+  NonExistNode nen;
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -177,7 +187,7 @@ typedef struct {
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
 
-/* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it
+/* QueryNode represents any query node in the query tree. It has a type to resolve which node it
  * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
   union {
@@ -231,3 +241,4 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
+QueryNodeType QueryNode_Type(QueryNode *qn);
