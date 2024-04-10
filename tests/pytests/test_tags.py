@@ -537,7 +537,7 @@ def testEmptyValueTags():
 
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY', 'text', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'h1', 't', '')
     testHashIndex(env, 'idx')
@@ -545,7 +545,7 @@ def testEmptyValueTags():
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
-    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'EMPTY', 'SORTABLE', 'text', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
     conn.execute_command('HSET', 'h1', 't', '')
 
     testHashIndex(env, 'idx_sortable')
@@ -554,7 +554,7 @@ def testEmptyValueTags():
     # --------------------------- WITHSUFFIXTRIE case --------------------------
     # Create an index with a TAG field, that also indexes empty strings, while
     # using a suffix trie
-    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'EMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
     conn.execute_command('HSET', 'h1', 't', '')
     testHashIndex(env, 'idx_suffixtrie')
     env.flush()
@@ -606,11 +606,11 @@ def testEmptyValueTags():
         cmd_assert(env, cmd, expected)
 
 
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
     testJSONIndex(env, 'jidx')
     env.flush()
 
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
     # Empty array values ["a", "", "c"] with explicit array components indexing
     arr = {
         'arr': ['a', '', 'c']
@@ -655,7 +655,7 @@ def testEmptyValueTags():
     env.flush()
 
     # Embedded empty object
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'ISEMPTY').ok()
     j = {
         "t": {"b": {}}
     }
@@ -682,7 +682,7 @@ def testEmptyValueTags():
         "t": {"lala": "lali"}
     }
     js = json.dumps(j)
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
     env.expect('JSON.SET', 'j', '$', js).equal('OK')
     cmd = f'FT.SEARCH jidx isempty(@t)'.split(' ')
     cmd_assert(env, cmd, [0])
@@ -695,7 +695,7 @@ def testEmptyValueTags():
 
     # Test that when we index many docs, we find the wanted portion of them upon
     # empty value indexing
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'EMPTY').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY').ok()
     n_docs = 1000
     for i in range(n_docs):
         conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')

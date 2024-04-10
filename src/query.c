@@ -1251,10 +1251,12 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
+  if (n->tn.str) {
+    tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
+  }
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
       ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }

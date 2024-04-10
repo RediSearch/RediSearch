@@ -1921,6 +1921,7 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
     // Non-existing field
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Field not found");
     yymsp[-3].minor.yy19 = NULL;
+    rm_free(s);
   } else {
     switch (fs->types) {
       case INDEXFLD_T_TAG:
@@ -1930,6 +1931,7 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       default:
         reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Unsupported field type for ISEMPTY");
         yymsp[-3].minor.yy19 = NULL;
+        rm_free(s);
         break;
     }
   }

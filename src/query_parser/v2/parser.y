@@ -724,6 +724,7 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
     // Non-existing field
     reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
     A = NULL;
+    rm_free(s);
   } else {
     switch (fs->types) {
       case INDEXFLD_T_TAG:
@@ -733,6 +734,7 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
       default:
         reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
         A = NULL;
+        rm_free(s);
         break;
     }
   }
