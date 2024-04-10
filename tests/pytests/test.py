@@ -3184,17 +3184,10 @@ def testIssue1184(env):
 
         forceInvokeGC(env, 'idx')
 
-        # When inverted index is empty we expect the size to be 0 or 102 bytes
-        # according to the field type, because altough the inverted index has 0
-        # entries, the index for numeric and geo remains allocated with a
-        # default block with default capacity
         d = index_info(env, 'idx')
-        if(ft == 'NUMERIC' or ft == 'GEO'):
-            exp_size = 102
-        else:
-            exp_size = 0
-        env.assertEqual(exp_size / ( 1024 * 1024 ), float(d['inverted_sz_mb']))
+        env.assertEqual(float(d['inverted_sz_mb']), 0)
         env.assertEqual(int(d['num_records']), 0)
+        env.assertEqual(int(d['num_docs']), 0)
 
         env.cmd('FT.DROP idx')
 

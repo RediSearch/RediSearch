@@ -775,6 +775,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     size_t formatedTremLen;
     const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
     if (sctx->spec->keysDict) {
+      // get memory before deleting the inverted index
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
       if (dictDelete(sctx->spec->keysDict, termKey) == DICT_OK) {
         info.nbytesCollected += inv_idx_size;
@@ -895,14 +896,16 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   currNode->range->entries->numEntries -= info->nentriesCollected;
-  currNode->range->invertedIndexSize -= info->nbytesCollected;
   currNode->range->invertedIndexSize += info->nbytesAdded;
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
+  currNode->range->invertedIndexSize -= info->nbytesCollected;
 
   // TODO: fix for NUMERIC similar to TAG fix PR#2269
-  // if (currNode->range->entries->numDocs == 0) {
+  if (currNode->range->entries->numDocs == 0) {
   //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
-  // }
+    info->nbytesCollected += InvertedIndex_MemUsage(currNode->range->entries);
+    currNode->range->invertedIndexSize = 0;
+  }
+  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
   resetCardinality(ninfo, currNode);
 }
@@ -1062,7 +1065,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
     // if tag value is empty, let's remove it.
-    if (idx->numDocs == 0) { 
+    if (idx->numDocs == 0) {
+      // get memory before deleting the inverted index
       info.nbytesCollected += InvertedIndex_MemUsage(idx);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
 

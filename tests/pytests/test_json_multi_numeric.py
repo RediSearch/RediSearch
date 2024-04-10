@@ -328,9 +328,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    # 102 bytes is the size of an empty inverted index 
-    # (See NewInvertedIndex() in inverted_index.c)
-    env.assertEqual(float(info['inverted_sz_mb']), 102 / (1024 * 1024))
+    env.assertEqual(float(info['inverted_sz_mb']), 0)
 
 def printSeed(env):
     # Print the random seed for reproducibility

@@ -111,7 +111,6 @@ def testBasic(env):
     conn = getConnectionByEnv(env)
 
     conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0)
-    conn.execute_command('FLUSHALL')
 
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..loc[*]', 'AS', 'loc', 'GEO').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
@@ -183,7 +182,7 @@ def testBasic(env):
     # check stats after deletion
     conn.execute_command('DEL', 'doc:1')
     forceInvokeGC(env, 'idx1')
-    checkInfo(env, 'idx1', 0, 102 / (1024 * 1024))
+    checkInfo(env, 'idx1', 0, 0)
 
 
 def testMultiNonGeo(env):

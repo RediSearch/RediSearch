@@ -1138,7 +1138,6 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.docTrieSize, 87);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
-  // TO DO: Fix this value after fixing the count of inverted size in TAG fields
   ASSERT_EQ(info.invertedSize, 682);
   ASSERT_EQ(info.invertedCap, 0);
   ASSERT_EQ(info.skipIndexesSize, 0);
@@ -1223,11 +1222,9 @@ TEST_F(LLApiTest, testInfoSize) {
   ASSERT_EQ(RediSearch_MemUsage(index), 206);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 104);
+  ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
-  // The inverted index sizes remains remains allocated because when we delete
-  // the only existing block we always allocate a new block of size 6.
 
   RediSearch_DropIndex(index);
 }

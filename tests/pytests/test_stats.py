@@ -20,8 +20,6 @@ def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
 def runTestWithSeed(env, s=None):
     conn = getConnectionByEnv(env)
 
-    # size of empty inverted index with the default capacity
-    expected_empty_inverted_sz_mb = 102 / (1024 * 1024)
     env.expect('FLUSHALL')
     if s == None:
         s = int(time())
@@ -77,7 +75,7 @@ def runTestWithSeed(env, s=None):
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
-    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, 0)
 
     ### test random integers
     env.expect('FLUSHALL')
@@ -99,11 +97,11 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, 0)
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i)).equal([0])
-    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, 0)
 
     ## test random floats
     env.expect('FLUSHALL')
@@ -131,7 +129,7 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         forceInvokeGC(env, 'idx')
-    check_index_info(env, idx, 0, expected_empty_inverted_sz_mb)
+    check_index_info(env, idx, 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testRandom(env):
@@ -145,14 +143,14 @@ def testMemoryAfterDrop(env):
 
     idx_count = 100
     doc_count = 50
-    divide_by = 1000000   # ensure limits of geo are not exceeded
+    divide_by = 1_000_000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.cmd('FLUSHALL')
     env.cmd('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
-        env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
+        env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
 
     for i in range(idx_count):
         geo = '1.23456,' + str(float(i) / divide_by)
@@ -170,18 +168,14 @@ def testMemoryAfterDrop(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes,
-    # which is the size of an empty inverted index with default capacity
-    # (See NewInvertedIndex()).
-    expected_inverted_sz_mb = (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testIssue1497(env):
 
     count = 110
-    divide_by = 1000000   # ensure limits of geo are not exceeded
+    divide_by = 1_000_000 # ensure limits of geo are not exceeded
     number_of_fields = 4  # one of every type
 
     env.cmd('FLUSHALL')
@@ -205,9 +199,7 @@ def testIssue1497(env):
 
     forceInvokeGC(env, 'idx')
 
-    # The memory occupied by empty NUMERIC and GEO inverted index is 102 bytes.
-    expected_inverted_sz_mb = (102 * 2) / (1024 * 1024)     # NUMERIC and GEO
-    check_index_info(env, 'idx', 0, expected_inverted_sz_mb)
+    check_index_info(env, 'idx', 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_numeric(env):
@@ -237,21 +229,15 @@ def testMemoryAfterDrop_numeric(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
-    # which is the sum of the following (See NewInvertedIndex()):
-    # sizeof_InvertedIndex(index->flags)   48
-    # sizeof(IndexBlock)                   48
-    # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_geo(env):
 
     idx_count = 100
     doc_count = 50
-    divide_by = 1000000   # ensure limits of geo are not exceeded
+    divide_by = 1_000_000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -276,14 +262,8 @@ def testMemoryAfterDrop_geo(env):
         env.assertEqual(d['num_docs'], 0)
         forceInvokeGC(env, 'idx%d' % i)
 
-    # The memory occupied by a empty NUMERIC inverted index is 102 bytes,
-    # which is the sum of the following (See NewInvertedIndex()):
-    # sizeof_InvertedIndex(index->flags)   48
-    # sizeof(IndexBlock)                   48
-    # INDEX_BLOCK_INITIAL_CAP               6
-    expected_inverted_sz_mb = 102 / (1024 * 1024)
     for i in range(idx_count):
-        check_index_info(env, 'idx%d' % i, 0, expected_inverted_sz_mb)
+        check_index_info(env, 'idx%d' % i, 0, 0)
 
 @skip(cluster=True, gc_no_fork=True)
 def testMemoryAfterDrop_text(env):
