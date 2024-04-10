@@ -896,19 +896,19 @@ def testTagAutoescaping(env):
 
     # Test wildcard
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
-    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n}\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}")
-    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n}\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n}\n")
+    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx',
                   "@tag1:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n}\n} => { $weight: 3.4; $inorder: true; }\n")
+    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
