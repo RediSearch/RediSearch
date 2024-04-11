@@ -241,4 +241,3 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
-QueryNodeType QueryNode_Type(QueryNode *qn);

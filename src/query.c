@@ -2035,7 +2035,3 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
     return 1;
   }
 }
-
-QueryNodeType QueryNode_Type(QueryNode *qn) {
-  return qn->type;
-}

@@ -75,15 +75,6 @@ main := |*
       fbreak;
     }
   };
-  isempty => {
-    tok.pos = ts-q->raw;
-    tok.len = te - ts;
-    tok.s = ts;
-    RSQuery_Parse_v2(pParser, ISEMPTY, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
   number => { 
     tok.s = ts;
     tok.len = te-ts;
@@ -246,6 +237,15 @@ main := |*
   punct;
   cntrl;
   
+  isempty => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, ISEMPTY, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
   term => {
     tok.len = te-ts;
     tok.s = ts;

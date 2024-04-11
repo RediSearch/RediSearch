@@ -535,6 +535,13 @@ def testEmptyValueTags():
         cmd_assert(env, cmd, expected)
         env.cmd('FT.DROPINDEX', 'temp_idx')
 
+        # ------------------------ Priority vs. Intersection -----------------------
+        res = env.cmd('FT.SEARCH', idx, 'isempty(@t) -isempty(@t)')
+        env.assertEqual(res, [0])
+
+        res = env.cmd('FT.SEARCH', idx, '-isempty(@t) isempty(@t)')
+        env.assertEqual(res, [0])
+
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
