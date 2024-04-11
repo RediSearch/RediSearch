@@ -123,8 +123,10 @@ def test_info_text_tag_overhead(env):
   res = index_info(env, 'idx')
   tag_overhead = float(res['tag_overhead_sz_mb'])
   text_overhead = float(res['text_overhead_sz_mb'])
+  total = float(res['total_index_memory_sz_mb'])
   env.assertGreater(tag_overhead, 0)
   env.assertGreater(text_overhead, 0)
+  env.assertGreater(total, 0)
 
   # Delete half of the docs
   for i in range(int(n_docs / 2)):
@@ -138,6 +140,7 @@ def test_info_text_tag_overhead(env):
   res = index_info(env, 'idx')
   env.assertGreater(tag_overhead, float(res['tag_overhead_sz_mb']))
   env.assertGreater(text_overhead, float(res['text_overhead_sz_mb']))
+  env.assertGreater(total, float(res['total_index_memory_sz_mb']), 0)
 
   # Delete the rest of the docs
   for i in range(int(n_docs / 2), n_docs):
