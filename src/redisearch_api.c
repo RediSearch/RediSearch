@@ -903,7 +903,6 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
   // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
-  uint count = 0;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
@@ -919,12 +918,7 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
       info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
       info.gc_stats.totalCycles += gcStats.numCycles;
-      if (gcStats.numCycles > 0) {
-        // Calculate average run time (in ms)
-        size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
-        info.gc_stats.avgCycleTime = (info.gc_stats.avgCycleTime * count + gc_avg) / (count + 1);
-        count++;
-      }
+      info.gc_stats.totalTime += gcStats.totalMSRun;
     }
     pthread_rwlock_unlock(&sp->rwlock);
   }

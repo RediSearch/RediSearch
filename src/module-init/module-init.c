@@ -156,7 +156,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   InfoGCStats stats = total_info.gc_stats;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms", stats.avgCycleTime);
+  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);
