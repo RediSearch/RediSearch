@@ -1770,7 +1770,12 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      if (qs->tag.nen == NON_EXIST_EMPTY) {
+        s = doPad(s, depth + 1);
+        s = sdscat(s, "<ISEMPTY>\n");
+      } else {
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      }
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
