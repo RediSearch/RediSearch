@@ -23,8 +23,10 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  size_t index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &index_memsize);
+  // dummy_index_memsize is not used because this function is only used to load
+  // legacy RDB indexes, legacy indexes should be upgraded on load
+  size_t dummy_index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &dummy_index_memsize);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
   // options - we force adding StoreFreqs.
@@ -61,8 +63,10 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    size_t sz;
-    InvertedIndex_AddBlock(idx, 0, &sz);
+    // dummy_sz is not used because this function is only used to load
+    // legacy RDB indexes, legacy indexes should be upgraded on load
+    size_t dummy_sz;
+    InvertedIndex_AddBlock(idx, 0, &dummy_sz);
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
