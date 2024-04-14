@@ -1,4 +1,4 @@
-from common import waitForIndex, forceInvokeGC, skip, to_list, index_info, Env
+from common import *
 
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
@@ -102,6 +102,7 @@ def test_info_text_tag_overhead(env):
   """Tests that the text and tag overhead fields report logic values (non-zero
   when there are docs, and 0 when there aren't, and the GC has worked)"""
 
+  conn = getConnectionByEnv(env)
   conn = getConnectionByEnv(env)
 
   # Create an index with a text and a tag field
