@@ -342,22 +342,7 @@ int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long
 
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
-#if 1
   RedisModule_ReplyWithDouble(reply->ctx, val);
-#else
-  if (reply->resp3) {
-    int c = fpclassify(val);
-    if (c == FP_INFINITE) {
-      RedisModule_ReplyWithSimpleString(reply->ctx, "inf");
-    } else if (c == FP_NAN) {
-      RedisModule_ReplyWithSimpleString(reply->ctx, "nan");
-    } else {
-      RedisModule_ReplyWithDouble(reply->ctx, val);
-    }
-  } else {
-    RedisModule_ReplyWithDouble(reply->ctx, val);
-  }
-#endif
   json_add(reply, false, "\"%s\"", key);
   _RedisModule_Reply_Next(reply);
   json_add(reply, false, "%f", val);
