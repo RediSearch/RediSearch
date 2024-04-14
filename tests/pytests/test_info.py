@@ -75,12 +75,11 @@ def test_vecsim_info():
         env.expect('FT.DROPINDEX', 'idx').ok()
 
 def test_numeric_info(env):
-
-  env.execute_command('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
-  env.execute_command('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
-  env.execute_command('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
-  env.execute_command('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
-  env.execute_command('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
+  env.cmd('ft.create', 'idx1', 'SCHEMA', 'n', 'numeric')
+  env.cmd('ft.create', 'idx2', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
+  env.cmd('ft.create', 'idx3', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF')
+  env.cmd('ft.create', 'idx4', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'NOINDEX')
+  env.cmd('ft.create', 'idx5', 'SCHEMA', 'n', 'numeric', 'SORTABLE', 'UNF', 'NOINDEX')
 
   res1 = index_info(env, 'idx1')['attributes']
   res2 = index_info(env, 'idx2')['attributes']
@@ -97,3 +96,60 @@ def test_numeric_info(env):
   env.assertEqual(res3, exp2)  # Numeric field is sortable, and explicitly UNF
   env.assertEqual(res4, exp3)  # Numeric field is sortable, explicitly NOINDEX, and automatically UNF
   env.assertEqual(res5, exp3)  # Numeric field is sortable, explicitly NOINDEX, and explicitly UNF
+
+@skip(cluster=True)
+def test_info_text_tag_overhead(env):
+  """Tests that the text and tag overhead fields report logic values (non-zero
+  when there are docs, and 0 when there aren't, and the GC has worked)"""
+
+  conn = getConnectionByEnv(env)
+
+  # Create an index with a text and a tag field
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'text1', 'TEXT')
+
+  # No docs, no GC --> no overhead
+  res = index_info(env, 'idx')
+  env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
+  env.assertEqual(float(res['text_overhead_sz_mb']), 0)
+
+  # Add some docs (enough to enable GC, and for Trie/TrieMap splitting deletion
+  # of multiple nodes)
+  n_docs = 10000
+  for i in range(n_docs):
+    conn.execute_command('HSET', f'doc{i}', 'tag1', f'tag{i}', 'text1', f'text{i}')
+
+  # Overhead > 0
+  res = index_info(env, 'idx')
+  tag_overhead = float(res['tag_overhead_sz_mb'])
+  text_overhead = float(res['text_overhead_sz_mb'])
+  total = float(res['total_index_memory_sz_mb'])
+  env.assertGreater(tag_overhead, 0)
+  env.assertGreater(text_overhead, 0)
+  env.assertGreater(total, 0)
+
+  # Delete half of the docs
+  for i in range(int(n_docs / 2)):
+    conn.execute_command('DEL', f'doc{i}')
+
+  # Run GC
+  forceInvokeGC(env, 'idx')
+  time.sleep(1)
+
+  # Overhead > 0, but smaller than before
+  res = index_info(env, 'idx')
+  env.assertGreater(tag_overhead, float(res['tag_overhead_sz_mb']))
+  env.assertGreater(text_overhead, float(res['text_overhead_sz_mb']))
+  env.assertGreater(total, float(res['total_index_memory_sz_mb']), 0)
+
+  # Delete the rest of the docs
+  for i in range(int(n_docs / 2), n_docs):
+    conn.execute_command('DEL', f'doc{i}')
+
+  # Run GC
+  forceInvokeGC(env, 'idx')
+  time.sleep(1)
+
+  # Overhead = 0
+  res = index_info(env, 'idx')
+  env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
+  env.assertEqual(float(res['text_overhead_sz_mb']), 0)

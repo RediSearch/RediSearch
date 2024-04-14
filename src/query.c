@@ -551,7 +551,7 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
@@ -609,6 +609,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  // TODO: This should be a single iterator.
+  // } else if (ctx.nits == 1) {
+  //   // In case of a single iterator, we can just return it
+  //   return ctx.its[0];
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);

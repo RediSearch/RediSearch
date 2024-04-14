@@ -262,9 +262,9 @@ typedef struct IndexSpec {
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
 
-  Trie *terms;                    // Trie of all terms. Used for GC and fuzzy queries
-  Trie *suffix;                   // Trie of suffix tokens of terms. Used for contains queries
-  t_fieldMask suffixMask;         // Mask of all field that support contains query
+  Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
+  Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
+  t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
 
   RSSortingTable *sortables;      // Contains sortable data of documents
@@ -565,6 +565,24 @@ typedef struct IndexesScanner {
 } IndexesScanner;
 
 double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+
+/**
+ * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
+ * TrieMaps used for the `values` and `suffix` fields.
+ */
+size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
+
+/**
+ * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
+ * sp->terms and sp->suffix Tries.
+ */
+size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+
+/**
+ * @return all memory used by the index `sp`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
+ */
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
 //---------------------------------------------------------------------------------------------
 

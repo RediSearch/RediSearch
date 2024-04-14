@@ -896,6 +896,8 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += IndexSpec_collect_text_overhead(sp);
+  res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.skipIndexesSize;
   res += sp->stats.scoreIndexesSize;
