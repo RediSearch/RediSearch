@@ -463,11 +463,13 @@ def testCountArgValidation(env):
     with an invalid fourth argument (i.e., instead of `COUNT`)"""
 
     conn = getConnectionByEnv(env)
-    for i in range(5):
-        conn.execute_command('HSET', f'h{i}', 't', f'foo{i}')
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+
+    # Populate the index
+    for i in range(5):
+        conn.execute_command('HSET', f'h{i}', 't', f'foo{i}')
 
     # Create a cursor with a bad value for the `COUNT` argument
     env.expect(
