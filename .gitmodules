@@ -19,3 +19,6 @@
 [submodule "deps/RedisModulesSDK"]
 	path = deps/RedisModulesSDK
 	url = https://github.com/RedisLabs/RedisModulesSDK.git
+[submodule "deps/onnxruntime"]
+	path = deps/onnxruntime
+	url = https://github.com/microsoft/onnxruntime.git
