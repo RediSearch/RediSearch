@@ -663,7 +663,7 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
     factor2 = 1 / MAX(1, ((IntersectIterator *)*it2)->num);
   } else if (it_2_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
     factor2 = ((UnionIterator *)*it2)->num;
-}
+  }
 
   return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }

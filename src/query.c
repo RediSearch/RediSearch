@@ -555,7 +555,7 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
@@ -613,6 +613,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  // TODO: This should be a single iterator.
+  // } else if (ctx.nits == 1) {
+  //   // In case of a single iterator, we can just return it
+  //   return ctx.its[0];
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
@@ -1051,7 +1055,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     return NULL;
   }
 
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
@@ -1251,6 +1255,14 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   if (n->tn.str) {
     tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
+  }
+
+  // Support for EMPTY TAG values (searched via the "__empty" token).
+  if (FieldSpec_IndexesEmpty(fs) && n->tn.str && strcmp(n->tn.str, "__empty") == 0) {
+    // Transform the query to an empty string query.
+    rm_free(n->tn.str);
+    n->tn.str = rm_strdup("");
+    n->tn.len = 0;
   }
 
   switch (n->type) {
