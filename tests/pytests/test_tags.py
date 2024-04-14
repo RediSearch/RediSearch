@@ -542,6 +542,40 @@ def testEmptyValueTags():
         res = env.cmd('FT.SEARCH', idx, '-isempty(@t) isempty(@t)')
         env.assertEqual(res, [0])
 
+        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) isempty(@t)')
+        expected = [
+            'INTERSECT {',
+            '  NOT{',
+            '    TAG:@t {',
+            '      <ISEMPTY>', '    }',
+            '  }',
+            '  TAG:@t {',
+            '    <ISEMPTY>',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | @t:{foo} isempty(@t)')
+        expected = [
+            'UNION {',
+            '  TAG:@t {',
+            '    bar',
+            '  }',
+            '  INTERSECT {',
+            '    TAG:@t {',
+            '      foo',
+            '    }',
+            '    TAG:@t {',
+            '      <ISEMPTY>',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()

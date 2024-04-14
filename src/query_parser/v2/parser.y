@@ -9,12 +9,12 @@
 
 %left LOWEST.
 
-%left ISEMPTY.
 %left TEXTEXPR.
 
 %left ORX.
 %left OR.
 
+%left ISEMPTY.
 %left MODIFIER.
 
 %left RP RB RSQB.

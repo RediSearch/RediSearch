@@ -1,8 +1,8 @@
 #define LOWEST                           1
 #define TEXTEXPR                         2
-#define ISEMPTY                          3
-#define ORX                              4
-#define OR                               5
+#define ORX                              3
+#define OR                               4
+#define ISEMPTY                          5
 #define MODIFIER                         6
 #define RP                               7
 #define RB                               8
