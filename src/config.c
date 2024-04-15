@@ -66,8 +66,7 @@ CONFIG_SETTER(setMinStemLen) {
   long long minStemLen;
   int acrc = AC_GetLongLong(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGHT) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %lld", MIN_MIN_STEM_LENGHT);
-    return REDISMODULE_ERR;
+    RETURN_STATUS(AC_ERR_ELIMIT);
   }
   config->iteratorsConfigParams.minStemLength = (long long)minStemLen;
   RETURN_STATUS(acrc);
