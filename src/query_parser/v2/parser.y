@@ -717,7 +717,7 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 
 expr(A) ::= ISEMPTY LP modifier(B) RP . {
   char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen((char*)s, B.len);
+  size_t slen = unescapen(s, B.len);
 
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
@@ -750,7 +750,7 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     } else {
       // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen((char*)s, B.len);
+        size_t slen = unescapen(s, B.len);
 
         A = NewTagNode(s, slen);
         QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));

@@ -822,8 +822,6 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   IndexIterator *ret;
 
-  // TODO: Is this a bug? Or it the number of children here always 1? Even if so
-  // there is no reason to wrap with an intersect iterator.
   if (node->exact) {
     ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);

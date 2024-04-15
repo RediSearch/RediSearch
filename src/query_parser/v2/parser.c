@@ -1916,7 +1916,7 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       case 49: /* expr ::= ISEMPTY LP modifier RP */
 {
   char *s = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  size_t slen = unescapen((char*)s, yymsp[-1].minor.yy0.len);
+  size_t slen = unescapen(s, yymsp[-1].minor.yy0.len);
 
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
@@ -1946,7 +1946,7 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
     } else {
       // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(yymsp[-4].minor.yy0.s, yymsp[-4].minor.yy0.len);
-        size_t slen = unescapen((char*)s, yymsp[-4].minor.yy0.len);
+        size_t slen = unescapen(s, yymsp[-4].minor.yy0.len);
 
         yylhsminor.yy19 = NewTagNode(s, slen);
         QueryNode_AddChildren(yylhsminor.yy19, yymsp[-1].minor.yy19->children, QueryNode_NumChildren(yymsp[-1].minor.yy19));

@@ -576,6 +576,117 @@ def testEmptyValueTags():
         ]
         env.assertEqual(res, expected)
 
+        res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{bar} | @t:{foo} isempty(@t)')
+        expected = [
+            'UNION {',
+            '  NOT{',
+            '    TAG:@t {',
+            '      bar',
+            '    }',
+            '  }',
+            '  INTERSECT {',
+            '    TAG:@t {',
+            '      foo',
+            '    }',
+            '    TAG:@t {',
+            '      <ISEMPTY>',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | -@t:{foo} -isempty(@t)')
+        expected = [
+            'UNION {',
+            '  TAG:@t {',
+            '    bar',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@t {',
+            '        foo',
+            '      }',
+            '    }',
+            '    NOT{',
+            '      TAG:@t {',
+            '        <ISEMPTY>',
+            '      }',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) isempty(@t) | @t:{bar}')
+        expected = [
+            'UNION {',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@t {',
+            '        <ISEMPTY>',
+            '      }',
+            '    }',
+            '    TAG:@t {',
+            '      <ISEMPTY>',
+            '    }',
+            '  }',
+            '  TAG:@t {',
+            '    bar',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', idx, 'isempty(@t) | -@t:{bar} -isempty(@t)')
+        expected = [
+            'UNION {',
+            '  TAG:@t {',
+            '    <ISEMPTY>',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@t {',
+            '        bar',
+            '      }',
+            '    }',
+            '    NOT{',
+            '      TAG:@t {',
+            '        <ISEMPTY>',
+            '      }',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) | -@t:{bar} isempty(@t)')
+        expected = [
+            'UNION {',
+            '  NOT{',
+            '    TAG:@t {',
+            '      <ISEMPTY>',
+            '    }',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@t {',
+            '        bar',
+            '      }',
+            '    }',
+            '    TAG:@t {',
+            '      <ISEMPTY>',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
