@@ -63,19 +63,19 @@ CONFIG_GETTER(getMinPrefix) {
 
 // MINSTEMLEN
 CONFIG_SETTER(setMinStemLen) {
-  long long minStemLen;
-  int acrc = AC_GetLongLong(ac, &minStemLen, AC_F_GE1);
+  unsigned int minStemLen;
+  int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGHT) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %lld", MIN_MIN_STEM_LENGHT);
+    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
     return REDISMODULE_ERR;
   }
-  config->iteratorsConfigParams.minStemLength = (long long)minStemLen;
+  config->iteratorsConfigParams.minStemLength = minStemLen;
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinStemLen) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minStemLength);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minStemLength);
 }
 
 CONFIG_SETTER(setForkGCSleep) {
@@ -803,7 +803,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
-  ss = sdscatprintf(ss, "min word length to stem: %lld, ", config->iteratorsConfigParams.minStemLength);
+  ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));

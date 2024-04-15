@@ -71,7 +71,7 @@ typedef struct {
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
   // The minimal word length to stem. Default 4
-  long long minStemLength;
+  unsigned int minStemLength;
   long long minUnionIterHeap;
 } IteratorsConfig;
 
