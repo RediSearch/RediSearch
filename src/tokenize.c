@@ -29,9 +29,6 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
   self->pos = &ctx->text;
 }
 
-// Shortest word which can/should actually be stemmed
-#define MIN_STEM_CANDIDATE_LEN 4
-
 // Normalization buffer
 #define MAX_NORMALIZE_SIZE 128
 
@@ -117,7 +114,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .phoneticsPrimary = t->phoneticsPrimary};
 
     // if we support stemming - try to stem the word
-    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
+    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && 
+          normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength) {
       size_t sl;
       const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
       if (stem) {
