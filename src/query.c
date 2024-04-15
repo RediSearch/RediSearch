@@ -292,6 +292,7 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
+  ret->tag.nen = NON_EXIST_NONE;
   return ret;
 }
 
@@ -1252,17 +1253,8 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
-
   if (n->tn.str) {
     tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
-  }
-
-  // Support for EMPTY TAG values (searched via the "__empty" token).
-  if (FieldSpec_IndexesEmpty(fs) && n->tn.str && strcmp(n->tn.str, "__empty") == 0) {
-    // Transform the query to an empty string query.
-    rm_free(n->tn.str);
-    n->tn.str = rm_strdup("");
-    n->tn.len = 0;
   }
 
   switch (n->type) {
@@ -1325,9 +1317,19 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!idx) {
     goto done;
   }
-  // a union stage with one child is the same as the child, so we just return it
-  if (QueryNode_NumChildren(qn) == 1) {
+  if (qn->tag.nen == NON_EXIST_EMPTY) {
+    // Tag node searching for empty strings (0 children)
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
+    if (ret) {
+      *array_ensure_tail(&total_its, IndexIterator *) = ret;
+    }
+  } else if (QueryNode_NumChildren(qn) == 1) {
+    // a union stage with one child is the same as the child, so we just return it
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
+  }
+
+  if (QueryNode_NumChildren(qn) < 2) {
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1770,7 +1772,12 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      if (qs->tag.nen == NON_EXIST_EMPTY) {
+        s = doPad(s, depth + 1);
+        s = sdscat(s, "<ISEMPTY>\n");
+      } else {
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      }
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
@@ -2034,5 +2041,4 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
   } else {
     return 1;
   }
-
 }
