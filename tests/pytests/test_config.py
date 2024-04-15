@@ -18,7 +18,7 @@ def testConfigErrors(env):
     env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
         .equal('Max depth for range cannot be higher than max depth for balance')
     env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
-        .contains('Value is outside acceptable bounds')
+        .contains('Minimum stem length cannot be lower than')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
