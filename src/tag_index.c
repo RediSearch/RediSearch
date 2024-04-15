@@ -197,7 +197,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
     if (tok) {
       ret += tagIndex_Put(idx, tok, strlen(tok), docId);
 
-      if (idx->suffix && (*tok != '\0')) { // add to suffix triemap
+      if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
@@ -423,4 +423,20 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+  size_t overhead = 0;
+  TagIndex *idx = NULL;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
+  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  RedisModule_FreeString(RSDummyContext, keyName);
+  if (idx) {
+    overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
+    if (idx->suffix) {
+      overhead += TrieMap_MemUsage(idx->suffix);
+    }
+  }
+  return overhead;
 }
