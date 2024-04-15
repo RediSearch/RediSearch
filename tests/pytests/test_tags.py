@@ -627,14 +627,16 @@ def testEmptyValueTags():
         cmd_assert(env, cmd, expected)
 
         # Empty array
-        j = {
-            't': []
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
+        # On sortable case, empty arrays are not indexed (MOD-6936)
+        if idx != 'jidx_sortable':
+            j = {
+                't': []
+            }
+            js = json.dumps(j, separators=(',', ':'))
+            conn.execute_command('JSON.SET', 'j', '$', js)
+            cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+            expected = [1, 'j', ['$', js]]
+            cmd_assert(env, cmd, expected)
 
         # Empty object
         j = {
@@ -649,6 +651,14 @@ def testEmptyValueTags():
 
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
     testJSONIndex(env, 'jidx')
+    env.flush()
+
+    env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
+    testJSONIndex(env, 'jidx_sortable')
+    env.flush()
+
+    env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+    testJSONIndex(env, 'jidx_suffix')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
