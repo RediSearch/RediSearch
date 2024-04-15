@@ -190,9 +190,9 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
-                       get_identifier('field6', isHash), 'as', 'f6', 'tag', 'empty',
-                       get_identifier('field6', isHash), 'as', 'f7', 'tag', 'empty', 'SORTABLE',
-                       
+                       get_identifier('field6', isHash), 'as', 'f6', 'tag', 'isempty',
+                       get_identifier('field6', isHash), 'as', 'f7', 'tag', 'isempty', 'SORTABLE',
+
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
                        get_identifier('field13', isHash), 'geo',
