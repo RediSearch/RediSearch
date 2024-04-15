@@ -247,7 +247,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
-    .iteratorsConfigParams.minStemLength = 4,                                                                         \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                                         \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
