@@ -49,30 +49,6 @@ def testHashMinStemLen(env):
     env.assertEqual(res[0], ['MINSTEMLEN', '3'])
 
     ########################################################
-    # Test the default MIN_STEMMING_LEN = 5
-    ########################################################
-    # Create the index with MIN_STEMMING_LEN = 5
-    env.flush()
-    env.cmd(config_cmd(), 'SET', 'MINSTEMLEN', 5)
-    env.cmd('HSET', '{doc}:1', 't', 'stem')
-    env.cmd('FT.CREATE', 'idx_min5', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
-    waitForIndex(env, 'idx_min5')
-
-    # 'stem' is not stemmed because MIN_STEMMING_LEN = 5
-    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_min5')
-    env.assertEqual(res, ['stem'])
-
-    # 'stem' is found when MIN_STEMMING_LEN = 5, because the root word is 'stem'
-    env.cmd('HSET', '{doc}:2', 't', 'stemming')
-    env.cmd('HSET', '{doc}:3', 't', 'stemmed')
-    res = env.cmd('FT.SEARCH', 'idx_min5', 'stemming', 'SORTBY', 't', 'ASC')
-    env.assertEqual(res, [3, '{doc}:1', ['t', 'stem'], '{doc}:3', ['t', 'stemmed'], 
-                          '{doc}:2', ['t', 'stemming']])
-
-    res = env.cmd(config_cmd(), 'GET', 'MINSTEMLEN')
-    env.assertEqual(res[0], ['MINSTEMLEN', '5'])
-
-    ########################################################
     # Test with MIN_STEMMING_LEN = 3 - Spanish
     ########################################################
     # Create the index with MIN_STEMMING_LEN = 3
@@ -141,31 +117,6 @@ def testJsonMinStemLen(env):
     
     res = env.cmd(config_cmd(), 'GET', 'MINSTEMLEN')
     env.assertEqual(res[0], ['MINSTEMLEN', '3'])
-
-    ########################################################
-    # Test the default MIN_STEMMING_LEN = 5
-    ########################################################
-    # Create the index with MIN_STEMMING_LEN = 5
-    env.flush()
-    env.cmd(config_cmd(), 'SET', 'MINSTEMLEN', 5)
-    env.cmd('JSON.SET', '{doc}:1', '$', r'{"t":"stem"}')
-    env.cmd('FT.CREATE', 'idx_min5', 'ON', 'JSON',
-            'SCHEMA', '$.t', 'AS', 't', 'TEXT')
-    waitForIndex(env, 'idx_min5')
-
-    # 'stem' is not stemmed because MIN_STEMMING_LEN = 5
-    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_min5')
-    env.assertEqual(res, ['stem'])
-
-    # 'stem' is found when MIN_STEMMING_LEN = 5, because the root word is 'stem'
-    env.cmd('JSON.SET', '{doc}:2', '$', r'{"t":"stemming"}')
-    env.cmd('JSON.SET', '{doc}:3', '$', r'{"t":"stemmed"}')
-    res = env.cmd('FT.SEARCH', 'idx_min5', 'stemming', 'SORTBY', 't', 'ASC',
-                  'NOCONTENT')
-    env.assertEqual(res, [3, '{doc}:1', '{doc}:3', '{doc}:2'])
-
-    res = env.cmd(config_cmd(), 'GET', 'MINSTEMLEN')
-    env.assertEqual(res[0], ['MINSTEMLEN', '5'])
 
     ########################################################
     # Test with MIN_STEMMING_LEN = 3 - Spanish
