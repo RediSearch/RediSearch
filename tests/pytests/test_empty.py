@@ -9,7 +9,7 @@ def testEmptyTag():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
-    def testEmptyTextHash(env, idx):
+    def testEmptyTextHash(idx):
         """Tests the indexing and querying of empty values for a TAG field of a
         hash index"""
 
@@ -321,24 +321,24 @@ def testEmptyTag():
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
-    testEmptyTextHash(env, 'idx')
+    testEmptyTextHash('idx')
     env.flush()
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
-    testEmptyTextHash(env, 'idx_sortable')
+    testEmptyTextHash('idx_sortable')
     env.flush()
 
     # --------------------------- WITHSUFFIXTRIE case --------------------------
     # Create an index with a TAG field, that also indexes empty strings, while
     # using a suffix trie
     env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
-    testEmptyTextHash(env, 'idx_suffixtrie')
+    testEmptyTextHash('idx_suffixtrie')
     env.flush()
 
     # ---------------------------------- JSON ----------------------------------
-    def testEmptyTagJSON(env, idx):
+    def testEmptyTagJSON(idx):
         """Tests the indexing and querying of empty values for a TAG field of a
         JSON index"""
 
@@ -388,15 +388,15 @@ def testEmptyTag():
 
 
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-    testEmptyTagJSON(env, 'jidx')
+    testEmptyTagJSON('jidx')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
-    testEmptyTagJSON(env, 'jidx_sortable')
+    testEmptyTagJSON('jidx_sortable')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
-    testEmptyTagJSON(env, 'jidx_suffix')
+    testEmptyTagJSON('jidx_suffix')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
@@ -584,24 +584,42 @@ def testEmptyText():
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'tag', 'TAG').ok()
-    testEmptyTextHash(env, 'idx')
+    testEmptyTextHash('idx')
     env.flush()
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'SORTABLE', 'tag', 'TAG').ok()
-    testEmptyTextHash(env, 'idx_sortable')
+    testEmptyTextHash('idx_sortable')
     env.flush()
 
     # --------------------------- WITHSUFFIXTRIE case --------------------------
     # Create an index with a TAG field, that also indexes empty strings, while
     # using a suffix trie
     env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE', 'tag', 'TAG').ok()
-    testEmptyTextHash(env, 'idx_suffixtrie')
+    testEmptyTextHash('idx_suffixtrie')
     env.flush()
 
     def testEmptyTextJSON(idx):
         """Tests the indexing and querying of empty values for a TEXT field of a
         JSON index"""
+        # TBD
+        # Note: When implementing this, be sure to think about the empty array
+        # and object cases. Currently, the empty array case is specialized for
+        # TAG! Needs generalization (or don't index it as an empty value (revert)).
         pass
 
+def testEmptyInfo():
+    """Tests that the `FT.INFO` command returns the correct information
+    regarding the indexing of empty values for a field"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+
+    # Create an index with the currently supported field types (TAG, TEXT)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT', 'ISEMPTY').ok()
+
+    info = index_info(env, 'idx')
+    tag_info = info['attributes'][0]
+    env.assertEqual(tag_info[-1], 'ISEMPTY')
+    text_info = info['attributes'][1]
+    env.assertEqual(text_info[-1], 'ISEMPTY')
