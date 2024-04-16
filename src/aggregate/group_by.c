@@ -162,14 +162,11 @@ static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
  *  the `GROUPER_NSRCKEYS(g)` macro
  * @param xpos the current position in xarr
  * @param xlen cached value of GROUPER_NSRCKEYS
- * @param ypos if xarr[xpos] is an array, this is the current position within
- *  the array
  * @param hval current X-wise hash value. Note that members of the same Y array
  *  are not hashed together.
  * @param res the row is passed to each reducer
  */
-static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,
-                          uint64_t hval, RLookupRow *res) {
+static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, uint64_t hval, RLookupRow *res) {
   // end of the line - create/add to group
   if (xpos == xlen) {
     Group *group = NULL;
@@ -193,31 +190,29 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   // regular value - just move one step -- increment XPOS
   if (v->t != RSValue_Array) {
     hval = RSValue_Hash(v, hval);
-    extractGroups(g, xarr, xpos + 1, xlen, 0, hval, res);
-  } else {
-    // Array value. Replace current XPOS with child temporarily
+    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
+  } else if (RSValue_ArrayLen(v) == 0) {
+    // Empty array - hash as null
+    hval = RSValue_Hash(RS_NullVal(), hval);
     const RSValue *array = xarr[xpos];
-    const RSValue *elem;
-
-    if (arridx >= RSValue_ArrayLen(v)) {
-      elem = NULL;
-    } else {
-      elem = RSValue_ArrayItem(v, arridx);
-    }
-
-    if (elem == NULL) {
-      elem = RS_NullVal();
-    }
-    uint64_t hh = RSValue_Hash(elem, hval);
-
-    xarr[xpos] = elem;
-    extractGroups(g, xarr, xpos, xlen, arridx, hh, res);
+    xarr[xpos] = RS_NullVal();
+    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
     xarr[xpos] = array;
-
-    // Replace the value back, and proceed to the next value of the array
-    if (++arridx < RSValue_ArrayLen(v)) {
-      extractGroups(g, xarr, xpos, xlen, arridx, hval, res);
+  } else {
+    // Array value. Replace current XPOS with child temporarily.
+    // Each value in the array will be a separate group
+    const RSValue *array = xarr[xpos];
+    for (size_t i = 0; i < RSValue_ArrayLen(v); i++) {
+      const RSValue *elem = RSValue_ArrayItem(v, i);
+      if (elem == NULL) { // TODO: is this possible?
+        elem = RS_NullVal();
+      }
+      // hash the element, even if it's an array
+      uint64_t hh = RSValue_Hash(elem, hval);
+      xarr[xpos] = elem;
+      extractGroups(g, xarr, xpos + 1, xlen, hh, res);
     }
+    xarr[xpos] = array;
   }
 }
 
@@ -234,7 +229,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     }
     groupvals[ii] = v;
   }
-  extractGroups(g, groupvals, 0, nkeys, 0, 0, srcrow);
+  extractGroups(g, groupvals, 0, nkeys, 0, srcrow);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
