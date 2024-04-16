@@ -457,3 +457,57 @@ def test_mod_6597(env):
     # We are not supposed to get any new results from the above query, since the
     # index is already invalidated.
     env.assertEqual(n, 1)
+
+def testCountArgValidation(env):
+    """Tests that an error is returned upon dispatching a `CURSOR READ` command
+    with an invalid fourth argument (i.e., instead of `COUNT`)"""
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+
+    # Populate the index
+    for i in range(5):
+        conn.execute_command('HSET', f'h{i}', 't', f'foo{i}')
+
+    # Create a cursor with a bad value for the `COUNT` argument
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '2.3'
+    ).error().contains('Bad arguments for COUNT: Could not convert argument to expected type')
+
+    # Create a cursor
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(len(res), 2)
+
+    # Query the cursor with a bad `COUNT` argument
+    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument `LOVE`')
+
+    # Query the cursor with bad subcommand
+    env.expect(
+        'FT.CURSOR', 'READS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
+    env.expect(
+        'FT.CURSOR', 'DELS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
+    env.expect(
+        'FT.CURSOR', 'GCS', 'idx', str(cid)
+    ).error().contains('Unknown subcommand')
+
+    # Query the cursor with a bad value for the `COUNT` argument
+    env.expect(
+        'FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2.3'
+    ).error().contains('Bad value for COUNT')
+
+    # Query with lowercase `COUNT`
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
+    env.assertEqual(len(res), 3)
+
+    # Query with uppercase `COUNT`
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
+    env.assertEqual(len(res), 3)
+
+    # Make sure cursor is depleted
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
+    env.assertEqual(cid, 0)
+    env.assertEqual(res, [0])

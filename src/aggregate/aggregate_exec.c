@@ -333,7 +333,6 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
-  // TODO: Remove cursor condition (MOD-5992)
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
          && !IsProfile(req);
@@ -443,12 +442,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QOptimizer_UpdateTotalResults(req);
     }
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_Array(reply);
-    }
+
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
-    if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
@@ -547,6 +546,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Map(reply);
 
+    if (IsProfile(req)) {
+      Profile_PrepareMapForReply(reply);
+    }
+
     if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
@@ -622,6 +625,7 @@ done_3:
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
     if (IsProfile(req)) {
+      RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
         req->profile(reply, req, has_timedout);
       }
@@ -906,7 +910,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (RunInThread()) {
     // Prepare context for the worker thread
     // Since we are still in the main thread, and we already validated the
-    // spec'c existence, it is safe to directly get the strong reference from the spec
+    // spec's existence, it is safe to directly get the strong reference from the spec
     // found in buildRequest.
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
     RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
@@ -1146,14 +1150,23 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  char cmdc = toupper(*cmd);
-
-  if (cmdc == 'R') {
+  if (strcasecmp(cmd, "READ") == 0) {
     long long count = 0;
     if (argc > 5) {
       // e.g. 'COUNT <timeout>'
+      // Verify that the 4'th argument is `COUNT`.
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        char err[128];
+        sprintf(err, "Unknown argument `%s`", count_str);
+        RedisModule_ReplyWithError(ctx, err);
+        RedisModule_EndReply(reply);
+        return REDISMODULE_OK;
+      }
+
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
+        RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
     }
@@ -1171,16 +1184,14 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     {
       cursorRead(reply, cid, count);
     }
-
-  } else if (cmdc == 'D') {
+  } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_Reply_Error(reply, "Cursor does not exist");
     } else {
       RedisModule_Reply_SimpleString(reply, "OK");
     }
-
-  } else if (cmdc == 'G') {
+  } else if (strcasecmp(cmd, "GC") == 0) {
     int rc = Cursors_CollectIdle(&g_CursorsList);
     rc += Cursors_CollectIdle(&g_CursorsListCoord);
     RedisModule_Reply_LongLong(reply, rc);

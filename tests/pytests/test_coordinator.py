@@ -1,6 +1,4 @@
 from common import *
-from redis import ResponseError
-from time import sleep
 
 def testInfo(env):
     SkipOnNonCluster(env)
@@ -185,3 +183,36 @@ def test_mod_6287(env):
     # Send another command to make sure that the coordinator is healthy
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))
     env.assertEqual(len(res)-1, n_docs)
+
+def test_single_shard_optimization():
+    env = Env(shardsCount=1) # Either standalone or cluster with 1 shard
+
+    # Create the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        for i in range(100):
+            conn.execute_command('HSET', i, 't', 'Hello world!', 'n', i)
+
+    # Search
+    env.expect('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'n', 'RETURN', 0).equal([100] + [str(i) for i in range(10)])
+
+    # Aggregate
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'SORTBY', '1', '@n').equal([100] + [['n', str(i)] for i in range(10)])
+
+    # Cursor
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SORTBY', '1', '@n', 'LIMIT', '0', '19', 'WITHCURSOR', 'COUNT', '10')
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(10)])
+    env.assertNotEqual(cid, 0)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(10, 19)])
+    env.assertEqual(cid, 0)
+
+    # Profile
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello').noError().apply(lambda res: to_dict(res[1])['Coordinator']).equal([])
+    # A simple validation that we get a standalone error response
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'hello', 'world').error().contains('The QUERY keyword is expected')
+    # Verify that PROFILE does not support WITHCURSOR
+    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'WITHCURSOR').error().contains('FT.PROFILE does not support cursor')
+
+    # SpellCheck
+    env.expect('FT.SPELLCHECK', 'idx', 'hell').equal([['TERM', 'hell', [['1', 'hello']]]])
