@@ -150,6 +150,12 @@ extern RedisModuleType *TagIndexType;
 /* Register the tag index type in redis */
 int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
+/*
+* Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
+* IndexSpec `sp`.
+*/
+size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs);
+
 #ifdef __cplusplus
 }
 #endif

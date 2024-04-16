@@ -579,6 +579,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
+  if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
+    options.language = sp->rule->lang_default;
+  }
+
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
@@ -891,6 +895,8 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += IndexSpec_collect_text_overhead(sp);
+  res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.skipIndexesSize;
   res += sp->stats.scoreIndexesSize;
@@ -906,7 +912,6 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
   // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
-  uint count = 0;
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
@@ -922,12 +927,7 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
       info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
       info.gc_stats.totalCycles += gcStats.numCycles;
-      if (gcStats.numCycles > 0) {
-        // Calculate average run time (in ms)
-        size_t gc_avg = gcStats.totalMSRun / gcStats.numCycles;
-        info.gc_stats.avgCycleTime = (info.gc_stats.avgCycleTime * count + gc_avg) / (count + 1);
-        count++;
-      }
+      info.gc_stats.totalTime += gcStats.totalMSRun;
     }
     pthread_rwlock_unlock(&sp->rwlock);
   }
