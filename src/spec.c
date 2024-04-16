@@ -820,6 +820,22 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     fs->types |= INDEXFLD_T_FULLTEXT;
+    // Currently WITH_VECTOR must be the first option in the field definition
+    // if (AC_AdvanceIfMatch(ac, "WITH_" SPEC_VECTOR_STR)) {
+    if (AC_AdvanceIfMatch(ac, "WITH") && AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {
+      sp->flags |= Index_HasVecSim;
+      fs->types |= INDEXFLD_T_VECTOR;
+      if (!AC_AdvanceIfMatch(ac, "EMBEDDING_MODEL")) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Expected EMBEDDING_MODEL after WITH_VECTOR");
+        goto error;
+      }
+      size_t len;
+      char *modelPath = AC_GetStringNC(ac, &len);
+      fs->vectorOpts.model = rm_strndup(modelPath, len);
+      if (!parseVectorField(sp, sp_ref, fs, ac, status)) {
+        goto error;
+      }
+    }
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
