@@ -41,6 +41,10 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
 
   if (fs->types & INDEXFLD_T_VECTOR) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
+    if (fs->vectorOpts.model) {
+      rm_free(fs->vectorOpts.model);
+      fs->vectorOpts.model = NULL;
+    }
   }
 
   IndexError_Clear(fs->indexError);

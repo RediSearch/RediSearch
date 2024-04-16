@@ -82,6 +82,7 @@ typedef enum {
 
 RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
+struct OrtSession;
 /*
 The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
@@ -110,6 +111,8 @@ typedef struct FieldSpec {
       VecSimParams vecSimParams;
       // expected size of vector blob.
       size_t expBlobSize;
+      char *model; // model path
+      struct OrtSession *session;
     } vectorOpts;
     struct {
       // Geometry index parameters

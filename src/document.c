@@ -24,6 +24,8 @@
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 
+#include "onnxruntime/include/onnxruntime/core/session/onnxruntime_c_api.h"
+
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -641,6 +643,8 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   return 0;
 }
 
+const OrtApi *ortAPI = NULL;
+OrtEnv *ortEnv = NULL;
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
@@ -653,12 +657,41 @@ FIELD_BULK_INDEXER(vectorIndexer) {
       return -1;
     }
   }
-  char *curr_vec = (char *)fdata->vector;
-  for (size_t i = 0; i < fdata->numVec; i++) {
-    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
-    curr_vec += fdata->vecLen;
+  if (fs->types == INDEXFLD_T_VECTOR) {
+    char *curr_vec = (char *)fdata->vector;
+    for (size_t i = 0; i < fdata->numVec; i++) {
+      VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+      curr_vec += fdata->vecLen;
+    }
+    sp->stats.numRecords += fdata->numVec;
+  } else if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    if (!ortAPI) {
+      ortAPI = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+      ortAPI->CreateEnvWithGlobalThreadPools(ORT_LOGGING_LEVEL_WARNING, "redis", 0, &ortEnv);
+    }
+    if (fs->vectorOpts.session == NULL) {
+      OrtSessionOptions *ortSessionOpts;
+      ortAPI->CreateSessionOptions(&ortSessionOpts);
+      ortAPI->DisablePerSessionThreads(&ortSessionOpts);
+      ortAPI->CreateSession(ortEnv, fs->vectorOpts.model, ortSessionOpts, &fs->vectorOpts.session);
+      ortAPI->ReleaseSessionOptions(ortSessionOpts);
+
+      // Get (and set) the input/output names
+      // Validate single input (or a way to pass the text)
+      // Validate output's type and size match the expected type and dimension.
+    }
+    static const char *input[] = {"input"};
+    static const char *output[] = {"output"};
+    OrtValue *outputBlob;
+    ortAPI->Run(fs->vectorOpts.session, NULL, input, &fdata->vector, 1, output, 1, &outputBlob);
+
+    // Get the output blob and add it to the index
+    // TODO: Add this part to the query processor as well
+    VecSimIndex_AddVector(rt, outputBlob, aCtx->doc->docId);
+    sp->stats.numRecords++;
+  } else {
+    RS_LOG_ASSERT(0, "Oops");
   }
-  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 
