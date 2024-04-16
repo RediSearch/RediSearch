@@ -147,8 +147,18 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   int useFieldMask = indexFlags & Index_StoreFieldFlags;
   int useNumEntries = indexFlags & Index_StoreNumeric;
 
+  size_t ividx_memsize = sizeof(InvertedIndex);
+  size_t exp_ividx_memsize = 48;
+  ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
+
+  size_t t_fiedlMask_memsize = sizeof(t_fieldMask);
+  size_t exp_t_fieldMask_memsize = 16;
+  ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
+
   size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
-  size_t exp_idx_no_block_memsize = (useFieldMask || useNumEntries) ? 48 : 32;
+  size_t exp_idx_no_block_memsize = (useFieldMask || useNumEntries) ?
+                                    exp_ividx_memsize :
+                                    exp_ividx_memsize - exp_t_fieldMask_memsize;
   ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
 
   size_t block_memsize = sizeof(IndexBlock);
