@@ -146,7 +146,16 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
   int useFieldMask = indexFlags & Index_StoreFieldFlags;
   int useNumEntries = indexFlags & Index_StoreNumeric;
-  unsigned int expectedIndexSize = (useFieldMask || useNumEntries) ? 102 : 86;
+
+  size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
+  size_t exp_idx_no_block_memsize = (useFieldMask || useNumEntries) ? 48 : 32;
+  ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
+
+  size_t block_memsize = sizeof(IndexBlock);
+  size_t exp_block_memsize = 48;
+  ASSERT_EQ(exp_block_memsize, block_memsize);
+
+  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + INDEX_BLOCK_INITIAL_CAP;
   // The memory occupied by a new inverted index depends of its flags
   // see NewInvertedIndex() and sizeof_InvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
