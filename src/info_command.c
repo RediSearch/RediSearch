@@ -208,7 +208,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
-  REPLY_KVNUM(n, "key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  size_t dt_tm_size = TrieMap_MemUsage(sp->docs.dim.tm);
+  REPLY_KVNUM(n, "key_table_size_mb", dt_tm_size / (float)0x100000);
+  size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
+  REPLY_KVNUM(n, "tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  size_t text_overhead = IndexSpec_collect_text_overhead(sp);
+  REPLY_KVNUM(n, "text_overhead_sz_mb", text_overhead / (float)0x100000);
+  REPLY_KVNUM(n, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, dt_tm_size,
+    tags_overhead, text_overhead) / (float)0x100000);
   REPLY_KVNUM(n, "records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM(n, "bytes_per_record_avg",

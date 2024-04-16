@@ -36,6 +36,12 @@ typedef struct SuffixCtx {
     struct timespec *timeout;
 } SuffixCtx;
 
+typedef struct suffixData {
+  // int wordExists; // exact match to string exists already
+  // rune *rune;
+  char *term;             // string is used in the array of all suffix tokens
+  arrayof(char *) array;   // list of words containing the string. weak pointers
+} suffixData;
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
