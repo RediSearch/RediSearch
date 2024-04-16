@@ -144,22 +144,16 @@ def testBasic(env):
     #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
-    res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx1', 'loc')
-    print(res)
     checkInfo(env, 'idx1', 1, 407 / (1024 * 1024))
 
     # Expected size of inverted index for idx2 = 96 + 25 = 121
     #     Size of NewInvertedIndex() structure = 96
     #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
-    res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx2', 'loc')
-    print(res)
     checkInfo(env, 'idx2', 1, 121 / (1024 * 1024))
 
     # Expected size of inverted index for idx2 = 96 + 46 = 142
     #     Size of NewInvertedIndex() structure = 96
     #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
-    res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx3', 'loc')
-    print(res)
     checkInfo(env, 'idx3', 1, 142 / (1024 * 1024))
 
     # idx4 contains two GEO fields, the expected size of inverted index is 
