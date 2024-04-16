@@ -155,7 +155,7 @@ def arch_int_bits():
   if arch == 'x86_64':
     return 128
   elif arch == 'aarch64':
-    return 64
+    return 128
   else:
     return 64
 
