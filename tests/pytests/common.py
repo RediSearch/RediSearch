@@ -152,10 +152,11 @@ def numver_to_version(numver):
 
 def arch_int_bits():
   arch = platform.machine()
-  print('arch:', arch)
   if arch == 'x86_64':
     return 128
   elif arch == 'aarch64':
+    return 128
+  elif arch == 'arm64':
     return 128
   else:
     return 64

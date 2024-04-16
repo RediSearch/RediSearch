@@ -151,6 +151,19 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
+  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
+  // IndexBlock *blocks         8
+  // uint32_t size              4
+  // IndexFlags                 4
+  // t_docId lastId             8
+  // uint32_t numDocs           4
+  // uint32_t gcMarker          4
+  // union {
+  //   t_fieldMask fieldMask;
+  //   uint64_t numEntries;
+  // };                        16
+  // ----------------------------
+  // Total                     48
   size_t ividx_memsize = sizeof(InvertedIndex);
   size_t exp_ividx_memsize = 48;
   ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
