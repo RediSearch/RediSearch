@@ -672,18 +672,71 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     if (fs->vectorOpts.session == NULL) {
       OrtSessionOptions *ortSessionOpts;
       ortAPI->CreateSessionOptions(&ortSessionOpts);
-      ortAPI->DisablePerSessionThreads(&ortSessionOpts);
+      ortAPI->DisablePerSessionThreads(ortSessionOpts);
       ortAPI->CreateSession(ortEnv, fs->vectorOpts.model, ortSessionOpts, &fs->vectorOpts.session);
       ortAPI->ReleaseSessionOptions(ortSessionOpts);
 
-      // Get (and set) the input/output names
       // Validate single input (or a way to pass the text)
+      size_t count;
+      ortAPI->SessionGetInputCount(fs->vectorOpts.session, &count);
+      if (count != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Expected 1 input, got %zu", count);
+        return -1;
+      }
+      ortAPI->SessionGetOutputCount(fs->vectorOpts.session, &count);
+      if (count != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Expected 1 output, got %zu", count);
+        return -1;
+      }
+      // Get (and set) the input/output names
+      ortAPI->SessionGetInputName(fs->vectorOpts.session, 0, rm_malloc, &fs->vectorOpts.input);
+      ortAPI->SessionGetOutputName(fs->vectorOpts.session, 0, rm_malloc, &fs->vectorOpts.output);
+
+      OrtTypeInfo *inputTypeInfo;
+      ortAPI->SessionGetInputTypeInfo(fs->vectorOpts.session, 0, &inputTypeInfo);
+      OrtTensorTypeAndShapeInfo *inputTensorInfo; // no need to free
+      ortAPI->CastTypeInfoToTensorInfo(inputTypeInfo, &inputTensorInfo);
+      ONNXTensorElementDataType inputType;
+      ortAPI->GetTensorElementType(inputTensorInfo, &inputType);
+      if (inputType != ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Expected input type to be string, got %d", inputType);
+        return -1;
+      }
+      ortAPI->ReleaseTypeInfo(inputTypeInfo);
+
       // Validate output's type and size match the expected type and dimension.
+      OrtTypeInfo *outputTypeInfo;
+      ortAPI->SessionGetOutputTypeInfo(fs->vectorOpts.session, 0, &outputTypeInfo);
+      OrtTensorTypeAndShapeInfo *outputTensorInfo; // no need to free
+      ortAPI->CastTypeInfoToTensorInfo(inputTypeInfo, &outputTensorInfo);
+      ONNXTensorElementDataType outputType;
+      ortAPI->GetTensorElementType(outputTensorInfo, &outputType);
+      // TODO: implement generic type checking function (params vs ONNXTensorElementDataType, return true/false)
+      if (!((outputType == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT && fs->vectorOpts.vecSimParams.algoParams.bfParams.type == VecSimType_FLOAT32) ||
+            (outputType == ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE && fs->vectorOpts.vecSimParams.algoParams.bfParams.type == VecSimType_FLOAT64))) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Type mismatch");
+        return -1;
+      }
+      size_t outputDims;
+      ortAPI->GetDimensionsCount(outputTensorInfo, &outputDims);
+      if (outputDims != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Expected output dimension to be 1, got %zu", outputDims);
+        return -1;
+      }
+      size_t outputDim;
+      ortAPI->GetDimensions(outputTensorInfo, &outputDim, 1);
+
+      if (outputDim != fs->vectorOpts.vecSimParams.algoParams.bfParams.dim) {
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Dimension mismatch");
+        return -1;
+      }
+
+      ortAPI->ReleaseTypeInfo(outputTypeInfo);
     }
-    static const char *input[] = {"input"};
-    static const char *output[] = {"output"};
-    OrtValue *outputBlob;
-    ortAPI->Run(fs->vectorOpts.session, NULL, input, &fdata->vector, 1, output, 1, &outputBlob);
+    OrtValue *inputData, *outputBlob;
+    int64_t one = 1;
+    ortAPI->CreateTensorWithDataAsOrtValue(NULL, fdata->vector, fdata->vecLen, &one, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING, &inputData);
+    ortAPI->Run(fs->vectorOpts.session, NULL, fs->vectorOpts.input, &inputData, 1, fs->vectorOpts.output, 1, &outputBlob);
 
     // Get the output blob and add it to the index
     // TODO: Add this part to the query processor as well

@@ -113,6 +113,8 @@ typedef struct FieldSpec {
       size_t expBlobSize;
       char *model; // model path
       struct OrtSession *session;
+      const char *input;
+      const char *output;
     } vectorOpts;
     struct {
       // Geometry index parameters
