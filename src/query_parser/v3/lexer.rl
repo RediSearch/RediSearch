@@ -71,9 +71,10 @@ single_tag = ( (any - ( invalid_punct | tag_invalid_punct) ) | (escape (tag_inva
 contains = (star.escaped_term.star | star.number.star | star.attr.star) $1;
 prefix = (escaped_term.star | number.star | attr.star) $1;
 suffix = (star.escaped_term | star.number | star.attr) $1;
-as = 'AS'|'aS'|'As'|'as';
+as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $2;
+isempty = 'isempty'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
@@ -276,6 +277,16 @@ main := |*
   space;
   punct;
   cntrl;
+
+  isempty => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, ISEMPTY, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
 
   escaped_term => {
     tok.len = te-ts;
@@ -657,8 +668,8 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v3(rm_malloc);
 
   int cs, act;
-  const char* ts = q->raw;
-  const char* te = q->raw + q->len;
+  const char* ts = q->raw;          // query start
+  const char* te = q->raw + q->len; // query end
   %% write init;
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
 

@@ -379,6 +379,7 @@ def test_empty_suffix_withsuffixtrie(env):
 def testEmptyValueTags():
     """Tests that empty values are indexed properly"""
 
+    # TODO: Test with DIALECT 5. Currently, the test fails with DIALECT 5
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
     def testHashIndex(env, idx):

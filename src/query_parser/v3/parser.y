@@ -14,6 +14,7 @@
 %left ORX.
 %left OR.
 
+%left ISEMPTY.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -43,7 +44,7 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T.
+%fallback TERM AS_T ISEMPTY.
 
 %token_type {QueryToken}
 
@@ -139,7 +140,7 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 // Notice about the %destructor directive:
 // If a non-terminal is used by C-code, e.g., expr(A)
-// then %destructor code will bot be called for it
+// then %destructor code will not be called for it
 // (C-code is responsible for destroying it)
 // Unless during error handling
 
@@ -715,6 +716,30 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
+expr(A) ::= ISEMPTY LP modifier(B) RP . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen(s, B.len);
+
+  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
+  if (!fs) {
+    // Non-existing field
+    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
+    A = NULL;
+    rm_free(s);
+  } else {
+    switch (fs->types) {
+      case INDEXFLD_T_TAG:
+        A = NewTagNode(s, slen);
+        A->tag.nen = NON_EXIST_EMPTY;
+        break;
+      default:
+        reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
+        A = NULL;
+        rm_free(s);
+        break;
+    }
+  }
+}
 
 /////////////////////////////////////////////////////////////////
 // Tag Lists - curly braces separated lists of words
@@ -726,7 +751,7 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     } else {
       // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen((char*)s, B.len);
+        size_t slen = unescapen(s, B.len);
 
         A = NewTagNode(s, slen);
         QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
@@ -778,7 +803,41 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (C.type == QT_PARAM_NUMERIC) {
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
   }
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 1);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 1);
+}
+
+numeric_range(A) ::= LSQB param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 1, 0);
+}
+
+numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [NUMBER]{
+  if (B.type == QT_PARAM_NUMERIC) {
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  }
+  if (C.type == QT_PARAM_NUMERIC) {
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  }
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, 0, 0);
+}
+
+numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -958,7 +1017,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (!strncasecmp("KNN", T.s, T.len)) {
+  if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
@@ -1000,7 +1059,7 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
 }
 
 vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
-  if (!strncasecmp("VECTOR_RANGE", T.s, T.len)) {
+  if (T.len == strlen("VECTOR_RANGE") && !strncasecmp("VECTOR_RANGE", T.s, T.len)) {
     C.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_RANGE, &B, &C);
   } else {
@@ -1021,11 +1080,6 @@ num(A) ::= SIZE(B). {
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
   A.inclusive = 1;
-}
-
-num(A) ::= LP num(B). {
-  A=B;
-  A.inclusive = 0;
 }
 
 num(A) ::= MINUS num(B). {
@@ -1097,8 +1151,14 @@ param_num(A) ::= num(B). {
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= LP ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_NUMERIC;
+exclusive_param_num(A) ::= LP num(B). {
+  A.numval = B.num;
   A.inclusive = 0;
+  A.type = QT_NUMERIC;
+}
+
+exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
 }
