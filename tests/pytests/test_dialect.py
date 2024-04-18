@@ -145,69 +145,99 @@ def test_dialect_info(env):
 def test_dialect5_punct_chars():
   env = Env(moduleArgs="DEFAULT_DIALECT 5")
   
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'text2', 'TEXT').ok()
 
-  error_msg = 'Syntax error at offset'
+  def validate_syntax(c, unaryOperator = False, validInFieldName = False,
+                      validBeforeText = False, validInText = False,
+                      validAfterText=False):
+    print(c)
+    err_msg = 'Syntax error at offset'      
+
+    # test caracter before field name
+    query = f'{c}@text:(abc)'
+    if unaryOperator:
+      env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
+    else:
+      env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    # test caracter in field name
+    queries = [ f'@{c}text:(abc)', f'@text{c}:(abc)']
+    for query in queries:
+      if validInFieldName:
+        env.expect('FT.SEARCH', 'idx', query).equal([0])
+      else:
+        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+    
+    # test caracter before between fieldname or fielname list and parenthesis
+    queries = [f'@text:{c}(abc)', f'@text|text2:{c}(abc)', f'{c}(abc)']
+    for query in queries:
+      if unaryOperator:
+        env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
+      else:
+        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    # test caracter before text
+    queries = [f'@text:({c}abc)', f'({c}abc)', f'{c}abc']
+    for query in queries:
+      if validBeforeText:
+        if c == '$':
+          env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'abc', 'abc').equal([0])
+        else:
+          env.expect('FT.SEARCH', 'idx', query).equal([0])
+      else:
+        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    # test caracter in the middle of the text
+    queries = [f'@text:(ab{c}c)', f'(ab{c}c)']
+    for query in queries:
+      if validInText:
+        if c == '$':
+          env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'c', 'c').equal([0])
+        else:
+          env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
+      else:
+          env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    # test caracter at the end of the text
+    queries = [f'@text:(abc{c})', f'(abc{c})']
+    for query in queries:
+      if validAfterText:
+        env.expect('FT.SEARCH', 'idx', query).equal([0])
+      else:
+        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    # test caracter after closing parenthesis
+    query = f'@text:(abc){c}'
+    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    query = f'@text:(abc) {c}'
+    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    query = f'(abc) {c}'
+    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+    query = f'abc {c}'
+    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+
+  #-----------------------------------------------------------------------------
   # Test invalid syntax caused by punctuation chars
   for c in [ '!', '?', '^', '=', '@', '&', '#', '%', '+', '`', '{', '}', '[',
             ']', '(', ')', '<', '>', ':', ';', ',', '.', '/']:
-    env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').error().contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').error().contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').error().contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
+    validate_syntax(c)
 
-  # '*' is the prefix/infix/suffix operator it can part of the term
-  c = '*'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
+  # '*' is the prefix/infix/suffix operator, it can part of the text
+  validate_syntax('*', validBeforeText=True, validInText=True, validAfterText=True)
   
   # '$' is used for parameters
-  c = '$'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').error().contains('No such parameter')
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
-
-  # '-' is the negation operator, it can be part of the term or used before the field name
-  c = '-'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').equal([0]) # no error - # TODO: Validate this is the correct behavior
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
+  validate_syntax('$', validBeforeText=True, validInText=True)
+  
+  # '-', and '~' can be part of the text or used before the field name
+  validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
+  validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
 
   # '|' is the OR operator
-  c = '|'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
-
-  # '~' is the optional operator
-  c = '~'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').equal([0]) # no error - # TODO: Validate this is the correct behavior
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
-
-  # '_' is valid for field names
-  c = '_'
-  env.expect('FT.SEARCH', 'idx', f'{c}@text:(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@{c}text:(abc)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text{c}:(abc)').equal([0]) # no error
-  env.expect('FT.SEARCH', 'idx', f'@text:{c}(abc)').error().contains(error_msg)
-  env.expect('FT.SEARCH', 'idx', f'@text:(ab{c}c)').equal([0]) # no error # TODO: Validate this is the correct behavior
-  env.expect('FT.SEARCH', 'idx', f'@text:(abc){c}').error().contains(error_msg)
+  validate_syntax('|', validInText=True)
+  
+  # '_' is valid for field names, and can be part of the text
+  validate_syntax('_', validInFieldName=True, validBeforeText=True, 
+                  validInText=True, validAfterText=True)
