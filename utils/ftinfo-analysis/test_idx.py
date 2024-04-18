@@ -244,8 +244,8 @@ def main(args):
     doc_table_size_mb = float(d[b'doc_table_size_mb'])
     sortable_values_size_mb = float(d[b'sortable_values_size_mb'])
     key_table_size_mb = float(d[b'key_table_size_mb'])
-    index_total_mb = (inverted_sz_mb + vector_index_sz_mb + offset_vectors_sz_mb +
-        doc_table_size_mb + sortable_values_size_mb + key_table_size_mb)
+    # index_total_mb = (inverted_sz_mb + vector_index_sz_mb + offset_vectors_sz_mb +
+    #     doc_table_size_mb + sortable_values_size_mb + key_table_size_mb)
     # print(f'(Raz) Old memory: {index_total_mb}')
     index_total_mb = float(d[b'total_index_memory_sz_mb'])
     # print(f'(Raz) New memory: {index_total_mb}')
