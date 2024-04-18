@@ -66,7 +66,7 @@ def plot_results(xs, before_raz, after_raz, nafraf, field_type):
     plt.plot(xs, nafraf, label='MOD-5866_MOD-5977', c='b')
     plt.gca().yaxis.set_major_formatter(mpl.ticker.StrMethodFormatter('{x:.0%}'))
     plt.gca().xaxis.set_major_formatter(mpl.ticker.StrMethodFormatter('{x:,.0f}'))
-    plt.title('Memory Improvement - ' + field_type)
+    plt.title('Memory Reporting Improvement - ' + field_type)
     plt.xlabel('Number of documents')
     plt.ylabel('Normalized deviation')
     plt.legend()
