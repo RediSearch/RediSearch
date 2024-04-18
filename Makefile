@@ -329,10 +329,13 @@ ifeq ($(FORCE),1)
 	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v2 ;\
 	rm -f lexer.c parser.c
+	$(SHOW)cd src/query_parser/v3 ;\
+	rm -f lexer.c parser.c
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
 	$(SHOW)$(MAKE) -C src/query_parser/v1
 	$(SHOW)$(MAKE) -C src/query_parser/v2
+	$(SHOW)$(MAKE) -C src/query_parser/v3
 
 .PHONY: parsers
 
