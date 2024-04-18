@@ -142,8 +142,9 @@ def test_dialect_info(env):
   env.flush()
   check_info_module_results(env, [0,0,0,0,0])
 
-def test_dialect5_punct_chars(env):
-  env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
+def test_dialect5_punct_chars():
+  env = Env(moduleArgs="DEFAULT_DIALECT 5")
+  
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
 
   error_msg = 'Syntax error at offset'
