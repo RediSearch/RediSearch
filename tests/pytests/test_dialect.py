@@ -144,100 +144,149 @@ def test_dialect_info(env):
 
 def test_dialect5_punct_chars():
   env = Env(moduleArgs="DEFAULT_DIALECT 5")
-  
+
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'text2', 'TEXT').ok()
 
-  def validate_syntax(c, unaryOperator = False, validInFieldName = False,
-                      validBeforeText = False, validInText = False,
-                      validAfterText=False):
-    print(c)
-    err_msg = 'Syntax error at offset'      
+  def _expect_valid_syntax(query, verbose=False):
+      if verbose:
+        print('Testing valid query:', query)
+      env.expect('FT.SEARCH', 'idx', query).equal([0])
 
-    # test caracter before field name
-    query = f'{c}@text:(abc)'
-    if unaryOperator:
-      env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
-    else:
+  def _expect_invalid_syntax(query, verbose=False, err_msg='Syntax error'):
+      if verbose:
+        print('Testing invalid query:', query)
       env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
 
-    # test caracter in field name
+  def _validate_syntax(c, unaryOperator = False, binaryOperator = False,
+                       validInFieldName = False, validBeforeText = False,
+                       validInText = False, validAfterText = False,
+                       verbose=False):
+
+    if verbose:
+      print('--------------------------------------------------')
+      print('Testing char:', c)
+
+    err_msg = 'Syntax error at offset'
+
+    # test character before field name
+    query = f'{c}@text:(abc)'
+    if unaryOperator:
+      _expect_valid_syntax(query, verbose)
+    else:
+      _expect_invalid_syntax(query, verbose, err_msg)
+
+    # test character in field name
     queries = [ f'@{c}text:(abc)', f'@text{c}:(abc)']
     for query in queries:
       if validInFieldName:
-        env.expect('FT.SEARCH', 'idx', query).equal([0])
+        _expect_valid_syntax(query, verbose)
       else:
-        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
-    
-    # test caracter before between fieldname or fielname list and parenthesis
-    queries = [f'@text:{c}(abc)', f'@text|text2:{c}(abc)', f'{c}(abc)']
+        _expect_invalid_syntax(query, verbose, err_msg)
+
+    # test character before between fieldname or fielname list and parenthesis
+    queries = [f'@text:{c}(abc)', f'@text|text2:{c}(abc)']
     for query in queries:
       if unaryOperator:
-        env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
+        # TODO: This should be invalid
+        _expect_valid_syntax(query, verbose)
       else:
-        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+        _expect_invalid_syntax(query, verbose, err_msg)
 
-    # test caracter before text
-    queries = [f'@text:({c}abc)', f'({c}abc)', f'{c}abc']
+    queries = [f'{c}(abc)']
+    for query in queries:
+      if unaryOperator:
+        _expect_valid_syntax(query, verbose)
+      else:
+        _expect_invalid_syntax(query, verbose, err_msg)
+
+    # test character before text
+    queries = [f'@text:({c}abc)',
+               f'@text:({c}abc def)',
+               f'@text:({c}abc | def)', f'@text:(def | {c}abc)',
+               f'({c}abc)',
+               f'({c}abc def)',
+               f'({c}abc | def)', f'(def | {c}abc)',
+               f'{c}abc',
+               f'{c}abc def',
+               f'{c}abc | def', f'def | {c}abc',]
     for query in queries:
       if validBeforeText:
         if c == '$':
           env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'abc', 'abc').equal([0])
         else:
-          env.expect('FT.SEARCH', 'idx', query).equal([0])
+          _expect_valid_syntax(query, verbose)
       else:
-        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+        _expect_invalid_syntax(query, verbose, err_msg)
 
-    # test caracter in the middle of the text
-    queries = [f'@text:(ab{c}c)', f'(ab{c}c)']
+    # test character enclosing text
+    queries = [f'@text:({c}abc {c}abc)', f'({c}abc {c}abc)', f'{c}abc {c}abc']
     for query in queries:
-      if validInText:
+      if validBeforeText:
         if c == '$':
+          env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'abc', 'abc').equal([0])
+        else:
+          _expect_valid_syntax(query, verbose)
+      else:
+        if c == '%':
+          # TODO: This should be invalid
+          _expect_valid_syntax(query, verbose)
+        else:
+          _expect_invalid_syntax(query, verbose, err_msg)
+
+    # test character in the middle of the text
+    queries = [f'@text:(ab{c}c)', f'(ab{c}c)', f'ab{c}c',
+               f'@text:(ab {c}c)', f'(ab {c}c)', f'ab {c}c']
+    for query in queries:
+      if validInText or unaryOperator or binaryOperator:
+        if c == '$':
+          if verbose:
+            print('Testing valid query:', query)
           env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'c', 'c').equal([0])
         else:
-          env.expect('FT.SEARCH', 'idx', query).equal([0]) # no error
+          _expect_valid_syntax(query, verbose)
       else:
-          env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+          _expect_invalid_syntax(query, verbose, err_msg)
 
-    # test caracter at the end of the text
-    queries = [f'@text:(abc{c})', f'(abc{c})']
+    # test character at the end of the text
+    queries = [f'@text:(abc{c})', f'(abc{c})', f'abc{c}']
     for query in queries:
       if validAfterText:
-        env.expect('FT.SEARCH', 'idx', query).equal([0])
+        _expect_valid_syntax(query, verbose)
       else:
-        env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+        _expect_invalid_syntax(query, verbose, err_msg)
 
-    # test caracter after closing parenthesis
-    query = f'@text:(abc){c}'
-    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
-
-    query = f'@text:(abc) {c}'
-    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
-
-    query = f'(abc) {c}'
-    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
-
-    query = f'abc {c}'
-    env.expect('FT.SEARCH', 'idx', query).error().contains(err_msg)
+    # test character at the end of the query
+    queries = [f'@text:(abc){c}', f'@text:(abc) {c}',
+               f'(abc){c}', f'(abc) {c}', f'abc {c}']
+    for query in queries:
+      _expect_invalid_syntax(query, verbose, err_msg)
 
   #-----------------------------------------------------------------------------
   # Test invalid syntax caused by punctuation chars
-  for c in [ '!', '?', '^', '=', '@', '&', '#', '%', '+', '`', '{', '}', '[',
+  for c in [ '!', '?', '^', '=', '@', '&', '#', '+', '`', '{', '}', '[',
             ']', '(', ')', '<', '>', ':', ';', ',', '.', '/']:
-    validate_syntax(c)
+    _validate_syntax(c)
 
   # '*' is the prefix/infix/suffix operator, it can part of the text
-  validate_syntax('*', validBeforeText=True, validInText=True, validAfterText=True)
-  
+  _validate_syntax('*', validBeforeText=True, validInText=True, validAfterText=True)
+
   # '$' is used for parameters
-  validate_syntax('$', validBeforeText=True, validInText=True)
-  
-  # '-', and '~' can be part of the text or used before the field name
-  validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
-  validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
+  _validate_syntax('$', validBeforeText=True, validInText=True)
 
   # '|' is the OR operator
-  validate_syntax('|', validInText=True)
-  
+  _validate_syntax('|', binaryOperator=True)
+
   # '_' is valid for field names, and can be part of the text
-  validate_syntax('_', validInFieldName=True, validBeforeText=True, 
+  _validate_syntax('_', validInFieldName=True, validBeforeText=True,
                   validInText=True, validAfterText=True)
+
+  # TODO: The following queries should be invalid:
+  # @text:-(abc), @text|text2:-(abc), @text:~(abc), @text|text2:~(abc)
+  # '-', and '~' can be part of the text or used before the field name
+  _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
+  _validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
+
+  # TODO: The following queries should be invalid:
+  # @text:(%abc %abc), (%abc %abc), %abc %abc
+  # '%' is used for fuzzy search
+  _validate_syntax('%', verbose=True)
