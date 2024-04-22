@@ -60,6 +60,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Set(RedisModule_Reply *reply);
 int RedisModule_Reply_SetEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply);
+int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply);
 
 int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val);
@@ -70,8 +71,6 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
-
-int RedisModule_ReplyKVorV_SimpleString(RedisModule_Reply *reply, const char *key, const char *val);
 
 void print_reply(RedisModule_Reply *reply);
 
