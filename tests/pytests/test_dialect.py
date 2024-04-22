@@ -169,14 +169,16 @@ def test_dialect5_punct_chars():
     err_msg = 'Syntax error at offset'
 
     # test character before field name
-    query = f'{c}@text:(abc)'
-    if unaryOperator:
-      _expect_valid_syntax(query, verbose)
-    else:
-      _expect_invalid_syntax(query, verbose, err_msg)
+    queries = [f'{c}@text:(abc)', f'{c}@text|text2:(abc)']
+    for query in queries:
+      if unaryOperator:
+        _expect_valid_syntax(query, verbose)
+      else:
+        _expect_invalid_syntax(query, verbose, err_msg)
 
     # test character in field name
-    queries = [ f'@{c}text:(abc)', f'@text{c}:(abc)']
+    queries = [f'@{c}text:(abc)', f'@text{c}:(abc)',
+               f'@{c}text|text2:(abc)', f'@text{c}|text2:(abc)']
     for query in queries:
       if validInFieldName:
         _expect_valid_syntax(query, verbose)
@@ -211,7 +213,7 @@ def test_dialect5_punct_chars():
     queries = [f'@text:({c}abc)', f'@text|text2:({c}abc)',
                f'@text:({c}abc def)', f'@text|text2:({c}abc def)',
                f'@text:({c}abc | def)', f'@text:(def | {c}abc)', f'@text:({c}abc | {c}abc)',
-               f'@text|text2:({c}abc | def)', f'@text|text2:(def | {c}abc)', f'@text1|text2:({c}abc | {c}abc)',
+               f'@text|text2:({c}abc | def)', f'@text|text2:(def | {c}abc)', f'@text|text2:({c}abc | {c}abc)',
                f'({c}abc)',
                f'({c}abc def)',
                f'({c}abc | def)', f'(def | {c}abc)',
@@ -228,7 +230,7 @@ def test_dialect5_punct_chars():
         _expect_invalid_syntax(query, verbose, err_msg)
 
     # test character enclosing text
-    queries = [f'@text:({c}abc {c}abc)', f'({c}abc {c}abc)', f'{c}abc {c}abc']
+    queries = [f'@text:({c}abc {c}abc)', f'@text|text2:({c}abc {c}abc)', f'({c}abc {c}abc)', f'{c}abc {c}abc']
     for query in queries:
       if validBeforeText:
         if c == '$':
@@ -243,8 +245,8 @@ def test_dialect5_punct_chars():
           _expect_invalid_syntax(query, verbose, err_msg)
 
     # test character in the middle of the text
-    queries = [f'@text:(ab{c}c)', f'(ab{c}c)', f'ab{c}c',
-               f'@text:(ab {c}c)', f'(ab {c}c)', f'ab {c}c']
+    queries = [f'@text:(ab{c}c)', f'@text|text2:(ab{c}c)', f'(ab{c}c)', f'ab{c}c',
+               f'@text:(ab {c}c)', f'@text|text2:(ab {c}c)', f'(ab {c}c)', f'ab {c}c']
     for query in queries:
       if validInText or unaryOperator or binaryOperator:
         if c == '$':
@@ -257,7 +259,8 @@ def test_dialect5_punct_chars():
           _expect_invalid_syntax(query, verbose, err_msg)
 
     # test character at the end of the text
-    queries = [f'@text:(abc{c})', f'(abc{c})', f'abc{c}']
+    queries = [f'@text:(abc{c})', f'@text|text2:(abc{c})',
+               f'(abc{c})', f'abc{c}']
     for query in queries:
       if validAfterText:
         _expect_valid_syntax(query, verbose)
@@ -266,6 +269,7 @@ def test_dialect5_punct_chars():
 
     # test character at the end of the query
     queries = [f'@text:(abc){c}', f'@text:(abc) {c}',
+               f'@text|text2:(abc){c}', f'@text|text2:(abc) {c}',
                f'(abc){c}', f'(abc) {c}', f'abc {c}']
     for query in queries:
       _expect_invalid_syntax(query, verbose, err_msg)
@@ -290,7 +294,7 @@ def test_dialect5_punct_chars():
                   validInText=True, validAfterText=True)
 
   # '-', and '~' can be part of the text or used before the field name
-  _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
+  _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True, verbose=True)
   _validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
 
   # TODO: The following queries should be invalid:
