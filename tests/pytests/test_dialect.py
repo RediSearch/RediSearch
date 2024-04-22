@@ -183,12 +183,20 @@ def test_dialect5_punct_chars():
       else:
         _expect_invalid_syntax(query, verbose, err_msg)
 
-    # test character before between fieldname or fielname list and parenthesis
+    # test character before between fieldname (or fielname list) and expression
     queries = [f'@text:{c}(abc)', f'@text|text2:{c}(abc)']
     for query in queries:
+      _expect_invalid_syntax(query, verbose, err_msg)
+
+    queries = [f'@text:{c}abc', f'@text|text2:{c}abc']
+    for query in queries:
       if unaryOperator:
-        # TODO: This should be invalid
-        _expect_valid_syntax(query, verbose)
+        _expect_invalid_syntax(query, verbose, err_msg)
+      elif validBeforeText:
+        if c == '$':
+          env.expect('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'abc', 'abc').equal([0])
+        else:
+          _expect_valid_syntax(query, verbose)
       else:
         _expect_invalid_syntax(query, verbose, err_msg)
 
@@ -200,9 +208,10 @@ def test_dialect5_punct_chars():
         _expect_invalid_syntax(query, verbose, err_msg)
 
     # test character before text
-    queries = [f'@text:({c}abc)',
-               f'@text:({c}abc def)',
-               f'@text:({c}abc | def)', f'@text:(def | {c}abc)',
+    queries = [f'@text:({c}abc)', f'@text|text2:({c}abc)',
+               f'@text:({c}abc def)', f'@text|text2:({c}abc def)',
+               f'@text:({c}abc | def)', f'@text:(def | {c}abc)', f'@text:({c}abc | {c}abc)',
+               f'@text|text2:({c}abc | def)', f'@text|text2:(def | {c}abc)', f'@text1|text2:({c}abc | {c}abc)',
                f'({c}abc)',
                f'({c}abc def)',
                f'({c}abc | def)', f'(def | {c}abc)',
@@ -280,8 +289,6 @@ def test_dialect5_punct_chars():
   _validate_syntax('_', validInFieldName=True, validBeforeText=True,
                   validInText=True, validAfterText=True)
 
-  # TODO: The following queries should be invalid:
-  # @text:-(abc), @text|text2:-(abc), @text:~(abc), @text|text2:~(abc)
   # '-', and '~' can be part of the text or used before the field name
   _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
   _validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
@@ -289,4 +296,4 @@ def test_dialect5_punct_chars():
   # TODO: The following queries should be invalid:
   # @text:(%abc %abc), (%abc %abc), %abc %abc
   # '%' is used for fuzzy search
-  _validate_syntax('%', verbose=True)
+  _validate_syntax('%')
