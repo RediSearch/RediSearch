@@ -577,8 +577,8 @@ _eof_trans:
 /* #line 236 "lexer.rl" */
 	{te = p+1;}
 	break;
-	case 33:
-/* #line 309 "lexer.rl" */
+	case 30:
+/* #line 237 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 31:
@@ -888,7 +888,7 @@ _eof_trans:
     }
   }
 	break;
-	case 24:
+	case 16:
 	{{p = ((te))-1;} 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, MINUS, tok, q);  
@@ -897,7 +897,7 @@ _eof_trans:
     }
   }
 	break;
-	case 26:
+	case 18:
 	{{p = ((te))-1;}
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, STAR, tok, q);

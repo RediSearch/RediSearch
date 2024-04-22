@@ -391,7 +391,7 @@ def testNegativeValues(env):
     env.assertEqual(res[0], doc_id)
 
 def testNumericOperators(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -412,6 +412,7 @@ def testNumericOperators(env):
 
     # Test >= and <=
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT')
+    # TODO: Check if dialect 5 should return the count of the results
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>= + 12 @n<=+  14', 'NOCONTENT')
     env.assertEqual(res2, res1)

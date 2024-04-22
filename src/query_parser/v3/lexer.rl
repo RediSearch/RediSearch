@@ -46,6 +46,12 @@ minus = '-';
 tilde = '~';
 star = '*';
 percent = '%';
+not_equal = '!=';
+equal = '=';
+gt = '>';
+ge = '>=';
+lt = '<';
+le = '<=';
 rsqb = ']';
 lsqb = '[';
 escape = '\\';
@@ -140,6 +146,63 @@ main := |*
       fbreak;
     }
   };
+
+  not_equal => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, NOT_EQUAL, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  equal => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, EQUAL, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  gt => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, GT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  ge => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, GE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  lt => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, LT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  le => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, LE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  lt => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, LT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   or => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, OR, tok, q);
