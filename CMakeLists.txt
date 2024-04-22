@@ -81,6 +81,7 @@ file(GLOB SOURCES
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
+    "src/query_parser/v3/*.c"
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
