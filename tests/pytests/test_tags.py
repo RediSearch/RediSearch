@@ -466,7 +466,7 @@ def testEmptyValueTags():
             cmd_assert(env, cmd, expected)
 
             # TODO: Fix this, using DIALECT 5 it returns: Success (not an error)
-            if dialect == 5:
+            if dialect == 2:
                 # Checking the functionality of our pipeline with empty values
                 # ------------------------------- APPLY --------------------------------
                 # Populate with some data that we will be able to see the `APPLY`
