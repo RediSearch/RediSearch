@@ -161,7 +161,49 @@ def test_v1_vs_v2_vs_v5(env):
     ]
     env.assertEqual(res, expected)
     # This is an error, it should be fixed by MOD-6750
-    env.expect('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+    env.expect('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  INTERSECT {',
+      '    UNION {',
+      '      e',
+      '      +e(expanded)',
+      '    }',
+      '    UNION {',
+      '      3',
+      '      +3(expanded)',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error().contains('Syntax error')
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
