@@ -106,6 +106,63 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 2).contains('@t1:INTERSECT {\n  @t1:SUFFIX')
     env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 5).error().contains('Syntax error')
 
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 2).contains('@t1:WILDCARD{*}')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 5).contains('@t1:WILDCARD{*}')
+
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 1).contains('INFIX{*1*}')
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 2).contains('INFIX{*1*}')
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 5).contains('INFIX{*1*}')
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',                                                                                                                                 
+      '  UNION {',
+      '    1.2',
+      '    +1.2(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    # res = env.cmd('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 1)
+    # print(res)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1.2',
+      '    +1.2(expanded)',
+      '  }',
+      '  INTERSECT {',
+      '    UNION {',
+      '      e',
+      '      +e(expanded)',
+      '    }',
+      '    UNION {',
+      '      3',
+      '      +3(expanded)',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    # This is an error, it should be fixed by MOD-6750
+    env.expect('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     set_max_dialect(env)
