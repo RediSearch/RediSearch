@@ -513,26 +513,23 @@ def testEmptyValueTags():
             for i in range(2, 5):
                 conn.execute_command('DEL', f'h{i}')
 
-            # TODO: Fix this, using DIALECT 5 the first 'ANY' is replaced by '1'
-            # Enable the test when we fix the issue MOD-6967
-            if dialect == 2:
-                # Validate that separated empty fields are indexed as empty as well
-                conn.execute_command('HSET', 'h5', 't', ', bar')
-                conn.execute_command('HSET', 'h6', 't', 'bat, ')
-                conn.execute_command('HSET', 'h7', 't', 'bat,')
-                conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
-                conn.execute_command('HSET', 'h9', 't', ',')
-                cmd = f'FT.SEARCH {idx} isempty(@t) SORTBY t ASC'.split(' ')
-                expected = [
-                    ANY,
-                    'h1', ['t', '', 'text', 'hello'],
-                    'h9', ['t', ','],
-                    'h5', ['t', ', bar'],
-                    'h7', ['t', 'bat,'],
-                    'h6', ['t', 'bat, '],
-                    'h8', ['t', 'bat, , bat2']
-                ]
-                cmd_assert(env, cmd, expected)
+            # Validate that separated empty fields are indexed as empty as well
+            conn.execute_command('HSET', 'h5', 't', ', bar')
+            conn.execute_command('HSET', 'h6', 't', 'bat, ')
+            conn.execute_command('HSET', 'h7', 't', 'bat,')
+            conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
+            conn.execute_command('HSET', 'h9', 't', ',')
+            cmd = f'FT.SEARCH {idx} isempty(@t) SORTBY t ASC WITHCOUNT'.split(' ')
+            expected = [
+                6,
+                'h1', ['t', '', 'text', 'hello'],
+                'h9', ['t', ','],
+                'h5', ['t', ', bar'],
+                'h7', ['t', 'bat,'],
+                'h6', ['t', 'bat, '],
+                'h8', ['t', 'bat, , bat2']
+            ]
+            cmd_assert(env, cmd, expected)
 
             # Make sure we don't index h5, h6, h7 in case of a non-empty indexing
             # tag field
