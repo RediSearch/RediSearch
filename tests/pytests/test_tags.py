@@ -466,6 +466,7 @@ def testEmptyValueTags():
             cmd_assert(env, cmd, expected)
 
             # TODO: Fix this, using DIALECT 5 it returns: Success (not an error)
+            # Enable the test when we fix the issue MOD-6967
             if dialect == 2:
                 # Checking the functionality of our pipeline with empty values
                 # ------------------------------- APPLY --------------------------------
@@ -513,6 +514,7 @@ def testEmptyValueTags():
                 conn.execute_command('DEL', f'h{i}')
 
             # TODO: Fix this, using DIALECT 5 the first 'ANY' is replaced by '1'
+            # Enable the test when we fix the issue MOD-6967
             if dialect == 2:
                 # Validate that separated empty fields are indexed as empty as well
                 conn.execute_command('HSET', 'h5', 't', ', bar')
