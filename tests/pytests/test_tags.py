@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from RLTest import Env
 from includes import *
 from common import *
 import json
@@ -63,7 +64,7 @@ def testSeparator(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def testTagPrefix(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -245,7 +246,7 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
@@ -275,7 +276,7 @@ def testTagGCClearEmpty(env):
     env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
         .equal([2, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']])
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
@@ -302,7 +303,7 @@ def testTagGCClearEmptyWithCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
@@ -338,7 +339,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1, [], []])
 
-@skip(cluster=True)
+# @skip(cluster=True)
 def testEmptyTagLeak(env):
 
     cycles = 1
@@ -379,7 +380,7 @@ def test_empty_suffix_withsuffixtrie(env):
 def testEmptyValueTags():
     """Tests that empty values are indexed properly"""
 
-    for dialect in [2, 5]:
+    for dialect in [2, 3, 4, 5]:
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
 
         def testHashIndex(env, idx):
@@ -716,7 +717,7 @@ def testEmptyValueTags():
         env.flush()
 
         # ---------------------------------- JSON ----------------------------------
-        def testJSONIndex(env, idx):
+        def testJSONIndex(env, idx, dialect):
             conn = getConnectionByEnv(env)
 
             # Populate the db with a document that has an empty TAG field
@@ -728,6 +729,8 @@ def testEmptyValueTags():
 
             # Search for a single document, via its indexed empty value
             cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+            if dialect >= 3:
+                empty_js = json.dumps([empty_j], separators=(',', ':'))
             expected = [1, 'j', ['$', empty_js]]
             cmd_assert(env, cmd, expected)
 
@@ -738,6 +741,8 @@ def testEmptyValueTags():
             js = json.dumps(j, separators=(',', ':'))
             conn.execute_command('JSON.SET', 'j', '$', js)
             cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+            if dialect >= 3:
+                js = json.dumps([j], separators=(',', ':'))
             expected = [1, 'j', ['$', js]]
             cmd_assert(env, cmd, expected)
 
@@ -750,6 +755,8 @@ def testEmptyValueTags():
                 js = json.dumps(j, separators=(',', ':'))
                 conn.execute_command('JSON.SET', 'j', '$', js)
                 cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+                if dialect >= 3:
+                    js = json.dumps([j], separators=(',', ':'))
                 expected = [1, 'j', ['$', js]]
                 cmd_assert(env, cmd, expected)
 
@@ -760,111 +767,117 @@ def testEmptyValueTags():
             js = json.dumps(j, separators=(',', ':'))
             conn.execute_command('JSON.SET', 'j', '$', js)
             cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+            if dialect >= 3:
+                js = json.dumps([j], separators=(',', ':'))
             expected = [1, 'j', ['$', js]]
             cmd_assert(env, cmd, expected)
 
-        # TODO: Fix this, for DIALECT 5
-        if dialect == 2:
-            env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-            testJSONIndex(env, 'jidx')
-            env.flush()
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
+        testJSONIndex(env, 'jidx', dialect)
+        env.flush()
 
-            env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
-            testJSONIndex(env, 'jidx_sortable')
-            env.flush()
+        env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
+        testJSONIndex(env, 'jidx_sortable', dialect)
+        env.flush()
 
-            env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
-            testJSONIndex(env, 'jidx_suffix')
-            env.flush()
+        env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+        testJSONIndex(env, 'jidx_suffix', dialect)
+        env.flush()
 
-            env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
-            # Empty array values ["a", "", "c"] with explicit array components indexing
-            arr = {
-                'arr': ['a', '', 'c']
-            }
-            arrs = json.dumps(arr, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-            expected = [1, 'j', ['$', arrs]]
-            cmd_assert(env, cmd, expected)
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
+        # Empty array values ["a", "", "c"] with explicit array components indexing
+        arr = {
+            'arr': ['a', '', 'c']
+        }
+        arrs = json.dumps(arr, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
+        if dialect >= 3:
+            arrs = json.dumps([arr], separators=(',', ':'))
+        expected = [1, 'j', ['$', arrs]]
+        cmd_assert(env, cmd, expected)
 
-            # Empty arrays shouldn't be indexed for this indexing mechanism
-            arr = {
-                'arr': []
-            }
-            arrs = json.dumps(arr, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-            expected = [0]
-            cmd_assert(env, cmd, expected)
-            conn.execute_command('DEL', 'j')
+        # Empty arrays shouldn't be indexed for this indexing mechanism
+        arr = {
+            'arr': []
+        }
+        arrs = json.dumps(arr, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+        conn.execute_command('DEL', 'j')
 
-            # Empty object shouldn't be indexed for this indexing mechanism (flatten, [*])
-            obj = {
-                'arr': {}
-            }
-            objs = json.dumps(obj, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-            expected = [0]
-            cmd_assert(env, cmd, expected)
+        # Empty object shouldn't be indexed for this indexing mechanism (flatten, [*])
+        obj = {
+            'arr': {}
+        }
+        objs = json.dumps(obj, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', objs).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
+        expected = [0]
+        cmd_assert(env, cmd, expected)
 
-            # Searching for emptiness of a non-existing field should return an error
-            obj = {
-                'obj': {}
-            }
-            objs = json.dumps(obj, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@obj)'.split(' ')
-            expected = [0]
-            env.expect(*cmd).error().contains('Syntax error: Field not found')
+        # Searching for emptiness of a non-existing field should return an error
+        obj = {
+            'obj': {}
+        }
+        objs = json.dumps(obj, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', objs).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@obj)'.split(' ')
+        expected = [0]
+        env.expect(*cmd).error().contains('Syntax error: Field not found')
 
-            env.flush()
+        env.flush()
 
-            # Embedded empty object
-            env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'ISEMPTY').ok()
-            j = {
-                "t": {"b": {}}
-            }
-            js = json.dumps(j, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', js).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-            expected = [1, 'j', ['$', js]]
-            cmd_assert(env, cmd, expected)
+        # Embedded empty object
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'ISEMPTY').ok()
+        j = {
+            "t": {"b": {}}
+        }
+        js = json.dumps(j, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', js).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
+        if dialect >= 3:
+            js = json.dumps([j], separators=(',', ':'))
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
 
-            # Embedded empty array
-            j = {
-                "t": {"b": []}
-            }
-            js = json.dumps(j, separators=(',', ':'))
-            env.expect('JSON.SET', 'j', '$', js).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-            expected = [1, 'j', ['$', js]]
-            cmd_assert(env, cmd, expected)
+        # Embedded empty array
+        j = {
+            "t": {"b": []}
+        }
+        js = json.dumps(j, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', js).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
+        if dialect >= 3:
+            js = json.dumps([j], separators=(',', ':'))
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
 
-            env.flush()
+        env.flush()
 
-            # An attempt to index a non-empty object as a TAG should fail (coverage)
-            j = {
-                "t": {"lala": "lali"}
-            }
-            js = json.dumps(j)
-            env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-            env.expect('JSON.SET', 'j', '$', js).equal('OK')
-            cmd = f'FT.SEARCH jidx isempty(@t)'.split(' ')
-            cmd_assert(env, cmd, [0])
+        # An attempt to index a non-empty object as a TAG should fail (coverage)
+        j = {
+            "t": {"lala": "lali"}
+        }
+        js = json.dumps(j)
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
+        env.expect('JSON.SET', 'j', '$', js).equal('OK')
+        cmd = f'FT.SEARCH jidx isempty(@t)'.split(' ')
+        cmd_assert(env, cmd, [0])
 
-            # Make sure we experienced an indexing failure, via `FT.INFO`
-            info = index_info(env, 'jidx')
-            env.assertEqual(info['hash_indexing_failures'], 1)
+        # Make sure we experienced an indexing failure, via `FT.INFO`
+        info = index_info(env, 'jidx')
+        env.assertEqual(info['hash_indexing_failures'], 1)
 
-            env.flush()
+        env.flush()
 
-            # Test that when we index many docs, we find the wanted portion of them upon
-            # empty value indexing
-            env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY').ok()
-            n_docs = 1000
-            for i in range(n_docs):
-                conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
-            res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'LIMIT', '0', '0')
-            env.assertEqual(int(res[0]), 500)
+        # Test that when we index many docs, we find the wanted portion of them upon
+        # empty value indexing
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY').ok()
+        n_docs = 1000
+        for i in range(n_docs):
+            conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
+        res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'WITHCOUNT', 'LIMIT', '0', '0')
+        env.assertEqual(int(res[0]), 500)
