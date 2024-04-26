@@ -1,6 +1,6 @@
 # coding=utf-8
 from includes import *
-from common import *
+from common import getConnectionByEnv, waitForIndex, skip
 from RLTest import Env
 from redis import ResponseError
 
@@ -294,7 +294,7 @@ def test_tags(env):
 
 
 def test_numeric_range(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC').ok()
@@ -309,99 +309,110 @@ def test_numeric_range(env):
     env.assertEqual(conn.execute_command('HSET', 'key7inf', 'numval', 'inf'), 1)
 
     # test range with integer limits
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min $max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '102', 'max', '104')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 104]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 104]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [2, 'key3', 'key4'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '102', 'max', '104')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 (104]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 (104]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [2, 'key2', 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]',
-                   'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (104]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (104]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [1, 'key3'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '102', 'max', '104')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
     env.assertEqual(res2, res1)
 
     # Test parameters = -inf, +inf, inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7inf'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '102', 'max', '+inf')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '+inf')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (+inf]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (+inf]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [3, 'key3', 'key4', 'key5'])
     # TODO: Unhandled exception: Bad upper range: +inf
     # res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
     #                'PARAMS', '4', 'min', '102', 'max', '+inf')
-    # env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7inf'])
+    # env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7', 'inf'])
     # -$n, with $n=-inf should be equivalent to +inf
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min (-$max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '102', 'max', '-inf')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '-inf')
     env.assertEqual(res2, res1)
     
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf, (105]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf (105]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [5, 'key1', 'key2', 'key3', 'key4', 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '-inf', 'max', '105')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-inf ($max]', 'NOCONTENT',
-                   'PARAMS', '2', 'max', '105')
+                   'WITHCOUNT', 'PARAMS', '2', 'max', '105')
     env.assertEqual(res2, res1)
     # -$n, with $n=inf or $n=+inf should be equivalent to -inf
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min, ($max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', 'inf', 'max', '105')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min ($max]', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', 'inf', 'max', '105')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min, ($max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '+inf', 'max', '105')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min ($max]', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '+inf', 'max', '105')
     env.assertEqual(res2, res1)
     # +$n, with $n=-inf should be equivalent to -inf
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[+$min, ($max]', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '-inf', 'max', '105')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[+$min ($max]', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
     # parameters with sign and/or exclusive ranges
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-101 101]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [2, 'key1', 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$param +$param]', 'NOCONTENT',
-                   'PARAMS', 2, 'param', 101)
+                   'WITHCOUNT', 'PARAMS', 2, 'param', 101)
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-10 +101]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-10 +101]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [1, 'key1'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-$n +$m]', 'NOCONTENT',
-                   'PARAMS', 4, 'n', 10, 'm', 101)
+                   'WITHCOUNT', 'PARAMS', 4, 'n', 10, 'm', 101)
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10 (101]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10 (101]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [1, 'key6neg'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$n (-$m]', 'NOCONTENT',
-                   'PARAMS', 4, 'n', 10, 'm', -101)
+                   'WITHCOUNT', 'PARAMS', 4, 'n', 10, 'm', -101)
     env.assertEqual(res2, res1)
 
     # parameters can be preceded by a single sign
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n $m]', 'NOCONTENT',
-                  'PARAMS', 4, 'n', 101, 'm', 102)
+                  'WITHCOUNT', 'PARAMS', 4, 'n', 101, 'm', 102)
     env.assertEqual(res1, [2, 'key1', 'key2'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$n +$m]', 'NOCONTENT',
-                  'PARAMS', 4, 'n', -101, 'm', 102)
+                  'WITHCOUNT', 'PARAMS', 4, 'n', -101, 'm', 102)
     env.assertEqual(res2, res1)
 
     # test limit by single number
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
     env.assertEqual(res1, [1, 'key5', ['numval', '105']])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '105')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'WITHCOUNT',
+                   'PARAMS', '2', 'n', '105')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')

@@ -29,9 +29,9 @@ void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 machine query;
 
-inf = ['+\-']? 'inf' $ 4;
+inf = ('+'|'-')? 'inf'i $ 4;
 size = digit+ $ 2;
-number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
+number = ('+'|'-')? digit+('.' digit+)? (('E'|'e') ('+'|'-')? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -43,6 +43,7 @@ colon = ':';
 semicolon = ';';
 arrow = '=>';
 minus = '-';
+plus = '+';
 tilde = '~';
 star = '*';
 percent = '%';
@@ -198,6 +199,15 @@ main := |*
       fbreak;
     }
   };
+
+  plus =>  { 
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v3(pParser, PLUS, tok, q);  
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   tilde => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, TILDE, tok, q);  

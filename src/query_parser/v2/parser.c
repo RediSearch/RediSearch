@@ -540,7 +540,6 @@ static const YYCODETYPE yyFallback[] = {
     0,  /*       LSQB => nothing */
     0,  /*      TILDE => nothing */
     0,  /*      MINUS => nothing */
-    0,  /*       PLUS => nothing */
     0,  /*        AND => nothing */
     0,  /*      ARROW => nothing */
     0,  /*      COLON => nothing */
@@ -2338,7 +2337,6 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       case 98: /* param_num ::= ATTRIBUTE */
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0;
-    yylhsminor.yy0.sign = 1; // default
     yylhsminor.yy0.type = QT_PARAM_NUMERIC;
     yylhsminor.yy0.inclusive = 1;
 }

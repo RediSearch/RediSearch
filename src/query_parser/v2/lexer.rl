@@ -29,9 +29,9 @@ void RSQuery_ParseFree_v2(void *p, void (*freeProc)(void *));
 
 machine query;
 
-inf = ['+\-']? 'inf'i $ 4;
+inf = ['+\-']? 'inf' $ 4;
 size = digit+ $ 2;
-number = ['+\-']? digit+('.' digit+)? (('E'|'e') ['+\-']? digit+)? $ 3;
+number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -43,7 +43,6 @@ colon = ':';
 semicolon = ';';
 arrow = '=>';
 minus = '-';
-plus = '+';
 tilde = '~';
 star = '*';
 percent = '%';
@@ -52,7 +51,7 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | plus)+  $0 ;
+term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
@@ -199,15 +198,6 @@ main := |*
       fbreak;
     }
   };
-
-  plus =>  { 
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, PLUS, tok, q);  
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
   tilde => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, TILDE, tok, q);  

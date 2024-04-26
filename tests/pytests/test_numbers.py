@@ -391,7 +391,7 @@ def testNegativeValues(env):
     env.assertEqual(res[0], doc_id)
 
 def testNumberFormat(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'numeric').ok()
@@ -415,39 +415,31 @@ def testNumberFormat(env):
 
     # Test unsigned numbers
     expected = [3, 'doc01', 'doc02', 'doc03']
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
 
     # Test signed numbers
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc17'])
 
     # Test +inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]', 'NOCONTENT', 'WITHCOUNT')
     expected = [6, 'doc08', 'doc09', 'doc10', 'doc11', 'doc12', 'doc13']
     env.assertEqual(res1, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
 
     # Test -inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT', 'WITHCOUNT')
     expected = [4, 'doc14', 'doc15', 'doc16', 'doc17']
     env.assertEqual(res1, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
-
-    # TODO: this was removed by the PR#4486
-    # Multiple parenthesis are allowed
-    # expected = [1, 'doc05']
-    # res = env.cmd('FT.SEARCH', 'idx', '@n:[1e2 ((300]', 'NOCONTENT')
-    # env.assertEqual(res, expected)
-    # res = env.cmd('FT.SEARCH', 'idx', '@n:[((1 300]', 'NOCONTENT')
-    # env.assertEqual(res, expected)
 
     # invalid syntax - multiple signs are not allowed
     env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()

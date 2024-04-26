@@ -160,8 +160,14 @@ def test_v1_vs_v2_vs_v5(env):
       ''
     ]
     env.assertEqual(res, expected)
-    # This is an error, it should be fixed by MOD-6750
-    env.expect('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5)
+    expected = [
+      'UNION {',
+      '  1.2e+3',
+      '  +1.2e+3(expanded)',
+      '}',
+      '']
+    env.assertEqual(res, expected)
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
     expected = [
