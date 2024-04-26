@@ -45,34 +45,165 @@ def test_dialect_query_errors(env):
     env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
     env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
 
-def test_v1_vs_v2(env):
+def test_v1_vs_v2_vs_v5(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()
     env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 2).contains('WILDCARD')
-
+    env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 5).contains('WILDCARD')
 
     env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 2, 'PARAMS', 2, 'hello', 'hello').contains('UNION {\n  hello\n  +hello(expanded)\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 5, 'PARAMS', 2, 'hello', 'hello').contains('UNION {\n  hello\n  +hello(expanded)\n}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 2).contains('$hello')
+    env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 5).contains('$hello')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 1).contains("NUMERIC {0.000000 <= @num <= 10.000000}")
     env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 1).contains('TAG:@title {\n  foo\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 5).contains("{K=10 nearest vector")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
+    env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 5).contains("{K=10 nearest vector")
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(a-b-*)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-*)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@t1:(*a-b-)', 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-inf  inf]', 'DIALECT', 1).contains('NUMERIC {-inf <= @num <= inf}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-inf  inf]', 'DIALECT', 2).contains('NUMERIC {-inf <= @num <= inf}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-inf  inf]', 'DIALECT', 5).contains('NUMERIC {-inf <= @num <= inf}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'abc?')", 'DIALECT', 1).contains('INTERSECT')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'abc?')", 'DIALECT', 2).contains('@t1:WILDCARD{abc?}')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'abc?')", 'DIALECT', 5).contains('@t1:WILDCARD{abc?}')
+
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 1).contains('@t1:INTERSECT {\n  @t1:SUFFIX')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 2).contains('@t1:INTERSECT {\n  @t1:SUFFIX')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(*a\\w's')", 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 2).contains('@t1:WILDCARD{*}')
+    env.expect('FT.EXPLAIN', 'idx', "@t1:(w'*')", 'DIALECT', 5).contains('@t1:WILDCARD{*}')
+
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 2).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "*-*", 'DIALECT', 5).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 1).contains('INFIX{*1*}')
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 2).contains('INFIX{*1*}')
+    env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 5).contains('INFIX{*1*}')
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',                                                                                                                                 
+      '  UNION {',
+      '    1.2',
+      '    +1.2(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    # res = env.cmd('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 1)
+    # print(res)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1.2',
+      '    +1.2(expanded)',
+      '  }',
+      '  INTERSECT {',
+      '    UNION {',
+      '      e',
+      '      +e(expanded)',
+      '    }',
+      '    UNION {',
+      '      3',
+      '      +3(expanded)',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    # This is an error, it should be fixed by MOD-6750
+    env.expect('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  INTERSECT {',
+      '    UNION {',
+      '      e',
+      '      +e(expanded)',
+      '    }',
+      '    UNION {',
+      '      3',
+      '      +3(expanded)',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error().contains('Syntax error')
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -294,7 +425,7 @@ def test_dialect5_punct_chars():
                   validInText=True, validAfterText=True)
 
   # '-', and '~' can be part of the text or used before the field name
-  _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True, verbose=True)
+  _validate_syntax('-', unaryOperator=True, validBeforeText=True, validInText=True)
   _validate_syntax('~', unaryOperator=True, validBeforeText=True, validInText=True)
 
   # TODO: The following queries should be invalid:
