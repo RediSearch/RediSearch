@@ -637,6 +637,23 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
                     "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
+    
+    # test numeric ranges
+    _testExplain(env, 'idx', ['@bar:[10 100]'],
+                 "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
+
+    _testExplain(env, 'idx', ['@bar:[-inf 100]'],
+                 "NUMERIC {-inf <= @bar <= 100.000000}\n")
+
+    _testExplain(env, 'idx', ['@bar:[10 inf]'],
+                 "NUMERIC {10.000000 <= @bar <= inf}\n")
+
+    _testExplain(env, 'idx', ['@bar:[-inf (inf]'],
+                 "NUMERIC {-inf <= @bar < inf}\n")
+
+    _testExplain(env, 'idx', ['@bar:[(-1 $n]','PARAMS', '2', 'n', '10'],
+                    "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
+
 
 def testNoIndex(env):
     env.expect(

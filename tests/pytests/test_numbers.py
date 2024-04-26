@@ -433,6 +433,10 @@ def testNumberFormat(env):
     env.assertEqual(res1, expected)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +inf]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +INF]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
 
     # Test -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT', 'WITHCOUNT')
@@ -453,20 +457,3 @@ def testNumberFormat(env):
     env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
     env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()
 
-def testExplainNumericRange(env):
-  env.expect('FT.CREATE idx SCHEMA n NUMERIC').equal('OK')
-  env.expect("FT.EXPLAIN", "idx", "@n:[0 inf]", "DIALECT", 2)\
-    .equal('NUMERIC {0.000000 <= @n <= inf}\n')
-  env.expect("FT.EXPLAIN", "idx", "@n:[-inf (inf]", "DIALECT", 2)\
-    .equal('NUMERIC {-inf <= @n < inf}\n')
-  env.expect("FT.EXPLAIN", "idx", "@n:[(-1 $n]", "PARAMS", "2", "n", "10",
-             "DIALECT", 2).equal('NUMERIC {-1.000000 < @n <= 10.000000}\n')
-
-  if not env.isCluster():
-    # FT.EXPLAINCLI is not supported by the coordinator
-    env.expect("FT.EXPLAINCLI", "idx", "@n:[0 inf]", "DIALECT", 2)\
-        .equal(['NUMERIC {0.000000 <= @n <= inf}', ''])
-    env.expect("FT.EXPLAINCLI", "idx", "@n:[-inf (inf]", "DIALECT", 2)\
-        .equal(['NUMERIC {-inf <= @n < inf}', ''])
-    env.expect("FT.EXPLAINCLI","idx", "@n:[(-1 $n]", "PARAMS", "2", "n", "10",
-             "DIALECT", 2).equal(['NUMERIC {-1.000000 < @n <= 10.000000}', ''])
