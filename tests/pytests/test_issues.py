@@ -143,23 +143,23 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]]
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
-  env.assertEqual(res1[1][4][1], excepted_res)
-  env.assertEqual(res2[1][4][1], excepted_res)
+  env.assertEqual(res1[1][1][0][3], excepted_res)
+  env.assertEqual(res2[1][1][0][3], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators',
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators', [
                     None,
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
-  env.assertEqual(res3[1][4][1], excepted_res)
+  env.assertEqual(res3[1][1][0][3], excepted_res)
 
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
@@ -376,34 +376,29 @@ def test_SkipFieldWithNoMatch(env):
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 2]]
-
-
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   # bar exists in `t2` only
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'EMPTY', 'Counter', 0])
+  env.assertEqual(res[1][1][0][3], ['Type', 'EMPTY', 'Counter', 0])
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1] )
 
   # Check with NOFIELDS flag
   env.cmd('FT.CREATE', 'idx_nomask', 'NOFIELDS', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   waitForIndex(env, 'idx_nomask')
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'foo')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1])
 
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', '@t1:bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
   res = env.cmd('FT.PROFILE', 'idx_nomask', 'SEARCH', 'QUERY', 'bar')
-  env.assertEqual(res[1][4][1], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
+  env.assertEqual(res[1][1][0][3], ['Type', 'TEXT', 'Term', 'bar', 'Counter', 1, 'Size', 1])
 
 @skip(cluster=True)
 def test_update_num_terms(env):
@@ -764,7 +759,8 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter
   search_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello')
-  env.assertEqual('Counter', search_profile[1][5][3][1])
+  rp_profile = to_dict(search_profile[1][1][0])['Result processors profile']
+  env.assertEqual('Counter', to_dict(rp_profile[2])['Type'])
 
   # verify no crash
   env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
@@ -772,7 +768,8 @@ def test_mod5062(env):
 
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')
-  env.assertEqual('Counter', aggregate_profile[1][5][2][1])
+  rp_profile = to_dict(aggregate_profile[1][1][0])['Result processors profile']
+  env.assertEqual('Counter', to_dict(rp_profile[1])['Type'])
 
 def test_mod5252(env):
   # Create an index and add a document
@@ -909,10 +906,10 @@ def test_mod5910(env):
     # iterator.
     # Hence, we expect that the numeric iterator would come *after* the union iterator.
     res = env.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
-    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
-    env.assertEqual(iterators_profile[1][7][1], 'UNION')
-    env.assertEqual(iterators_profile[1][8][1], 'NUMERIC')
+    iterators_profile = to_dict(res[1][1][0])['Iterators profile']
+    env.assertEqual(iterators_profile[1], 'INTERSECT')
+    env.assertEqual(iterators_profile[7][0][1], 'UNION')
+    env.assertEqual(iterators_profile[7][1][1], 'NUMERIC')
 
     # When _PRIORITIZE_INTERSECT_UNION_CHILDREN config is set, the number of expected results from the union iterator
     # child is factored by its own number of children. Hence, the weighted expected number of results for the second
@@ -920,10 +917,10 @@ def test_mod5910(env):
     # *before* the union iterator.
     env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
     res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
-    iterators_profile = res[1][4]
-    env.assertEqual(iterators_profile[1][1], 'INTERSECT')
-    env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
-    env.assertEqual(iterators_profile[1][8][1], 'UNION')
+    iterators_profile = to_dict(res[1][1][0])['Iterators profile']
+    env.assertEqual(iterators_profile[1], 'INTERSECT')
+    env.assertEqual(iterators_profile[7][0][1], 'NUMERIC')
+    env.assertEqual(iterators_profile[7][1][1], 'UNION')
 
 
 @skip(cluster=True)

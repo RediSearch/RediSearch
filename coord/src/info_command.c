@@ -34,6 +34,9 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},
     {.name = "key_table_size_mb", .type = InfoField_DoubleSum},
+    {.name = "tag_overhead_sz_mb", .type = InfoField_DoubleSum},
+    {.name = "text_overhead_sz_mb", .type = InfoField_DoubleSum},
+    {.name = "total_index_memory_sz_mb", .type = InfoField_DoubleSum},
     {.name = "geoshapes_sz_mb", .type = InfoField_DoubleSum},
     {.name = "records_per_doc_avg", .type = InfoField_DoubleAverage},
     {.name = "bytes_per_record_avg", .type = InfoField_DoubleAverage},
@@ -62,6 +65,7 @@ static InfoFieldSpec dialectSpecs[] = {
     {.name = "dialect_2", .type = InfoField_Max},
     {.name = "dialect_3", .type = InfoField_Max},
     {.name = "dialect_4", .type = InfoField_Max},
+    {.name = "dialect_5", .type = InfoField_Max},
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))

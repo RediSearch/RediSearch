@@ -70,6 +70,8 @@ typedef struct {
   long long maxPrefixExpansions;
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
+  // The minimal word length to stem. Default 4
+  unsigned int minStemLength;
   long long minUnionIterHeap;
 } IteratorsConfig;
 
@@ -222,11 +224,13 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+#define MAX_DIALECT_VERSION 5 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
+#define DEFAULT_MIN_STEM_LENGTH 4
+#define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -243,6 +247,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                                         \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \

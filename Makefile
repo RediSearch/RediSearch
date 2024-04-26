@@ -6,7 +6,7 @@ ROOT=.
 MK.cmake=1
 SRCDIR=.
 
-MACOS_PACKAGES=openssl boost
+MACOS_PACKAGES=openssl
 
 include deps/readies/mk/main
 
@@ -32,6 +32,8 @@ make build          # compile and link
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
+  					  # Can be left empty if boost is located in the standard system includes path.
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -236,27 +238,14 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
-# ifneq ($(filter $(OSNICK),bionic amzn2),)
-_CMAKE_FLAGS += -DCANON_BOOST=on
-# endif
+BOOST_DIR ?= $(ROOT)/.install/boost
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DBOOST_DIR=$(boost_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
-
-#----------------------------------------------------------------------------------------------
-
-# BOOST_INC_PATH.centos:=/usr/include/boost169
-# CC_INCLUDES.centos7 += $(BOOST_INC_PATH.centos)
-# CC_INCLUDES.centos8 += $(BOOST_INC_PATH.centos)
-
-CC_INCLUDES.macos += $(boost_prefix)/include
-
-#----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
 
@@ -266,16 +255,9 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 
-export CONAN_BINDIR:=$(ROOT)/bin/$(shell $(READIES)/bin/platform -t)/conan
-include build/conan/Makefile.defs
-
 # S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
 # export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
 # include build/s2geometry/Makefile.defs
-
-ifeq ($(wildcard $(CONAN_PRESETS)),)
-MISSING_DEPS += $(CONAN_PRESETS)
-endif
 
 # ifeq ($(wildcard $(S2GEOMETRY)),)
 # MISSING_DEPS += $(S2GEOMETRY)
@@ -293,7 +275,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=conan libuv #@@  s2geometry hiredis
+DEPENDENCIES=libuv #@@  s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -333,15 +315,9 @@ ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else ifeq ($(ALL),all)
 	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
-
-clean-conan:
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
-
-.PHONY: clean-conan
 
 #----------------------------------------------------------------------------------------------
 
@@ -353,24 +329,19 @@ ifeq ($(FORCE),1)
 	rm -f lexer.c parser.c
 	$(SHOW)cd src/query_parser/v2 ;\
 	rm -f lexer.c parser.c
+	$(SHOW)cd src/query_parser/v3 ;\
+	rm -f lexer.c parser.c
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
 	$(SHOW)$(MAKE) -C src/query_parser/v1
 	$(SHOW)$(MAKE) -C src/query_parser/v2
+	$(SHOW)$(MAKE) -C src/query_parser/v3
 
 .PHONY: parsers
 
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(DEPS),1)
-
-deps: $(CONAN_PRESETS) $(LIBUV) #@@ $(HIREDIS) $(S2GEOMETRY)
-
-conan: $(CONAN_PRESETS)
-
-$(CONAN_PRESETS):
-	@echo Fetching conan libraries...
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG=''
 
 # s2geometry: $(S2GEOMETRY)
 #

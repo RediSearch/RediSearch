@@ -9,6 +9,7 @@
 
 %left LOWEST.
 
+%left PUNCTUATION.
 %left TEXTEXPR.
 
 %left ORX.
@@ -23,7 +24,7 @@
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS PLUS.
+%left TILDE MINUS.
 %left AND.
 
 %left ARROW.
@@ -47,7 +48,7 @@
 
 %token_type {QueryToken}
 
-%name RSQueryParser_v2_
+%name RSQueryParser_v3_
 
 %stack_size 256
 
@@ -176,6 +177,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type text_expr { QueryNode * }
 %destructor text_expr { QueryNode_Free($$); }
 
+%type unaryop_text_expr { QueryNode * }
+%destructor unaryop_text_expr { QueryNode_Free($$); }
+
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
 
@@ -252,6 +256,9 @@ expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
 
+expr(A) ::= unaryop_text_expr(B). [TEXTEXPR] {
+  A = B;
+}
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
 /////////////////////////////////////////////////////////////////
@@ -315,6 +322,60 @@ expr(A) ::= expr(B) text_expr(C) . [AND] {
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= text_expr(B) unaryop_text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= unaryop_text_expr(B) text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= unaryop_text_expr(B) unaryop_text_expr(C) . [AND] {
     int rv = one_not_null(B, C, (void**)&A);
     if (rv == NODENN_BOTH_INVALID) {
         A = NULL;
@@ -440,6 +501,69 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
     }
 }
 
+text_union(A) ::= unaryop_text_expr(B) OR text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+text_union(A) ::= unaryop_text_expr(B) OR unaryop_text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+text_union(A) ::= text_expr(B) OR unaryop_text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
     A = B;
     if (C) {
@@ -454,6 +578,28 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON text_expr(C) . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
+expr(A) ::= modifier(B) COLON LP text_expr(C) RP . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
+expr(A) ::= modifier(B) COLON LP unaryop_text_expr(C) RP . {
     if (C == NULL) {
         A = NULL;
     } else {
@@ -496,6 +642,10 @@ expr(A) ::= LP expr(B) RP . {
 }
 
 text_expr(A) ::= LP text_expr(B) RP . {
+  A = B;
+}
+
+text_expr(A) ::= LP unaryop_text_expr(B) RP . {
   A = B;
 }
 
@@ -624,7 +774,7 @@ expr(A) ::= MINUS expr(B) . {
     }
 }
 
-text_expr(A) ::= MINUS text_expr(B) . {
+unaryop_text_expr(A) ::= MINUS text_expr(B) . {
     if (B) {
         A = NewNotNode(B);
     } else {
@@ -644,7 +794,7 @@ expr(A) ::= TILDE expr(B) . {
     }
 }
 
-text_expr(A) ::= TILDE text_expr(B) . {
+unaryop_text_expr(A) ::= TILDE text_expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
@@ -653,7 +803,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -1101,6 +1251,11 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
+num(A) ::= MINUS num(B). {
+  B.num = -B.num;
+  A = B;
+}
+
 term(A) ::= TERM(B) . {
   A = B;
 }
@@ -1116,6 +1271,7 @@ term(A) ::= SIZE(B). {
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
+
 
 // Number is treated as a term here
 param_term(A) ::= term(B). {
@@ -1150,21 +1306,6 @@ param_size(A) ::= ATTRIBUTE(B). {
 
 param_num(A) ::= ATTRIBUTE(B). {
     A = B;
-    A.sign = 1; // default
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 1;
-}
-
-param_num(A) ::= MINUS ATTRIBUTE(B). {
-    A = B;
-    A.sign = -1;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 1;
-}
-
-param_num(A) ::= PLUS ATTRIBUTE(B). {
-    A = B;
-    A.sign = 1;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 1;
 }
@@ -1185,18 +1326,4 @@ exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
-}
-
-exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
-    A = B;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 0;
-    A.sign = -1;
-}
-
-exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
-    A = B;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 0;
-    A.sign = 1;
 }

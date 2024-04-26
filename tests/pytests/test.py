@@ -522,7 +522,7 @@ def testExplain(env):
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
-        'tag', 'TAG', 'g', 'GEOSHAPE', 'FLAT',
+        'tag', 'TAG', 'geom', 'GEOSHAPE', 'FLAT', 'g', 'GEO',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
     res = env.cmd('ft.explain', 'idx', q)
@@ -544,34 +544,37 @@ def testExplain(env):
     res = env.cmd('ft.explain', 'idx', q, 'DIALECT', 1)
     expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
     env.assertEqual(res, expected)
-    res = env.cmd('ft.explain', 'idx', q, 'DIALECT', 2)
-    expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
-    env.assertEqual(res, expected)
 
     res = env.cmd('ft.explaincli', 'idx', q, 'DIALECT', 1)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(res, expected)
-    res = env.cmd('ft.explainCli', 'idx', q, 'DIALECT', 2)
-    expected = ['UNION {', '  INTERSECT {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '    EXACT {', '      what', '      what', '    }', '    UNION {', '      hello', '      +hello(expanded)', '    }', '  }', '  INTERSECT {', '    UNION {', '      world', '      +world(expanded)', '    }', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '  }', '  NUMERIC {200.000000 <= @bar <= 300.000000}', '}', '']
-    env.assertEqual(expected, res)
 
+    for dialect in [2, 5]:
+        res = env.cmd('ft.explain', 'idx', q, 'DIALECT', dialect)
+        expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
+        env.assertEqual(res, expected)
 
-    q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
-    res = env.cmd('ft.explain', 'idx', *q)
-    expected = """VECTOR {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
-    env.assertEqual(expected, res)
+        res = env.cmd('ft.explainCli', 'idx', q, 'DIALECT', 2)
+        expected = ['UNION {', '  INTERSECT {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '    EXACT {', '      what', '      what', '    }', '    UNION {', '      hello', '      +hello(expanded)', '    }', '  }', '  INTERSECT {', '    UNION {', '      world', '      +world(expanded)', '    }', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '  }', '  NUMERIC {200.000000 <= @bar <= 300.000000}', '}', '']
+        env.assertEqual(expected, res)
 
-    # range query
-    q = ['@v:[VECTOR_RANGE $r $B]=>{$epsilon: 1.2; $yield_distance_as:dist}', 'DIALECT', 2, 'PARAMS', '4', 'r', 0.1, 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
-    res = env.cmd('ft.explain', 'idx', *q)
-    expected = """VECTOR {Vectors that are within 0.1 distance radius from `$B` in vector index associated with field @v, epsilon = 1.2, yields distance as `dist`}\n"""
-    env.assertEqual(expected, res)
+    for dialect in [2, 5]:
+        q = ['* => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', dialect, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+        res = env.cmd('ft.explain', 'idx', *q)
+        expected = """VECTOR {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+        env.assertEqual(expected, res)
 
-    # test with hybrid query
-    q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
-    res = env.cmd('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
-    env.assertEqual(expected, res)
+        # range query
+        q = ['@v:[VECTOR_RANGE $r $B]=>{$epsilon: 1.2; $yield_distance_as:dist}', 'DIALECT', dialect, 'PARAMS', '4', 'r', 0.1, 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+        res = env.cmd('ft.explain', 'idx', *q)
+        expected = """VECTOR {Vectors that are within 0.1 distance radius from `$B` in vector index associated with field @v, epsilon = 1.2, yields distance as `dist`}\n"""
+        env.assertEqual(expected, res)
+
+        # test with hybrid query
+        q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', dialect, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
+        res = env.cmd('ft.explain', 'idx', *q)
+        expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+        env.assertEqual(expected, res)
 
     # retest when index is not empty
     env.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2)
@@ -593,7 +596,7 @@ def testExplain(env):
 
     # test FUZZY
     _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
-    
+
     _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
                  "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
 
@@ -604,7 +607,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ["@tag:{w'*'}=>{$weight: 3;}"],
                  "TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
-    
+
     # test wildcard with TEXT field
     _testExplain(env, 'idx', ["@t:(w'*')"], "@t:WILDCARD{*}\n")
 
@@ -618,14 +621,22 @@ def testExplain(env):
                  "@t:WILDCARD{*} => { $weight: 5; $inorder: true; }\n")
 
     # test GEOSHAPES
-    _testExplain(env, 'idx', ['@g:[WITHIN $poly]', 'PARAMS', 2,
+    _testExplain(env, 'idx', ['@geom:[WITHIN $poly]', 'PARAMS', 2,
                   'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))', 'DIALECT', 3],
                   "GEOSHAPE{2 POLYGON((0 0, 0 1, 1 1, 0 0))}\n")
 
-    _testExplain(env, 'idx', ['@g:[CONTAINS $poly]=>{$weight: 3;}',
+    _testExplain(env, 'idx', ['@geom:[CONTAINS $poly]=>{$weight: 3;}',
                   'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 1, 1 1, 0 0))',
                   'DIALECT', 3],
                   "GEOSHAPE{1 POLYGON((0 0, 0 1, 1 1, 0 0))} => { $weight: 3; }\n")
+
+    # test GEO
+    _testExplain(env, 'idx', ['@g:[$lat $lon $radius km]', 'PARAMS', '6',
+                    'lat', '10', 'lon', '20', 'radius', '30'],
+                    "GEO g:{10.000000,20.000000 --> 30.000000 km}\n")
+
+    _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
+                    "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
 
 def testNoIndex(env):
     env.expect(
@@ -1116,20 +1127,23 @@ def testSlopInOrderIssue1986(env):
 def testExact(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH',
                'schema', 'title', 'text', 'weight', 10.0, 'body', 'text').ok()
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields',
-               'title', 'hello world', 'body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1.0, 'fields',
-               'title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem').ok()
+    env.cmd('HSET', '{doc}:1', 'title', 'hello world',
+            'body', 'lorem ist ipsum')
+    env.cmd('HSET', '{doc}:2', 'title', 'hello another world',
+            'body', 'lorem ist ipsum lorem lorem')
 
-    res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim')
-    env.assertEqual(3, len(res))
-    env.assertEqual(1, res[0])
-    env.assertEqual("doc1", res[1])
+    for dialect in range(1,6):
+        res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim',
+                      'DIALECT', dialect)
+        env.assertEqual(3, len(res))
+        env.assertEqual(1, res[0])
+        env.assertEqual("{doc}:1", res[1])
 
-    res = env.cmd('ft.search', 'idx', "hello \"another world\"", 'verbatim')
-    env.assertEqual(3, len(res))
-    env.assertEqual(1, res[0])
-    env.assertEqual("doc2", res[1])
+        res = env.cmd('ft.search', 'idx', "hello \"another world\"", 'verbatim',
+                      'DIALECT', dialect)
+        env.assertEqual(3, len(res))
+        env.assertEqual(1, res[0])
+        env.assertEqual("{doc}:2", res[1])
 
 
 def testGeoErrors(env):
@@ -2199,9 +2213,8 @@ def testTimeout(env):
     if VALGRIND:
         env.skip()
 
-    num_range = 1000
+    num_range = 20000
     env.cmd('ft.config', 'set', 'timeout', '1')
-    # TODO: Remove `TIMEOUT 1` arguments (see commands) once MOD-6286 is merged.
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -2215,7 +2228,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', 10000)
+    res = env.cmd('ft.search', 'myIdx', '*', 'TIMEOUT', 20000)
     env.assertEqual(res[0], num_range)
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'TIMEOUT', '1')    \
         .error().contains('Timeout limit was reached')
@@ -2257,15 +2270,9 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
-
-    time.sleep(0.01)
-    while cursor != 0:
-        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
-        l += (len(r) - 1)
-    env.assertEqual(l, num_range)
+    env.expect(
+        'FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'COUNT', num_range, 'TIMEOUT', 1
+    ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
@@ -3698,7 +3705,7 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', 'doc%d' % i, 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][4][1][7] # get the list iterator profile
+    res = res[1][1][0][9][7][0] # get the list iterator profile
     env.assertEqual(res[1], 'ID-LIST')
     env.assertLess(res[5], 3)
 
