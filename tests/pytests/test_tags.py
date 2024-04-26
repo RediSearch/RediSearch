@@ -64,7 +64,7 @@ def testSeparator(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
-# @skip(cluster=True)
+@skip(cluster=True)
 def testTagPrefix(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -246,7 +246,7 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
-# @skip(cluster=True)
+@skip(cluster=True)
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
@@ -276,7 +276,7 @@ def testTagGCClearEmpty(env):
     env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
         .equal([2, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']])
 
-# @skip(cluster=True)
+@skip(cluster=True)
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
@@ -303,7 +303,7 @@ def testTagGCClearEmptyWithCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
-# @skip(cluster=True)
+@skip(cluster=True)
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
@@ -339,7 +339,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1, [], []])
 
-# @skip(cluster=True)
+@skip(cluster=True)
 def testEmptyTagLeak(env):
 
     cycles = 1
