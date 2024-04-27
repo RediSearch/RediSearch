@@ -67,6 +67,10 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 5).error().contains('Syntax error')
 
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 5).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 5).error().contains('Syntax error')
@@ -204,6 +208,8 @@ def test_v1_vs_v2_vs_v5(env):
     ]
     env.assertEqual(res, expected)
     env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error().contains('Syntax error')
+
+
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
