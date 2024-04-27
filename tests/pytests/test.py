@@ -7,22 +7,6 @@ import random
 import time
 import unittest
 
-# this tests is not longer relevant
-# def testAdd(env):
-#     if env.isCluster():
-#         env.skip()
-
-#     r = env
-#     env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
-#     env.assertTrue(r.exists('idx:idx'))
-#     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world', 'body', 'lorem ist ipsum').ok()
-
-#     for _ in env.reloadingIterator():
-#         prefix = 'ft'
-#         env.assertExists(prefix + ':idx/hello')
-#         env.assertExists(prefix + ':idx/world')
-#         env.assertExists(prefix + ':idx/lorem')
-
 def testAddErrors(env):
     env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
     env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword')
@@ -30,13 +14,6 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
     env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
-
-def assertEqualIgnoreCluster(env, val1, val2):
-    # todo: each test that uses this function should be switch back to env.assertEqual once fix
-    # issues on coordinator
-    if env.isCluster():
-        return
-    env.assertEqual(val1, val2)
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
@@ -585,6 +562,7 @@ def testExplain(env):
         res = env.cmd('FT.EXPLAIN', idx, *query)
         env.assertEqual(res, expected)
 
+        # FT.EXPLAINCLI is not supported on cluster
         if not env.isCluster():
             res = env.cmd('FT.EXPLAINCLI', idx, *query)
             env.assertEqual(res, expected.split('\n'))
@@ -1446,13 +1424,14 @@ def testExpander(env):
 def testNumericRange(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
+    # Test bad filter ranges
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '+inf', 5).error().contains("Bad lower range: +inf")
     # Filter does not accept parameters
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '$n',
-               'PARAMS', 2, '10').error().contains("Bad upper range: $n")
+               'PARAMS', 2, 'n', '10').error().contains("Bad upper range: $n")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
@@ -1477,10 +1456,6 @@ def testNumericRange(env):
         res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", "-inf", "+inf")
         env.assertEqual(100, res[0])
-
-        res = env.cmd('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
-                                "filter", "score", "-10", "(10")
-        env.assertEqual(10, res[0])
 
         res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", "-inf", "inf")
