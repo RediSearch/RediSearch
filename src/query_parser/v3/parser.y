@@ -1326,18 +1326,19 @@ param_num(A) ::= PLUS ATTRIBUTE(B). {
 }
 
 param_num(A) ::= num(B). {
-  A.numval = B.num;
-  A.inclusive = B.inclusive;
-  A.type = QT_NUMERIC;
+    A.numval = B.num;
+    A.inclusive = B.inclusive;
+    A.type = QT_NUMERIC;
 }
 
 exclusive_param_num(A) ::= LP num(B). {
-  A.numval = B.num;
-  A.inclusive = 0;
-  A.type = QT_NUMERIC;
+    A.numval = B.num;
+    A.inclusive = 0;
+    A.type = QT_NUMERIC;
 }
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
+    A.sign = 1;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
 }

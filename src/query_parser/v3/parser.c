@@ -2462,22 +2462,23 @@ yylhsminor.yy117 = yymsp[0].minor.yy117;
         break;
       case 110: /* param_num ::= num */
 {
-  yylhsminor.yy0.numval = yymsp[0].minor.yy19.num;
-  yylhsminor.yy0.inclusive = yymsp[0].minor.yy19.inclusive;
-  yylhsminor.yy0.type = QT_NUMERIC;
+    yylhsminor.yy0.numval = yymsp[0].minor.yy19.num;
+    yylhsminor.yy0.inclusive = yymsp[0].minor.yy19.inclusive;
+    yylhsminor.yy0.type = QT_NUMERIC;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 111: /* exclusive_param_num ::= LP num */
 {
-  yymsp[-1].minor.yy0.numval = yymsp[0].minor.yy19.num;
-  yymsp[-1].minor.yy0.inclusive = 0;
-  yymsp[-1].minor.yy0.type = QT_NUMERIC;
+    yymsp[-1].minor.yy0.numval = yymsp[0].minor.yy19.num;
+    yymsp[-1].minor.yy0.inclusive = 0;
+    yymsp[-1].minor.yy0.type = QT_NUMERIC;
 }
         break;
       case 112: /* exclusive_param_num ::= LP ATTRIBUTE */
 {
     yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
+    yymsp[-1].minor.yy0.sign = 1;
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
     yymsp[-1].minor.yy0.inclusive = 0;
 }

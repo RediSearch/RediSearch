@@ -12,6 +12,10 @@
 
 int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
+  if (*s == '(') {
+    *inclusive = 0;
+    s++;
+  }
   if (isMin && (
         (sign == 1 && !strcasecmp(s, "-inf")) ||
         (sign == -1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")))) {
@@ -22,10 +26,6 @@ int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
         (sign == -1 && !strcasecmp(s, "-inf")))){
     *target = NF_INFINITY;
     return REDISMODULE_OK;
-  }
-  if (*s == '(') {
-    *inclusive = 0;
-    s++;
   }
   char *endptr = NULL;
   errno = 0;

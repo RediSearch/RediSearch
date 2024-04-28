@@ -348,11 +348,10 @@ def test_numeric_range(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (+inf]', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res1, [3, 'key3', 'key4', 'key5'])
-    # TODO: Unhandled exception: Bad upper range: +inf
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
-    #                'PARAMS', '4', 'min', '102', 'max', '+inf')
-    # env.assertEqual(res1, [4, 'key3', 'key4', 'key5', 'key7', 'inf'])
-    # -$n, with $n=-inf should be equivalent to +inf
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '+inf')
+    env.assertEqual(res2, res1)
+    # -$max, with $max=-inf is equivalent to +inf
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min (-$max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '-inf')
     env.assertEqual(res2, res1)
@@ -363,17 +362,17 @@ def test_numeric_range(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[(-inf ($max]', 'NOCONTENT',
+    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf ($max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '2', 'max', '105')
     env.assertEqual(res2, res1)
-    # -$n, with $n=inf or $n=+inf should be equivalent to -inf
+    # -$n, with $n=inf or $n=+inf is equivalent to -inf
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min ($max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', 'inf', 'max', '105')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[-$min ($max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '+inf', 'max', '105')
     env.assertEqual(res2, res1)
-    # +$n, with $n=-inf should be equivalent to -inf
+    # +$n, with $n=-inf is equivalent to -inf
     res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[+$min ($max]', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)

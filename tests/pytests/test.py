@@ -1427,8 +1427,11 @@ def testNumericRange(env):
     # Test bad filter ranges
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '(-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(inf', 5).error().contains("Bad lower range: inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '+inf', 5).error().contains("Bad lower range: +inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(+inf', 5).error().contains("Bad lower range: +inf")
     # Filter does not accept parameters
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '$n',
                'PARAMS', 2, 'n', '10').error().contains("Bad upper range: $n")

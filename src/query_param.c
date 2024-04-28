@@ -198,7 +198,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
-      int inclusive;
+      int inclusive = 1;
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
       if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
