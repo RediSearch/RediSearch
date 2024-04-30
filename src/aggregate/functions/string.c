@@ -235,7 +235,7 @@ error:
   return EXPR_EVAL_ERR;
 }
 
-char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
+static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
   char *start, *end, *sp, *ep;
 
   sp = start = s;
@@ -280,7 +280,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     if (sl > 0) {
       size_t outlen;
       // trim the strip set
-      char *s = strtrim(tok, sl, &outlen, strp);
+      char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
         tmp[l++] = RS_NewCopiedString(s, outlen);
       }
