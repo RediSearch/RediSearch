@@ -252,15 +252,15 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     QERR_MKBADARGS_FMT(err, "Invalid number of arguments for split");
     return EXPR_EVAL_ERR;
   }
-  VALIDATE_ARG_ISSTRING("format", argv, 0);
+  VALIDATE_ARG_ISSTRING("split", argv, 0);
   const char *sep = ",";
   const char *strp = " ";
   if (argc >= 2) {
-    VALIDATE_ARG_ISSTRING("format", argv, 1);
+    VALIDATE_ARG_ISSTRING("split", argv, 1);
     sep = RSValue_StringPtrLen(argv[1], NULL);
   }
   if (argc == 3) {
-    VALIDATE_ARG_ISSTRING("format", argv, 2);
+    VALIDATE_ARG_ISSTRING("split", argv, 2);
     strp = RSValue_StringPtrLen(argv[2], NULL);
   }
 
@@ -292,14 +292,9 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     tok = next + 1;
   }
 
-  // if (len > 0) {
-  //   tmp[l++] = RS_ConstStringVal(tok, len);
-  // }
+  RSValue **vals = rm_malloc(l * sizeof(*vals));
+  memcpy(vals, tmp, l * sizeof(*vals));
 
-  RSValue **vals = rm_calloc(l, sizeof(*vals));
-  for (size_t i = 0; i < l; i++) {
-    vals[i] = tmp[i];
-  }
   RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
