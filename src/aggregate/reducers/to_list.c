@@ -54,7 +54,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   char *c;
   tm_len_t l;
   RSValue *val;
-  RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue **arr = rm_malloc(tlc->values->cardinality * sizeof(RSValue*));
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, (void **)&val)) {
     if (val) {
