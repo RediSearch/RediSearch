@@ -272,7 +272,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   char *tok = str;
 
   // extract at most 1024 values
-  static RSValue *tmp[1024];
+  RSValue *tmp[1024];
   while (l < 1024 && tok < ep) {
     next = strpbrk(tok, sep);
     size_t sl = next ? (next - tok) : ep - tok;
