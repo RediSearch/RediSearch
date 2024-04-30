@@ -393,36 +393,6 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   return arr;
 }
 
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
-  RSValue *arr = RS_NewValue(RSValue_Array);
-  RSValue **list;
-  if (options & RSVAL_ARRAY_ALLOC) {
-    list = vals;
-  } else {
-    list = rm_malloc(sizeof(*list) * n);
-  }
-
-  arr->arrval.vals = list;
-
-  if (!vals) {
-    arr->arrval.len = 0;
-  } else {
-    arr->arrval.len = n;
-    for (size_t ii = 0; ii < n; ++ii) {
-      RSValue *v = vals[ii];
-      list[ii] = v;
-      if (!v) {
-        continue;
-      }
-      if (!(options & RSVAL_ARRAY_NOINCREF)) {
-        RSValue_IncrRef(v);
-      }
-    }
-  }
-
-  return arr;
-}
-
 RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
   RSValue *map = RS_NewValue(RSValue_Map);
   map->mapval.pairs = pairs;

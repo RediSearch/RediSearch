@@ -53,16 +53,16 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
   char *c;
   tm_len_t l;
-  void *ptr;
+  RSValue *val;
   RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
   size_t i = 0;
-  while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
-    if (ptr) {
-      arr[i++] = ptr;
+  while (TrieMapIterator_Next(it, &c, &l, (void **)&val)) {
+    if (val) {
+      arr[i++] = RSValue_IncrRef(val);
     }
   }
 
-  RSValue *ret = RSValue_NewArrayEx(arr, i, RSVAL_ARRAY_ALLOC);
+  RSValue *ret = RSValue_NewArray(arr, i);
   TrieMapIterator_Free(it);
   return ret;
 }

@@ -360,19 +360,6 @@ RSValue *RS_NumVal(double n);
 
 RSValue *RS_Int64Val(int64_t ii);
 
-/* Don't increment the refcount of the children */
-#define RSVAL_ARRAY_NOINCREF 0x01
-/* Alloc the underlying array. Absence means the previous array is used */
-#define RSVAL_ARRAY_ALLOC 0x02
-
-/**
- * Create a new array
- * @param vals the values to use for the array. If NULL, the array is allocated
- * as empty, but with enough *capacity* for these values
- * @param options RSVAL_ARRAY_*
- */
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
-
 /**
  * Create a new array from existing values
  * Take ownership of the values (values would be freed when array is freed)

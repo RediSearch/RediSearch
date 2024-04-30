@@ -21,7 +21,7 @@ static void *sampleNewInstance(Reducer *base) {
   size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
   rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), blocksize);
   ctx->seen = 0;
-  ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
+  ctx->samplesArray = RSValue_NewArray(rm_malloc(sizeof(RSValue *) * r->len), 0);
   return ctx;
 }
 
