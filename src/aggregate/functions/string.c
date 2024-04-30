@@ -43,7 +43,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
-      RSValue *v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      RSValue *v = RSValue_NewArray(arr, n);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
@@ -300,7 +300,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   for (size_t i = 0; i < l; i++) {
     vals[i] = tmp[i];
   }
-  RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+  RSValue *ret = RSValue_NewArray(vals, l);
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
 }

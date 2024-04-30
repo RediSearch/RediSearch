@@ -109,9 +109,7 @@ void RSValue_Clear(RSValue *v) {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_Decref(v->arrval.vals[i]);
       }
-      if (!v->arrval.staticarray) {
-        rm_free(v->arrval.vals);
-      }
+      rm_free(v->arrval.vals);
       break;
     case RSValue_Map:
       for (uint32_t i = 0; i < v->mapval.len; i++) {
@@ -392,7 +390,6 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   RSValue *arr = RS_NewValue(RSValue_Array);
   arr->arrval.vals = vals;
   arr->arrval.len = len;
-  arr->arrval.staticarray = 0;
   return arr;
 }
 
@@ -406,12 +403,6 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   }
 
   arr->arrval.vals = list;
-
-  if (options & RSVAL_ARRAY_STATIC) {
-    arr->arrval.staticarray = 1;
-  } else {
-    arr->arrval.staticarray = 0;
-  }
 
   if (!vals) {
     arr->arrval.len = 0;
@@ -448,7 +439,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
     arr[i] = RS_StringValC(p);
   }
   va_end(ap);
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
@@ -458,7 +449,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
@@ -467,7 +458,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};

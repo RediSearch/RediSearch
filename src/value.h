@@ -88,13 +88,7 @@ typedef struct RSValue {
     // array value
     struct {
       struct RSValue **vals;
-      uint32_t len : 31;
-
-      /**
-       * Whether the storage space of the array itself
-       * should be freed
-       */
-      uint8_t staticarray : 1;
+      uint32_t len;
     } arrval;
 
     // map value
@@ -370,8 +364,6 @@ RSValue *RS_Int64Val(int64_t ii);
 #define RSVAL_ARRAY_NOINCREF 0x01
 /* Alloc the underlying array. Absence means the previous array is used */
 #define RSVAL_ARRAY_ALLOC 0x02
-/* Don't free the underlying list when the array is freed */
-#define RSVAL_ARRAY_STATIC 0x04
 
 /**
  * Create a new array

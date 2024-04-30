@@ -481,7 +481,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       ret = RSValue_NewArray(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
+      ret = RSValue_NewArray(NULL, 0);
     }
   } else {
     // Scalar
@@ -507,7 +507,7 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
     ret = RSValue_NewArray(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArrayEx(NULL, 0, RSVAL_ARRAY_ALLOC);
+    ret = RSValue_NewArray(NULL, 0);
   }
   return ret;
 }
