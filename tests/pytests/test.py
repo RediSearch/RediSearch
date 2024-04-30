@@ -633,7 +633,8 @@ def testExplain(env):
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
 
 
-    # test numeric operators - they are only supported in DIALECT 2
+    # test numeric operators - they are only supported in DIALECT 5
+    env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
     
     _testExplain(env, 'idx', ['@bar>1'],
                  'NUMERIC {1.000000 < @bar <= inf}\n')

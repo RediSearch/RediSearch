@@ -29,9 +29,9 @@ void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 machine query;
 
-inf = ('+'|'-')? 'inf'i $ 4;
+inf = 'inf'i $ 4;
 size = digit+ $ 2;
-number = ('+'|'-')? digit+('.' digit+)? (('E'|'e') ('+'|'-')? digit+)? $ 3;
+number = digit+('.' digit+)? (('E'|'e') ('+'|'-')? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -76,6 +76,7 @@ main := |*
     tok.len = te-ts;
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
+    printf("size %.*s == %f\n", (int)(te-ts), ts, tok.numval);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -87,6 +88,7 @@ main := |*
     tok.len = te-ts;
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
+    printf("number %.*s == %f\n", (int)(te-ts), ts, tok.numval);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {

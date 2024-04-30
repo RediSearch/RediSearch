@@ -1296,15 +1296,30 @@ num(A) ::= SIZE(B). {
   A.inclusive = 1;
 }
 
+num(A) ::= PLUS SIZE(B). {
+  A.num = B.numval;
+  A.inclusive = 1;
+}
+
+num(A) ::= MINUS SIZE(B). {
+  A.num = -1*B.numval;
+  A.inclusive = 1;
+}
+
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
   A.inclusive = 1;
 }
 
-// num(A) ::= LP num(B). {
-//   A=B;
-//   A.inclusive = 0;
-// }
+num(A) ::= PLUS NUMBER(B). {
+  A.num = B.numval;
+  A.inclusive = 1;
+}
+
+num(A) ::= MINUS NUMBER(B). {
+  A.num = -1*B.numval;
+  A.inclusive = 1;
+}
 
 term(A) ::= TERM(B) . {
   A = B;

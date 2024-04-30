@@ -411,29 +411,30 @@ def testNumericOperators(env):
     env.assertEqual(conn.execute_command('HSET', 'key12', 'n', '-inf'), 1)
 
     # Test >= and <=
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT')
-    # TODO: Check if dialect 5 should return the count of the results
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>= + 12 @n<=+  14', 'NOCONTENT')
+    # TODO: Support spaces between the sign and the number
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>= + 12 @n<=+  14', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<=$max',
-                   'NOCONTENT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<=$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= + $max',
-                   'NOCONTENT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= + $max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<=3.14', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key8'])
 
     # Test > and <=
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n>12 @n<=14', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key3', 'key4'])
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>$min @n<=$max', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '12', 'max', '14')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$min @n<=+$max', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '12', 'max', '14')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>0 @n<=3.14', 'NOCONTENT')
@@ -443,17 +444,20 @@ def testNumericOperators(env):
     env.assertEqual(res1, [0])
 
     # Test >= and <
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<14', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key2', 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< + 14', 'NOCONTENT')
+    # TODO: Support spaces between the sign and the number
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< + 14', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<$max', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '12', 'max', '14')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n< +$max', 'NOCONTENT',
-                   'PARAMS', '4', 'min', '12', 'max', '14')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<11.5', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<11.5', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [2, 'key1', 'key8'])
 
     # Test > and <
@@ -503,12 +507,12 @@ def testNumericOperators(env):
     env.assertEqual(res2, res1)
 
     # Test >= +inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=inf', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=inf', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key10', 'key11'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 'WITHCOUNT',
                    'PARAMS', 2, 'p', '+inf')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 'WITHCOUNT',
                    'PARAMS', 2, 'p', 'inf')
     env.assertEqual(res2, res1)
     
@@ -597,7 +601,8 @@ def testNumericOperators(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@n==-11', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key7'])
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-11 | @n==-10', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-11 | @n==-10', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [2, 'key6', 'key7'])
 
     # Test == double number
@@ -619,17 +624,17 @@ def testNumericOperators(env):
     env.assertEqual(res2, res1)
 
     # Test == +inf
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n==inf', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==inf', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key10', 'key11'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[inf inf]', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[inf inf]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n==+inf', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==+inf', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'PARAMS', 2,
-                   'n', 'inf')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'n', 'inf')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'PARAMS', 2,
-                   'n', '+inf')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'n', '+inf')
     env.assertEqual(res2, res1)
 
     # Test == -inf
@@ -661,8 +666,10 @@ def testNumericOperators(env):
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key9', 'key1', 'key2',
                            'key3', 'key4', 'key5', 'key10', 'key11'])
+    # TODO: Crash if LIMIT 0 20 is added without WITHCOUNT?
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (3.14] | @n:[(3.14 +inf]',
-                   'NOCONTENT', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
+                   'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT',
                    'PARAMS', 2, 'n', '3.14', 'LIMIT', 0, 20,
@@ -673,8 +680,9 @@ def testNumericOperators(env):
                    'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key8', 'key1', 'key2',
                            'key3', 'key4', 'key5', 'key10', 'key11'])
+    # TODO: Crash if LIMIT 0 20 is added without WITHCOUNT?
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (-3.14] | @n:[(-3.14 +inf]',
-                   'NOCONTENT', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
+                   'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT',
                    'PARAMS', 2, 'n', '-3.14', 'LIMIT', 0, 20,
@@ -714,14 +722,18 @@ def testNumericOperators(env):
     env.assertEqual(res2, res1)
 
     # Test range and operator in the same query
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n==3.14 | @n:[10 13]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==3.14 | @n:[10 13]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [4, 'key1', 'key2', 'key3', 'key8'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[3.14 3.14] | @n>=10 @n<=13', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[3.14 3.14] | @n>=10 @n<=13',
+                   'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, res1)
 
-    res1 = env.cmd('FT.SEARCH', 'idx', '@n==11 | @n:[10 13]', 'NOCONTENT')
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==11 | @n:[10 13]', 'NOCONTENT',
+                   'WITHCOUNT')
     env.assertEqual(res1, [3, 'key1', 'key2', 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[11 11] | @n>=10 @n<=13', 'NOCONTENT')
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[11 11] | @n>=10 @n<=13',
+                   'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, res1)
 
     # Test contradiction query
