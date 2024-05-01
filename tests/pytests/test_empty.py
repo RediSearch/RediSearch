@@ -575,16 +575,45 @@ def testEmptyText():
             ''
         ]
 
+        # ----------------------------- Fuzzy search ---------------------------
+        # We don't expect to get empty results in a fuzzy search.
+        cmd = f'FT.SEARCH {idx} %e%'.split(' ')
+        expected = [0]
+        cmd_assert(env, cmd, expected)
+
+        # ------------------------------- Summarization ------------------------
+        # When searching for such a query, we expect to get an empty value, and
+        # thus an "empty summary".
+        cmd = f'FT.SEARCH {idx} isempty(@t) SUMMARIZE FIELDS 1 t FRAGS 3 LEN 10'.split(' ')
+        expected = [
+            1,
+            "h1",
+            [
+                "t",
+                "... "
+            ]
+        ]
+        cmd_assert(env, cmd, expected)
+
+        # ---------------------------- Highlighting ----------------------------
+        # When searching for such a query, we expect to get an empty value, and
+        # thus an "empty highlight".
+        cmd = f'FT.SEARCH {idx} isempty(@t) HIGHLIGHT FIELDS 1 t'.split(' ')
+        expected = [
+            1,
+            "h1",
+            [
+                "t",
+                "<b></b>"
+            ]
+        ]
+        cmd_assert(env, cmd, expected)
+
         # TBD:
             # More complex queries - check EXPLAINCLI output
-            # Fuzzy
-            # Phonetic
-            # Stemming
-            # Exact match
             # Use in aggregation pipelines
-            # Infix (*lala*) (contains)
-            # Summarization
-            # Highlighting
+            # Phonetic?
+            # Stemming?
             # Scoring?
             # Synonyms?
 

@@ -1102,6 +1102,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
+  // TODO: Why is this masking performed?
   sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
   return 0;
 }
