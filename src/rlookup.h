@@ -72,8 +72,7 @@ typedef struct RLookupKey {
   uint16_t svidx;
 
   /**
-   * Can be F_SVSRC which means the target array is a sorting vector, or
-   * F_OUTPUT which means that the t
+   * Can be F_SVSRC which means the target array is a sorting vector)
    */
   uint32_t flags;
 
@@ -81,8 +80,6 @@ typedef struct RLookupKey {
    *  path AS name */
   const char *path;
   const char *name;
-
-  /** Size of this field */
   size_t name_len;
 
   /** Pointer to next field in the list */

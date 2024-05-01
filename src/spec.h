@@ -536,7 +536,7 @@ void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);

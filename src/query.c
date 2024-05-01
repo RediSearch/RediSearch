@@ -605,7 +605,6 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
-
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                            runeIterCb, &ctx, &q->sctx->timeout);
   }
@@ -752,7 +751,6 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  // rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;
@@ -806,10 +804,6 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_PHRASE) {
-    // printf("Not a phrase node!\n");
-    return NULL;
-  }
   QueryPhraseNode *node = &qn->pn;
   // an intersect stage with one child is the same as the child, so we just
   // return it
@@ -827,7 +821,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
@@ -844,7 +838,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
       slop = __INT_MAX__;
     }
 
-    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
@@ -1723,7 +1717,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      s = sdscatprintf(s, "%s%s", strcmp(qs->tn.str, "") == 0 ? "<ISEMPTY>" : qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }

@@ -1930,6 +1930,17 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
         yymsp[-3].minor.yy19 = NewTagNode(s, slen);
         yymsp[-3].minor.yy19->tag.nen = NON_EXIST_EMPTY;
         break;
+      case INDEXFLD_T_FULLTEXT:
+        {
+          // yymsp[-3].minor.yy19->opts.fieldMask |= yymsp[-1].minor.yy0->opts.fieldMask;
+          char *empty_str = rm_strdup("");    // TODO: Can we avoid the allocation?
+          yymsp[-3].minor.yy19 = NewTokenNode(ctx, empty_str, 0);
+          QueryNode_SetFieldMask(yymsp[-3].minor.yy19, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
+          yymsp[-3].minor.yy19->tn.nen = NON_EXIST_EMPTY;
+          // Avoid any expansions
+          yymsp[-3].minor.yy19->opts.flags |= QueryNode_Verbatim;
+          break;
+        }
       default:
         reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Unsupported field type for ISEMPTY");
         yymsp[-3].minor.yy19 = NULL;

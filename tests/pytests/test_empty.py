@@ -568,6 +568,13 @@ def testEmptyText():
         cmd_assert(env, cmd, expected)
         conn.execute_command('DEL', 'h2')
 
+        # --------------------------- EXPLAINCLI -------------------------------
+        cmd = f'FT.EXPLAINCLI {idx} isempty(@t)'.split(' ')
+        expected = [
+            '@t:<ISEMPTY>',
+            ''
+        ]
+
         # TBD:
             # More complex queries - check EXPLAINCLI output
             # Fuzzy

@@ -300,35 +300,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 /* Open the tag index */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
-  TagIndex *ret = NULL;
-  if (!sctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-    if (!keyp) {
-      keyp = &key_s;
-    }
-
-    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
-                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
-
-    int type = RedisModule_KeyType(*keyp);
-    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      if (openWrite) {
-        ret = NewTagIndex();
-        RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
-      }
-    } else {
-      ret = RedisModule_ModuleTypeGetValue(*keyp);
-    }
-  } else {
-    ret = openTagKeyDict(sctx, formattedKey, openWrite);
-  }
-
-  return ret;
+  return openTagKeyDict(sctx, formattedKey, openWrite);
 }
 
 /* Serialize all the tags in the index to the redis client */

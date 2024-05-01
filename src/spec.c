@@ -367,17 +367,18 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
+  // Create the IndexSpec, along with its corresponding weak\strong refs
   StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
   }
 
-  // Sets weak and strong references to the spec, then pass it to the spec dictionary
-
+  // Add the spec to the global spec dictionary
   dictAdd(specDict_g, (char *)specName, spec_ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
+
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
@@ -862,6 +863,7 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
   } else {
     fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
   }
+  return 1;
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
@@ -1227,13 +1229,12 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 }
 
 // Assuming the spec is properly locked for writing before calling this function.
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
+void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
   if (isNew) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
   }
-  return isNew;
 }
 
 // For testing purposes only
@@ -1585,8 +1586,6 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex_FormatName(&sctx, fs->name);
         break;
       case INDEXFLD_T_VECTOR:
-        // TODO: remove the whole thing
-        // NOT NECESSARY ANYMORE - used when field were in keyspace
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
       case INDEXFLD_T_GEOMETRY:
@@ -1962,8 +1961,6 @@ static IndexesScanner *IndexesScanner_NewGlobal() {
 static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = false;
-  scanner->scannedKeys = 0;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   scanner->spec_ref = StrongRef_Demote(global_ref);
