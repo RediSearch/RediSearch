@@ -1611,15 +1611,11 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
-    if (reply->resp3) {
-      RedisModule_Reply_Array(reply);
-    }
+    RedisModule_Reply_Array(reply);
       for (int i = 0; i < ui->norig; i++) {
         printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
       }
-    if (reply->resp3) {
-      RedisModule_Reply_ArrayEnd(reply);
-    }
+    RedisModule_Reply_ArrayEnd(reply);
   } else {
     RedisModule_Reply_Stringf(reply, "The number of iterators in the union is %d", ui->norig);
   }
@@ -1640,10 +1636,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
   printProfileCounter(counter);
 
-  RedisModule_Reply_SimpleString(reply, "Child iterators");
-  if (reply->resp3) {
-    RedisModule_Reply_Array(reply);
-  }
+  RedisModule_ReplyKV_Array(reply, "Child iterators");
     for (int i = 0; i < ii->num; i++) {
       if (ii->its[i]) {
         printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
@@ -1651,9 +1644,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
         RedisModule_Reply_Null(reply);
       }
     }
-  if (reply->resp3) {
-    RedisModule_Reply_ArrayEnd(reply);
-  }
+  RedisModule_Reply_ArrayEnd(reply);
 
   RedisModule_Reply_MapEnd(reply);
 }

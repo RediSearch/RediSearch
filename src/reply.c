@@ -297,6 +297,18 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
+  if (reply->resp3) {
+    json_add(reply, false, "{}");
+    RedisModule_ReplyWithMap(reply->ctx, 0);
+  } else {
+    json_add(reply, false, "[]");
+    RedisModule_ReplyWithArray(reply->ctx, 0);
+  }
+  _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_Set(RedisModule_Reply *reply) {
   int type;
   if (reply->resp3) {
@@ -342,22 +354,7 @@ int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long
 
 int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val) {
   RedisModule_ReplyWithSimpleString(reply->ctx, key);
-#if 1
   RedisModule_ReplyWithDouble(reply->ctx, val);
-#else
-  if (reply->resp3) {
-    int c = fpclassify(val);
-    if (c == FP_INFINITE) {
-      RedisModule_ReplyWithSimpleString(reply->ctx, "inf");
-    } else if (c == FP_NAN) {
-      RedisModule_ReplyWithSimpleString(reply->ctx, "nan");
-    } else {
-      RedisModule_ReplyWithDouble(reply->ctx, val);
-    }
-  } else {
-    RedisModule_ReplyWithDouble(reply->ctx, val);
-  }
-#endif
   json_add(reply, false, "\"%s\"", key);
   _RedisModule_Reply_Next(reply);
   json_add(reply, false, "%f", val);
