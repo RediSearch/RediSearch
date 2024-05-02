@@ -122,6 +122,10 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 2).contains('INFIX{*1*}')
     env.expect('FT.EXPLAIN', 'idx', "*1*", 'DIALECT', 5).contains('INFIX{*1*}')
 
+    env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 1).contains('UNION {\n  abc\n  +abc(expanded)\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 2).contains('UNION {\n  abc\n  +abc(expanded)\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 5).contains('Syntax error')
+
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
     expected = [
       'INTERSECT {',                                                                                                                                 
