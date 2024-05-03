@@ -102,7 +102,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(2, "(*)");
   assertValidQuery_v(5, "(*)");
 
-  // params are avalible from version 2.
+  // params are available from version 2.
   assertInvalidQuery_v(1, "$hello");
   assertValidQuery_v(2, "$hello");
   assertValidQuery_v(5, "$hello");
@@ -120,7 +120,6 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(5, "@title:@num:[0 10]");
   assertInvalidQuery_v(5, "@title:(@num:[0 10])");
   assertInvalidQuery_v(5, "@t1:@t2:@t3:hello");
-
 
   // minor bug in v1
   assertValidQuery_v(1, "@title:{foo}}}}}");
@@ -145,6 +144,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(5, "-@foo:as");
 
   // From version 5, punctuation chars are not ignored, they should be escaped
+  // to be part of the term
   assertValidQuery_v(1,"hello world&good");
   assertValidQuery_v(2,"hello world&good");
   assertInvalidQuery_v(5,"hello world&good");
@@ -446,15 +446,17 @@ TEST_F(QueryTest, testParser_v3) {
   // Tag queries
   assertValidQuery("@tags:{foo}", ctx);
   assertValidQuery("@tags:{foo|bar baz|boo}", ctx);
-  assertValidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
+  assertInvalidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
   assertValidQuery("@tags:{foo*}", ctx);
   assertValidQuery("@tags:{foo\\-*}", ctx);
   assertValidQuery("@tags:{bar | foo*}", ctx);
-  assertValidQuery("@tags:{bar* | foo}", ctx);
-  assertValidQuery("@tags:{bar* | foo*}", ctx);
+  assertInvalidQuery("@tags:{bar* | foo}", ctx);
+  assertValidQuery("@tags:{bar*} | @tags:{foo}", ctx);
+  assertInvalidQuery("@tags:{bar* | foo*}", ctx);
+  assertValidQuery("@tags:{bar*} | @tags:{foo*}", ctx);
 
   assertInvalidQuery("@title:{foo}}}}}", ctx);
-  assertInvalidQuery("@title:{{{{{foo}", ctx);
+  assertValidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
   assertInvalidQuery("{foo|bar\\ baz}", ctx);
@@ -548,7 +550,8 @@ TEST_F(QueryTest, testParser_v3) {
   assertValidQuery("@hello:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertInvalidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@tags:{bar*} | @tags:{foo})=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
 
   // Invalid complex queries with hybrid vector

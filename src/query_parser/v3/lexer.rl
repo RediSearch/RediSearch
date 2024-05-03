@@ -653,6 +653,19 @@ main := |*
     }
   };
 
+  wildcard => {
+    int is_attr = (*(ts+2) == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
+    tok.pos = ts-q->raw + 2;
+    tok.len = te - (ts + 3 + is_attr);
+    tok.s = ts + 2 + is_attr;
+    tok.numval = 0;
+    RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  
 *|;
 }%%
 

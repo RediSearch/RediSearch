@@ -1070,19 +1070,6 @@ def testTagAutoescaping(env):
     env.assertEqual(res, [1, '{doc}:13'])
 
     # Test wildcard
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
-    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
-
-    # TODO: Check if this is valid syntax
-    # res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
-    # env.assertEqual(res, res2)
-
-    # res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'  }")
-    # env.assertEqual(res, res2)
-
-    # res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{     w'?*1'  }")
-    # env.assertEqual(res, res2)
-
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
 
@@ -1098,6 +1085,19 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
+
+    # wildcard with leading and trailing spaces are valid, spaces are ignored
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
+    
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
+    env.assertEqual(res, res2)
+
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'  }")
+    env.assertEqual(res, res2)
+
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{     w'?*1'  }")
+    env.assertEqual(res, res2)
 
     # Test escaped wildcards which become tags
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}")
@@ -1203,12 +1203,6 @@ def testDialect5InvalidSyntax(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
                'NUMERIC', 'SORTABLE').ok()
-
-    with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.EXPLAIN', 'idx', "@tag:{ w'?*1'}")
-
-    with env.assertResponseError(contained='Syntax error'):
-        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1' }")
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?*1'}")
