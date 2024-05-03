@@ -2485,6 +2485,7 @@ yylhsminor.yy131 = yymsp[0].minor.yy131;
   yymsp[-2].minor.yy131 = yylhsminor.yy131;
         break;
       case 103: /* num ::= SIZE */
+      case 106: /* num ::= NUMBER */ yytestcase(yyruleno==106);
 {
   yylhsminor.yy59.num = yymsp[0].minor.yy0.numval;
   yylhsminor.yy59.inclusive = 1;
@@ -2492,35 +2493,15 @@ yylhsminor.yy131 = yymsp[0].minor.yy131;
   yymsp[0].minor.yy59 = yylhsminor.yy59;
         break;
       case 104: /* num ::= PLUS SIZE */
+      case 107: /* num ::= PLUS NUMBER */ yytestcase(yyruleno==107);
 {
   yymsp[-1].minor.yy59.num = yymsp[0].minor.yy0.numval;
   yymsp[-1].minor.yy59.inclusive = 1;
 }
         break;
       case 105: /* num ::= MINUS SIZE */
+      case 108: /* num ::= MINUS NUMBER */ yytestcase(yyruleno==108);
 {
-  yymsp[-1].minor.yy59.num = -1*yymsp[0].minor.yy0.numval;
-  yymsp[-1].minor.yy59.inclusive = 1;
-}
-        break;
-      case 106: /* num ::= NUMBER */
-{
-  printf("NUM: %f\n", yymsp[0].minor.yy0.numval);
-  yylhsminor.yy59.num = yymsp[0].minor.yy0.numval;
-  yylhsminor.yy59.inclusive = 1;
-}
-  yymsp[0].minor.yy59 = yylhsminor.yy59;
-        break;
-      case 107: /* num ::= PLUS NUMBER */
-{
-  printf("NUM: %f\n", yymsp[0].minor.yy0.numval);
-  yymsp[-1].minor.yy59.num = yymsp[0].minor.yy0.numval;
-  yymsp[-1].minor.yy59.inclusive = 1;
-}
-        break;
-      case 108: /* num ::= MINUS NUMBER */
-{
-  printf("NUM: %f\n", yymsp[0].minor.yy0.numval);
   yymsp[-1].minor.yy59.num = -1*yymsp[0].minor.yy0.numval;
   yymsp[-1].minor.yy59.inclusive = 1;
 }

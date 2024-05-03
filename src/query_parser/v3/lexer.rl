@@ -76,7 +76,6 @@ main := |*
     tok.len = te-ts;
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
-    printf("size %.*s == %f\n", (int)(te-ts), ts, tok.numval);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -88,7 +87,6 @@ main := |*
     tok.len = te-ts;
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
-    printf("number %.*s == %f\n", (int)(te-ts), ts, tok.numval);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {
