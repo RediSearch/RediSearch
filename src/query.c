@@ -292,6 +292,7 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
+  ret->tag.nen = NON_EXIST_NONE;
   return ret;
 }
 
@@ -555,7 +556,7 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
@@ -613,6 +614,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  // TODO: This should be a single iterator.
+  // } else if (ctx.nits == 1) {
+  //   // In case of a single iterator, we can just return it
+  //   return ctx.its[0];
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
@@ -1051,7 +1056,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     return NULL;
   }
 
-  // we allow a minimum of 2 letters in the prefx by default (configurable)
+  // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
@@ -1248,7 +1253,6 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
-
   if (n->tn.str) {
     tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
   }
@@ -1313,9 +1317,19 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!idx) {
     goto done;
   }
-  // a union stage with one child is the same as the child, so we just return it
-  if (QueryNode_NumChildren(qn) == 1) {
+  if (qn->tag.nen == NON_EXIST_EMPTY) {
+    // Tag node searching for empty strings (0 children)
+    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
+    if (ret) {
+      *array_ensure_tail(&total_its, IndexIterator *) = ret;
+    }
+  } else if (QueryNode_NumChildren(qn) == 1) {
+    // a union stage with one child is the same as the child, so we just return it
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
+  }
+
+  if (QueryNode_NumChildren(qn) < 2) {
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1706,7 +1720,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
         s = QueryNode_DumpSds(s, spec, qs->children[ii], depth + 1);
       }
       s = doPad(s, depth);
-
+      s = sdscat(s, "}");
       break;
     case QN_TOKEN:
       s = sdscatprintf(s, "%s%s", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
@@ -1718,16 +1732,16 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_PREFIX:
       if(qs->pfx.prefix && qs->pfx.suffix) {
-        s = sdscatprintf(s, "INFIX{*%s*", (char *)qs->pfx.tok.str);
+        s = sdscatprintf(s, "INFIX{*%s*}", (char *)qs->pfx.tok.str);
       } else if (qs->pfx.suffix) {
-        s = sdscatprintf(s, "SUFFIX{*%s", (char *)qs->pfx.tok.str);
+        s = sdscatprintf(s, "SUFFIX{*%s}", (char *)qs->pfx.tok.str);
       } else {
-        s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.tok.str);
+        s = sdscatprintf(s, "PREFIX{%s*}", (char *)qs->pfx.tok.str);
       }
       break;
 
     case QN_LEXRANGE:
-      s = sdscatprintf(s, "LEXRANGE{%s...%s", qs->lxrng.begin ? qs->lxrng.begin : "",
+      s = sdscatprintf(s, "LEXRANGE{%s...%s}", qs->lxrng.begin ? qs->lxrng.begin : "",
                        qs->lxrng.end ? qs->lxrng.end : "");
       break;
 
@@ -1735,32 +1749,41 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "NOT{\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      s = sdscat(s, "}");
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      s = sdscat(s, "}");
       break;
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
-      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", f->min, f->inclusiveMin ? "<=" : "<",
+      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
                        f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
+      s = sdscat(s, "}");
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      if (qs->tag.nen == NON_EXIST_EMPTY) {
+        s = doPad(s, depth + 1);
+        s = sdscat(s, "<ISEMPTY>\n");
+      } else {
+        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      }
       s = doPad(s, depth);
+      s = sdscat(s, "}");
       break;
     case QN_GEO:
 
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", qs->gn.gf->property, qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->property, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
@@ -1770,6 +1793,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
       }
+      s = sdscat(s, "}");
       break;
     case QN_VECTOR:
       s = sdscat(s, "VECTOR {");
@@ -1814,25 +1838,25 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       if (qs->vn.vq->scoreField) {
         s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
       }
+      s = sdscat(s, "}"); // end of VECTOR
       break;
     case QN_WILDCARD:
       s = sdscat(s, "<WILDCARD>");
       break;
     case QN_FUZZY:
-      s = sdscatprintf(s, "FUZZY{%s}\n", qs->fz.tok.str);
-      return s;
+      s = sdscatprintf(s, "FUZZY{%s}", qs->fz.tok.str);
+      break;
     case QN_WILDCARD_QUERY:
-      s = sdscatprintf(s, "WILDCARD{%s}\n", qs->verb.tok.str);
+      s = sdscatprintf(s, "WILDCARD{%s}", qs->verb.tok.str);
       break;
     case QN_NULL:
       s = sdscat(s, "<empty>");
       break;
     case QN_GEOMETRY:
-      s = sdscatprintf(s, "GEOSHAPE{%d %s}\n", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
   }
 
-  s = sdscat(s, "}");
   // print attributes if not the default
   if (qs->opts.weight != 1 || qs->opts.maxSlop != -1 || qs->opts.inOrder) {
     s = sdscat(s, " => {");
@@ -2017,5 +2041,4 @@ int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, boo
   } else {
     return 1;
   }
-
 }

@@ -61,6 +61,23 @@ CONFIG_GETTER(getMinPrefix) {
   return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
 }
 
+// MINSTEMLEN
+CONFIG_SETTER(setMinStemLen) {
+  unsigned int minStemLen;
+  int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
+  if (minStemLen < MIN_MIN_STEM_LENGHT) {
+    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
+    return REDISMODULE_ERR;
+  }
+  config->iteratorsConfigParams.minStemLength = minStemLen;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMinStemLen) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minStemLength);
+}
+
 CONFIG_SETTER(setForkGCSleep) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -232,10 +249,11 @@ CONFIG_GETTER(getFrisoINI) {
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
+  size_t len;
   const char *policy;
-  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  int acrc = AC_GetString(ac, &policy, &len, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, strlen(policy));
+  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
   }
@@ -581,6 +599,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
          .getValue = getMinPrefix},
+        {.name = "MINSTEMLEN",
+         .helpText = "Set the minimum word length to stem (default 4)",
+         .setValue = setMinStemLen,
+         .getValue = getMinStemLen},
         {.name = "FORKGC_SLEEP_BEFORE_EXIT",
          .helpText = "set the amount of seconds for the fork GC to sleep before exists, should "
                      "always be set to 0 (other then on tests).",
@@ -672,7 +694,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getForkGcInterval},
         {.name = "FORK_GC_CLEAN_THRESHOLD",
          .helpText = "the fork gc will only start to clean when the number of not cleaned document "
-                     "will acceded this threshold",
+                     "will exceed this threshold",
          .setValue = setForkGcCleanThreshold,
          .getValue = getForkGcCleanThreshold},
         {.name = "FORK_GC_RETRY_INTERVAL",
@@ -781,6 +803,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
@@ -890,6 +913,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
   RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
   RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
+  RedisModule_InfoAddFieldLongLong(ctx, "minimal_stem_length", RSGlobalConfig.iteratorsConfigParams.minStemLength);
   RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
   RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
   RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
@@ -925,9 +949,9 @@ const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
 }
 
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
-  if (!strncasecmp(s, "RETURN", n)) {
+  if (STR_EQCASE(s, n, "RETURN")) {
     return TimeoutPolicy_Return;
-  } else if (!strncasecmp(s, "FAIL", n)) {
+  } else if (STR_EQCASE(s, n, "FAIL")) {
     return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;

@@ -259,6 +259,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
 
+    if (arng->limit == 0 && arng->offset != 0) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+      return ARG_ERROR;
+    }
+
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
@@ -568,7 +573,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = RSLanguage_Find(languageStr, 0);
+  // if language is NULL, set it to RS_LANG_UNSET and it will be updated
+  // later, taking the index language
+  if(languageStr == NULL) {
+    searchOpts->language = RS_LANG_UNSET;
+  } else {
+    searchOpts->language = RSLanguage_Find(languageStr, 0);
+  }
 
   if (AC_IsInitialized(&returnFields)) {
     if(!ensureSimpleMode(req)) {
@@ -859,7 +870,7 @@ AREQ *AREQ_New(void) {
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
-  req->profile = Profile_Print;
+  req->profile = Profile_PrintDefault;
   return req;
 }
 
@@ -986,10 +997,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if (opts->language == RS_LANG_UNSUPPORTED) {
+  if (opts->language == RS_LANG_UNSET) {
+    opts->language = index->rule->lang_default;
+  } else if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;
   }
+
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;

@@ -12,13 +12,6 @@
 #include <string.h>
 #include <strings.h>
 
-typedef struct suffixData {
-  // int wordExists; // exact match to string exists already
-  // rune *rune;
-  char *term;             // string is used in the array of all suffix tokens
-  arrayof(char *) array;   // list of words containing the string. weak pointers
-} suffixData;
-
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL
 
@@ -51,7 +44,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
   suffixData *data = NULL;
-  if (trienode && trienode->payload) {
+  if (trienode) {
     // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
@@ -77,7 +70,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
     TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
-    
+
     data = Suffix_GetData(trienode);
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
@@ -92,7 +85,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
 static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   for (int i = 0; i < array_len(array); ++i) {
-    if (!strncmp(array[i], str, rlen)) {
+    if (STR_EQ(str, rlen, array[i])) {
       array = array_del_fast(array, i);
       return;
     }
@@ -403,13 +396,9 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
-    // suffix trie is shared between all tag fields in index, even if they don't use it.
-    // if the trie is owned by other fields and not any one containing this suffix,
-    // then failure to find the suffix is not an error. just move along.
-    if (data == TRIEMAP_NOTFOUND) continue;
-    // RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
+    RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {
-      // keep pointer to word string to free after it was found in al sub tokens.
+      // keep pointer to word string to free after it was found in all sub tokens.
       oldTerm = data->term;
       data->term = NULL;
     }
@@ -516,5 +505,5 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
 
 void suffixTrieMap_freeCallback(void *payload) {
   suffixTrie_freeCallback(payload);
-  rm_free(payload);  
+  rm_free(payload);
 }

@@ -7,6 +7,7 @@ on:
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
+  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
 
 jobs:
   coverage:
@@ -24,6 +25,11 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/common_installations.sh sudo
+
+    - name: Install Boost
+      working-directory: .install
+      run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -14,8 +14,6 @@
 #include "redismodule.h"
 #include "reply_macros.h"
 
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
-
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \
@@ -196,6 +194,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (FieldSpec_HasSuffixTrie(fs)) {
       RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
     }
+    if (FieldSpec_IndexesEmpty(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXEMPTY_STR);
+    }
 
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
@@ -205,6 +206,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
+  // Lock the spec
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
 
   REPLY_KVINT("num_docs", sp->stats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
@@ -225,7 +229,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
-  REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  size_t dt_tm_size = TrieMap_MemUsage(sp->docs.dim.tm);
+  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
+  size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
+  REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  size_t text_overhead = IndexSpec_collect_text_overhead(sp);
+  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, dt_tm_size,
+    tags_overhead, text_overhead) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
@@ -256,6 +267,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
+
+  // Unlock spec
+  RedisSearchCtx_UnlockSpec(&sctx);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

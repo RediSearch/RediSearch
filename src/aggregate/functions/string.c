@@ -235,7 +235,7 @@ error:
   return EXPR_EVAL_ERR;
 }
 
-char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
+static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
   char *start, *end, *sp, *ep;
 
   sp = start = s;
@@ -252,15 +252,15 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     QERR_MKBADARGS_FMT(err, "Invalid number of arguments for split");
     return EXPR_EVAL_ERR;
   }
-  VALIDATE_ARG_ISSTRING("format", argv, 0);
+  VALIDATE_ARG_ISSTRING("split", argv, 0);
   const char *sep = ",";
   const char *strp = " ";
   if (argc >= 2) {
-    VALIDATE_ARG_ISSTRING("format", argv, 1);
+    VALIDATE_ARG_ISSTRING("split", argv, 1);
     sep = RSValue_StringPtrLen(argv[1], NULL);
   }
   if (argc == 3) {
-    VALIDATE_ARG_ISSTRING("format", argv, 2);
+    VALIDATE_ARG_ISSTRING("split", argv, 2);
     strp = RSValue_StringPtrLen(argv[2], NULL);
   }
 
@@ -272,7 +272,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   char *tok = str;
 
   // extract at most 1024 values
-  static RSValue *tmp[1024];
+  RSValue *tmp[1024];
   while (l < 1024 && tok < ep) {
     next = strpbrk(tok, sep);
     size_t sl = next ? (next - tok) : ep - tok;
@@ -280,7 +280,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     if (sl > 0) {
       size_t outlen;
       // trim the strip set
-      char *s = strtrim(tok, sl, &outlen, strp);
+      char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
         tmp[l++] = RS_NewCopiedString(s, outlen);
       }
@@ -292,14 +292,9 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
     tok = next + 1;
   }
 
-  // if (len > 0) {
-  //   tmp[l++] = RS_ConstStringVal(tok, len);
-  // }
+  RSValue **vals = rm_malloc(l * sizeof(*vals));
+  memcpy(vals, tmp, l * sizeof(*vals));
 
-  RSValue **vals = rm_calloc(l, sizeof(*vals));
-  for (size_t i = 0; i < l; i++) {
-    vals[i] = tmp[i];
-  }
   RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
@@ -326,9 +321,9 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
 
-  const char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
+  const char *p_str = RSValue_StringPtrLen(str, NULL);
   size_t n;
-  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
+  const char *p_pref = RSValue_StringPtrLen(pref, &n);
   result->t = RSValue_Number;
   result->numval = strncmp(p_pref, p_str, n) == 0;
   return EXPR_EVAL_OK;

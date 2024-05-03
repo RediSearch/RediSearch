@@ -97,11 +97,8 @@ static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
-    if (len != strlen(spec->fields[i].name)) {
-      continue;
-    }
     const FieldSpec *fs = spec->fields + i;
-    if (!strncmp(fs->name, name, len)) {
+    if (STR_EQ(name, len, fs->name)) {
       return fs;
     }
   }
@@ -318,6 +315,46 @@ double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
   }
 }
 
+size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
+  // Traverse the fields and calculates the overhead of the tags
+  size_t overhead = 0;
+  for (size_t i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      overhead += TagIndex_GetOverhead(sp, fs);
+    }
+  }
+  return overhead;
+}
+
+size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
+  // Traverse the fields and calculates the overhead of the text suffixes
+  size_t overhead = 0;
+  // Collect overhead from sp->terms
+  overhead += TrieType_MemUsage(sp->terms);
+  // Collect overhead from sp->suffix
+  if (sp->suffix) {
+    // TODO: Count the values' memory as well
+    overhead += TrieType_MemUsage(sp->suffix);
+  }
+  return overhead;
+}
+
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
+  size_t res = 0;
+  res += sp->docs.memsize;
+  res += sp->docs.sortablesSize;
+  res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
+  res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
+  res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
+  res += sp->stats.invertedSize;
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
+  res += sp->stats.offsetVecsSize;
+  res += sp->stats.termsSize;
+  return res;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
@@ -465,6 +502,8 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
+    } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+        fs->options |= FieldSpec_IndexEmpty;
     } else {
       break;
     }
@@ -482,13 +521,13 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (!strncasecmp(VECSIM_TYPE_FLOAT32, typeStr, len))
+  if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT32))
     *type = VecSimType_FLOAT32;
-  else if (!strncasecmp(VECSIM_TYPE_FLOAT64, typeStr, len))
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT64))
     *type = VecSimType_FLOAT64;
-  // else if (!strncasecmp(VECSIM_TYPE_INT32, typeStr, len))
+  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
-  // else if (!strncasecmp(VECSIM_TYPE_INT64, typeStr, len))
+  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
   //   *type = VecSimType_INT64;
   else
     return AC_ERR_ENOENT;
@@ -499,16 +538,15 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
 // the supported distance metric functions list of VecSim.
 static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   const char *metricStr;
-  size_t len;
   int rc;
-  if ((rc = AC_GetString(ac, &metricStr, &len, 0)) != AC_OK) {
+  if ((rc = AC_GetString(ac, &metricStr, NULL, 0)) != AC_OK) {
     return rc;
   }
-  if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len))
+  if (!strcasecmp(VECSIM_METRIC_IP, metricStr))
     *metric = VecSimMetric_IP;
-  else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len))
+  else if (!strcasecmp(VECSIM_METRIC_L2, metricStr))
     *metric = VecSimMetric_L2;
-  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len))
+  else if (!strcasecmp(VECSIM_METRIC_COSINE, metricStr))
     *metric = VecSimMetric_Cosine;
   else
     return AC_ERR_ENOENT;
@@ -785,13 +823,13 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   logCtx->index_field_name = fs->name;
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
-  if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) {
+  if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
     return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
-  } else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) {
+  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
     fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
@@ -931,7 +969,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
-  if (ac->offset == ac->argc) {
+  if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Fields arguments are missing");
     return 0;
   }
@@ -996,7 +1034,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         }
       }
       fs->ftId = textId;
-      if isSpecJson (sp) {
+      if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
           JSONPath jsonPath = pathParse(fs->path, &err_msg);
@@ -1450,7 +1488,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
 
-  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
   spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
@@ -2217,6 +2255,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble("tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble("text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp) / (float)0x100000);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks);
@@ -2368,7 +2409,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
-    if (FieldSpec_HasSuffixTrie(fs)) {
+    if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
@@ -2420,8 +2461,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
-    size_t dummy;
-    char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
+    char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     int rc = IndexAlias_Add(s, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
