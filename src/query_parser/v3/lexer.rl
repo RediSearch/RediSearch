@@ -88,7 +88,7 @@ wildcard_txt = colon lp wildcard rp $1;
 
 main := |*
 
-  size => {
+  size => { 
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -99,8 +99,7 @@ main := |*
       fbreak;
     }
   };
-
-  number => {
+  number => { 
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -111,7 +110,6 @@ main := |*
       fbreak;
     }
   };
-
   mod => {
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -121,7 +119,6 @@ main := |*
       fbreak;
     }
   };
-
   attr => {
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -131,7 +128,6 @@ main := |*
       fbreak;
     }
   };
-
   arrow => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -141,7 +137,6 @@ main := |*
       fbreak;
     }
   };
-
   as => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -151,8 +146,7 @@ main := |*
       fbreak;
     }
   };
-
-  inf => {
+  inf => { 
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
@@ -162,24 +156,22 @@ main := |*
       fbreak;
     }
   };
-
+  
   quote => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, QUOTE, tok, q);
+    RSQuery_Parse_v3(pParser, QUOTE, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  or => {
+  or => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, OR, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  lp => {
+  lp => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -187,63 +179,57 @@ main := |*
     }
   };
 
-  rp => {
+  rp => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  lb => {
+  lb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  rb => {
+  rb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
+   colon => { 
+     tok.pos = ts-q->raw;
+     RSQuery_Parse_v3(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+   };
+    semicolon => { 
+     tok.pos = ts-q->raw;
+     RSQuery_Parse_v3(pParser, SEMICOLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+   };
 
-  colon => {
+  minus =>  { 
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
+    RSQuery_Parse_v3(pParser, MINUS, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  semicolon => {
+  tilde => { 
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, SEMICOLON, tok, q);
+    RSQuery_Parse_v3(pParser, TILDE, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-
-  minus =>  {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, MINUS, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
-  tilde => {
-    tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, TILDE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
-  star => {
+ star => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, STAR, tok, q);
     if (!QPCTX_ISOK(q)) {

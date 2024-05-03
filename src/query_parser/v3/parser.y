@@ -589,6 +589,28 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
     }
 }
 
+expr(A) ::= modifier(B) COLON LP text_expr(C) RP . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
+expr(A) ::= modifier(B) COLON LP unaryop_text_expr(C) RP . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
 
     if (C == NULL) {
