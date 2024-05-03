@@ -413,7 +413,6 @@ def testNumericOperators(env):
     # Test >= and <=
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
-    # TODO: Support spaces between the sign and the number
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>= + 12 @n<=+  14', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res2, res1)
@@ -446,7 +445,6 @@ def testNumericOperators(env):
     # Test >= and <
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key2', 'key3'])
-    # TODO: Support spaces between the sign and the number
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< + 14', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res2, res1)
@@ -666,7 +664,6 @@ def testNumericOperators(env):
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key9', 'key1', 'key2',
                            'key3', 'key4', 'key5', 'key10', 'key11'])
-    # TODO: Crash if LIMIT 0 20 is added without WITHCOUNT?
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (3.14] | @n:[(3.14 +inf]',
                    'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20,
                    'SORTBY', 'n', 'ASC')
@@ -680,7 +677,6 @@ def testNumericOperators(env):
                    'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key8', 'key1', 'key2',
                            'key3', 'key4', 'key5', 'key10', 'key11'])
-    # TODO: Crash if LIMIT 0 20 is added without WITHCOUNT?
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (-3.14] | @n:[(-3.14 +inf]',
                    'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
@@ -770,7 +766,18 @@ def testNumericOperators(env):
         env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-105').error()
         env.expect('FT.SEARCH', 'idx', '@n' + operator + '(inf').error()
         env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-inf').error()
-        env.expect('FT.SEARCH', 'idx', '@n' + operator + '($param', 
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(+inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '-(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '+(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '+($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '-($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(+$param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-$param',
                 'PARAMS', 2, 'param', 100).error()
 
     env.expect('FT.SEARCH', 'idx', '@n==$p', 'PARAMS', 2, 'p', 'w').error()\
