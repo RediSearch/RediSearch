@@ -51,7 +51,7 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_' | '?')+ $0;
+escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $0;
 
 # these are the punctuations that are not valid in a tag, they have special
 # meaning and need to be escaped to be considered as part of a tag
@@ -275,9 +275,17 @@ main := |*
     }
   };
   space;
-  punct;
-  cntrl;
 
+  punct => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, PUNCTUATION, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  
+  cntrl;
+  
   isempty => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;

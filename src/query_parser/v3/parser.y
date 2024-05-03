@@ -9,6 +9,7 @@
 
 %left LOWEST.
 
+%left PUNCTUATION.
 %left TEXTEXPR.
 
 %left ORX.
@@ -177,6 +178,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type text_expr { QueryNode * }
 %destructor text_expr { QueryNode_Free($$); }
 
+%type unaryop_text_expr { QueryNode * }
+%destructor unaryop_text_expr { QueryNode_Free($$); }
+
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
 
@@ -214,12 +218,12 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type modifierlist { Vector* }
 %destructor modifierlist {
-  for (size_t i = 0; i < Vector_Size($$); i++) {
-      char *s;
-      Vector_Get($$, i, &s);
-      rm_free(s);
-  }
-  Vector_Free($$);
+    for (size_t i = 0; i < Vector_Size($$); i++) {
+        char *s;
+        Vector_Get($$, i, &s);
+        rm_free(s);
+    }
+    Vector_Free($$);
 }
 
 %type num { RangeNumber }
@@ -253,84 +257,141 @@ expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
 
+expr(A) ::= unaryop_text_expr(B). [TEXTEXPR] {
+  A = B;
+}
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- `out` is already assigned
-  } else {
-      if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-          B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-          A = B;
-      } else {
-          A = NewPhraseNode(0);
-          QueryNode_AddChild(A, B);
-      }
-      QueryNode_AddChild(A, C);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
 }
 
 // This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- `out` is already assigned
-  } else {
-      if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-          B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-          A = B;
-      } else {
-          A = NewPhraseNode(0);
-          QueryNode_AddChild(A, B);
-      }
-      QueryNode_AddChild(A, C);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
 }
 
 expr(A) ::= expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- `out` is already assigned
-  } else {
-      if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-          B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-          A = B;
-      } else {
-          A = NewPhraseNode(0);
-          QueryNode_AddChild(A, B);
-      }
-      QueryNode_AddChild(A, C);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
 }
 
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- `out` is already assigned
-  } else {
-      if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-          B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-          A = B;
-      } else {
-          A = NewPhraseNode(0);
-          QueryNode_AddChild(A, B);
-      }
-      QueryNode_AddChild(A, C);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= text_expr(B) unaryop_text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= unaryop_text_expr(B) text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
+}
+
+text_expr(A) ::= unaryop_text_expr(B) unaryop_text_expr(C) . [AND] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- `out` is already assigned
+    } else {
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+            A = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+        }
+        QueryNode_AddChild(A, C);
+    }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -342,77 +403,77 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- already assigned
-  } else {
-      if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-          A = B;
-      } else {
-          A = NewUnionNode();
-          QueryNode_AddChild(A, B);
-          A->opts.fieldMask |= B->opts.fieldMask;
-      }
-      // Handle C
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(A, A->opts.fieldMask);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
 }
 
 union(A) ::= union(B) OR expr(C). [OR] {
-  A = B;
-  if (C) {
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(C, A->opts.fieldMask);
-  }
+    A = B;
+    if (C) {
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    }
 }
 
 // This rule is needed for queries like "hello|(world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- already assigned
-  } else {
-      if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-          A = B;
-      } else {
-          A = NewUnionNode();
-          QueryNode_AddChild(A, B);
-          A->opts.fieldMask |= B->opts.fieldMask;
-      }
-      // Handle C
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(A, A->opts.fieldMask);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
 }
 
 union(A) ::= expr(B) OR text_expr(C) . [OR] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- already assigned
-  } else {
-      if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-          A = B;
-      } else {
-          A = NewUnionNode();
-          QueryNode_AddChild(A, B);
-          A->opts.fieldMask |= B->opts.fieldMask;
-      }
-      // Handle C
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(A, A->opts.fieldMask);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
 }
 
 text_expr(A) ::= text_union(B) . [ORX] {
@@ -421,33 +482,96 @@ text_expr(A) ::= text_union(B) . [ORX] {
 
 // This rule is identical to "union ::= expr OR expr", but keeps the text context.
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-      A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-      // Nothing- already assigned
-  } else {
-      if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-          A = B;
-      } else {
-          A = NewUnionNode();
-          QueryNode_AddChild(A, B);
-          A->opts.fieldMask |= B->opts.fieldMask;
-      }
-      // Handle C
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(A, A->opts.fieldMask);
-  }
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+text_union(A) ::= unaryop_text_expr(B) OR text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+text_union(A) ::= unaryop_text_expr(B) OR unaryop_text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+}
+
+text_union(A) ::= text_expr(B) OR unaryop_text_expr(C) . [OR] {
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
-  A = B;
-  if (C) {
-      QueryNode_AddChild(A, C);
-      A->opts.fieldMask |= C->opts.fieldMask;
-      QueryNode_SetFieldMask(C, A->opts.fieldMask);
-  }
+    A = B;
+    if (C) {
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -500,6 +624,10 @@ text_expr(A) ::= LP text_expr(B) RP . {
   A = B;
 }
 
+text_expr(A) ::= LP unaryop_text_expr(B) RP . {
+  A = B;
+}
+
 /////////////////////////////////////////////////////////////////
 // Attributes
 /////////////////////////////////////////////////////////////////
@@ -538,20 +666,20 @@ attribute_list(A) ::= . {
 
 expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
 
-  if (B && C) {
-      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
-  }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
-  A = B;
+    if (B && C) {
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    }
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    A = B;
 }
 
 text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 
-  if (B && C) {
-      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
-  }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
-  A = B;
+    if (B && C) {
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    }
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -592,11 +720,11 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
-  A = B;
+A = B;
 }
 
 text_expr(A) ::= verbatim(B) . [VERBATIM]  {
-  A = B;
+A = B;
 }
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
@@ -606,10 +734,10 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
-  A = B;
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-      QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-  }
+    A = B;
+    if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+       QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+    }
 }
 
 
@@ -625,7 +753,7 @@ expr(A) ::= MINUS expr(B) . {
     }
 }
 
-text_expr(A) ::= MINUS text_expr(B) . {
+unaryop_text_expr(A) ::= MINUS text_expr(B) . {
     if (B) {
         A = NewNotNode(B);
     } else {
@@ -645,7 +773,7 @@ expr(A) ::= TILDE expr(B) . {
     }
 }
 
-text_expr(A) ::= TILDE text_expr(B) . {
+unaryop_text_expr(A) ::= TILDE text_expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
@@ -654,7 +782,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -1140,9 +1268,9 @@ param_size(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_NUMERIC;
-  A.inclusive = 1;
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
 param_num(A) ::= num(B). {

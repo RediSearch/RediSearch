@@ -1101,7 +1101,7 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})")
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'???1a}")
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\'???1a}")
     env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'}", 'SORTBY', 'id', 'ASC',
