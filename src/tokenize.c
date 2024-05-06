@@ -75,7 +75,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
   simpleTokenizer *self = (simpleTokenizer *)base;
-  bool empty_input = (strlen(ctx->text) == 0);
+  bool empty_input = ctx->text && (strlen(ctx->text) == 0);
   while (*self->pos != NULL) {
     // get the next token
     size_t origLen;

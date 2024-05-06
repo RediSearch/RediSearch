@@ -9,6 +9,12 @@ def testEmptyTag():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
+    # Test that we get in error in case of a user tries to use "isempty(@field)"
+    # when `field` does not index empty values.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    env.expect('FT.SEARCH', 'idx', 'isempty(@t)').error().contains('does not index empty values')
+    env.flush()
+
     def testEmptyTextHash(idx):
         """Tests the indexing and querying of empty values for a TAG field of a
         hash index"""
@@ -157,14 +163,6 @@ def testEmptyTag():
             'h8', ['t', 'bat, , bat2']
         ]
         cmd_assert(env, cmd, expected)
-
-        # Make sure we don't index h5, h6, h7 in case of a non-empty indexing
-        # tag field
-        env.cmd('FT.CREATE', 'temp_idx', 'SCHEMA', 't', 'TAG')
-        cmd = f'FT.SEARCH temp_idx isempty(@t) SORTBY t ASC'.split(' ')
-        expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
-        env.cmd('FT.DROPINDEX', 'temp_idx')
 
         # ------------------------ Priority vs. Intersection -----------------------
         res = env.cmd('FT.SEARCH', idx, 'isempty(@t) -isempty(@t)')
@@ -497,6 +495,12 @@ def testEmptyText():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
+    # Test that we get in error in case of a user tries to use "isempty(@field)"
+    # when `field` does not index empty values.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.SEARCH', 'idx', 'isempty(@t)').error().contains('does not index empty values')
+    env.flush()
+
     def testEmptyTextHash(idx):
         """Tests the indexing and querying of empty values for a TEXT field of a
         hash index
@@ -612,28 +616,32 @@ def testEmptyText():
         # TBD:
             # More complex queries - check EXPLAINCLI output
             # Use in aggregation pipelines
-            # Phonetic?
-            # Stemming?
             # Scoring?
-            # Synonyms?
 
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'tag', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'ISEMPTY').ok()
     testEmptyTextHash('idx')
     env.flush()
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
-    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'SORTABLE', 'tag', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'SORTABLE').ok()
     testEmptyTextHash('idx_sortable')
     env.flush()
 
     # --------------------------- WITHSUFFIXTRIE case --------------------------
     # Create an index with a TAG field, that also indexes empty strings, while
     # using a suffix trie
-    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE', 'tag', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
     testEmptyTextHash('idx_suffixtrie')
+    env.flush()
+
+    # ------------------------------- Phonetic ---------------------------------
+    # Create an index with a TEXT field, that also indexes empty strings, and
+    # uses phonetic indexing
+    env.expect('FT.CREATE', 'idx_phonetic', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'PHONETIC', 'dm:en').ok()
+    testEmptyTextHash('idx_phonetic')
     env.flush()
 
     def testEmptyTextJSON(idx):

@@ -171,6 +171,17 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   return NULL;
 }
 
+// Get the field spec by the field mask.
+const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
+  for (int i = 0; i < sp->numFields; i++) {
+    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
+        FieldSpec_IsIndexable(&sp->fields[i])) {
+      return &sp->fields[i];
+    }
+  }
+  return NULL;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /*

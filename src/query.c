@@ -471,6 +471,14 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
 
+  // If this is an empty value search, and the field does not index empty values
+  // throw an error
+  if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
+    QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX, "Field `%s` does not index empty values",
+                           IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask));
+    return NULL;
+  }
+
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
@@ -1309,6 +1317,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret = NULL;
 
   if (!idx) {
+    if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
+      QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                              "Field `%s` does not index empty values",
+                              fs->name);
+    }
     goto done;
   }
   if (qn->tag.nen == NON_EXIST_EMPTY) {
