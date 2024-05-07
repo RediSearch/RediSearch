@@ -731,22 +731,32 @@ static int parseVectorField_raft(FieldSpec *fs, VecSimParams *params, ArgsCursor
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
       if ((rc = parseVectorField_GetType(ac, &params->algoParams.raftIvfParams.type)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity RAFT index type", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT IVF index type", rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.raftIvfParams.dim, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity RAFT index dim", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT IVF index dim", rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
       if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.raftIvfParams.metric)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity RAFT index metric", rc);
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT IVF index metric", rc);
         return 0;
       }
       mandmetric = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_N_LISTS)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.raftIvfParams.nLists, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT IVF index n_lists", rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_N_PROBES)) {
+      if ((rc = AC_GetUnsigned(ac, &params->algoParams.raftIvfParams.nProbes, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vector similarity RAFT IVF index n_probes", rc);
+        return 0;
+      }
     } else {
       // TODO: distinguish between RAFT_IVFPQ and RAFT_IVFFLAT
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm %s: %s", "RAFT IVF", AC_GetStringNC(ac, NULL));
@@ -842,7 +852,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algo = VecSimAlgo_RAFT_IVFFLAT;
     params->algoParams.raftIvfParams = (RaftIvfParams){
         .multi = multi,
-        .nLists = 1023, // Has to be smaller than `tieredVecSimIndexBufferLimit`
+        .nLists = 1024, // Has to be smaller than `tieredVecSimIndexBufferLimit`
         .kmeans_nIters = 20,
         .kmeans_trainsetFraction = 0.5,
         .nProbes = 20,
@@ -860,7 +870,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algo = VecSimAlgo_RAFT_IVFPQ;
     params->algoParams.raftIvfParams = (RaftIvfParams){
         .multi = multi,
-        .nLists = 1023, // Has to be smaller than `tieredVecSimIndexBufferLimit`
+        .nLists = 1024, // Has to be smaller than `tieredVecSimIndexBufferLimit`
         .kmeans_nIters = 20,
         .kmeans_trainsetFraction = 0.5,
         .nProbes = 20,

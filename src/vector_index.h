@@ -35,6 +35,8 @@
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
+#define VECSIM_N_LISTS "N_LISTS"
+#define VECSIM_N_PROBES "N_PROBES"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)

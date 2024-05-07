@@ -232,7 +232,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define MT_BUILD_CONFIG \
     .numWorkerThreads = 0,                                                                                            \
     .mt_mode = MT_MODE_OFF,                                                                                           \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
+    .tieredVecSimIndexBufferLimit = 2*DEFAULT_BLOCK_SIZE,  // to enable larger n_list in ivf algo                                                              \
     .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
 #else
 #define MT_BUILD_CONFIG

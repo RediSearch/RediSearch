@@ -1928,7 +1928,8 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
   if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
       STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE) ||
+      STR_EQCASE(attr->name, attr->namelen, VECSIM_N_PROBES)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),

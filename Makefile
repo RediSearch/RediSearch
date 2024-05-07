@@ -175,9 +175,7 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(REDISEARCH_MT_BUILD),1)
 MT ?= 1
-endif
 
 ifeq ($(MT),1)
 $(info ### Multithreading enabled)
@@ -243,6 +241,7 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
+# CMAKE_ARGS += " -DBUILD_TESTING=off -DUSE_CUDA=on -DBUILD_SHARED_LIBS=off" # for building with cuda
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
