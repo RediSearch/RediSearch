@@ -645,7 +645,7 @@ RSConfigOptions RSGlobalConfigOptions = {
                         "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
          .setValue = setMtMode,
          .getValue = getMtMode,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
+        //  .flags = RSCONFIGVAR_F_IMMUTABLE, // TODO: properly make it mutable
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
