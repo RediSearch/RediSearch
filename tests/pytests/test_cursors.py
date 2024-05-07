@@ -497,7 +497,7 @@ def testCountArgValidation(env):
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(
         'FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2.3'
-    ).error().contains('Bad value for COUNT')
+    ).error().contains('Bad value for COUNT: `2.3`')
 
     # Query with lowercase `COUNT`
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
