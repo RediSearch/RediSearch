@@ -931,10 +931,10 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
 }
 
 // Consumes the input loader and returns a new safe loader that wraps it.
-ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
+static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   RPSafeLoader *sl = rm_new(RPSafeLoader);
 
-// Copy the loader, move ownership of the keys
+  // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
   rm_free(loader);
 
