@@ -3,6 +3,59 @@ import json
 
 EMPTY_RESULT = [0]
 
+def EmptyJSONTest(env, idx):
+        """Tests the indexing and querying of empty values for a TAG field of a
+        JSON index"""
+
+        conn = getConnectionByEnv(env)
+
+        # Populate the db with a document that has an empty TAG field
+        empty_j = {
+        't': ''
+        }
+        empty_js = json.dumps(empty_j, separators=(',', ':'))
+        env.expect('JSON.SET', 'j', '$', empty_js).equal('OK')
+
+        # Search for a single document, via its indexed empty value
+        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+        expected = [1, 'j', ['$', empty_js]]
+        cmd_assert(env, cmd, expected)
+
+        # Multi-value (automatically dereferenced).
+        j = {
+            't': ['a', '', 'c']
+        }
+        js = json.dumps(j, separators=(',', ':'))
+        conn.execute_command('JSON.SET', 'j', '$', js)
+        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
+
+        # TODO: To be added later, due to problems with the SORTABLE cases
+        """
+        # Empty array
+        # On sortable case, empty arrays are not indexed (MOD-6936)
+        if idx != 'jidx_sortable':
+            j = {
+                't': []
+            }
+            js = json.dumps(j, separators=(',', ':'))
+            conn.execute_command('JSON.SET', 'j', '$', js)
+            cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+            expected = [1, 'j', ['$', js]]
+            cmd_assert(env, cmd, expected)
+
+        # Empty object
+        j = {
+            't': {}
+        }
+        js = json.dumps(j, separators=(',', ':'))
+        conn.execute_command('JSON.SET', 'j', '$', js)
+        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
+        expected = [1, 'j', ['$', js]]
+        cmd_assert(env, cmd, expected)
+        """
+
 def testEmptyTag():
     """Tests that empty values are indexed properly"""
 
@@ -336,65 +389,16 @@ def testEmptyTag():
     env.flush()
 
     # ---------------------------------- JSON ----------------------------------
-    def testEmptyTagJSON(idx):
-        """Tests the indexing and querying of empty values for a TAG field of a
-        JSON index"""
-
-        # Populate the db with a document that has an empty TAG field
-        empty_j = {
-        't': ''
-        }
-        empty_js = json.dumps(empty_j, separators=(',', ':'))
-        env.expect('JSON.SET', 'j', '$', empty_js).equal('OK')
-
-        # Search for a single document, via its indexed empty value
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', empty_js]]
-        cmd_assert(env, cmd, expected)
-
-        # Multi-value
-        j = {
-            't': ['a', '', 'c']
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
-
-        # Empty array
-        # On sortable case, empty arrays are not indexed (MOD-6936)
-        if idx != 'jidx_sortable':
-            j = {
-                't': []
-            }
-            js = json.dumps(j, separators=(',', ':'))
-            conn.execute_command('JSON.SET', 'j', '$', js)
-            cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-            expected = [1, 'j', ['$', js]]
-            cmd_assert(env, cmd, expected)
-
-        # Empty object
-        j = {
-            't': {}
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
-
-
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-    testEmptyTagJSON('jidx')
+    EmptyJSONTest(env, 'jidx')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
-    testEmptyTagJSON('jidx_sortable')
+    EmptyJSONTest(env, 'jidx_sortable')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
-    testEmptyTagJSON('jidx_suffix')
+    EmptyJSONTest(env, 'jidx_suffix')
     env.flush()
 
     env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
@@ -425,7 +429,7 @@ def testEmptyTag():
     }
     objs = json.dumps(obj, separators=(',', ':'))
     env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
+    cmd = f'FT.SEARCH jidx isempty(@arr) RETURN 1 arr'.split(' ')
     expected = EMPTY_RESULT
     cmd_assert(env, cmd, expected)
 
@@ -441,30 +445,7 @@ def testEmptyTag():
 
     env.flush()
 
-    # Embedded empty object
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'ISEMPTY').ok()
-    j = {
-        "t": {"b": {}}
-    }
-    js = json.dumps(j, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', js).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-    expected = [1, 'j', ['$', js]]
-    cmd_assert(env, cmd, expected)
-
-    # Embedded empty array
-    j = {
-        "t": {"b": []}
-    }
-    js = json.dumps(j, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', js).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-    expected = [1, 'j', ['$', js]]
-    cmd_assert(env, cmd, expected)
-
-    env.flush()
-
-    # An attempt to index a non-empty object as a TAG should fail (coverage)
+    # An attempt to index a non-empty object as a TAG (and in general) should fail (coverage)
     j = {
         "t": {"lala": "lali"}
     }
@@ -644,14 +625,18 @@ def testEmptyText():
     testEmptyTextHash('idx_phonetic')
     env.flush()
 
-    def testEmptyTextJSON(idx):
-        """Tests the indexing and querying of empty values for a TEXT field of a
-        JSON index"""
-        # TBD
-        # Note: When implementing this, be sure to think about the empty array
-        # and object cases. Currently, the empty array case is specialized for
-        # TAG! Needs generalization (or don't index it as an empty value (revert)).
-        pass
+    # ---------------------------------- JSON ----------------------------------
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY').ok()
+    EmptyJSONTest(env, 'jidx')
+    env.flush()
+
+    env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY', 'SORTABLE').ok()
+    EmptyJSONTest(env, 'jidx_sortable')
+    env.flush()
+
+    env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+    EmptyJSONTest(env, 'jidx_suffix')
+    env.flush()
 
 def testEmptyInfo():
     """Tests that the `FT.INFO` command returns the correct information

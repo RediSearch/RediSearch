@@ -126,7 +126,6 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
 }
 
 static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
-  // TODO: This is quite waste-ful. Why don't we keep a dictionary of keys instead of a linked-list?
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name of the key
     if (kk->name_len == name_len && !strncmp(kk->name, name, name_len)) {

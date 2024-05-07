@@ -146,13 +146,8 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
-    if (FieldSpec_IndexesEmpty(fs) && data->arrayLen == 0) {
-      // We wish to index empty JSON arrays as empty fields
-      arr = array_append(arr, rm_strdup(""));
-    } else {
-      for (int i = 0; i < data->arrayLen; i++) {
-        tokenizeTagString(data->multiVal[i], fs, &arr);
-      }
+    for (int i = 0; i < data->arrayLen; i++) {
+      tokenizeTagString(data->multiVal[i], fs, &arr);
     }
     break;
   case FLD_VAR_T_NULL:
