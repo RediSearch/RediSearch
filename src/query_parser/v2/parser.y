@@ -733,8 +733,8 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
         break;
       case INDEXFLD_T_FULLTEXT:
         {
-          // A->opts.fieldMask |= B->opts.fieldMask;
-          char *empty_str = rm_strdup("");    // TODO: Can we avoid the allocation?
+          rm_free(s);
+          char *empty_str = rm_strdup("");
           A = NewTokenNode(ctx, empty_str, 0);
           QueryNode_SetFieldMask(A, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
           A->tn.nen = NON_EXIST_EMPTY;

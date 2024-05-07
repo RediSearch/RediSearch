@@ -3,6 +3,24 @@ import json
 
 EMPTY_RESULT = [0]
 
+def testEmptyValidations():
+    """Validates the edge-cases of the `ISEMPTY` field option"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG and a TEXT field, both of which don't index
+    # empty values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+
+    # Test that we get in error in case of a user tries to use "isempty(@field)"
+    # when `field` does not index empty values.
+    env.expect('FT.SEARCH', 'idx', 'isempty(@tag)').error().contains('does not index empty values')
+    env.expect('FT.SEARCH', 'idx', 'isempty(@text)').error().contains('does not index empty values')
+    # Empty search on a non-existing field
+    env.expect('FT.SEARCH', 'idx', 'isempty(@non_existing)').error().contains('Field not found')
+
+
 def EmptyJSONTest(env, idx):
         """Tests the indexing and querying of empty values for a TAG field of a
         JSON index"""
@@ -61,12 +79,6 @@ def testEmptyTag():
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-
-    # Test that we get in error in case of a user tries to use "isempty(@field)"
-    # when `field` does not index empty values.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
-    env.expect('FT.SEARCH', 'idx', 'isempty(@t)').error().contains('does not index empty values')
-    env.flush()
 
     def testEmptyTextHash(idx):
         """Tests the indexing and querying of empty values for a TAG field of a
@@ -476,12 +488,6 @@ def testEmptyText():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
-    # Test that we get in error in case of a user tries to use "isempty(@field)"
-    # when `field` does not index empty values.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx', 'isempty(@t)').error().contains('does not index empty values')
-    env.flush()
-
     def testEmptyTextHash(idx):
         """Tests the indexing and querying of empty values for a TEXT field of a
         hash index
@@ -593,11 +599,6 @@ def testEmptyText():
             ]
         ]
         cmd_assert(env, cmd, expected)
-
-        # TBD:
-            # More complex queries - check EXPLAINCLI output
-            # Use in aggregation pipelines
-            # Scoring?
 
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field

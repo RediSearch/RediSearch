@@ -446,6 +446,11 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
+        if ((!strcmp(tok.tok, "")) && !FieldSpec_IndexesEmpty(fs)) {
+          // Skip empty values if the field should not index them
+          // Empty tokens are returned only if the original value was empty
+          continue;
+        }
         forwardIndexTokenFunc(&tokCtx, &tok);
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
