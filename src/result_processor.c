@@ -705,13 +705,14 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, con
  * 3. Yielding phase - the RP will yield the buffered results.
  *******************************************************************************************************************/
 
+#define DEFAULT_BUFFER_BLOCK_SIZE 1024
+
 typedef struct RPSafeLoader {
   // Loading context
   RPLoader base_loader;
 
   // Buffer management
   SearchResult **BufferBlocks;
-  size_t BlockSize;
   size_t buffer_results_count;
 
   // Results iterator
@@ -735,7 +736,7 @@ static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
 
   // If the block is not allocated, allocate it
   if (!*ret) {
-    *ret = array_new(SearchResult, self->BlockSize);
+    *ret = array_new(SearchResult, DEFAULT_BUFFER_BLOCK_SIZE);
   }
 
   return *ret;
@@ -744,11 +745,11 @@ static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
 
 // If @param currBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
 static SearchResult *InsertResult(RPSafeLoader *self, SearchResult *resToBuffer, SearchResult *currBlock) {
-  size_t idx_in_curr_block = self->buffer_results_count % self->BlockSize;
+  size_t idx_in_curr_block = self->buffer_results_count % DEFAULT_BUFFER_BLOCK_SIZE;
   // if the block is full, allocate a new one
   if (idx_in_curr_block == 0) {
     // get the curr block, allocate new block if needed
-    currBlock = GetResultsBlock(self, self->buffer_results_count / self->BlockSize);
+    currBlock = GetResultsBlock(self, self->buffer_results_count / DEFAULT_BUFFER_BLOCK_SIZE);
   }
   // append the result to the current block at rp->curr_idx_at_block
   // this operation takes ownership of the result's allocated data
@@ -763,7 +764,6 @@ static bool IsBufferEmpty(RPSafeLoader *self) {
 
 static SearchResult *GetNextResult(RPSafeLoader *self) {
   size_t curr_elem_index = self->curr_result_index;
-  size_t blockSize = self->BlockSize;
 
   // if we reached to the end of the buffer return NULL
   if (curr_elem_index >= self->buffer_results_count) {
@@ -771,10 +771,10 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
   }
 
   // get current block
-  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / blockSize];
+  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / DEFAULT_BUFFER_BLOCK_SIZE];
 
   // get the result in the block
-  SearchResult* ret = curr_block + (curr_elem_index % blockSize);
+  SearchResult* ret = curr_block + (curr_elem_index % DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Increase result's index
   ++self->curr_result_index;
@@ -893,12 +893,11 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, size_t block_size) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
   rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys);
 
-  sl->BlockSize = block_size;
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
@@ -913,17 +912,35 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 /*********************************************************************************/
 
-#define DEFAULT_BUFFER_BLOCK_SIZE 1024
-
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
+    return RPSafeLoader_New(r->sctx, lk, keys, nkeys);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
     return RPPlainLoader_New(r->sctx, lk, keys, nkeys);
   }
 }
+
+ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
+  RPSafeLoader *sl = rm_new(RPSafeLoader);
+
+  sl->base_loader = *loader; // Copy the loader, move ownership of the keys
+
+  // Reset the loader's buffer and state
+  sl->BufferBlocks = NULL;
+  sl->buffer_results_count = 0;
+  sl->curr_result_index = 0;
+
+  sl->last_buffered_rc = RS_RESULT_OK;
+
+  sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
+  sl->base_loader.base.Free = rpSafeLoaderFree;
+  sl->base_loader.base.type = RP_SAFE_LOADER;
+  return &sl->base_loader.base;
+}
+
+/*********************************************************************************/
 
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",

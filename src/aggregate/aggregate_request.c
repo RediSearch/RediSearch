@@ -1517,6 +1517,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
           }
           PUSH_RP();
+          req->stateflags |= QEXEC_S_HAS_LOAD;
         }
         break;
       }
