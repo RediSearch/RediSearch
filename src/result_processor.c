@@ -720,6 +720,10 @@ typedef struct RPSafeLoader {
 
   // Last buffered result code. To know weather to return OK or EOF.
   char last_buffered_rc;
+
+  // If true, the loader will become a plain loader after the buffer is empty.
+  // Used when changing the MT mode through a cursor execution session (e.g. FT.CURSOR READ)
+  bool becomePlainLoader;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -786,8 +790,12 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
 
 static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
-
-  self->base_loader.base.Next = rpSafeLoaderNext_Accumulate; // Reset the next function, in case we are in cursor mode
+  // Reset the next function, in case we are in cursor mode
+  if (self->becomePlainLoader) {
+    self->base_loader.base.Next = rploaderNext;
+  } else {
+    self->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
+  }
   self->buffer_results_count = 0;
   self->curr_result_index = 0;
 
@@ -922,10 +930,13 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
   }
 }
 
+// Consumes the input loader and returns a new safe loader that wraps it.
 ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   RPSafeLoader *sl = rm_new(RPSafeLoader);
 
-  sl->base_loader = *loader; // Copy the loader, move ownership of the keys
+// Copy the loader, move ownership of the keys
+  sl->base_loader = *loader;
+  rm_free(loader);
 
   // Reset the loader's buffer and state
   sl->BufferBlocks = NULL;
@@ -938,6 +949,51 @@ ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->base_loader.base.Free = rpSafeLoaderFree;
   sl->base_loader.base.type = RP_SAFE_LOADER;
   return &sl->base_loader.base;
+}
+
+void SetLoadersForBG(AREQ *r) {
+  if (r->qiter.endProc->type == RP_SAFE_LOADER) {
+    assert(r->qiter.endProc->Next == rploaderNext);
+    r->qiter.endProc->Next = rpSafeLoaderNext_Accumulate;
+    ((RPSafeLoader *)r->qiter.endProc)->becomePlainLoader = false;
+  } else if (r->qiter.endProc->type == RP_LOADER) {
+    RPLoader *rp = (RPLoader *)r->qiter.endProc;
+    r->qiter.endProc = RPSafeLoader_New_FromPlainLoader(rp);
+  }
+  ResultProcessor *downstream = r->qiter.endProc;
+  while (downstream->upstream) {
+    ResultProcessor *cur = downstream->upstream;
+    if (cur->type == RP_LOADER) {
+      cur = RPSafeLoader_New_FromPlainLoader((RPLoader *)cur);
+      downstream->upstream = cur;
+    } else if (cur->type == RP_SAFE_LOADER) {
+      // If the pipeline was originally built with a safe loader and later got set to run on
+      // the main thread, we keep the safe loader and only change the next function.
+      // Now we need to change the next function back to the safe loader's next function.
+      assert(cur->Next == rploaderNext);
+      cur->Next = rpSafeLoaderNext_Accumulate;
+      ((RPSafeLoader *)cur)->becomePlainLoader = false;
+    }
+    downstream = cur;
+  }
+}
+
+void SetLoadersForMainThread(AREQ *r) {
+  ResultProcessor *rp = r->qiter.endProc;
+  while (rp) {
+    if (rp->type == RP_SAFE_LOADER) {
+      // If the `Next` function is `rpSafeLoaderNext_Accumulate`, it means that the loader didn't
+      // buffer any result yet (or was reset), so we can safely change it to `rploaderNext`.
+      // Otherwise, we keep the `Next` function as is (rpSafeLoaderNext_Yield) and set the flag
+      // `becomePlainLoader` to true, so the loader will become a plain loader after the buffer is
+      // empty.
+      if (rp->Next == rpSafeLoaderNext_Accumulate) {
+        rp->Next = rploaderNext;
+      }
+      ((RPSafeLoader *)rp)->becomePlainLoader = true;
+    }
+    rp = rp->upstream;
+  }
 }
 
 /*********************************************************************************/

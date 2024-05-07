@@ -1100,12 +1100,12 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
       bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
         // Reset loaders to run in background
-
+        SetLoadersForBG(req);
         // Mark the request as set to run in background
         req->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
       } else if (!bg && isSetForBackground) {
         // Reset loaders to run in main thread
-
+        SetLoadersForMainThread(req);
         // Mark the request as set to run in main thread
         req->reqflags &= ~QEXEC_F_RUN_IN_BACKGROUND;
       }
