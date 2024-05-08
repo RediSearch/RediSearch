@@ -1246,29 +1246,17 @@ num(A) ::= SIZE(B). {
   A.inclusive = 1;
 }
 
-num(A) ::= PLUS SIZE(B). {
-  A.num = B.numval;
-  A.inclusive = 1;
-}
-
-num(A) ::= MINUS SIZE(B). {
-  A.num = -1*B.numval;
-  A.inclusive = 1;
-}
-
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
   A.inclusive = 1;
 }
 
-num(A) ::= PLUS NUMBER(B). {
-  A.num = B.numval;
-  A.inclusive = 1;
+num(A) ::= PLUS num(B). {
+  A = B;
 }
-
-num(A) ::= MINUS NUMBER(B). {
-  A.num = -1*B.numval;
-  A.inclusive = 1;
+num(A) ::= MINUS num(B). {
+  B.num = -B.num;
+  A = B;
 }
 
 term(A) ::= TERM(B) . {
