@@ -363,3 +363,47 @@ def test_multiple_loaders():
     cmd += ['LIMIT', '0', limit]
 
     env.expect(*cmd).noError().apply(lambda x: x[1:]).equal([['n', '0'], ['n', '1'], ['n', '2'], ['n', '3'], ['n', '4']])
+
+@skip(cluster=True)
+def test_switch_loader_modes():
+    # Create an environment with MT_MODE_FULL (0)
+    env = initEnv('WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    n_docs = 10
+    cursor_count = 2
+
+    # Add some documents and create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for n in range(n_docs):
+        env.cmd('HSET', n, 'n', n)
+
+    # Create a cursor while using the full mode
+    _, cursor1 = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+
+    # Turn off the multithread mode (1)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    # Create a cursor while using the off mode
+    _, cursor2 = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+    # Read from the first cursor
+    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
+
+    # Turn on the multithread mode (2)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    # Read from the cursors
+    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
+    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
+
+    # Turn off the multithread mode (3)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    # Read from the cursors
+    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
+    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
+
+    # Turn on the multithread mode last time (4)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    # Read from the cursors
+    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
+    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
