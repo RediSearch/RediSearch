@@ -24,50 +24,29 @@ static size_t RSValue_NumToString(double dd, char *buf) {
   }
 }
 
-typedef struct {
-  mempool_t *values;
-  mempool_t *fieldmaps;
-} mempoolThreadPool;
-
-static void mempoolThreadPoolDtor(void *p) {
-  mempoolThreadPool *tp = p;
-  if (tp->values) {
-    mempool_destroy(tp->values);
-  }
-  if (tp->fieldmaps) {
-    mempool_destroy(tp->fieldmaps);
-  }
-  rm_free(tp);
-}
-
 pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
   return rm_malloc(sizeof(RSValue));
 }
 
-static void _valueFree(void *p) {
-  rm_free(p);
-}
-
 static void __attribute__((constructor)) initKey() {
-  pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
+  pthread_key_create(&mempoolKey_g, (void (*)(void *))mempool_destroy);
 }
 
-static inline mempoolThreadPool *getPoolInfo() {
-  mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
+static inline mempool_t *getPool() {
+  mempool_t *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
-    tp = rm_calloc(1, sizeof(*tp));
-    mempool_options opts = {
-        .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
-    tp->values = mempool_new(&opts);
+    const mempool_options opts = {
+        .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = rm_free};
+    tp = mempool_new(&opts);
     pthread_setspecific(mempoolKey_g, tp);
   }
   return tp;
 }
 
 RSValue *RS_NewValue(RSValueType t) {
-  RSValue *v = mempool_get(getPoolInfo()->values);
+  RSValue *v = mempool_get(getPool());
   v->t = t;
   v->refcount = 1;
   v->allocated = 1;
@@ -133,7 +112,7 @@ void RSValue_Clear(RSValue *v) {
 void RSValue_Free(RSValue *v) {
   RSValue_Clear(v);
   if (v->allocated) {
-    mempool_release(getPoolInfo()->values, v);
+    mempool_release(getPool(), v);
   }
 }
 
