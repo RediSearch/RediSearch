@@ -419,6 +419,8 @@ def testNumberFormat(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
 
     # Test signed numbers
     res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
@@ -445,15 +447,13 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
 
-    # invalid syntax - multiple signs are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++1e0 +-1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[-+inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[+-inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[--inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 ++inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 -+inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()
+    # Test float numbers
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-0.1 0.1]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [2, 'doc06', 'doc07']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
 

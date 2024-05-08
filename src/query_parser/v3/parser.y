@@ -1251,10 +1251,13 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
-// num(A) ::= LP num(B). {
-//   A=B;
-//   A.inclusive = 0;
-// }
+num(A) ::= PLUS num(B). {
+  A = B;
+}
+num(A) ::= MINUS num(B). {
+  B.num = -B.num;
+  A = B;
+}
 
 term(A) ::= TERM(B) . {
   A = B;
@@ -1326,15 +1329,15 @@ param_num(A) ::= PLUS ATTRIBUTE(B). {
 }
 
 param_num(A) ::= num(B). {
-    A.numval = B.num;
-    A.inclusive = B.inclusive;
-    A.type = QT_NUMERIC;
+  A.numval = B.num;
+  A.inclusive = B.inclusive;
+  A.type = QT_NUMERIC;
 }
 
 exclusive_param_num(A) ::= LP num(B). {
-    A.numval = B.num;
-    A.inclusive = 0;
-    A.type = QT_NUMERIC;
+  A.numval = B.num;
+  A.inclusive = 0;
+  A.type = QT_NUMERIC;
 }
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
