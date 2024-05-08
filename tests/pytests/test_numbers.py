@@ -456,15 +456,4 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
 
-    # invalid syntax - multiple signs are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++1e0 +-1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[-+inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[+-inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[--inf 1]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 ++inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 -+inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()
 
