@@ -389,3 +389,82 @@ def testNegativeValues(env):
     # Query the index. if the split value of the root is nan, the query won't return any results.
     res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], doc_id)
+
+def testNumberFormat(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'numeric').ok()
+    env.assertEqual(conn.execute_command('HSET', 'doc01', 'n', '1.0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc02', 'n', '1'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc03', 'n', '1.0e0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc04', 'n', '10e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc05', 'n', '1.5e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc06', 'n', '10e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc07', 'n', '1.5e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc08', 'n', 'INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc09', 'n', 'inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc10', 'n', 'iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc11', 'n', '+INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc12', 'n', '+inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc13', 'n', '+iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc14', 'n', '-INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc15', 'n', '-inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc16', 'n', '-iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc17', 'n', '-1'), 1)
+
+    # Test unsigned numbers
+    expected = [3, 'doc01', 'doc02', 'doc03']
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+
+    # Test signed numbers
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc17'])
+
+    # Test +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [6, 'doc08', 'doc09', 'doc10', 'doc11', 'doc12', 'doc13']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +inf]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +INF]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
+    # Test -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [4, 'doc14', 'doc15', 'doc16', 'doc17']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
+    # Test float numbers
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-0.1 0.1]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [2, 'doc06', 'doc07']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
+    # invalid syntax - multiple signs are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[--1e0 -+1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++1e0 +-1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-+inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[+-inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[--inf 1]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 ++inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 -+inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 +-inf]').error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 --inf]').error()
+
