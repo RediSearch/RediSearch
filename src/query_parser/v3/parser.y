@@ -24,7 +24,7 @@
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS.
+%left TILDE MINUS PLUS.
 %left AND.
 
 %left ARROW.
@@ -1246,14 +1246,29 @@ num(A) ::= SIZE(B). {
   A.inclusive = 1;
 }
 
+num(A) ::= PLUS SIZE(B). {
+  A.num = B.numval;
+  A.inclusive = 1;
+}
+
+num(A) ::= MINUS SIZE(B). {
+  A.num = -1*B.numval;
+  A.inclusive = 1;
+}
+
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
   A.inclusive = 1;
 }
 
-num(A) ::= MINUS num(B). {
-  B.num = -B.num;
-  A = B;
+num(A) ::= PLUS NUMBER(B). {
+  A.num = B.numval;
+  A.inclusive = 1;
+}
+
+num(A) ::= MINUS NUMBER(B). {
+  A.num = -1*B.numval;
+  A.inclusive = 1;
 }
 
 term(A) ::= TERM(B) . {
