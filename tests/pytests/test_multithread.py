@@ -370,6 +370,8 @@ def test_switch_loader_modes():
     env = initEnv('WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
     n_docs = 10
     cursor_count = 2
+    # Having two loaders to test when the loader is last and when it is not
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
 
     # Add some documents and create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -377,13 +379,13 @@ def test_switch_loader_modes():
         env.cmd('HSET', n, 'n', n)
 
     # Create a cursor while using the full mode
-    _, cursor1 = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+    _, cursor1 = env.cmd(*query)
 
     # Turn off the multithread mode (1)
     env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
 
     # Create a cursor while using the off mode
-    _, cursor2 = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+    _, cursor2 = env.cmd(*query)
     # Read from the first cursor
     _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
 
