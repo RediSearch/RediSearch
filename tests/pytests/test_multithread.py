@@ -407,6 +407,11 @@ def test_switch_loader_modes():
     # Turn on the multithread mode last time (4)
     env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
 
-    # Read from the cursors
-    cursor1 = read_from_cursor(cursor1)
+    # Read from the second cursor
     cursor2 = read_from_cursor(cursor2)
+
+    # Delete the cursors.
+    # The first cursor should be in the off mode and the second cursor should be in the full mode
+    # We expect no errors or leaks
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor1).noError()
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor2).noError()
