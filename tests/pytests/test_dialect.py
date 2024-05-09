@@ -69,7 +69,7 @@ def test_v1_vs_v2_vs_v5(env):
 
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
-    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 5).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 5).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
