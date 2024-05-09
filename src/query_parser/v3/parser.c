@@ -93,6 +93,43 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define AND_EXPRESSION(B, C, OUT) \
+    int rv = one_not_null(B, C, (void**)&OUT); \
+    if (rv == NODENN_BOTH_INVALID) { \
+        OUT = NULL; \
+    } else if (rv == NODENN_ONE_NULL) { \
+        /* Nothing- `OUT` is already assigned */ \
+    } else { \
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && \
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) { \
+            OUT = B; \
+        } else { \
+            OUT = NewPhraseNode(0); \
+            QueryNode_AddChild(OUT, B); \
+        } \
+        QueryNode_AddChild(OUT, C); \
+    }
+
+#define OR_EXPRESSION(B, C, OUT) \
+    int rv = one_not_null(B, C, (void**)&OUT); \
+    if (rv == NODENN_BOTH_INVALID) { \
+        OUT = NULL; \
+    } else if (rv == NODENN_ONE_NULL) { \
+        /* Nothing- already assigned */ \
+    } else { \
+        if (B && B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) { \
+            OUT = B; \
+        } else { \
+            OUT = NewUnionNode(); \
+            QueryNode_AddChild(OUT, B); \
+            OUT->opts.fieldMask |= B->opts.fieldMask; \
+        } \
+        /* Handle C */ \
+        QueryNode_AddChild(OUT, C); \
+        OUT->opts.fieldMask |= C->opts.fieldMask; \
+        QueryNode_SetFieldMask(OUT, OUT->opts.fieldMask); \
+    }
+
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
 ***************** Begin token definitions *************************************/
@@ -1693,50 +1730,13 @@ static YYACTIONTYPE yy_reduce(
       case 10: /* text_expr ::= unaryop_text_expr text_expr */ yytestcase(yyruleno==10);
       case 11: /* text_expr ::= unaryop_text_expr unaryop_text_expr */ yytestcase(yyruleno==11);
 {
-    int rv = one_not_null(yymsp[-1].minor.yy117, yymsp[0].minor.yy117, (void**)&yylhsminor.yy117);
-    if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy117 = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (yymsp[-1].minor.yy117 && yymsp[-1].minor.yy117->type == QN_PHRASE && yymsp[-1].minor.yy117->pn.exact == 0 &&
-            yymsp[-1].minor.yy117->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            yylhsminor.yy117 = yymsp[-1].minor.yy117;
-        } else {
-            yylhsminor.yy117 = NewPhraseNode(0);
-            QueryNode_AddChild(yylhsminor.yy117, yymsp[-1].minor.yy117);
-        }
-        QueryNode_AddChild(yylhsminor.yy117, yymsp[0].minor.yy117);
-    }
+  AND_EXPRESSION(yymsp[-1].minor.yy117, yymsp[0].minor.yy117, yylhsminor.yy117);
 }
   yymsp[-1].minor.yy117 = yylhsminor.yy117;
         break;
       case 13: /* union ::= expr OR expr */
-      case 15: /* union ::= text_expr OR expr */ yytestcase(yyruleno==15);
-      case 16: /* union ::= expr OR text_expr */ yytestcase(yyruleno==16);
-      case 18: /* text_union ::= text_expr OR text_expr */ yytestcase(yyruleno==18);
-      case 19: /* text_union ::= unaryop_text_expr OR text_expr */ yytestcase(yyruleno==19);
-      case 20: /* text_union ::= unaryop_text_expr OR unaryop_text_expr */ yytestcase(yyruleno==20);
-      case 21: /* text_union ::= text_expr OR unaryop_text_expr */ yytestcase(yyruleno==21);
 {
-    int rv = one_not_null(yymsp[-2].minor.yy117, yymsp[0].minor.yy117, (void**)&yylhsminor.yy117);
-    if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy117 = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (yymsp[-2].minor.yy117->type == QN_UNION && yymsp[-2].minor.yy117->opts.fieldMask == RS_FIELDMASK_ALL) {
-            yylhsminor.yy117 = yymsp[-2].minor.yy117;
-        } else {
-            yylhsminor.yy117 = NewUnionNode();
-            QueryNode_AddChild(yylhsminor.yy117, yymsp[-2].minor.yy117);
-            yylhsminor.yy117->opts.fieldMask |= yymsp[-2].minor.yy117->opts.fieldMask;
-        }
-        // Handle yymsp[0].minor.yy117
-        QueryNode_AddChild(yylhsminor.yy117, yymsp[0].minor.yy117);
-        yylhsminor.yy117->opts.fieldMask |= yymsp[0].minor.yy117->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy117, yylhsminor.yy117->opts.fieldMask);
-    }
+    OR_EXPRESSION(yymsp[-2].minor.yy117, yymsp[0].minor.yy117, yylhsminor.yy117);
 }
   yymsp[-2].minor.yy117 = yylhsminor.yy117;
         break;
@@ -1749,6 +1749,17 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy117->opts.fieldMask |= yymsp[0].minor.yy117->opts.fieldMask;
         QueryNode_SetFieldMask(yymsp[0].minor.yy117, yylhsminor.yy117->opts.fieldMask);
     }
+}
+  yymsp[-2].minor.yy117 = yylhsminor.yy117;
+        break;
+      case 15: /* union ::= text_expr OR expr */
+      case 16: /* union ::= expr OR text_expr */ yytestcase(yyruleno==16);
+      case 18: /* text_union ::= text_expr OR text_expr */ yytestcase(yyruleno==18);
+      case 19: /* text_union ::= unaryop_text_expr OR text_expr */ yytestcase(yyruleno==19);
+      case 20: /* text_union ::= unaryop_text_expr OR unaryop_text_expr */ yytestcase(yyruleno==20);
+      case 21: /* text_union ::= text_expr OR unaryop_text_expr */ yytestcase(yyruleno==21);
+{
+  OR_EXPRESSION(yymsp[-2].minor.yy117, yymsp[0].minor.yy117, yylhsminor.yy117);
 }
   yymsp[-2].minor.yy117 = yylhsminor.yy117;
         break;
