@@ -462,6 +462,8 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       continue;
     } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
       fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
     } else {
       break;
     }
@@ -855,6 +857,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
         fs->options |= FieldSpec_WithSuffixTrie;
       } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
         fs->options |= FieldSpec_IndexEmpty;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+        fs->options |= FieldSpec_IndexMissing;
       } else {
         break;
       }
