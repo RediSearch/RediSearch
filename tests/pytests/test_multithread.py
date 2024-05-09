@@ -372,6 +372,7 @@ def test_switch_loader_modes():
     cursor_count = 2
     # Having two loaders to test when the loader is last and when it is not
     query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+    read_from_cursor = lambda cursor: env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().res[1]
 
     # Add some documents and create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -387,25 +388,25 @@ def test_switch_loader_modes():
     # Create a cursor while using the off mode
     _, cursor2 = env.cmd(*query)
     # Read from the first cursor
-    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
+    cursor1 = read_from_cursor(cursor1)
 
     # Turn on the multithread mode (2)
     env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
 
     # Read from the cursors
-    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
-    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
+    cursor1 = read_from_cursor(cursor1)
+    cursor2 = read_from_cursor(cursor2)
 
     # Turn off the multithread mode (3)
     env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
 
     # Read from the cursors
-    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
-    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
+    cursor1 = read_from_cursor(cursor1)
+    cursor2 = read_from_cursor(cursor2)
 
     # Turn on the multithread mode last time (4)
     env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
 
     # Read from the cursors
-    _, cursor1 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor1)
-    _, cursor2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor2)
+    cursor1 = read_from_cursor(cursor1)
+    cursor2 = read_from_cursor(cursor2)
