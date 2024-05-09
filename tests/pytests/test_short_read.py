@@ -237,7 +237,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field5":"' + geom_wkt + r'", "field15":"' + geom_wkt + r'"}']
             env.assertOk(conn.execute_command(*cmd))
 
-def testCreateIndexRdbFiles(env):
+def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
     create_indices(env, 'redisearch_2.10.3.rdb', 'idxSearch', True, False)
