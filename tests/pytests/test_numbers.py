@@ -845,14 +845,20 @@ def testNumericOperators(env):
                 'PARAMS', 2, 'param', 100).error()
         env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-$param',
                 'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + 'w').error()\
+            .contains('Syntax error')
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '$p', 'PARAMS', 2,
+                   'p', 'w').error().contains('Invalid numeric value')
 
-    env.expect('FT.SEARCH', 'idx', '@n==$p', 'PARAMS', 2, 'p', 'w').error()\
-        .contains('Invalid numeric value')
-    env.expect('FT.SEARCH', 'idx', "@n==w'").error().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', "@n!!=1").error().contains('Syntax error')
+    # If the operator has two characters, it can't have spaces between them
     env.expect('FT.SEARCH', 'idx', "@n! =1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n> =1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n< =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n= =1").error().contains('Syntax error')
+
+    # Invalid operators
+    env.expect('FT.SEARCH', 'idx', "@n===1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n!!=1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n!>=1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n>>1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n<<1").error().contains('Syntax error')

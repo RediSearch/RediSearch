@@ -48,6 +48,7 @@ tilde = '~';
 star = '*';
 percent = '%';
 not_equal = '!=';
+equal_equal = '==';
 equal = '=';
 gt = '>';
 ge = '>=';
@@ -151,6 +152,14 @@ main := |*
   not_equal => {
     tok.pos = ts - q->raw;
     RSQuery_Parse_v3(pParser, NOT_EQUAL, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  equal_equal => {
+    tok.pos = ts - q->raw;
+    RSQuery_Parse_v3(pParser, EQUAL_EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

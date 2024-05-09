@@ -27,7 +27,8 @@
 %left TILDE MINUS PLUS.
 %left AND.
 
-%left NOT_EQUAL EQUAL.
+%left EQUAL.
+%left NOT_EQUAL EQUAL_EQUAL.
 %left GE GT LE LT.
 
 %left ARROW.
@@ -859,7 +860,7 @@ expr(A) ::= modifier(B) numeric_operator(C). {
   }
 }
 
-numeric_operator(A) ::= EQUAL EQUAL param_num(B). {
+numeric_operator(A) ::= EQUAL_EQUAL param_num(B). {
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
