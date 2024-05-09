@@ -28,6 +28,7 @@ RDBS_SHORT_READS = [
     'short-reads/redisearch_2.8.0.rdb.zip',
     'short-reads/redisearch_2.8.4.rdb.zip',
     'short-reads/redisearch_2.10.3.rdb.zip',
+    'short-reads/redisearch_2.10.3_missing.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -41,6 +42,7 @@ RDBS_EXPECTED_INDICES = [
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
                          ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35])
+                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
                         ]
 
 RDBS = []
@@ -191,9 +193,17 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
                        get_identifier('field6', isHash), 'as', 'f6', 'tag', 'isempty',
+<<<<<<< HEAD
                        get_identifier('field6', isHash), 'as', 'f7', 'tag', 'isempty', 'SORTABLE',
                        get_identifier('field8', isHash), 'as', 'f8', 'TEXT', 'isempty',
                        get_identifier('field9', isHash), 'as', 'f9', 'TEXT', 'isempty', 'SORTABLE',
+=======
+                       get_identifier('field10', isHash), 'as', 'f10', 'tag', 'isempty', 'SORTABLE',
+                       get_identifier('field15', isHash), 'as', 'f15', 'tag', 'ismissing',
+                       get_identifier('field16', isHash), 'as', 'f16', 'tag', 'ismissing', 'SORTABLE',
+                       get_identifier('field17', isHash), 'as', 'f17', 'text', 'ismissing',
+                       get_identifier('field18', isHash), 'as', 'f18', 'text', 'ismissing', 'SORTABLE',
+>>>>>>> 14b34ed62 (MOD-6533, MOD-6581: Support MISSING indexing syntax (#4635))
 
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',

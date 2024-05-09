@@ -432,6 +432,60 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   return langauge_found;
 }
 
+<<<<<<< HEAD
+=======
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  int rc;
+  // this is a text field
+  // init default weight and type
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
+      fs->options |= FieldSpec_NoStemming;
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      double d;
+      if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "weight", rc);
+        return 0;
+      }
+      fs->ftWeight = d;
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
+        return 0;
+      }
+
+      const char *matcher = AC_GetStringNC(ac, NULL);
+      // try and parse the matcher
+      // currently we just make sure algorithm is double metaphone (dm)
+      // and language is one of the following : English (en), French (fr), Portuguese (pt) and
+      // Spanish (es)
+      // in the future we will support more algorithms and more languages
+      if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        QueryError_SetError(
+            status, QUERY_EINVAL,
+            "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
+            "double metaphone (dm). Supported languages: English (en), French (fr), "
+            "Portuguese (pt) and Spanish (es)");
+        return 0;
+      }
+      fs->options |= FieldSpec_Phonetics;
+      continue;
+    } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+>>>>>>> 14b34ed62 (MOD-6533, MOD-6581: Support MISSING indexing syntax (#4635))
 // Tries to get vector data type from ac. This function need to stay updated with
 // the supported vector data types list of VecSim.
 static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
@@ -899,7 +953,55 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
+<<<<<<< HEAD
   } else {
+=======
+  } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
+    sp->flags |= Index_HasVecSim;
+    fs->types |= INDEXFLD_T_VECTOR;
+    if (!parseVectorField(sp, sp_ref, fs, ac, status)) {
+      goto error;
+    }
+    return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+    fs->types |= INDEXFLD_T_TAG;
+    while (!AC_IsAtEnd(ac)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+        if (AC_IsAtEnd(ac)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          goto error;
+        }
+        const char *sep = AC_GetStringNC(ac, NULL);
+        if (strlen(sep) != 1) {
+          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                                "Tag separator must be a single character. Got `%s`", sep);
+          goto error;
+        }
+        fs->tagOpts.tagSep = *sep;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        fs->options |= FieldSpec_WithSuffixTrie;
+      } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+        fs->options |= FieldSpec_IndexEmpty;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+        fs->options |= FieldSpec_IndexMissing;
+      } else {
+        break;
+      }
+    }
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    sp->flags |= Index_HasGeometry;
+    fs->types |= INDEXFLD_T_GEOMETRY;
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
+  } else {  // nothing more supported currently
+>>>>>>> 14b34ed62 (MOD-6533, MOD-6581: Support MISSING indexing syntax (#4635))
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
