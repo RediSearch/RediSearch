@@ -74,7 +74,7 @@ def test_v1_vs_v2_vs_v5(env):
 
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
-    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 5).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 5).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
@@ -153,8 +153,6 @@ def test_v1_vs_v2_vs_v5(env):
       ''
     ]
     env.assertEqual(res, expected)
-    # res = env.cmd('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 1)
-    # print(res)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
     expected = [
       'INTERSECT {',
@@ -176,8 +174,14 @@ def test_v1_vs_v2_vs_v5(env):
       ''
     ]
     env.assertEqual(res, expected)
-    # This is an error, it should be fixed by MOD-6750
-    env.expect('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5).error().contains('Syntax error')
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5)
+    expected = [
+      'UNION {',
+      '  1.2e+3',
+      '  +1.2e+3(expanded)',
+      '}',
+      '']
+    env.assertEqual(res, expected)
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
     expected = [
