@@ -413,5 +413,5 @@ def test_switch_loader_modes():
     # Delete the cursors.
     # The first cursor should be in the off mode and the second cursor should be in the full mode
     # We expect no errors or leaks
-    env.expect('FT.CURSOR', 'DEL', 'idx', cursor1).noError()
-    env.expect('FT.CURSOR', 'DEL', 'idx', cursor2).noError()
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor1).noError().ok()
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor2).noError().ok()
