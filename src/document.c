@@ -401,6 +401,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
+  bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
@@ -446,7 +447,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
-        if ((!strcmp(tok.tok, "")) && !FieldSpec_IndexesEmpty(fs)) {
+        if (strlen(tok.tok) == 0 && !indexesEmpty) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
           continue;
@@ -688,7 +689,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEOMETRY:
+      RS_LOG_ASSERT(0, "Unsupported field type for GEO index");
       RS_LOG_ASSERT(0, "Unsupported field type GEOMETRIY for GEO index");
   }
 
