@@ -456,8 +456,6 @@ def testNumberFormat(env):
     res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res2, expected)
 
-
-
 def testNumericOperators(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
     conn = getConnectionByEnv(env)
@@ -859,4 +857,3 @@ def testNumericOperators(env):
     env.expect('FT.SEARCH', 'idx', "@n>>1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n<<1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n*-").error().contains('Syntax error')
-
