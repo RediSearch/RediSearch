@@ -921,6 +921,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 /*********************************************************************************/
 
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  r->stateflags |= QEXEC_S_HAS_LOAD;
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
     return RPSafeLoader_New(r->sctx, lk, keys, nkeys);
