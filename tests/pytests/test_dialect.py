@@ -4,20 +4,11 @@ from common import *
 from includes import *
 import numpy as np
 
-MAX_DIALECT = 0
-
-def set_max_dialect(env):
-  global MAX_DIALECT
-  if MAX_DIALECT == 0:
-    info = env.cmd('INFO', 'MODULES')
-    prefix = 'search_dialect_'
-    MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
-
 @skip(cluster=True)
 def test_dialect_config_get_set_from_default(env):
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
     skipOnDialect(env, 2)
-    set_max_dialect(env)
+    MAX_DIALECT = set_max_dialect(env)
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
@@ -28,7 +19,7 @@ def test_dialect_config_get_set_from_default(env):
 @skip(cluster=True)
 def test_dialect_config_get_set_from_config(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    set_max_dialect(env)
+    MAX_DIALECT = set_max_dialect(env)
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 1").ok()
     env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
@@ -38,7 +29,7 @@ def test_dialect_config_get_set_from_config(env):
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
-    set_max_dialect(env)
+    MAX_DIALECT = set_max_dialect(env)
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
@@ -124,7 +115,8 @@ def test_v1_vs_v2_vs_v5(env):
 
     env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 1).contains('UNION {\n  abc\n  +abc(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 2).contains('UNION {\n  abc\n  +abc(expanded)\n}\n')
-    env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 5).contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "abc!", 'DIALECT', 5).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', "abc\!", 'DIALECT', 5).contains('UNION {\n  abc!\n  +abc!(expanded)\n}\n')
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
     expected = [
@@ -219,7 +211,7 @@ def test_v1_vs_v2_vs_v5(env):
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-    set_max_dialect(env)
+    MAX_DIALECT = set_max_dialect(env)
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', "{}".format(MAX_DIALECT + 1)).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))

@@ -380,7 +380,8 @@ def test_empty_suffix_withsuffixtrie(env):
 def testEmptyValueTags():
     """Tests that empty values are indexed properly"""
 
-    for dialect in [2, 3, 4, 5]:
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
 
         def testHashIndex(env, idx):
