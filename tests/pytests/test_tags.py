@@ -377,7 +377,7 @@ def test_empty_suffix_withsuffixtrie(env):
     res = env.cmd(*cmd)
     env.assertEqual(res, expected)
 
-def testEmptyValueTags():
+def testEmptyValueTags(env):
     """Tests that empty values are indexed properly"""
 
     MAX_DIALECT = set_max_dialect(env)
