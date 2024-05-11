@@ -191,7 +191,8 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC) {
+  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC
+      || qt->type == QT_SIZE) {
     char *s;
     size_t len;
     if (qt->type == QT_TERM) {
@@ -202,6 +203,10 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
       len = qt->len;
     }
     ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
+    // Do not expand NUMERIC or SIZE nodes
+    if(qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
+        ret->opts.flags |= QueryNode_Verbatim;
+    }
   } else {
     ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);

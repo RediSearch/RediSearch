@@ -159,12 +159,7 @@ def test_v1_vs_v2_vs_v5(env):
     ]
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5)
-    expected = [
-      'UNION {',
-      '  1.2e+3',
-      '  +1.2e+3(expanded)',
-      '}',
-      '']
+    expected = ['1.2e+3', '']
     env.assertEqual(res, expected)
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
@@ -207,7 +202,18 @@ def test_v1_vs_v2_vs_v5(env):
       ''
     ]
     env.assertEqual(res, expected)
-    env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error().contains('Syntax error')
+    env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error()\
+      .contains('Syntax error')
+
+    # From DIALECT 5, numbers are not expanded
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 1)
+    expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 2)
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 5)
+    expected = ['705', '']
+    env.assertEqual(res, expected)
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')

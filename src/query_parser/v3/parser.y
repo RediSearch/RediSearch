@@ -1085,21 +1085,23 @@ term(A) ::= TERM(B) . {
 
 term(A) ::= NUMBER(B) . {
   A = B;
+  A.type = QT_NUMERIC;
 }
 
 term(A) ::= SIZE(B). {
   A = B;
+  A.type = QT_SIZE;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-
-// Number is treated as a term here
 param_term(A) ::= term(B). {
   A = B;
-  A.type = QT_TERM;
+  if((A.type != QT_NUMERIC) && (A.type != QT_SIZE)) {
+    A.type = QT_TERM;
+  }
 }
 
 param_term(A) ::= ATTRIBUTE(B). {

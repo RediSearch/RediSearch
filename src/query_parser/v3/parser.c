@@ -2402,17 +2402,32 @@ yylhsminor.yy117 = yymsp[0].minor.yy117;
 }
         break;
       case 100: /* term ::= TERM */
-      case 101: /* term ::= NUMBER */ yytestcase(yyruleno==101);
-      case 102: /* term ::= SIZE */ yytestcase(yyruleno==102);
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 101: /* term ::= NUMBER */
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_NUMERIC;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 102: /* term ::= SIZE */
+      case 107: /* param_size ::= SIZE */ yytestcase(yyruleno==107);
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_SIZE;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 103: /* param_term ::= term */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
-  yylhsminor.yy0.type = QT_TERM;
+  if((yylhsminor.yy0.type != QT_NUMERIC) && (yylhsminor.yy0.type != QT_SIZE)) {
+    yylhsminor.yy0.type = QT_TERM;
+  }
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -2434,13 +2449,6 @@ yylhsminor.yy117 = yymsp[0].minor.yy117;
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   yylhsminor.yy0.type = QT_PARAM_TERM_CASE;
-}
-  yymsp[0].minor.yy0 = yylhsminor.yy0;
-        break;
-      case 107: /* param_size ::= SIZE */
-{
-  yylhsminor.yy0 = yymsp[0].minor.yy0;
-  yylhsminor.yy0.type = QT_SIZE;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
