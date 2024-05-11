@@ -205,7 +205,7 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 5).error()\
       .contains('Syntax error')
 
-    # From DIALECT 5, numbers are not expanded
+    # DIALECT 5 or later does not expand numbers
     res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 1)
     expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
     env.assertEqual(res, expected)
