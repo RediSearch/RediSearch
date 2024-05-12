@@ -447,7 +447,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
       Token tok = {0};
       while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
-        if (strlen(tok.tok) == 0 && !indexesEmpty) {
+        if (!indexesEmpty && strlen(tok.tok) == 0) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
           continue;
@@ -690,7 +690,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
       RS_LOG_ASSERT(0, "Unsupported field type for GEO index");
-      RS_LOG_ASSERT(0, "Unsupported field type GEOMETRIY for GEO index");
   }
 
   const char *str = NULL;
