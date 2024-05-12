@@ -415,3 +415,17 @@ def test_switch_loader_modes():
     # We expect no errors or leaks
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor1).noError().ok()
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor2).noError().ok()
+
+    # Send a new query with an implicit loader
+    _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
+                         'WITHCURSOR', 'COUNT', cursor_count)
+
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    cursor3 = read_from_cursor(cursor3)
+
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    cursor3 = read_from_cursor(cursor3)
+
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
