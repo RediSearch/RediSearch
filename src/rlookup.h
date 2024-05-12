@@ -54,12 +54,6 @@ typedef enum {
  * The second array is a "dynamic" array within a given result's row data.
  * This is used for data generated on the fly, or for data not stored within
  * the sorting vector.
- *
- * It is possible to use the same name in both the sorting vector, and also in
- * the dynamic array. To accomplish this, create a key with the F_OUTPUT flag
- * set. This flag forces the lookup mechanism to ignore the presence of the
- * sorting vector, so that they are essentially different keys, even though
- * they have the same name.
  */
 typedef struct RLookupKey {
   /** The index into the array where the value resides */

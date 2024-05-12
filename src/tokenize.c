@@ -101,7 +101,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     // skip stopwords
-    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (!empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
 

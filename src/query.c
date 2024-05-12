@@ -474,8 +474,10 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // If this is an empty value search, and the field does not index empty values
   // throw an error
   if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
-    QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX, "Field `%s` does not index empty values",
-                           IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask));
+    QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
+                              SPEC_INDEXEMPTY_STR);
     return NULL;
   }
 
@@ -1319,8 +1321,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!idx) {
     if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
       QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` does not index empty values",
-                              fs->name);
+                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              fs->name, SPEC_INDEXEMPTY_STR);
     }
     goto done;
   }
@@ -1730,7 +1732,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", strcmp(qs->tn.str, "") == 0 ? "<ISEMPTY>" : qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      if (!strcmp(qs->tn.str, "")) {
+        s = sdscatprintf(s, "<%s>%s", SPEC_INDEXEMPTY_STR, qs->tn.expanded ? "(expanded)" : "");
+      } else {
+        s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      }
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }

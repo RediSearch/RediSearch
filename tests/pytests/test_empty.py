@@ -13,10 +13,14 @@ def testEmptyValidations():
     # empty values
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
 
-    # Test that we get in error in case of a user tries to use "isempty(@field)"
+    # Test that we get an error in case of a user tries to use "isempty(@field)"
     # when `field` does not index empty values.
-    env.expect('FT.SEARCH', 'idx', 'isempty(@tag)').error().contains('does not index empty values')
-    env.expect('FT.SEARCH', 'idx', 'isempty(@text)').error().contains('does not index empty values')
+    env.expect('FT.SEARCH', 'idx', 'isempty(@tag)').error().contains(
+        'Field `tag` should enable `ISEMPTY` in the index SCHEMA in order to support empty values'
+        )
+    env.expect('FT.SEARCH', 'idx', 'isempty(@text)').error().contains(
+        'Field `text` should enable `ISEMPTY` in the index SCHEMA in order to support empty values'
+    )
     # Empty search on a non-existing field
     env.expect('FT.SEARCH', 'idx', 'isempty(@non_existing)').error().contains('Field not found')
 
@@ -49,38 +53,13 @@ def EmptyJSONTest(env, idx):
         expected = [1, 'j', ['$', js]]
         cmd_assert(env, cmd, expected)
 
-        # TODO: To be added later, due to problems with the SORTABLE cases
-        """
-        # Empty array
-        # On sortable case, empty arrays are not indexed (MOD-6936)
-        if idx != 'jidx_sortable':
-            j = {
-                't': []
-            }
-            js = json.dumps(j, separators=(',', ':'))
-            conn.execute_command('JSON.SET', 'j', '$', js)
-            cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-            expected = [1, 'j', ['$', js]]
-            cmd_assert(env, cmd, expected)
-
-        # Empty object
-        j = {
-            't': {}
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
-        """
-
 def testEmptyTag():
     """Tests that empty values are indexed properly"""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
-    def testEmptyTextHash(idx):
+    def testEmptyTagHash(idx):
         """Tests the indexing and querying of empty values for a TAG field of a
         hash index"""
 
@@ -384,20 +363,20 @@ def testEmptyTag():
     # Create an index with a TAG field, that also indexes empty strings, another
     # TAG field that doesn't index empty values, and a TEXT field
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
-    testEmptyTextHash('idx')
+    testEmptyTagHash('idx')
     env.flush()
 
     # ----------------------------- SORTABLE case ------------------------------
     # Create an index with a SORTABLE TAG field, that also indexes empty strings
     env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
-    testEmptyTextHash('idx_sortable')
+    testEmptyTagHash('idx_sortable')
     env.flush()
 
     # --------------------------- WITHSUFFIXTRIE case --------------------------
     # Create an index with a TAG field, that also indexes empty strings, while
     # using a suffix trie
     env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
-    testEmptyTextHash('idx_suffixtrie')
+    testEmptyTagHash('idx_suffixtrie')
     env.flush()
 
     # ---------------------------------- JSON ----------------------------------
@@ -445,16 +424,6 @@ def testEmptyTag():
     expected = EMPTY_RESULT
     cmd_assert(env, cmd, expected)
 
-    # Searching for emptiness of a non-existing field should return an error
-    obj = {
-        'obj': {}
-    }
-    objs = json.dumps(obj, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@obj)'.split(' ')
-    expected = EMPTY_RESULT
-    env.expect(*cmd).error().contains('Syntax error: Field not found')
-
     env.flush()
 
     # An attempt to index a non-empty object as a TAG (and in general) should fail (coverage)
@@ -480,6 +449,8 @@ def testEmptyTag():
     for i in range(n_docs):
         conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
     res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'LIMIT', '0', '0')
+    env.assertEqual(int(res[0]), 500)
+    res = env.cmd('FT.SEARCH', 'idx', '-isempty(@t)', 'LIMIT', '0', '0')
     env.assertEqual(int(res[0]), 500)
 
 def testEmptyText():
