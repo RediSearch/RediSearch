@@ -104,7 +104,7 @@ typedef enum {
 typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
 
 typedef enum {
-  // Pipeline has a loader
+  /* Pipeline has a loader */
   QEXEC_S_HAS_LOAD = 0x01,
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,

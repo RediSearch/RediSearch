@@ -953,17 +953,10 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 }
 
 void SetLoadersForBG(AREQ *r) {
-  if (r->qiter.endProc->type == RP_SAFE_LOADER) {
-    assert(r->qiter.endProc->Next == rploaderNext);
-    r->qiter.endProc->Next = rpSafeLoaderNext_Accumulate;
-    ((RPSafeLoader *)r->qiter.endProc)->becomePlainLoader = false;
-  } else if (r->qiter.endProc->type == RP_LOADER) {
-    RPLoader *rp = (RPLoader *)r->qiter.endProc;
-    r->qiter.endProc = RPSafeLoader_New_FromPlainLoader(rp);
-  }
-  ResultProcessor *downstream = r->qiter.endProc;
-  while (downstream->upstream) {
-    ResultProcessor *cur = downstream->upstream;
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+  while (cur) {
     if (cur->type == RP_LOADER) {
       cur = RPSafeLoader_New_FromPlainLoader((RPLoader *)cur);
       downstream->upstream = cur;
@@ -976,7 +969,10 @@ void SetLoadersForBG(AREQ *r) {
       ((RPSafeLoader *)cur)->becomePlainLoader = false;
     }
     downstream = cur;
+    cur = cur->upstream;
   }
+  // Update the endProc to the new head in case it was changed
+  r->qiter.endProc = dummyHead.upstream;
 }
 
 void SetLoadersForMainThread(AREQ *r) {
