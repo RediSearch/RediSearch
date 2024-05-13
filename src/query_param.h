@@ -41,6 +41,7 @@ void QueryParam_Free(QueryParam *p);
  * Resolve the value of a param
  * Return 0 if not parameterized
  * Return 1 if value was resolved successfully
+ * Return 2 if a parameter of type PARAM_TERM was resolved successfully as a number
  * Return -1 if param is missing or its kind is wrong
  */
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status);

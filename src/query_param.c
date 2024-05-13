@@ -162,9 +162,15 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
+      int val_is_number = 0;
+      if (ParseDouble(val, (double*)param->target)) {
+        val_is_number = 1;
+      } else if (ParseInteger(val, (long long *)param->target)) {
+        val_is_number = 1;
+      }
       *(char**)param->target = rm_strdupcase(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
-      return 1;
+      return 1 + val_is_number;
 
     case PARAM_WILDCARD:
       *(char**)param->target = rm_calloc(1, val_len + 1);

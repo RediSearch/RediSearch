@@ -1130,9 +1130,9 @@ param_size(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= ATTRIBUTE(B). {
-    A = B;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 1;
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 1;
 }
 
 param_num(A) ::= num(B). {

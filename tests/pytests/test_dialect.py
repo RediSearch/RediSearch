@@ -206,13 +206,23 @@ def test_v1_vs_v2_vs_v5(env):
       .contains('Syntax error')
 
     # DIALECT 5 or later does not expand numbers
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 1)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 1)
     expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
     env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 2)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 2)
     env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "705", 'DIALECT', 5)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 5)
     expected = ['705', '']
+    env.assertEqual(res, expected)
+
+    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+               'DIALECT', 1).error().contains('Syntax error')
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+                  'DIALECT', 2)
+    expected = ['1.2e-3', '']
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+                  'DIALECT', 5)
     env.assertEqual(res, expected)
 
 def test_spell_check_dialect_errors(env):

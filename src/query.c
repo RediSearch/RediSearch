@@ -1673,6 +1673,10 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
+      // If parameter's value is a number, don't expand the node.
+      if (res == 2) {
+        node->opts.flags |= QueryNode_Verbatim;
+      }
     }
   }
   return REDISMODULE_OK;
