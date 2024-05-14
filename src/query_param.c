@@ -28,8 +28,11 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
   assert (unit->type != QT_TERM_CASE);
   if (unit->type == QT_TERM && unit->s) {
     gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
-  } else {
+  } else if (unit->type == QT_PARAM_GEO_UNIT) {
     QueryParam_SetParam(q, &ret->params[3], &gf->unitType, NULL, unit);
+  } else {
+    // Invalid unit->type
+    gf->unitType = GeoDistance_Parse_Buffer("", 0);
   }
   return ret;
 }
@@ -162,15 +165,16 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
-      int val_is_number = 0;
-      if (ParseDouble(val, (double*)param->target)) {
-        val_is_number = 1;
-      } else if (ParseInteger(val, (long long *)param->target)) {
-        val_is_number = 1;
+      int val_contains_number = 0;
+      if (str_contains_digit(val)) {
+        val_contains_number = 1;
+      } else if (ParseDouble(val, (double*)param->target)) {
+        // parse as number to check +inf, -inf
+        val_contains_number = 1;
       }
       *(char**)param->target = rm_strdupcase(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
-      return 1 + val_is_number;
+      return 1 + val_contains_number;
 
     case PARAM_WILDCARD:
       *(char**)param->target = rm_calloc(1, val_len + 1);

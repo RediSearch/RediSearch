@@ -203,8 +203,8 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
       len = qt->len;
     }
     ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
-    // Do not expand NUMERIC or SIZE nodes
-    if(qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
+    // Do not expand NUMERIC node, SIZE node, or TERM node that contains a digit
+    if(qt->type == QT_NUMERIC || qt->type == QT_SIZE || str_contains_digit(s)) {
         ret->opts.flags |= QueryNode_Verbatim;
     }
   } else {
