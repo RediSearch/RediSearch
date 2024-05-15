@@ -363,3 +363,69 @@ def test_multiple_loaders():
     cmd += ['LIMIT', '0', limit]
 
     env.expect(*cmd).noError().apply(lambda x: x[1:]).equal([['n', '0'], ['n', '1'], ['n', '2'], ['n', '3'], ['n', '4']])
+
+@skip(cluster=True)
+def test_switch_loader_modes():
+    # Create an environment with MT_MODE_FULL (0)
+    env = initEnv('WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    n_docs = 10
+    cursor_count = 2
+    # Having two loaders to test when the loader is last and when it is not
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', cursor_count)
+    read_from_cursor = lambda cursor: env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().res[1]
+
+    # Add some documents and create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for n in range(n_docs):
+        env.cmd('HSET', n, 'n', n)
+
+    # Create a cursor while using the full mode
+    _, cursor1 = env.cmd(*query)
+
+    # Turn off the multithread mode (1)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    # Create a cursor while using the off mode
+    _, cursor2 = env.cmd(*query)
+    # Read from the first cursor
+    cursor1 = read_from_cursor(cursor1)
+
+    # Turn on the multithread mode (2)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    # Read from the cursors
+    cursor1 = read_from_cursor(cursor1)
+    cursor2 = read_from_cursor(cursor2)
+
+    # Turn off the multithread mode (3)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    # Read from the cursors
+    cursor1 = read_from_cursor(cursor1)
+    cursor2 = read_from_cursor(cursor2)
+
+    # Turn on the multithread mode last time (4)
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    # Read from the second cursor
+    cursor2 = read_from_cursor(cursor2)
+
+    # Delete the cursors.
+    # The first cursor should be in the off mode and the second cursor should be in the full mode
+    # We expect no errors or leaks
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor1).noError().ok()
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor2).noError().ok()
+
+    # Send a new query with an implicit loader
+    _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
+                         'WITHCURSOR', 'COUNT', cursor_count)
+
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+
+    cursor3 = read_from_cursor(cursor3)
+
+    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+
+    cursor3 = read_from_cursor(cursor3)
+
+    env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()

@@ -1067,8 +1067,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
-    AREQ_Free(req);
-    cursor->execState = NULL;
     Cursor_Free(cursor);
   } else {
     // Update the idle timeout
@@ -1076,7 +1074,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
+static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, bool bg) {
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
 
   if (cursor == NULL) {
@@ -1084,6 +1082,9 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     return;
   }
   QueryError status = {0};
+  AREQ *req = cursor->execState;
+  req->qiter.err = &status;
+
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -1092,16 +1093,24 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
-      // QueryError_ReplyAndClear(reply->ctx, &status);
-      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
-      QueryError_ClearError(&status);
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
+    if (HasLoader(req)) { // Quick check if the cursor has loaders.
+      bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
+      if (bg && !isSetForBackground) {
+        // Reset loaders to run in background
+        SetLoadersForBG(req);
+        // Mark the request as set to run in background
+        req->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+      } else if (!bg && isSetForBackground) {
+        // Reset loaders to run in main thread
+        SetLoadersForMainThread(req);
+        // Mark the request as set to run in main thread
+        req->reqflags &= ~QEXEC_F_RUN_IN_BACKGROUND;
+      }
+    }
   }
-
-  AREQ *req = cursor->execState;
-  req->qiter.err = &status;
 
   runCursor(reply, cursor, count);
   if (has_spec) {
@@ -1118,7 +1127,7 @@ typedef struct {
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cid, cr_ctx->count);
+  cursorRead(reply, cr_ctx->cid, cr_ctx->count, true);
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
@@ -1182,7 +1191,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else
 #endif
     {
-      cursorRead(reply, cid, count);
+      cursorRead(reply, cid, count, false);
     }
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
@@ -1200,8 +1209,4 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
-}
-
-void Cursor_FreeExecState(void *p) {
-  AREQ_Free((AREQ *)p);
 }
