@@ -148,6 +148,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(1,"hello world&good");
   assertValidQuery_v(2,"hello world&good");
   assertInvalidQuery_v(5,"hello world&good");
+  assertValidQuery_v(5,"hello world\\&good");
 
   StrongRef_Release(ref);
 }
