@@ -27,6 +27,10 @@
 %left TILDE MINUS PLUS.
 %left AND.
 
+%left EQUAL.
+%left NOT_EQUAL EQUAL_EQUAL.
+%left GE GT LE LT.
+
 %left ARROW.
 %left COLON.
 
@@ -266,6 +270,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type numeric_range { QueryParam * }
 %destructor numeric_range {
+  QueryParam_Free($$);
+}
+
+%type numeric_operator { QueryParam * }
+%destructor numeric_operator {
   QueryParam_Free($$);
 }
 
@@ -827,6 +836,48 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
 
 numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+/////////////////////////////////////////////////////////////////
+// Numeric Operators
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C). {
+  QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  // we keep the capitalization as is
+  D->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(D);
+  A = NewNotNode(E);
+}
+
+expr(A) ::= modifier(B) numeric_operator(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(C);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+numeric_operator(A) ::= EQUAL_EQUAL param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+numeric_operator(A) ::= GT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
+}
+
+numeric_operator(A) ::= GE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
+}
+
+numeric_operator(A) ::= LT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
+}
+
+numeric_operator(A) ::= LE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
 }
 
 /////////////////////////////////////////////////////////////////
