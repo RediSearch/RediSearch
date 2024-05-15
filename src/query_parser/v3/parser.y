@@ -27,6 +27,10 @@
 %left TILDE MINUS PLUS.
 %left AND.
 
+%left EQUAL.
+%left NOT_EQUAL EQUAL_EQUAL.
+%left GE GT LE LT.
+
 %left ARROW.
 %left COLON.
 
@@ -266,6 +270,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type numeric_range { QueryParam * }
 %destructor numeric_range {
+  QueryParam_Free($$);
+}
+
+%type numeric_operator { QueryParam * }
+%destructor numeric_operator {
   QueryParam_Free($$);
 }
 
@@ -830,6 +839,48 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 }
 
 /////////////////////////////////////////////////////////////////
+// Numeric Operators
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C). {
+  QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  // we keep the capitalization as is
+  D->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(D);
+  A = NewNotNode(E);
+}
+
+expr(A) ::= modifier(B) numeric_operator(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(C);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+numeric_operator(A) ::= EQUAL_EQUAL param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+numeric_operator(A) ::= GT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
+}
+
+numeric_operator(A) ::= GE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
+}
+
+numeric_operator(A) ::= LT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
+}
+
+numeric_operator(A) ::= LE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
+}
+
+/////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
@@ -1130,9 +1181,24 @@ param_size(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= ATTRIBUTE(B). {
-  A = B;
-  A.type = QT_PARAM_NUMERIC;
-  A.inclusive = 1;
+    A = B;
+    A.sign = 1; // default
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
+param_num(A) ::= MINUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = -1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
+param_num(A) ::= PLUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = 1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
 }
 
 param_num(A) ::= num(B). {
@@ -1146,9 +1212,23 @@ exclusive_param_num(A) ::= LP num(B). {
   A.inclusive = 0;
   A.type = QT_NUMERIC;
 }
-
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.sign = 1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+}
+
+exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
+    A.sign = -1;
+}
+
+exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+    A.sign = 1;
 }
