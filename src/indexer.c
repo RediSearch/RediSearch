@@ -253,6 +253,34 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
+// Index missing field docs.
+// Add field names to missingFieldDict if it is missing in the document
+// and add docId to its corresponding inverted index
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+
+  Document *doc = aCtx->doc;
+  IndexSpec *spec = sctx->spec;
+
+  for(size_t i = 0; i < spec->numFields; i++) {
+    const FieldSpec *fs = spec->fields + i;
+    const DocumentField *df = doc->fields + i;
+
+    // df->name is NULL if the field is missing in the document
+    if (FieldSpec_IndexesMissing(fs) && df->name == NULL) {
+      InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
+      if(iiMissingDocs == NULL) {
+        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1);
+        dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
+      }
+      // Add docId to inverted index
+      t_docId docId = aCtx->doc->docId;
+      IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
+      RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
+      InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
+    }
+  }
+}
+
 /**
  * Perform the processing chain on a single document entry, optionally merging
  * the tokens of further entries in the queue
@@ -295,6 +323,9 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
     doAssignIds(firstZeroId, &ctx);
   }
+
+  // Handle missing values indexing
+  writeMissingFieldDocs(aCtx, &ctx);
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
