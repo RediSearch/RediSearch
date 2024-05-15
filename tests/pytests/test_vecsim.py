@@ -8,20 +8,17 @@ from random import randrange
 from redis import ResponseError
 
 '''************* Helper methods for vecsim tests ************'''
-EPSILON = 1e-7
+EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
 
 # Helper method for comparing expected vs. results of KNN query, where the only
 # returned field except for the doc id is the vector distance
-def assert_query_results(env, expected_res, actual_res, error_msg='', data_type='FLOAT32'):
+def assert_query_results(env: Env, expected_res, actual_res, error_msg=None, data_type='FLOAT32'):
     # Assert that number of returned results from the query is as expected
     env.assertEqual(expected_res[0], actual_res[0], depth=1, message=error_msg)
     for i in range(1, len(expected_res), 2):
         # For each result, assert its id and its distance (use float equality)
         env.assertEqual(expected_res[i], actual_res[i], depth=1, message=error_msg)
-        if data_type == 'FLOAT32':
-            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6, depth=1, message=error_msg)
-        else:  # data type is float64, expect higher precision
-            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9, depth=1, message=error_msg)
+        env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), EPSILONS[data_type], depth=1, message=error_msg)
 
 
 def get_vecsim_memory(env, index_key, field_name):
@@ -78,7 +75,7 @@ def test_sanity_cosine():
 
     score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
     for index_type in VECSIM_ALGOS:
-        for data_type in VECSIM_DATA_TYPES:
+        for data_type in VECSIM_DATA_TYPES_EXTENDED:
             for i, score_field_syntax in enumerate(score_field_syntaxs):
                 env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                            'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -99,7 +96,7 @@ def test_sanity_cosine():
                                         'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                 assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
                 if i==1:  # range query can use only query attributes as score field syntax
-                    range_dist = spatial.distance.cosine(np.array([0.1, 0.4]), query_vec) + EPSILON
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.4]), query_vec) + EPSILONS[data_type]
                     actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob {score_field_syntax}', 'PARAMS', '2',
                                             'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                     assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -115,7 +112,7 @@ def test_sanity_cosine():
                                         'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                 assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
                 if i==1:  # range query can use only query attributes as score field syntax
-                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILON
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILONS[data_type]
                     actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob {score_field_syntax}', 'PARAMS', '2',
                                             'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                     assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -132,7 +129,7 @@ def test_sanity_cosine():
 
                 if i==1:
                     # Test range query
-                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILON
+                    range_dist = spatial.distance.cosine(np.array([0.1, 0.1]), query_vec) + EPSILONS[data_type]
                     actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
                                             'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
                     assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -145,7 +142,7 @@ def test_sanity_l2():
     conn = getConnectionByEnv(env)
 
     for index_type in VECSIM_ALGOS:
-        for data_type in VECSIM_DATA_TYPES:
+        for data_type in VECSIM_DATA_TYPES_EXTENDED:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
             conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
@@ -166,7 +163,7 @@ def test_sanity_l2():
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
             # Test range query
-            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILONS[data_type]
             actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
                                     'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -181,7 +178,7 @@ def test_sanity_l2():
                                     'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
             # Test range query
-            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILONS[data_type]
             actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
                                     'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -197,7 +194,7 @@ def test_sanity_l2():
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
 
             # Test range query
-            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILON
+            range_dist = spatial.distance.sqeuclidean(np.array([0.1, 0.4]), query_vec) + EPSILONS[data_type]
             actual_res = env.expect('FT.SEARCH', 'idx', f'@v:[VECTOR_RANGE {range_dist} $blob]=>{{$yield_distance_as: dist}}',
                                     'PARAMS', '2', 'blob', query_vec.tobytes(), 'SORTBY', 'dist', 'RETURN', '1', 'dist').res
             assert_query_results(env, expected_res, actual_res, error_msg=f"{index_type, data_type}", data_type=data_type)
@@ -211,7 +208,7 @@ def test_sanity_zero_results():
     dim = 4
 
     for index_type in VECSIM_ALGOS:
-        for data_type in VECSIM_DATA_TYPES:
+        for data_type in VECSIM_DATA_TYPES_EXTENDED:
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC').ok()
             conn.execute_command('HSET', 'a', 'n', 0xa, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
@@ -323,7 +320,7 @@ def test_create():
     dummy_val = 'dummy_supplement'
 
     # Test for INT32, INT64 as well when support for these types is added.
-    for data_type in VECSIM_DATA_TYPES:
+    for data_type in VECSIM_DATA_TYPES_EXTENDED:
         conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v_HNSW', 'VECTOR', 'HNSW', '14', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '16',
                              'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
@@ -1142,7 +1139,7 @@ def test_wrong_vector_size():
     conn = getConnectionByEnv(env)
     dimension = 128
 
-    for data_type in VECSIM_DATA_TYPES:
+    for data_type in VECSIM_DATA_TYPES_EXTENDED:
         vector = create_np_array_typed(np.random.rand(1+dimension), data_type)
 
         conn.execute_command('HSET', '0', 'v', vector[:dimension-1].tobytes())
@@ -1789,7 +1786,7 @@ def test_index_multi_value_json():
     n = 100
     per_doc = 5
 
-    for data_t in VECSIM_DATA_TYPES:
+    for data_t in VECSIM_DATA_TYPES_EXTENDED:
         conn.flushall()
         env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
             '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',

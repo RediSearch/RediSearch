@@ -17,6 +17,7 @@ from typing import Any, Callable
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
+from bfloat16 import bfloat16
 from scipy import spatial
 from pprint import pprint as pp
 from deepdiff import DeepDiff
@@ -26,6 +27,7 @@ import inspect
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
+VECSIM_DATA_TYPES_EXTENDED = VECSIM_DATA_TYPES + ['FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
@@ -405,6 +407,10 @@ def create_np_array_typed(data, data_type='FLOAT32'):
         return np.array(data, dtype=np.float32)
     if data_type == 'FLOAT64':
         return np.array(data, dtype=np.float64)
+    if data_type == 'FLOAT16':
+        return np.array(data, dtype=np.float16)
+    if data_type == 'BFLOAT16':
+        return np.array(data, dtype=bfloat16)
     return None
 
 def compare_lists_rec(var1, var2, delta):
