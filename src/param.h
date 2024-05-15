@@ -39,6 +39,8 @@ typedef struct Param {
   void *target;
   // The length of the `target` value (if relevant for the parameter type)
   size_t *target_len;
+  // The sign before $ sign in case of numeric range
+  int sign;
 } Param;
 
 void Param_FreeInternal(Param *param);
