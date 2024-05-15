@@ -162,7 +162,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
 #define BIT_CAST(type, value) ({ \
   __typeof__(value) value_var = (value); \
   static_assert(sizeof(type) == sizeof(value_var), "type and value must have the same size"); \
-  void *ptr = &(value_var); \
+  const void *ptr = &(value_var); \
   *(type *)ptr; \
 })
 
@@ -195,7 +195,7 @@ static inline uint16_t floatToFP16bits(float input) {
   const uint32_t f16infty = 31u << 23;
   const uint32_t round_mask = ~0xfffu;
   const uint32_t magic_bits = 15u << 23;
-  const float magic = BIT_CAST(float, magic_bits);
+  const float magic = BIT_CAST(const float, magic_bits);
 
   uint32_t f32 = BIT_CAST(uint32_t, input);
   uint32_t sign = f32 & sign_mask;
