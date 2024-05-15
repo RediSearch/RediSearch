@@ -403,7 +403,7 @@ def testNumberFormat(env):
     env.assertEqual(conn.execute_command('HSET', 'doc06', 'n', '10e-2'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc07', 'n', '1.5e-2'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc08', 'n', 'INF'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'doc09', 'n', 'inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc09', 'n', '1e6'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc10', 'n', 'iNf'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc11', 'n', '+INF'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc12', 'n', '+inf'), 1)

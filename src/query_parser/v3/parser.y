@@ -1210,7 +1210,6 @@ exclusive_param_num(A) ::= LP num(B). {
   A.inclusive = 0;
   A.type = QT_NUMERIC;
 }
-
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.sign = 1;

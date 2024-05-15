@@ -294,48 +294,109 @@ def test_tags(env):
 
 
 def test_numeric_range(env):
+
+    for dialect in [2, 5]:
+        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
+        conn = getConnectionByEnv(env)
+
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC').ok()
+        waitForIndex(env, 'idx')
+
+        env.assertEqual(conn.execute_command('HSET', 'key1', 'numval', '101'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '102'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key3', 'numval', '103'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key4', 'numval', '104'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key5', 'numval', '105'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key6neg', 'numval', '-10'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key7inf', 'numval', 'inf'), 1)
+
+        # test range with integer limits
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT',
+                    'WITHCOUNT')
+        env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min $max]', 'NOCONTENT',
+                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 104]', 'NOCONTENT',
+                    'WITHCOUNT')
+        env.assertEqual(res1, [2, 'key3', 'key4'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT',
+                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 (104]', 'NOCONTENT',
+                    'WITHCOUNT')
+        env.assertEqual(res1, [2, 'key2', 'key3'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
+                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (104]', 'NOCONTENT',
+                    'WITHCOUNT')
+        env.assertEqual(res1, [1, 'key3'])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
+                    'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
+        env.assertEqual(res2, res1)
+
+        # test limit by single number
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
+        env.assertEqual(res1, [1, 'key5', ['numval', '105']])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'WITHCOUNT',
+                       'PARAMS', '2', 'n', '105')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')
+        env.assertEqual(res1, [1, 'key6neg', ['numval', '-10']])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-10')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]')
+        env.assertEqual(res1, [0])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-105')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]')
+        env.assertEqual(res1, [1, 'key7inf', ['numval', 'inf']])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
+                    'PARAMS', 2, 'param', '+inf')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf]')
+        env.assertEqual(res1, [0])
+        res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
+                    'PARAMS', 2, 'param', '-inf')
+        env.assertEqual(res2, res1)
+
+        res1 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[+inf]', 'LOAD', '1', '__key')
+        env.assertEqual(res1, [1, ['__key', 'key7inf']])
+        res2 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[$param]',
+                    'LOAD', '1', '__key', 'PARAMS', 2, 'param', '+inf')
+        env.assertEqual(res2, res1)
+
+        # Invalid syntax
+        env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[((105 300]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[((105]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[(105]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[-(105]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[(-105]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[($param]',
+                   'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[1  (($param]',
+                   'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@numval:[(($param  1000]',
+                   'PARAMS', 2, 'param', 100).error()
+
+        # invalid syntax - multiple parenthesis before parameter are not allowed
+        env.expect('FT.SEARCH', 'idx', '@n:[(($n 9]', 'PARAMS', 2, 'n', 1).error()
+        env.expect('FT.SEARCH', 'idx', '@n:[1 (($n]', 'PARAMS', 2, 'n', 9).error()
+
+    # Test dialect 5 improvements
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
     conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC').ok()
-    waitForIndex(env, 'idx')
-
-    env.assertEqual(conn.execute_command('HSET', 'key1', 'numval', '101'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '102'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key3', 'numval', '103'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key4', 'numval', '104'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key5', 'numval', '105'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key6neg', 'numval', '-10'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'key7inf', 'numval', 'inf'), 1)
-
-    # test range with integer limits
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT',
-                   'WITHCOUNT')
-    env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min $max]', 'NOCONTENT',
-                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 104]', 'NOCONTENT',
-                   'WITHCOUNT')
-    env.assertEqual(res1, [2, 'key3', 'key4'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT',
-                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[102 (104]', 'NOCONTENT',
-                   'WITHCOUNT')
-    env.assertEqual(res1, [2, 'key2', 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT',
-                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 (104]', 'NOCONTENT',
-                   'WITHCOUNT')
-    env.assertEqual(res1, [1, 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT',
-                   'WITHCOUNT', 'PARAMS', '4', 'min', '102', 'max', '104')
-    env.assertEqual(res2, res1)
 
     # Test parameters = -inf, +inf, inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT',
@@ -407,60 +468,6 @@ def test_numeric_range(env):
                   'WITHCOUNT', 'PARAMS', 4, 'n', -101, 'm', 102)
     env.assertEqual(res2, res1)
 
-    # test limit by single number
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
-    env.assertEqual(res1, [1, 'key5', ['numval', '105']])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'WITHCOUNT',
-                   'PARAMS', '2', 'n', '105')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')
-    env.assertEqual(res1, [1, 'key6neg', ['numval', '-10']])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-10')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-105]')
-    env.assertEqual(res1, [0])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'PARAMS', '2', 'n', '-105')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[+inf]')
-    env.assertEqual(res1, [1, 'key7inf', ['numval', 'inf']])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
-                   'PARAMS', 2, 'param', '+inf')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-inf]')
-    env.assertEqual(res1, [0])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$param]',
-                   'PARAMS', 2, 'param', '-inf')
-    env.assertEqual(res2, res1)
-
-    res1 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[+inf]', 'LOAD', '1', '__key')
-    env.assertEqual(res1, [1, ['__key', 'key7inf']])
-    res2 = env.cmd('FT.AGGREGATE', 'idx', '@numval:[$param]',
-                   'LOAD', '1', '__key', 'PARAMS', 2, 'param', '+inf')
-    env.assertEqual(res2, res1)
-
-    # Invalid syntax
-    env.expect('FT.SEARCH', 'idx', '@numval:[105 ((300]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[((105 300]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[((105]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(105]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[-(105]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-105]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[($param]',
-               'PARAMS', 2, 'param', 100).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[1  (($param]',
-               'PARAMS', 2, 'param', 100).error()
-    env.expect('FT.SEARCH', 'idx', '@numval:[(($param  1000]',
-               'PARAMS', 2, 'param', 100).error()
-	# invalid syntax - multiple signs before parameters are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[+-$n -+$n]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++$n --$m]', 'PARAMS', 2, 'n', 1).error()
-
     # range with 2 exclusive identical values will return no results
     res = env.cmd('FT.SEARCH', 'idx', '@numval:[(101 (101]', 'NOCONTENT')
     env.assertEqual(res[0], 0)
@@ -474,10 +481,6 @@ def test_numeric_range(env):
                    'PARAMS', 4, 'n', -101, 'm', 101)
     env.assertEqual(res[0], 0)
 
-    # invalid syntax - multiple parenthesis before parameter are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[(($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 (($n]', 'PARAMS', 2, 'n', 9).error()
-
     # invalid syntax - signs before parenthesis are not allowed
     env.expect('FT.SEARCH', 'idx', '@n:[+($n 9]', 'PARAMS', 2, 'n', 1).error()
     env.expect('FT.SEARCH', 'idx', '@n:[-($n 9]', 'PARAMS', 2, 'n', 1).error()
@@ -485,6 +488,12 @@ def test_numeric_range(env):
     env.expect('FT.SEARCH', 'idx', '@n:[+-($n 9]', 'PARAMS', 2, 'n', 1).error()
     env.expect('FT.SEARCH', 'idx', '@n:[--($n 9]', 'PARAMS', 2, 'n', 1).error()
     env.expect('FT.SEARCH', 'idx', '@n:[++($n 9]', 'PARAMS', 2, 'n', 1).error()
+
+    # invalid syntax - multiple signs before parameters are not allowed
+    env.expect('FT.SEARCH', 'idx', '@n:[+-$n 100]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[-+$n 100]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[1 --$n]', 'PARAMS', 2, 'n', 1).error()
+    env.expect('FT.SEARCH', 'idx', '@n:[++$n 100]', 'PARAMS', 2, 'n', 1).error()
 
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

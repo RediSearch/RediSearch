@@ -1160,7 +1160,9 @@ def testExact(env):
     env.cmd('HSET', '{doc}:2', 'title', 'hello another world',
             'body', 'lorem ist ipsum lorem lorem')
 
-    for dialect in range(1,6):
+    MAX_DIALECT = set_max_dialect(env)
+    
+    for dialect in range(1, MAX_DIALECT + 1):
         res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim',
                       'DIALECT', dialect)
         env.assertEqual(3, len(res))
