@@ -343,7 +343,7 @@ def test_numeric_range(env):
         res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[105]')
         env.assertEqual(res1, [1, 'key5', ['numval', '105']])
         res2 = env.cmd('FT.SEARCH', 'idx', '@numval:[$n]', 'WITHCOUNT',
-                    'PARAMS', '2', 'n', '105')
+                       'PARAMS', '2', 'n', '105')
         env.assertEqual(res2, res1)
 
         res1 = env.cmd('FT.SEARCH', 'idx', '@numval:[-10]')
@@ -384,11 +384,11 @@ def test_numeric_range(env):
         env.expect('FT.SEARCH', 'idx', '@numval:[(inf]').error()
         env.expect('FT.SEARCH', 'idx', '@numval:[(-inf]').error()
         env.expect('FT.SEARCH', 'idx', '@numval:[($param]',
-                'PARAMS', 2, 'param', 100).error()
+                   'PARAMS', 2, 'param', 100).error()
         env.expect('FT.SEARCH', 'idx', '@numval:[1  (($param]',
-                'PARAMS', 2, 'param', 100).error()
+                   'PARAMS', 2, 'param', 100).error()
         env.expect('FT.SEARCH', 'idx', '@numval:[(($param  1000]',
-                'PARAMS', 2, 'param', 100).error()
+                   'PARAMS', 2, 'param', 100).error()
 
         # invalid syntax - multiple parenthesis before parameter are not allowed
         env.expect('FT.SEARCH', 'idx', '@n:[(($n 9]', 'PARAMS', 2, 'n', 1).error()
