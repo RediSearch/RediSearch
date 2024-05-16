@@ -428,12 +428,8 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 }
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep;
-  if (!isCrdt) {
-    rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  } else {
-    rep = RedisModule_Call(ctx, "DEL", "c", cstr);
-  }
+  // Send command and args to replicas and AOF
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
