@@ -1087,6 +1087,10 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
 
+    # wildcard including single quote
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'a\\'bc'}")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{a'bc}\n}\n")
+
     # wildcard with leading and trailing spaces are valid, spaces are ignored
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
@@ -1103,18 +1107,6 @@ def testTagAutoescaping(env):
     # Test escaped wildcards which become tags
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  \\w'?*1'\n}\n")
-
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w-:abc}")
-    env.assertEqual(res, "TAG:@tag {\n  \\w-:abc\n}\n")
-
-    res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{\\w-:abc})")
-    env.assertEqual(res, "TAG:@tag {\n  \\w-:abc\n}\n")
-
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'-abc}")
-    env.assertEqual(res, "TAG:@tag {\n  \\w'-abc\n}\n")
-
-    res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{\\w'-abc})")
-    env.assertEqual(res, "TAG:@tag {\n  \\w'-abc\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})")
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
@@ -1231,6 +1223,13 @@ def testDialect5InvalidSyntax(env):
          
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}'")
+
+    # escaping an invalid wildcard
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{\\w-:abc}")
+    
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{\\w'-:abc}")
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @t1:(%)")
