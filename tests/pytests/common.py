@@ -377,6 +377,15 @@ def to_list(input_dict: dict):
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
 
+MAX_DIALECT = 0
+def set_max_dialect(env):
+    global MAX_DIALECT
+    if MAX_DIALECT == 0:
+        info = env.cmd('INFO', 'MODULES')
+        prefix = 'search_dialect_'
+        MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
+    return MAX_DIALECT
+
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
