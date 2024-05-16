@@ -64,6 +64,10 @@ static void QueryVectorNode_Free(QueryVectorNode *vn) {
   }
 }
 
+static void QueryMissingNode_Free(QueryMissingNode *missn) {
+  rm_free((char *)missn->fieldName);
+}
+
 void QueryNode_Free(QueryNode *n) {
   if (!n) return;
 
@@ -121,6 +125,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
+      break;
+    case QN_MISSING:
+      QueryMissingNode_Free(&n->miss);
       break;
     case QN_UNION:
     case QN_NOT:
@@ -288,7 +295,6 @@ QueryNode *NewPhraseNode(int exact) {
 }
 
 QueryNode *NewTagNode(const char *field, size_t len) {
-
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
@@ -316,6 +322,14 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewMissingNode(const char *field, size_t len) {
+  QueryNode *ret = NewQueryNode(QN_MISSING);
+  ret->miss.fieldName = field;
+  ret->miss.len = len;
+  ret->miss.nen = NON_EXIST_MISSING;
   return ret;
 }
 
@@ -1374,6 +1388,12 @@ done:
   return ret;
 }
 
+static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
+  // TBD - Create iterator over the missing-docs InvertedIndex.
+
+  return NewEmptyIterator();
+}
+
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
@@ -1410,6 +1430,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalGeometryNode(q, n);
     case QN_NULL:
       return NewEmptyIterator();
+    case QN_MISSING:
+      return Query_EvalMissingNode(q, n);
   }
 
   return NULL;
@@ -1545,6 +1567,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
     case QN_GEOMETRY:
+    case QN_MISSING:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1603,6 +1626,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_LEXRANGE:
     case QN_VECTOR:
     case QN_GEOMETRY:
+    case QN_MISSING:
       break;
   }
   // Handle children
@@ -1854,6 +1878,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_GEOMETRY:
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      break;
+    case QN_MISSING:
+      s = sdscat(s, "<MISSING>");
       break;
   }
 
