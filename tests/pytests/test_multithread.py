@@ -61,21 +61,29 @@ def testMultipleBlocksBuffer():
 # failed, causing access to an invalid memory that was freed (module context) - see
 # https://github.com/redis/redis/issues/12808.
 # TODO: free allocations in module init in case we return an error, currently this is causing leaks when MODULE LOAD fails.
-@skip(cluster=True, noWorkers=True, asan=True)
+@skip(cluster=True, noWorkers=True, asan=True, redis_less_than="7.2.4")
 def test_invalid_mt_config_combinations(env):
-    if server_version_less_than(env, "7.2.4"):
-        env.skip()
     module_path =  env.envRunner.modulePath[0]  # extract search module path from RLTest default env
-    for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
-        env = Env(module=[])  # create a new env without any module
-        env.assertEqual(env.cmd('MODULE', 'LIST'), [], message=mode)
+    def check_invalid_values(mt_mode, worker_threads):
+        mode = f"mt_mode: {mt_mode}, worker_threads: {worker_threads}"
+        r = Env(module=[])  # create a new env without any module
+        env.assertEqual(r.cmd('MODULE', 'LIST'), [], message=mode)
         try:
-            env.cmd('MODULE', 'LOAD', module_path, 'WORKER_THREADS', '0', 'MT_MODE', mode)
+            r.cmd('MODULE', 'LOAD', module_path, 'WORKER_THREADS', worker_threads, 'MT_MODE', mt_mode)
             env.assertFalse(True, message=mode)   # we shouldn't get here
         except Exception as e:
             # Expect to see a failure in loading the module due to the invalid configuration combination.
             env.assertEqual(type(e), redis.exceptions.ModuleError, message=mode)
             env.assertContains("Error loading the extension.", str(e))
+        finally:
+            r.stop()
+
+    # Check invalid values for MT_MODE with worker_threads=0
+    for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
+        check_invalid_values(mode, 0)
+
+    # Check invalid values for worker_threads (too high)
+    check_invalid_values('MT_MODE_FULL', 2 ** 13 + 1)
 
 
 @skip(cluster=True)
