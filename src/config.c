@@ -172,8 +172,20 @@ CONFIG_GETTER(getTimeout) {
 
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
-  int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  // We limit the number of worker threads to limit the amount of memory used by the thread pool
+  // and to prevent the system from running out of resources.
+  // The number of worker threads should be proportional to the number of cores in the system at most,
+  // otherwise no performance improvement will be achieved.
+  #define MAX_WORKER_THREADS (1 << 13)
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
+  config->numWorkerThreads = newNumThreads;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getWorkThreads) {
