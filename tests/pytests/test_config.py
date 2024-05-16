@@ -19,6 +19,9 @@ def testConfigErrors(env):
         .equal('Max depth for range cannot be higher than max depth for balance')
     env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
+    if MT_BUILD:
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1_000_000).error()\
+            .contains('Number of worker threads cannot exceed')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -113,7 +116,7 @@ def testAllConfig(env):
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     if MT_BUILD:
         env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_OFF')
+        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_FULL')
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
         env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
