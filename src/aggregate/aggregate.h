@@ -98,7 +98,7 @@ typedef enum {
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
+#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL && RSGlobalConfig.numWorkerThreads)
 #endif
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);

@@ -78,9 +78,8 @@ typedef struct {
 
 #ifdef MT_BUILD
 typedef enum {
-  MT_MODE_OFF,
+  MT_MODE_FULL,
   MT_MODE_ONLY_ON_OPERATIONS,
-  MT_MODE_FULL
 } MTMode;
 #endif
 
@@ -235,7 +234,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
     .numWorkerThreads = 0,                                                                                            \
-    .mt_mode = MT_MODE_OFF,                                                                                           \
+    .mt_mode = MT_MODE_FULL,                                                                                          \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
 #else

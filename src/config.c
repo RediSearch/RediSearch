@@ -199,22 +199,18 @@ CONFIG_SETTER(setMtMode) {
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
-    config->mt_mode = MT_MODE_OFF;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+  if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
     config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
     config->mt_mode = MT_MODE_FULL;
   } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 static inline const char *MTMode_ToString(MTMode mt_mode) {
   switch (mt_mode) {
-    case MT_MODE_OFF:
-      return "MT_MODE_OFF";
     case MT_MODE_ONLY_ON_OPERATIONS:
       return "MT_MODE_ONLY_ON_OPERATIONS";
     case MT_MODE_FULL:
@@ -650,20 +646,20 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Create at most this number of search threads",
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
-         .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
+         .helpText = "Let ft.search and vector indexing be done in background threads as default if "
+                     "set to MT_MODE_FULL (if `WORKER_THREADS` > 0). "
+                     "MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
          .setValue = setMtMode,
          .getValue = getMtMode,
-        //  .flags = RSCONFIGVAR_F_IMMUTABLE, // TODO: properly make it mutable
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                        " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
-                        " number of vectors waiting in the buffer to be indexed exceeds this limit, "
-                        " we insert new vectors directly into HNSW",
+                    " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
+                    " number of vectors waiting in the buffer to be indexed exceeds this limit,"
+                    " we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
@@ -671,7 +667,7 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "PRIVILEGED_THREADS_NUM",
             .helpText = "The number of threads in worker thread pool that always execute high"
                         " priority tasks, if there exist any in the job queue. Other threads will"
-                        " excute high and low priority tasks alterntely.",
+                        " execute high and low priority tasks alternately.",
             .setValue = setPrivilegedThreadsNum,
             .getValue = getPrivilegedThreadsNum,
             .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
