@@ -265,7 +265,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
-  if (qt->type == QT_TERM) {
+  if (qt->type == QT_TERM || qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
     char *s = rm_strdupcase(qt->s, qt->len);
     ret->fz = (QueryFuzzyNode){
       .tok =
