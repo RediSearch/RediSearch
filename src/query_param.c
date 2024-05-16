@@ -39,8 +39,16 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
-  QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
-  QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
+  if(min != NULL) {
+    QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
+  } else {
+    nf->min = NF_NEGATIVE_INFINITY;
+  }
+  if(max != NULL) {
+    QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
+  } else {
+    nf->max = NF_INFINITY;
+  }
   return ret;
 }
 
@@ -138,6 +146,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   target_param->target_len = target_len;
   target_param->name = rm_strndup(source->s, source->len);
   target_param->len = source->len;
+  target_param->sign = source->sign;
   q->numParams++;
   return true;
 }
@@ -197,9 +206,9 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
-      int inclusive;
+      int inclusive = 1;
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin , status) == REDISMODULE_OK)
+      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
