@@ -65,8 +65,20 @@ typedef enum {
   QN_WILDCARD_QUERY,
 
   /* Null term - take no action */
-  QN_NULL
+  QN_NULL,
+
+  /* Missing query */
+  QN_MISSING
 } QueryNodeType;
+
+// Denotes that a node is searching for an empty, missing or NULL value.
+typedef enum NonExistNode {
+  NON_EXIST_NONE = 0,
+  NON_EXIST_EMPTY = 1,
+  NON_EXIST_MISSING = 2,
+  // To be added in the future
+  // NON_EXIST_NULL = 3
+} NonExistNode;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
@@ -137,6 +149,12 @@ typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
 
+typedef struct {
+  const char *fieldName;
+  size_t len;
+  NonExistNode nen;
+} QueryMissingNode;
+
 typedef enum {
   QueryNode_Verbatim = 0x01,
   QueryNode_OverriddenInOrder = 0x02,
@@ -197,6 +215,7 @@ typedef struct RSQueryNode {
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
+    QueryMissingNode miss;
   };
 
   /* The node type, for resolving the union access */
