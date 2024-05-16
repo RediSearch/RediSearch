@@ -65,16 +65,9 @@ escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) |
 # meaning and need to be escaped to be considered as part of a tag
 tag_invalid_punct = (rb | star | escape | '$');
 
-token_separators = ( '!' | '"' | '#' | '$' | '%' | '&' | squote | '(' | ')' |
-                    star |'+' | '-' | '.' | '/' | ':' | ';' | '<' | '=' | '>' |
-                    '?' | '@' | '[' | escape | ']' | '^' | '`' | '{' | '}' |
-                    '~' | '|' | ',' );
-valid_punct =  token_separators - tag_invalid_punct;
-invalid_punct = punct - valid_punct;
-
 mod = '@'.escaped_term $ 1;
 attr = '$'.escaped_term $ 1;
-single_tag = ( (any - ( invalid_punct | tag_invalid_punct) ) | (escape (tag_invalid_punct)) | '_' )+ $2;
+single_tag = ( (any - (tag_invalid_punct) ) | (escape (tag_invalid_punct)) )+ $2;
 
 contains = (star.escaped_term.star | star.number.star | star.attr.star) $1;
 prefix = (escaped_term.star | number.star | attr.star) $1;
