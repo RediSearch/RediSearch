@@ -22,7 +22,11 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
   }
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+
+  // dummy_index_memsize is not used because this function is only used to load
+  // legacy RDB indexes, legacy indexes should be upgraded on load
+  size_t dummy_index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &dummy_index_memsize);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
   // options - we force adding StoreFreqs.
@@ -59,7 +63,10 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    InvertedIndex_AddBlock(idx, 0);
+    // dummy_sz is not used because this function is only used to load
+    // legacy RDB indexes, legacy indexes should be upgraded on load
+    size_t dummy_sz;
+    InvertedIndex_AddBlock(idx, 0, &dummy_sz);
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
@@ -101,10 +108,10 @@ void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof(InvertedIndex);
+  unsigned long ret = sizeof_InvertedIndex(idx->flags)
+                      + sizeof(IndexBlock) * idx->size;
   for (size_t i = 0; i < idx->size; i++) {
-    ret += sizeof(IndexBlock);
-    ret += IndexBlock_DataLen(&idx->blocks[i]);
+    ret += IndexBlock_DataCap(&idx->blocks[i]);
   }
   return ret;
 }
@@ -245,7 +252,9 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
+  size_t index_size;
+  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
 }
@@ -274,7 +283,9 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
         if (outIsNew) {
           *outIsNew = true;
         }
-        idx = NewInvertedIndex(ctx->spec->flags, 1);
+        size_t index_size;
+        idx = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+        ctx->spec->stats.invertedSize += index_size;
         RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
       }
     } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
@@ -428,12 +439,8 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 }
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep;
-  if (!isCrdt) {
-    rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  } else {
-    rep = RedisModule_Call(ctx, "DEL", "c", cstr);
-  }
+  // Send command and args to replicas and AOF
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
