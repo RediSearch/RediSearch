@@ -220,8 +220,7 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'NOGC').error().contains(not_modifiable)
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
     if MT_BUILD:
-        # env.expect('ft.config', 'set', 'MT_MODE').error().contains(not_modifiable)
-        # env.expect('ft.config', 'set', 'WORKER_THREADS').error().contains(not_modifiable)
+        env.expect('ft.config', 'set', 'MT_MODE').error().contains(not_modifiable)
         env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
         env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable)
     env.expect('ft.config', 'set', 'FRISOINI').error().contains(not_modifiable)

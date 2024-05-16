@@ -221,28 +221,18 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
 #ifdef MT_BUILD
   // Init threadpool.
-  // Threadpool size can only be set on load.
-  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
-           " number is set to zero");
+  if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  if(RSGlobalConfig.numWorkerThreads) {
-    if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-    if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
-      // If the module configuration states that worker threads should always be active,
-      // we log about the threadpool creation.
-      DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-      DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
-             " when possible", RSGlobalConfig.privilegedThreadsNum);
-    } else {
-      // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
-      // VSS lib is async by default.
-      VecSim_SetWriteMode(VecSim_WriteInPlace);
-    }
+  if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
+    // If the module configuration states that worker threads should always be active,
+    // we log about the threadpool creation.
+    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
+    DO_LOG("verbose", "threadpool contains %lu privileged threads that always prefer running queries"
+            " when possible", RSGlobalConfig.privilegedThreadsNum);
   } else
+    // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
+    // VSS lib is async by default.
 #endif
   {
     // If we don't have a thread pool,
