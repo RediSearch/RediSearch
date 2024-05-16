@@ -156,7 +156,9 @@ def arch_int_bits():
   if arch == 'x86_64':
     return 128
   elif arch == 'aarch64':
-    return 64
+    return 128
+  elif arch == 'arm64':
+    return 128
   else:
     return 64
 
@@ -330,7 +332,7 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None):
     def decorate(f):
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
@@ -353,6 +355,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
+            if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+               raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
                 return f(env)
