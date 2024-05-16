@@ -147,34 +147,35 @@ def testEmptyTag(env):
         ]
         cmd_assert(env, cmd, expected)
 
-        # Checking the functionality of our pipeline with empty values
-        # ------------------------------- APPLY --------------------------------
-        # Populate with some data that we will be able to see the `APPLY`
-        cmd = f'FT.AGGREGATE {idx} * LOAD 1 @t APPLY upper(@t) as upper_t SORTBY 4 @t ASC @upper_t ASC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'upper_t', ''], \
-            ['t', 'movie', 'upper_t', 'MOVIE']
-        ]
-        cmd_assert(env, cmd, expected)
+        if dialect == 2:
+            # Checking the functionality of our pipeline with empty values
+            # ------------------------------- APPLY --------------------------------
+            # Populate with some data that we will be able to see the `APPLY`
+            cmd = f'FT.AGGREGATE {idx} * LOAD 1 @t APPLY upper(@t) as upper_t SORTBY 4 @t ASC @upper_t ASC'.split(' ')
+            expected = [
+                ANY, \
+                ['t', '', 'upper_t', ''], \
+                ['t', 'movie', 'upper_t', 'MOVIE']
+            ]
+            cmd_assert(env, cmd, expected)
 
-        # ------------------------------ SORTBY --------------------------------
-        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'text', 'hello'], \
-            ['t', 'movie', 'text', 'love you']
-        ]
-        cmd_assert(env, cmd, expected)
+            # ------------------------------ SORTBY --------------------------------
+            cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
+            expected = [
+                ANY, \
+                ['t', '', 'text', 'hello'], \
+                ['t', 'movie', 'text', 'love you']
+            ]
+            cmd_assert(env, cmd, expected)
 
-        # Reverse order
-        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', 'movie', 'text', 'love you'], \
-            ['t', '', 'text', 'hello']
-        ]
-        cmd_assert(env, cmd, expected)
+            # Reverse order
+            cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
+            expected = [
+                ANY, \
+                ['t', 'movie', 'text', 'love you'], \
+                ['t', '', 'text', 'hello']
+            ]
+            cmd_assert(env, cmd, expected)
 
         # ------------------------------ GROUPBY -------------------------------
         conn.execute_command('HSET', 'h3', 't', 'movie')
@@ -198,7 +199,7 @@ def testEmptyTag(env):
         conn.execute_command('HSET', 'h7', 't', 'bat,')
         conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
         conn.execute_command('HSET', 'h9', 't', ',')
-        cmd = f'FT.SEARCH {idx} isempty(@t) SORTBY t ASC'.split(' ')
+        cmd = f'FT.SEARCH {idx} isempty(@t) SORTBY t ASC WITHCOUNT'.split(' ')
         expected = [
             ANY,
             'h1', ['t', '', 'text', 'hello'],
@@ -457,9 +458,9 @@ def testEmptyTag(env):
         n_docs = 1000
         for i in range(n_docs):
             conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
-        res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'LIMIT', '0', '0')
+        res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'WITHCOUNT', 'LIMIT', '0', '0')
         env.assertEqual(int(res[0]), 500)
-        res = env.cmd('FT.SEARCH', 'idx', '-isempty(@t)', 'LIMIT', '0', '0')
+        res = env.cmd('FT.SEARCH', 'idx', '-isempty(@t)', 'WITHCOUNT', 'LIMIT', '0', '0')
         env.assertEqual(int(res[0]), 500)
         env.flush()
 
