@@ -79,12 +79,12 @@ isempty = 'isempty'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
-contains_tag = colon lb star.single_tag.star rb $1;
-prefix_tag = colon lb single_tag.star rb $1;
-suffix_tag = colon lb star.single_tag rb $1;
-unescaped_tag = colon lb (single_tag | escape.wildcard) rb $1;
-wildcard_tag = colon lb wildcard rb $1;
-wildcard_txt = colon lp wildcard rp $1;
+contains_tag = lb star.single_tag.star rb $1;
+prefix_tag = lb single_tag.star rb $1;
+suffix_tag = lb star.single_tag rb $1;
+unescaped_tag = lb (single_tag | escape.wildcard) rb $1;
+wildcard_tag = lb wildcard rb $1;
+wildcard_txt = lp wildcard rp $1;
 
 main := |*
 
@@ -371,22 +371,16 @@ main := |*
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
-    tok.len = te - (ts + 6 + is_attr);
-    tok.s = ts + 4 + is_attr;
+    tok.len = te - (ts + 3 + is_attr) - 2;
+    tok.s = ts + 3 + is_attr;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -406,20 +400,14 @@ main := |*
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    tok.len = te - (ts + 3);
-    tok.s = ts + 2;
+    tok.len = te - (ts + 2);
+    tok.s = ts + 1;
 
     // remove leading spaces
     while(tok.len && isspace(tok.s[0])) {
@@ -450,22 +438,16 @@ main := |*
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    int is_attr = (*(ts + 2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
-    tok.len = te - (ts + 3 + is_attr) - 1;
-    tok.s = ts + 3 + is_attr;
+    tok.len = te - (ts + 2 + is_attr) - 1;
+    tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
     // Invalid case: wildcard and suffix
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
@@ -498,22 +480,16 @@ main := |*
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    int is_attr = (*(ts + 2) == '$') ? 1 : 0;
+    int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
-    tok.len = te - (ts + 2 + is_attr) - 2;
-    tok.s = ts + 2 + is_attr;
+    tok.len = te - (ts + 1 + is_attr) - 2;
+    tok.s = ts + 1 + is_attr;
     tok.pos = tok.s - q->raw;
     // Invalid case: wildcard and prefix
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
@@ -545,23 +521,18 @@ main := |*
   contains_tag => {
     tok.numval = 0;
     tok.len = 1;
-    tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
 
-    tok.s = ts + 2;
+    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
+    int is_attr = (*(ts + 2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
-    tok.len = te - (ts + 3 + is_attr) - 2;
-    tok.s = ts + 3 + is_attr;
+    tok.len = te - (ts + 2 + is_attr) - 2;
+    tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
     // Invalid case: wildcard and contains
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
@@ -646,22 +617,16 @@ main := |*
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
-    RSQuery_Parse_v3(pParser, COLON, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, LP, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
 
-    int is_attr = (*(ts + 4) == '$') ? 1 : 0;
+    int is_attr = (*(ts + 3) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
-    tok.len = te - (ts + 6 + is_attr);
-    tok.s = ts + 4 + is_attr;
+    tok.len = te - (ts + 3 + is_attr) - 2;
+    tok.s = ts + 3 + is_attr;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
     if (!QPCTX_ISOK(q)) {
