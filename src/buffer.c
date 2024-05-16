@@ -8,12 +8,14 @@
 #include "rmalloc.h"
 #include <sys/param.h>
 
-void Buffer_Grow(Buffer *buf, size_t extraLen) {
+size_t Buffer_Grow(Buffer *buf, size_t extraLen) {
+  size_t originalCap = buf->cap;
   do {
     buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
   } while (buf->offset + extraLen > buf->cap);
 
   buf->data = rm_realloc(buf->data, buf->cap);
+  return (buf->cap - originalCap);
 }
 
 /**
@@ -60,8 +62,14 @@ Buffer *Buffer_Wrap(char *data, size_t len) {
   return buf;
 }
 
-void Buffer_Free(Buffer *buf) {
+size_t Buffer_Free(Buffer *buf) {
+  // buf->cap is the number of bytes allocated,
+  // buf->offset is the number of bytes used
+  size_t bytes_to_release = buf->cap;
+  buf->offset = 0;
+  buf->cap = 0;
   rm_free(buf->data);
+  return bytes_to_release;
 }
 
 /**

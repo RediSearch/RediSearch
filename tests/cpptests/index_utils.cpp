@@ -3,7 +3,8 @@
 #include "src/inverted_index.h"
 
 InvertedIndex *createIndex(int size, int idStep, int start_with) {
-    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
+    size_t sz;
+    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
 
     IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
     t_docId id = start_with > 0 ? start_with : idStep;
