@@ -77,24 +77,6 @@ def test_apply(env):
         conn.execute_command('HSET', 'dkey:8', 'name', 'Chuck', 'breed', 'Saluki', 'code', 'gp-33-22')
         conn.execute_command('HSET', 'dkey:9', 'name', 'Tuk', 'breed', 'Husky', 'code', 'gp-33-22')
         conn.execute_command('HSET', 'dkey:10', 'name', 'Jul', 'breed', 'St. Bernard', 'code', 'gp-33-22')
-    for dialect in [2, 5]:
-        env = Env(moduleArgs = 'DEFAULT_DIALECT {}'.format(dialect))
-        conn = getConnectionByEnv(env)
-        env.flush()
-        env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'dkey', 'SCHEMA',
-                   'name', 'TEXT', 'breed', 'TEXT', 'loc', 'GEO',
-                   'code', 'TAG').ok()
-        waitForIndex(env, 'idx')
-        conn.execute_command('HSET', 'dkey:1', 'name', 'Lassie', 'breed', 'Rough Collie', 'code', 'ca?33-22')
-        conn.execute_command('HSET', 'dkey:2', 'name', 'lessly', 'breed', 'Poodle', 'code', 'ca?33-22')
-        conn.execute_command('HSET', 'dkey:3', 'name', 'Perrito', 'breed', 'poodle', 'code', 'ca?33-22')
-        conn.execute_command('HSET', 'dkey:4', 'name', 'Lou Dog', 'breed', 'Dalmatian', 'code', 'ca:99-##')
-        conn.execute_command('HSET', 'dkey:5', 'name', 'dipper', 'breed', 'dalmatian', 'code', 'ca:99-##')
-        conn.execute_command('HSET', 'dkey:6', 'name', 'Duff', 'breed', 'Dalmatian', 'code', 'gp-33-22')
-        conn.execute_command('HSET', 'dkey:7', 'name', 'Triumph', 'breed', 'Mountain Hound', 'code', 'gp-33-22')
-        conn.execute_command('HSET', 'dkey:8', 'name', 'Chuck', 'breed', 'Saluki', 'code', 'gp-33-22')
-        conn.execute_command('HSET', 'dkey:9', 'name', 'Tuk', 'breed', 'Husky', 'code', 'gp-33-22')
-        conn.execute_command('HSET', 'dkey:10', 'name', 'Jul', 'breed', 'St. Bernard', 'code', 'gp-33-22')
 
         res1 = env.cmd('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC')
         res2 = env.cmd('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo')

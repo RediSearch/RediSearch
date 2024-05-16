@@ -35,28 +35,23 @@ def test_dialect_query_errors(env):
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
     env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
     env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
 
 def test_v1_vs_v2_vs_v5(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()
     env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 2).contains('WILDCARD')
     env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 5).contains('WILDCARD')
-    env.expect('FT.EXPLAIN', 'idx', '(*)', 'DIALECT', 5).contains('WILDCARD')
 
     env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 2, 'PARAMS', 2, 'hello', 'hello').contains('UNION {\n  hello\n  +hello(expanded)\n}\n')
-    env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 5, 'PARAMS', 2, 'hello', 'hello').contains('UNION {\n  hello\n  +hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '$hello', 'DIALECT', 5, 'PARAMS', 2, 'hello', 'hello').contains('UNION {\n  hello\n  +hello(expanded)\n}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 2).contains('$hello')
     env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 5).contains('$hello')
-    env.expect('FT.EXPLAIN', 'idx', '"$hello"', 'DIALECT', 5).contains('$hello')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 1).contains("NUMERIC {0.000000 <= @num <= 10.000000}")
     env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 2).error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 5).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@title:@num:[0 10]', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
@@ -70,16 +65,13 @@ def test_v1_vs_v2_vs_v5(env):
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:UNION {\n  @NULL:hello\n  @NULL:+hello(expanded)\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 5).error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 1).contains('TAG:@title {\n  foo\n}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 2).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 5).error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@title:{foo}}}}}', 'DIALECT', 5).error().contains('Syntax error')
 
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
-    env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 5).contains("{K=10 nearest vector")
     env.expect('FT.EXPLAIN', 'idx', '*=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 5).contains("{K=10 nearest vector")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
@@ -242,8 +234,6 @@ def check_info_module_results(env, module_expect):
   env.assertEqual(int(info['search_dialect_1']), module_expect[0])
   env.assertEqual(int(info['search_dialect_2']), module_expect[1])
   env.assertEqual(int(info['search_dialect_3']), module_expect[2])
-  env.assertEqual(int(info['search_dialect_4']), module_expect[3])
-  env.assertEqual(int(info['search_dialect_5']), module_expect[4])
   env.assertEqual(int(info['search_dialect_4']), module_expect[3])
   env.assertEqual(int(info['search_dialect_5']), module_expect[4])
 
