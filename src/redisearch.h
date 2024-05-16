@@ -89,8 +89,6 @@ typedef enum {
  * convert incremental internal ids to external string keys.
  *
  * Score is the original user score as inserted to the index
- *
- * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
 typedef struct RSDocumentMetadata_s {
   t_docId id;

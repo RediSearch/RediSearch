@@ -633,7 +633,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 }
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
@@ -1440,7 +1440,9 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  if (dialectVersion >= 2)
+  if (dialectVersion >= 5) {
+    dst->root = RSQuery_ParseRaw_v3(&qpCtx);
+  } else if (dialectVersion >= 2)
     dst->root = RSQuery_ParseRaw_v2(&qpCtx);
   else
     dst->root = RSQuery_ParseRaw_v1(&qpCtx);
