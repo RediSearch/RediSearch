@@ -43,7 +43,7 @@ int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
 int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
-                     QueryError *status);
+                     int sign, QueryError *status);
 
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
