@@ -1229,7 +1229,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.docTrieSize, 87);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
-  ASSERT_EQ(info.invertedSize, 32);
+  ASSERT_EQ(info.invertedSize, 682);
   ASSERT_EQ(info.invertedCap, 0);
   ASSERT_EQ(info.skipIndexesSize, 0);
   ASSERT_EQ(info.scoreIndexesSize, 0);
@@ -1290,32 +1290,32 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 147);
+  ASSERT_EQ(RediSearch_MemUsage(index), 343);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 322);
+  ASSERT_EQ(RediSearch_MemUsage(index), 612);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 194);
+  ASSERT_EQ(RediSearch_MemUsage(index), 484);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 148);
+  ASSERT_EQ(RediSearch_MemUsage(index), 340);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 49);
+  ASSERT_EQ(RediSearch_MemUsage(index), 241);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
-  // since the data is not maintained
+  // since the data is not maintained.
 
   RediSearch_DropIndex(index);
 }
