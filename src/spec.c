@@ -1113,6 +1113,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
+  spec->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
@@ -2359,6 +2360,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
+  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
 
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -2494,6 +2496,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
+  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
