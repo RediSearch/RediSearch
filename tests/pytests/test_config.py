@@ -212,6 +212,8 @@ def testInitConfig():
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
+    if MT_BUILD:
+        test_arg_str('MT_MODE', 'MT_MODE_FULL')
 
 @skip(cluster=True)
 def testImmutable(env):

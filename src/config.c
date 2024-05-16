@@ -18,6 +18,9 @@
 #include "spec.h"
 #include "util/dict.h"
 #include "resp3.h"
+#ifdef RS_COORDINATOR
+#include "coord/src/config.h"
+#endif
 
 #include "util/config_macros.h"
 
@@ -185,6 +188,11 @@ CONFIG_SETTER(setWorkThreads) {
     return REDISMODULE_ERR;
   }
   config->numWorkerThreads = newNumThreads;
+#ifdef RS_COORDINATOR
+  if (clusterConfig.connPerShard == 0) {
+    // set the number of connections per shard to the number of worker threads + 1
+  }
+#endif
   return REDISMODULE_OK;
 }
 
