@@ -1389,9 +1389,23 @@ done:
 }
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
-  // TBD - Create iterator over the missing-docs InvertedIndex.
+  // We already know that the field exists (checked in the parser), we just need
+  // to check that it indexes "missing values".
+  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  if (!FieldSpec_IndexesMissing(fs)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
+                           "`ismissing` applied to field `%s`, which does not index missing values",
+                           qn->miss.fieldName);
+    return NULL;
+  }
 
-  return NewEmptyIterator();
+  // Get the InvertedIndex corresponding to the queried field.
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
+
+  // Create a reader for the missing values InvertedIndex.
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+
+  return NewReadIterator(ir);
 }
 
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
