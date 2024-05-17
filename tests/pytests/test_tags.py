@@ -913,6 +913,8 @@ def testTagAutoescaping(env):
     env.cmd('HSET', '{doc}:18', 'tag', 'w', 'id', '18')
     env.cmd('HSET', '{doc}:19', 'tag', "w'", 'id', '19')
     env.cmd('HSET', '{doc}:20', 'tag', "w''", 'id', '20')
+    # tag matching wildcard format
+    env.cmd('HSET', '{doc}:21', 'tag', "w'?*1'", 'id', '21')
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
@@ -1106,7 +1108,9 @@ def testTagAutoescaping(env):
 
     # Test escaped wildcards which become tags
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}")
-    env.assertEqual(res, "TAG:@tag {\n  \\w'?*1'\n}\n")
+    env.assertEqual(res, "TAG:@tag {\n  w'?*1'\n}\n")
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{\\w'?*1'}", 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:21'])
 
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})")
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
