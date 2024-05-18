@@ -28,7 +28,7 @@ void *RSQuery_ParseAlloc_v3(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v3(void *p, void (*freeProc)(void *));
 
 
-/* #line 723 "lexer.rl" */
+/* #line 709 "lexer.rl" */
 
 
 
@@ -332,7 +332,7 @@ static const int query_error = -1;
 static const int query_en_main = 46;
 
 
-/* #line 726 "lexer.rl" */
+/* #line 712 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v3(rm_malloc);
@@ -349,7 +349,7 @@ QueryNode *RSQuery_ParseRaw_v3(QueryParseCtx *q) {
 	act = 0;
 	}
 
-/* #line 734 "lexer.rl" */
+/* #line 720 "lexer.rl" */
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
 
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -504,11 +504,11 @@ _eof_trans:
 	{act = 37;}
 	break;
 	case 17:
-/* #line 535 "lexer.rl" */
+/* #line 532 "lexer.rl" */
 	{act = 40;}
 	break;
 	case 18:
-/* #line 641 "lexer.rl" */
+/* #line 627 "lexer.rl" */
 	{act = 43;}
 	break;
 	case 19:
@@ -830,11 +830,8 @@ _eof_trans:
     tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
     
-    // remove leading spaces
-    while(tok.len && isspace(tok.s[0])) {
-      tok.s++;
-      tok.len--;
-    }
+    // we don't remove the leading spaces, because the suffix starts when
+    // '*' is found, then spaces are part of the tag
 
     // Invalid case: wildcard and suffix
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
@@ -860,7 +857,7 @@ _eof_trans:
   }}
 	break;
 	case 42:
-/* #line 535 "lexer.rl" */
+/* #line 532 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -888,10 +885,8 @@ _eof_trans:
       {p++; goto _out; }
     }
 
-    // remove trailing spaces
-    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
-      tok.len--;
-    }
+    // we don't remove the trailing spaces, because the prefix ends when
+    // '*' is found, then the spaces are part of the tag.
 
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -908,7 +903,7 @@ _eof_trans:
   }}
 	break;
 	case 43:
-/* #line 581 "lexer.rl" */
+/* #line 576 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -926,20 +921,11 @@ _eof_trans:
     tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
 
-    // remove leading spaces
-    while(tok.len && isspace(tok.s[0])) {
-      tok.s++;
-      tok.len--;
-    }
-
+    // we don't remove leading/trailing spaces, all the text enclosed by the '*'
+    // is part of the tag
     // Invalid case: wildcard and contains
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
       {p++; goto _out; }
-    }
-
-    // remove trailing spaces
-    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
-      tok.len--;
     }
 
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
@@ -957,7 +943,7 @@ _eof_trans:
   }}
 	break;
 	case 44:
-/* #line 628 "lexer.rl" */
+/* #line 614 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -972,7 +958,7 @@ _eof_trans:
   }}
 	break;
 	case 45:
-/* #line 654 "lexer.rl" */
+/* #line 640 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -987,7 +973,7 @@ _eof_trans:
   }}
 	break;
 	case 46:
-/* #line 667 "lexer.rl" */
+/* #line 653 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1002,7 +988,7 @@ _eof_trans:
   }}
 	break;
 	case 47:
-/* #line 680 "lexer.rl" */
+/* #line 666 "lexer.rl" */
 	{te = p+1;{
     tok.numval = 0;
     tok.len = 1;
@@ -1033,7 +1019,7 @@ _eof_trans:
   }}
 	break;
 	case 48:
-/* #line 709 "lexer.rl" */
+/* #line 695 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
@@ -1171,7 +1157,7 @@ _eof_trans:
   }}
 	break;
 	case 60:
-/* #line 641 "lexer.rl" */
+/* #line 627 "lexer.rl" */
 	{te = p;p--;{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1253,7 +1239,7 @@ _eof_trans:
   }}
 	break;
 	case 67:
-/* #line 641 "lexer.rl" */
+/* #line 627 "lexer.rl" */
 	{{p = ((te))-1;}{
     int is_attr = (*(ts + 1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1477,10 +1463,8 @@ _eof_trans:
       {p++; goto _out; }
     }
 
-    // remove trailing spaces
-    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
-      tok.len--;
-    }
+    // we don't remove the trailing spaces, because the prefix ends when
+    // '*' is found, then the spaces are part of the tag.
 
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -1513,7 +1497,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 1517 "lexer.c" */
+/* #line 1501 "lexer.c" */
 		}
 	}
 
@@ -1526,7 +1510,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 1530 "lexer.c" */
+/* #line 1514 "lexer.c" */
 		}
 	}
 
@@ -1544,7 +1528,7 @@ _again:
 	_out: {}
 	}
 
-/* #line 742 "lexer.rl" */
+/* #line 728 "lexer.rl" */
 
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v3(pParser, 0, tok, q);

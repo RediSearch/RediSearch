@@ -1140,20 +1140,44 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space*}")
     env.assertEqual(res, expected_result)
 
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{ with: space*}")
+    # leading spaces of the prefix are ignored
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{              with: space*}")
     env.assertEqual(res, expected_result)
 
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space}")
+    # invalid because the '*' is not the last character, then it is treated as a
+    # regular character and should be escaped
+    env.expect('FT.SEARCH', 'idx', "@tag:{   with: space* }").error()\
+        .contains('Syntax error')
+
+    # trailing spaces of the suffix are ignored
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space              }")
     env.assertEqual(res, expected_result)
 
+    # invalid because the '*' is not the first character, then it is treated as a
+    # regular character and should be escaped
+    env.expect('FT.SEARCH', 'idx', "@tag:{   *with: space}").error()\
+        .contains('Syntax error')
+
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "@tag:{* with: space}")
+    env.assertEqual(res, ['TAG:@tag {', '  SUFFIX{* with: space}', '}', ''])
 
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space *}")
-    env.assertEqual(res, expected_result)
-
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{with: space *}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "@tag:{with: space *}")
+    env.assertEqual(res, ['TAG:@tag {', '  PREFIX{with: space *}', '}', ''])
+
+    # This returns 0 because the query is looking for a tag with leading and
+    # trailing spaces but the spaces were removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space *}")
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "@tag:{* with: space *}")
+    env.assertEqual(res, ['TAG:@tag {', '  INFIX{* with: space *}', '}', ''])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
                   'PARAMS', '2', 'param', 'with: space')
@@ -1171,8 +1195,10 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*eading:space}")
     env.assertEqual(res, expected_result)
 
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* leading:space}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
                   'PARAMS', '2', 'param', 'leading:space')
@@ -1190,8 +1216,10 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }")
     env.assertEqual(res, expected_result)
 
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
 def testDialect5InvalidSyntax(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
@@ -1207,12 +1235,19 @@ def testDialect5InvalidSyntax(env):
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1\\}')
 
+    # wildcard and prefix
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'*}")
 
+    # wildcard with trailing spaces and prefix
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'   *}")
+
+    # suffix and wildcard
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'}")
 
+    # wildcard and contains
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}")
 

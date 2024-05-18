@@ -503,11 +503,8 @@ main := |*
     tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
     
-    // remove leading spaces
-    while(tok.len && isspace(tok.s[0])) {
-      tok.s++;
-      tok.len--;
-    }
+    // we don't remove the leading spaces, because the suffix starts when
+    // '*' is found, then spaces are part of the tag
 
     // Invalid case: wildcard and suffix
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
@@ -559,10 +556,8 @@ main := |*
       fbreak;
     }
 
-    // remove trailing spaces
-    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
-      tok.len--;
-    }
+    // we don't remove the trailing spaces, because the prefix ends when
+    // '*' is found, then the spaces are part of the tag.
 
     RSQuery_Parse_v3(pParser, PREFIX, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -595,20 +590,11 @@ main := |*
     tok.s = ts + 2 + is_attr;
     tok.pos = tok.s - q->raw;
 
-    // remove leading spaces
-    while(tok.len && isspace(tok.s[0])) {
-      tok.s++;
-      tok.len--;
-    }
-
+    // we don't remove leading/trailing spaces, all the text enclosed by the '*'
+    // is part of the tag
     // Invalid case: wildcard and contains
     if(tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
-    }
-
-    // remove trailing spaces
-    while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
-      tok.len--;
     }
 
     RSQuery_Parse_v3(pParser, CONTAINS, tok, q);

@@ -1276,14 +1276,20 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*with: space}")
     env.assertEqual(res, expected_result)
 
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
+    # This returns 0 because the query is looking for a tag with leading and
+    # trailing spaces but the spaces were removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* with: space *}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{with: space *}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
                   'PARAMS', '2', 'param', 'with: space')
@@ -1301,8 +1307,10 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*eading:space}")
     env.assertEqual(res, expected_result)
 
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{* leading:space}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
 
     # Test tags with trailing spaces
     expected_result = [1, 'doc:16', ['$', '[{"tag":"trailing:space  "}]']]
@@ -1316,5 +1324,7 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }")
     env.assertEqual(res, expected_result)
 
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}")
-    env.assertEqual(res, expected_result)
+    env.assertEqual(res, [0])
