@@ -507,7 +507,7 @@ main := |*
     // '*' is found, then spaces are part of the tag
 
     // Invalid case: wildcard and suffix
-    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+    if(tok.len > 1 && tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
     }
 
@@ -552,7 +552,7 @@ main := |*
     }
 
     // Invalid case: wildcard and prefix
-    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+    if(tok.len > 1 && tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
     }
 
@@ -592,8 +592,9 @@ main := |*
 
     // we don't remove leading/trailing spaces, all the text enclosed by the '*'
     // is part of the tag
+
     // Invalid case: wildcard and contains
-    if(tok.s[0] == 'w' && tok.s[1] == '\'') {
+    if(tok.len > 1 && tok.s[0] == 'w' && tok.s[1] == '\'') {
       fbreak;
     }
 
