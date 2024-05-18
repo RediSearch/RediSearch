@@ -490,7 +490,7 @@ def testNumericOperators(env):
                    'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= - $max', 'NOCONTENT',
-                   'WITHCOUNT', 'PARAMS', '-4', 'min', '-12', 'max', '14')
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '-12', 'max', '-14')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<=3.14', 'NOCONTENT')
