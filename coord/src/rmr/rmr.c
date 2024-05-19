@@ -270,12 +270,13 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateConnPerShard(void *p) {
-  uintptr_t connPerShard = p;
+  size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
 }
 
 void MR_UpdateConnPerShard(size_t connPerShard) {
-  RQ_Push(rq_g, uvUpdateConnPerShard, (uintptr_t)connPerShard);
+  void *p = (void *)(uintptr_t)connPerShard;
+  RQ_Push(rq_g, uvUpdateConnPerShard, p);
 }
 
 static void uvReplyClusterInfo(void *p) {
