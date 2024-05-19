@@ -43,6 +43,8 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
+void MR_UpdateConnPerShard(size_t connPerShard);
+
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 

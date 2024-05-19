@@ -253,6 +253,17 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
   return REDIS_OK;
 }
 
+
+void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size) {
+  assert(new_conn_pool_size > 0);
+  size_t old_conn_pool_size = cl->mgr.nodeConns;
+  if (old_conn_pool_size > new_conn_pool_size) {
+    MRConnManager_Shrink(&cl->mgr, new_conn_pool_size);
+  } else if (old_conn_pool_size < new_conn_pool_size) {
+    MRConnManager_Expand(&cl->mgr, new_conn_pool_size);
+  }
+}
+
 MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, size_t capNodes) {
   MRClusterShard ret = (MRClusterShard){
       .startSlot = startSlot,
