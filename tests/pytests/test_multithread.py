@@ -152,7 +152,7 @@ def test_burst_threads_sanity():
     expected_total_jobs = 0
     for algo in VECSIM_ALGOS:
         additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo == 'HNSW' else []
-        for data_type in VECSIM_DATA_TYPES_EXTENDED:
+        for data_type in VECSIM_DATA_TYPES:
             # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
             # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),

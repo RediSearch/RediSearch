@@ -26,8 +26,7 @@ from unittest import SkipTest
 import inspect
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
-VECSIM_DATA_TYPES_EXTENDED = VECSIM_DATA_TYPES + ['FLOAT16', 'BFLOAT16']
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
