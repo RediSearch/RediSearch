@@ -124,11 +124,12 @@ def test_delete_index_while_indexing():
     n_shards = env.shardsCount
     n_vectors = 100 * n_shards
     dim = 4
+    data_type = 'FLOAT16'
     # Load random vectors into redis.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'M', '64',
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', data_type, 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
-    load_vectors_to_redis(env, n_vectors, 0, dim)
+    load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
     n_local_vector = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
 
@@ -194,12 +195,13 @@ def test_workers_priority_queue():
     n_shards = env.shardsCount
     n_vectors = 200 * n_shards
     dim = 4
+    data_type = 'BFLOAT16'
 
     # Load random vectors into redis, save the last one to use as query vector later on.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim,
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type, 'DIM', dim,
                'DISTANCE_METRIC', 'L2').ok()
     env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
-    query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim)
+    query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim, data_type)
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
     # Expect that some vectors are still being indexed in the background after we are done loading.
