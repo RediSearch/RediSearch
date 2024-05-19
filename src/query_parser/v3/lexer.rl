@@ -405,7 +405,6 @@ main := |*
   };
 
   unescaped_tag1 => {
-    printf("unescaped_tag1\n");
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
@@ -444,7 +443,6 @@ main := |*
   };
 
   unescaped_tag2 => {
-    printf("unescaped_tag2\n");
     tok.numval = 0;
     tok.len = 1;
     tok.s = ts;
