@@ -61,6 +61,7 @@ extern "C" {
   X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")              \
+  X(QUERY_EMISSING, "`ismissing` called on a field that does not index missing values")   \
 
 typedef enum {
   QUERY_OK = 0,
