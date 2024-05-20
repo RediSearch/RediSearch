@@ -1824,6 +1824,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
     invidxDictType.valDestructor = valFreeCb;
   }
   sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
 }
 
 // Only used on new specs so it's thread safe
@@ -2483,7 +2484,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -2983,7 +2983,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
-  }
+  } 
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {

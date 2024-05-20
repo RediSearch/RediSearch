@@ -256,6 +256,8 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
   char *name;                     // Index name
@@ -319,6 +321,10 @@ typedef struct IndexSpec {
 
   // Quick access to the spec's strong ref
   StrongRef own_ref;
+
+  // Contains inverted indexes of missing fields
+  dict *missingFieldDict;
+
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
