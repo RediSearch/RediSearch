@@ -2859,10 +2859,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
-  }
-
-  // Option 1. Delete the document ID from the inverted index missing fields dictionary
-  
+  } 
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
