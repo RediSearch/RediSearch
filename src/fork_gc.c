@@ -1113,6 +1113,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   InvIdxBuffers idxbufs = {0};
   MSG_IndexInfo info = {0};
   if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+    rm_free(fieldName);
     return FGC_CHILD_ERROR;
   }
 
@@ -1151,7 +1152,7 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);
   }
-
+  rm_free(fieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   } else {

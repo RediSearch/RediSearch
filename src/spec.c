@@ -1113,7 +1113,6 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
-  spec->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
 
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
@@ -1699,6 +1698,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
     invidxDictType.valDestructor = valFreeCb;
   }
   sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
 }
 
 // Only used on new specs so it's thread safe
@@ -2360,8 +2360,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
-
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -2496,7 +2494,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -2863,6 +2860,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
   }
+
+  // Option 1. Delete the document ID from the inverted index missing fields dictionary
+  
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {

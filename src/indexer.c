@@ -257,7 +257,6 @@ static void reopenCb(void *arg) {}
 // Add field names to missingFieldDict if it is missing in the document
 // and add docId to its corresponding inverted index
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
 
