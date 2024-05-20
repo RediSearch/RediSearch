@@ -508,7 +508,25 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   }
 
   array_free(tagFields);
-  // we are done with numeric fields
+  // we are done with tag fields
+  FGC_sendTerminator(gc);
+}
+
+static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
+  IndexSpec *spec = sctx->spec;
+
+  dictIterator* iter = dictGetIterator(spec->missingFieldDict);
+  dictEntry* entry = NULL;
+  while ((entry = dictNext(iter))) {
+    const char *fieldName = dictGetKey(entry);
+    InvertedIndex *idx = dictGetVal(entry);
+    if(idx) {
+      struct iovec iov = {.iov_base = (void *)fieldName, strlen(fieldName)};
+      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+    }
+  }
+
+  // we are done with missing field docs inverted indexes
   FGC_sendTerminator(gc);
 }
 
@@ -518,6 +536,7 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   FGC_childCollectTerms(gc, &sctx);
   FGC_childCollectNumeric(gc, &sctx);
   FGC_childCollectTags(gc, &sctx);
+  FGC_childCollectMissingDocs(gc, &sctx);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
 }
 
@@ -1078,6 +1097,70 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   return status;
 }
 
+static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
+  FGCError status = FGC_COLLECTED;
+  size_t fieldNameLen;
+  char *fieldName = NULL;
+  
+  if (FGC_recvBuffer(gc, (void **)&fieldName, &fieldNameLen) != REDISMODULE_OK) {
+    return FGC_CHILD_ERROR;
+  }
+
+  if (fieldName == RECV_BUFFER_EMPTY) {
+    return FGC_DONE;
+  }
+
+  InvIdxBuffers idxbufs = {0};
+  MSG_IndexInfo info = {0};
+  if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
+    rm_free(fieldName);
+    return FGC_CHILD_ERROR;
+  }
+
+  StrongRef spec_ref = WeakRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    status = FGC_SPEC_DELETED;
+    goto cleanup;
+  }
+
+  RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
+  RedisSearchCtx *sctx = &sctx_;
+
+  RedisSearchCtx_LockSpecWrite(sctx);
+
+  InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
+
+  if (idx == NULL) {
+    status = FGC_PARENT_ERROR;
+    goto cleanup;
+  }
+
+  FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected);
+
+  if (idx->numDocs == 0) {
+    // inverted index was cleaned entirely lets free it
+    if (sctx->spec->missingFieldDict) {
+      dictDelete(sctx->spec->missingFieldDict, fieldName);
+    }
+  }
+
+cleanup:
+
+  if (sp) {
+    RedisSearchCtx_UnlockSpec(sctx);
+    StrongRef_Release(spec_ref);
+  }
+  rm_free(fieldName);
+  if (status != FGC_COLLECTED) {
+    freeInvIdx(&idxbufs, &info);
+  } else {
+    rm_free(idxbufs.changedBlocks);
+  }
+  return status;
+}
+
 FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   RedisModule_Log(gc->ctx, "debug", "ForkGC - parent start applying changes");
@@ -1092,6 +1175,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
+  COLLECT_FROM_CHILD(FGC_parentHandleMissingDocs(gc));
   RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
 
   return status;
