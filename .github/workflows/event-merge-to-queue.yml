@@ -17,10 +17,11 @@ concurrency:
 
 jobs:
   # Get all the tags from the redis repo
-  get-latest-redis-tag:
+  get-latest-7-2-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '7.2'
   get-latest-7-0-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
