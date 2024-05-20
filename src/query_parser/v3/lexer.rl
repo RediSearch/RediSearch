@@ -87,8 +87,8 @@ suffix_tag = lb star.single_tag rb $1;
 # need to escape it to be considered as a tag.
 # i.e.: "@tag:{w'foo'}" will be considered as a wildcard (rule wildcard_tag), 
 # while "@tag:{\\w'foo'}" will be considered as a tag (rule unescaped_tag2).
-unescaped_tag1 = lb (single_tag) rb $1;
-unescaped_tag2 = lb (escape.wildcard) rb $1;
+unescaped_tag1 = lb single_tag rb $1;
+unescaped_tag2 = lb escape.wildcard rb $1;
 wildcard_tag = lb wildcard rb $1;
 wildcard_txt = lp wildcard rp $1;
 
@@ -105,6 +105,7 @@ main := |*
       fbreak;
     }
   };
+
   number => { 
     tok.s = ts;
     tok.len = te-ts;
@@ -116,6 +117,7 @@ main := |*
       fbreak;
     }
   };
+
   mod => {
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -125,6 +127,7 @@ main := |*
       fbreak;
     }
   };
+
   attr => {
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -134,6 +137,7 @@ main := |*
       fbreak;
     }
   };
+
   arrow => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -143,6 +147,7 @@ main := |*
       fbreak;
     }
   };
+
   as => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -152,6 +157,7 @@ main := |*
       fbreak;
     }
   };
+
   inf => { 
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -242,6 +248,7 @@ main := |*
       fbreak;
     }
   };
+
   lp => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LP, tok, q);
@@ -257,6 +264,7 @@ main := |*
       fbreak;
     }
   };
+
   lb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, LB, tok, q);
@@ -264,6 +272,7 @@ main := |*
       fbreak;
     }
   };
+
   rb => { 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, RB, tok, q);
@@ -271,14 +280,16 @@ main := |*
       fbreak;
     }
   };
-   colon => { 
+
+  colon => { 
      tok.pos = ts-q->raw;
      RSQuery_Parse_v3(pParser, COLON, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
    };
-    semicolon => { 
+
+  semicolon => { 
      tok.pos = ts-q->raw;
      RSQuery_Parse_v3(pParser, SEMICOLON, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -318,7 +329,7 @@ main := |*
     }
   };
 
-   percent => {
+  percent => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v3(pParser, PERCENT, tok, q);
     if (!QPCTX_ISOK(q)) {
