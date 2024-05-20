@@ -261,13 +261,20 @@ static void reopenCb(void *arg) {}
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
+  bool found_df;
 
   for(size_t i = 0; i < spec->numFields; i++) {
+    found_df = false;
     const FieldSpec *fs = spec->fields + i;
-    const DocumentField *df = doc->fields + i;
+    for (size_t j = 0; j < aCtx->doc->numFields; j++) {
+      if (!strcmp(fs->name, doc->fields[j].name)) {
+        found_df = true;
+        break;
+      }
+    }
 
     // df->name is NULL if the field is missing in the document
-    if (FieldSpec_IndexesMissing(fs) && df->name == NULL) {
+    if (FieldSpec_IndexesMissing(fs) && !found_df) {
       InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
       if(iiMissingDocs == NULL) {
         iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1);
