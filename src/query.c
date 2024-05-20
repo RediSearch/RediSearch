@@ -1402,6 +1402,11 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   // Get the InvertedIndex corresponding to the queried field.
   InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
 
+  if (!missingII) {
+    // There are no missing values for this field.
+    return NULL;
+  }
+
   // Create a reader for the missing values InvertedIndex.
   IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
 
@@ -1894,7 +1899,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
     case QN_MISSING:
-      s = sdscat(s, "<MISSING>");
+      s = sdscatprintf(s, "ISMISSING{%.*s}", qs->miss.len, qs->miss.fieldName);
       break;
   }
 
