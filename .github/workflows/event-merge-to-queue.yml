@@ -16,10 +16,11 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
-  get-latest-redis-tag:
+  get-latest-7-2-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '7.2'
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
