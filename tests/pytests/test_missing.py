@@ -74,10 +74,10 @@ def testMissingBasic():
     env.assertEqual(res[1], 'no_text')
     env.assertEqual(res[2], 'none')
 
-    # # Intersection of missing fields
-    # res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te) ismissing(@ta)', 'NOCONTENT', 'SORTBY', 'ta', 'ASC')
-    # env.assertEqual(res[0], 1)
-    # env.assertEqual(res[1], 'none')
+    # Intersection of missing fields
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te) ismissing(@ta)', 'NOCONTENT')
+    env.assertEqual(res[0], 1)
+    env.assertEqual(res[1], 'none')
 
 def testMissing():
     """Tests the missing values indexing feature thoroughly."""
