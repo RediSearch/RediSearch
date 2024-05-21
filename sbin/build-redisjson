@@ -62,7 +62,6 @@ runn $READIES/bin/getpy3
 runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh
 
-export RUST_GOOD_NIGHTLY="nightly-2024-05-16"
 runn BINROOT=$TARGET_DIR make SAN=$SAN
 
 echo "Created ${TARGET_DIR}/rejson.so"
