@@ -301,8 +301,7 @@ REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
-    # Test with a fixed RUST nightly version
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) BRANCH=nafraf_getrust-nightly ./sbin/build-redisjson
+	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
 else
 REJSON_SO=
 endif

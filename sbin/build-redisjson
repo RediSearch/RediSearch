@@ -53,6 +53,11 @@ fi
 $OP cd RedisJSON
 runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
+
+# Temporary patch to use a fixed GOOD_NIGHTLY version because of a bug in the 
+# latest nightly https://github.com/rust-lang/rust/issues/125319
+sed -i 's/# GOOD_NIGHTLY=.*/GOOD_NIGHTLY=nightly-2024-05-18/' ../../deps/readies/bin/getrust
+
 if is_command python3; then
 	runn python3 -m pip install virtualenv
 	runn python3 -m virtualenv venv
