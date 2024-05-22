@@ -75,17 +75,16 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
   simpleTokenizer *self = (simpleTokenizer *)base;
+  bool empty_input = ctx->text && (strlen(ctx->text) == 0);
   while (*self->pos != NULL) {
     // get the next token
     size_t origLen;
     char *tok = toksep(self->pos, &origLen);
-
     // normalize the token
     size_t normLen = origLen;
     if (normLen > MAX_NORMALIZE_SIZE) {
       normLen = MAX_NORMALIZE_SIZE;
     }
-
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
     if (ctx->options & TOKENIZE_NOMODIFY) {
@@ -95,13 +94,14 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     char *normalized = DefaultNormalize(tok, normBuf, &normLen);
-    // ignore tokens that turn into nothing
-    if (normalized == NULL || normLen == 0) {
+
+    // ignore tokens that turn into nothing, unless the whole string is empty.
+    if ((normalized == NULL || normLen == 0) && !empty_input) {
       continue;
     }
 
     // skip stopwords
-    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (!empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
 

@@ -711,6 +711,17 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
         A = NewTagNode(s, slen);
         A->tag.nen = NON_EXIST_EMPTY;
         break;
+      case INDEXFLD_T_FULLTEXT:
+        {
+          rm_free(s);
+          char *empty_str = rm_strdup("");
+          A = NewTokenNode(ctx, empty_str, 0);
+          QueryNode_SetFieldMask(A, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+          A->tn.nen = NON_EXIST_EMPTY;
+          // Avoid any expansions
+          A->opts.flags |= QueryNode_Verbatim;
+          break;
+        }
       default:
         reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
         A = NULL;

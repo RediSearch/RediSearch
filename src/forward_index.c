@@ -182,7 +182,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
-  uint32_t hash = hashKey(tok, tokLen);
+  uint32_t hash = hashKey(tok, tokLen); // NULL for ""
   khIdxEntry *kh = makeEntry(idx, tok, tokLen, hash, &isNew);
   h = &kh->ent;
 
@@ -295,7 +295,6 @@ ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
   iter.hits = i->hits;
   iter.curBucketIdx = 0;
   iter.curEnt = NULL;
-  // khTable_Dump(iter.hits);
   return iter;
 }
 
