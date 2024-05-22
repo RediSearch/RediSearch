@@ -169,23 +169,28 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
+                                          size_t len, int create, size_t *sz) {
+  *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1);
+      iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
   return iv;
 }
 
-/* Encode a single docId into a specific tag value */
+// Encode a single docId into a specific tag value
+// Returns the number of bytes occupied by the encoded entry plus the size of
+// the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
+  size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
+  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -220,10 +225,11 @@ static void TagReader_OnReopen(void *privdata) {
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
     if (ir->record->type == RSResultType_Term) {
+      size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                                    ir->record->term.term->len, 0);
+                                              ir->record->term.term->len, 0, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // the inverted index was collected entirely by GC, lets stop searching.
         // notice, it might be that a new inverted index was created, we will not
