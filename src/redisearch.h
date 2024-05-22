@@ -89,8 +89,6 @@ typedef enum {
  * convert incremental internal ids to external string keys.
  *
  * Score is the original user score as inserted to the index
- *
- * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
 typedef struct RSDocumentMetadata_s {
   t_docId id;
@@ -125,6 +123,15 @@ typedef struct RSDocumentMetadata_s {
 
 } RSDocumentMetadata;
 
+// Denotes that a node is searching for an empty, missing or NULL value.
+typedef enum NonExistNode {
+  NON_EXIST_NONE = 0,
+  NON_EXIST_EMPTY = 1,
+  // To be added in the future
+  // NON_EXIST_MISSING = 2,
+  // NON_EXIST_NULL = 3
+} NonExistNode;
+
 /* Forward declaration of the opaque query object */
 struct QueryParseCtx;
 
@@ -147,6 +154,8 @@ typedef struct {
 
   /* Extension set token flags - up to 31 bits */
   RSTokenFlags flags : 31;
+
+  NonExistNode nen;
 } RSToken;
 
 struct QueryAST;

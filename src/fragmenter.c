@@ -42,7 +42,8 @@ static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
   // If this is the first time the term appears in the fragment, increment the
   // fragment's score by the term's score. Otherwise, increment it by half
   // the fragment's score. This allows for better 'blended' results.
-  for (size_t ii = 0; ii < Fragment_GetNumTerms(frag); ii++) {
+  size_t n_terms = Fragment_GetNumTerms(frag);
+  for (size_t ii = 0; ii < n_terms; ii++) {
     if (locs[ii].termId == termId) {
       return 1;
     }
