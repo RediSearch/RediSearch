@@ -86,7 +86,7 @@ def testMissing():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    fields_values = [ ('ta', 'TAG', 'foo'), ('te', 'TEXT', 'foo'),
+    fields_and_values = [ ('ta', 'TAG', 'foo'), ('te', 'TEXT', 'foo'),
                     #  ('n', 'NUMERIC', '42'), 
                     #  ('loc', 'GEO', '1.23, 4.56'),
                     #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))') 
@@ -94,72 +94,103 @@ def testMissing():
 
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
-    for field, ftype, value in fields_values:
+    for field, ftype, val in fields_and_values:
         idx = f'idx_{ftype}'
         field1 = field + '1'
         field2 = field + '2'
         doc_field = f'doc_{ftype}'
         doc_no_field = f'doc_no_{ftype}'
 
-
-        print('FT.CREATE', idx, 'SCHEMA',
-                             field1, ftype, 'ISMISSING',
-                             field2, ftype)
         conn.execute_command('FT.CREATE', idx, 'SCHEMA',
                              field1, ftype, 'ISMISSING',
-                             field2, ftype)
-        conn.execute_command('HSET', doc_field, field1, value)
-        conn.execute_command('HSET', doc_no_field, field2, value)
-        conn.execute_command('HSET', 'both', field1, value, field2, value)
-        conn.execute_command('HSET', 'none', 'shwallalimbo', 'Shigoreski')
+                             field2, ftype, 'text', 'TEXT')
+        conn.execute_command('HSET', doc_field, field1, val)
+        conn.execute_command('HSET', doc_no_field, field2, val)
+        conn.execute_command('HSET', 'both', field1, val, field2, val)
+        conn.execute_command('HSET', 'none', 'text', 'dummy')
+        conn.execute_command('HSET', 'both_and_text', field1, val, field2, val,
+                             'text', 'dummy')
 
+        ALL_DOCS = [5, doc_field, 'both', 'both_and_text', doc_no_field, 'none']
+
+        # ------------------------- Simple retrieval ---------------------------
         # Search for the documents WITHOUT the indexed fields via the
         # `ismissing(@field)` syntax
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'ismissing(@{field1})',
-                                   'NOCONTENT')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
+            'SORTBY', field1, 'ASC')
         env.assertEqual(res, [2, doc_no_field, 'none'])
 
+        # ------------------------------ Negation ------------------------------
         # Search for the documents WITH the indexed fields
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'-ismissing(@{field1})',
-                                   'NOCONTENT')
-        env.assertEqual(res, [2, doc_field, 'both'])
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
+            'SORTBY', field1, 'ASC')
+        env.assertEqual(res, [3, doc_field, 'both', 'both_and_text'])
 
+        # ------------------------------- Union --------------------------------
         # Search for the documents WITH or WITHOUT the indexed fields
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'-ismissing(@{field1}) | ismissing(@{field1})',
-                                   'NOCONTENT')
-        env.assertEqual(res, [4, doc_field, doc_no_field, 'both', 'none'])
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
+            'NOCONTENT', 'SORTBY', field1, 'ASC')
+        env.assertEqual(res, ALL_DOCS)
 
-        # Search for the documents WITH AND WITHOUT the indexed fields,
-        # shoult return 0 results
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'-ismissing(@{field1}) ismissing(@{field1})',
-                                   'NOCONTENT')
+        # --------------------- Optional operator-------------------------------
+        expected = [1, doc_no_field]
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
+            'SORTBY', field1, 'ASC')
+        env.assertEqual(res, ALL_DOCS)
+
+        # ---------------------------- Intersection ----------------------------
+        # Empty intersection
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'-ismissing(@{field1}) ismissing(@{field1})',
+            'NOCONTENT')
         env.assertEqual(res, [0])
 
+        # Non-empty intersection
+        expected = [1, 'none']
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1}) @text:(dummy)',
+            'NOCONTENT')
+        env.assertEqual(res, expected)
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'@text:(dummy) ismissing(@{field1})',
+            'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Non-empty intersection using negation operator
+        expected = [1, doc_no_field]
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1}) -@text:(dummy)',
+            'NOCONTENT')
+        env.assertEqual(res, expected)
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'-@text:(dummy) ismissing(@{field1})',
+            'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # ---------------------- Update docs and search ------------------------
         # Update a document to have the indexed field
-        conn.execute_command('HSET', doc_no_field, field1, value, field2, value)
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'ismissing(@{field1})',
-                                   'NOCONTENT')
+        conn.execute_command('HSET', doc_no_field, field1, val, field2, val)
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
         env.assertEqual(res, [1, 'none'])
 
         # Update a document to not have the indexed field
         conn.execute_command('HDEL', doc_no_field, field1)
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'ismissing(@{field1})',
-                                   'NOCONTENT', 'SORTBY', field1, 'ASC')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
+            'SORTBY', field1, 'ASC')
         env.assertEqual(res, [2, 'none', doc_no_field])
 
+        # ---------------------- Delete docs and search ------------------------
         # Delete the document without the indexed field
         conn.execute_command('DEL', doc_no_field)
-        res = conn.execute_command('FT.SEARCH', f'idx_{ftype}',
-                                   f'ismissing(@{field1})',
-                                   'NOCONTENT')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
         env.assertEqual(res, [1, 'none'])
 
         # Delete the documents
         conn.execute_command('DEL', doc_field, doc_no_field, 'both', 'none')
-
