@@ -198,43 +198,16 @@ def testMissing():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    # Create an index with multiple fields types that index missing values, i.e.,
-    # index documents that do not have these fields.
-    for field, ftype, val in fields_and_values:
-        idx = f'idx_{ftype}'
-        field1 = field + '1'
-        field2 = field + '2'
-
-        # Create Hash index
-        conn.execute_command(
-            'FT.CREATE', idx, 'SCHEMA',
-            field1, ftype, 'ISMISSING',
-            field2, ftype,
-            'text', 'TEXT'
-        )
-
-        # Populate db
-        conn.execute_command('HSET', DOC_WITH_FIELD, field1, val)
-        conn.execute_command('HSET', DOC_WITHOUT_FIELD, field2, val)
-        conn.execute_command('HSET', DOC_WITH_BOTH, field1, val, field2, val)
-        conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy')
-        conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val, 
-                             field2, val, 'text', 'dummy')
-
-        # Perform the "isolated" tests per field-type
-        MissingTestIndex(env, conn, idx, field1, field2, val)
-        env.flush()
-
-        # Create JSON index
-        jidx = 'j' + idx
-        conn.execute_command(
-            'FT.CREATE', jidx, 'ON', 'JSON', 'SCHEMA',
-            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING',
-            f'$.{field2}', 'AS', field2, ftype,
-            '$.text', 'AS', 'text', 'TEXT'
-        )
-
-        # Populate db
+    def _populateHashDB(conn, field1, field2, val):
+            # Populate db
+            conn.execute_command('HSET', DOC_WITH_FIELD, field1, val)
+            conn.execute_command('HSET', DOC_WITHOUT_FIELD, field2, val)
+            conn.execute_command('HSET', DOC_WITH_BOTH, field1, val, field2, val)
+            conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy')
+            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val, 
+                                field2, val, 'text', 'dummy')
+            
+    def _populateJSONDB(conn, field1, field2, val):
         j_with_field = {
             field1: val
         }
@@ -259,7 +232,75 @@ def testMissing():
         }
         conn.execute_command('JSON.SET', DOC_WITH_BOTH_AND_TEXT, '$', json.dumps(j_with_both_and_text))
 
+    # Create an index with multiple fields types that index missing values, i.e.,
+    # index documents that do not have these fields.
+    for field, ftype, val in fields_and_values:
+        idx = f'idx_{ftype}'
+        field1 = field + '1'
+        field2 = field + '2'
+
+        # Create Hash index
+        conn.execute_command(
+            'FT.CREATE', idx, 'SCHEMA',
+            field1, ftype, 'ISMISSING',
+            field2, ftype,
+            'text', 'TEXT'
+        )
+
+        # Populate db
+        _populateHashDB(conn, field1, field2, val)
+
+        # Perform the "isolated" tests per field-type
+        MissingTestIndex(env, conn, idx, field1, field2, val)
+        env.flush()
+
+        # ----------------------------- SORTABLE case --------------------------
+        # Create an index with a ISMISSING SORTABLE field
+        sidx = f'idx_{ftype}_sortable'
+        conn.execute_command(
+            'FT.CREATE', sidx, 'SCHEMA',
+            field1, ftype, 'ISMISSING', 'SORTABLE',
+            field2, ftype,
+            'text', 'TEXT'
+        )
+
+        # Populate db
+        _populateHashDB(conn, field1, field2, val)
+
+        # Perform the "isolated" tests per field-type for the SORTABLE case
+        MissingTestIndex(env, conn, sidx, field1, field2, val)
+        env.flush()
+
+        # Create JSON index
+        jidx = 'j' + idx
+        conn.execute_command(
+            'FT.CREATE', jidx, 'ON', 'JSON', 'SCHEMA',
+            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING',
+            f'$.{field2}', 'AS', field2, ftype,
+            '$.text', 'AS', 'text', 'TEXT'
+        )
+
+        # Populate db
+        _populateJSONDB(conn, field1, field2, val)
+
+        # Perform the "isolated" tests per field-type
         MissingTestIndex(env, conn, jidx, field1, field2, val, True)
+        env.flush()
+
+        # ----------------------------- SORTABLE case --------------------------
+        # Create a JSON index with a ISMISSING SORTABLE field
+        sjidx = 'sj' + idx
+        conn.execute_command(
+            'FT.CREATE', sjidx, 'ON', 'JSON', 'SCHEMA',
+            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING', 'SORTABLE',
+            f'$.{field2}', 'AS', field2, ftype,
+            '$.text', 'AS', 'text', 'TEXT'
+        )
+        # Populate db
+        _populateJSONDB(conn, field1, field2, val)
+
+        # Perform the "isolated" tests per field-type for the SORTABLE case
+        MissingTestIndex(env, conn, sjidx, field1, field2, val, True)
         env.flush()
 
     # Things to test:
