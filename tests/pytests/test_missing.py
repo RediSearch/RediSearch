@@ -1,5 +1,11 @@
 from common import *
 
+fields_and_values = [ ('ta', 'TAG', 'foo'), ('te', 'TEXT', 'foo'),
+                    #  ('n', 'NUMERIC', '42'),
+                    #  ('loc', 'GEO', '1.23, 4.56'),
+                    #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
+                     ]
+
 def testMissingValidations():
     """Tests the validations for missing values indexing"""
 
@@ -79,18 +85,14 @@ def testMissingBasic():
     env.assertEqual(res[0], 1)
     env.assertEqual(res[1], 'none')
 
-def testMissing():
-    """Tests the missing values indexing feature thoroughly."""
+def JSONMissingTest(env, conn):
+    """Performs tests for missing values indexing on JSON documents for all
+    supported field types separately."""
+    pass
 
-    # TBD
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-
-    fields_and_values = [ ('ta', 'TAG', 'foo'), ('te', 'TEXT', 'foo'),
-                    #  ('n', 'NUMERIC', '42'), 
-                    #  ('loc', 'GEO', '1.23, 4.56'),
-                    #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))') 
-                     ]
+def HashMissingTest(env, conn):
+    """Performs tests for missing values indexing on hash documents for all
+    supported field types separately."""
 
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
@@ -192,5 +194,32 @@ def testMissing():
             'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
         env.assertEqual(res, [1, 'none'])
 
-        # Delete the documents
-        conn.execute_command('DEL', doc_field, doc_no_field, 'both', 'none')
+        # Delete the documents (one by one for cluster compatibility)
+        conn.execute_command('DEL', doc_field)
+        conn.execute_command('DEL', doc_no_field)
+        conn.execute_command('DEL', 'both',)
+        conn.execute_command('DEL', 'none')
+
+def testMissing():
+    """Tests the missing values indexing feature thoroughly."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Perform the "isolated" tests per field-type
+    HashMissingTest(env, conn)
+    JSONMissingTest(env, conn)
+
+    # Things to test:
+    # INTERSECT, UNION, NOT, Other query operators..
+    # TEXT features: HIGHLIGHT, SUMMARIZE, PHONETIC, FUZZY.. ? Not sure that they are interesting.
+    # EXPLAINCLI
+    # FT.SEARCH & FT.AGGREGATE
+    # `ismissing()` of two fields that index missing values.
+    # Scoring.
+    # SORTBY missing fields (what do we expect?)
+
+
+
+
+    # Other fields (GEO, GEOSHAPE, NUMERIC, VECTOR)?
