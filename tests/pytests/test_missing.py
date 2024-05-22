@@ -1,10 +1,20 @@
 from common import *
+import json
 
-fields_and_values = [ ('ta', 'TAG', 'foo'), ('te', 'TEXT', 'foo'),
-                    #  ('n', 'NUMERIC', '42'),
-                    #  ('loc', 'GEO', '1.23, 4.56'),
-                    #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
-                     ]
+fields_and_values = [
+    ('ta', 'TAG', 'foo'),
+    ('te', 'TEXT', 'foo'),
+    #  ('n', 'NUMERIC', '42'),
+    #  ('loc', 'GEO', '1.23, 4.56'),
+    #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
+    # ('v', 'VECTOR', ...)
+]
+DOC_WITH_FIELD = 'doc_with_field'
+DOC_WITHOUT_FIELD = 'doc_without_field'
+DOC_WITH_BOTH = 'both'
+DOC_WITH_NONE = 'none'
+DOC_WITH_BOTH_AND_TEXT = 'both_and_text'
+ALL_DOCS = [5, DOC_WITH_FIELD, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITHOUT_FIELD, DOC_WITH_NONE]
 
 def testMissingValidations():
     """Tests the validations for missing values indexing"""
@@ -61,7 +71,7 @@ def testMissingBasic():
     conn.execute_command('HSET', 'all', 'ta', 'foo', 'te', 'foo')
     conn.execute_command('HSET', 'no_text', 'ta', 'foo')
     conn.execute_command('HSET', 'no_tag', 'te', 'foo')
-    conn.execute_command('HSET', 'none', 'shwallalimbo', 'Shigoreski')
+    conn.execute_command('HSET', DOC_WITH_NONE, 'shwallalimbo', 'Shigoreski')
 
     # Search for the documents with the indexed fields (sanity)
     res = env.cmd('FT.SEARCH', 'idx', '@ta:{foo} @te:foo', 'NOCONTENT')
@@ -73,132 +83,114 @@ def testMissingBasic():
     res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@ta)', 'NOCONTENT', 'SORTBY', 'te', 'ASC')
     env.assertEqual(res[0], 2)
     env.assertEqual(res[1], 'no_tag')
-    env.assertEqual(res[2], 'none')
+    env.assertEqual(res[2], DOC_WITH_NONE)
 
     res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te)', 'NOCONTENT', 'SORTBY', 'ta', 'ASC')
     env.assertEqual(res[0], 2)
     env.assertEqual(res[1], 'no_text')
-    env.assertEqual(res[2], 'none')
+    env.assertEqual(res[2], DOC_WITH_NONE)
 
     # Intersection of missing fields
     res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te) ismissing(@ta)', 'NOCONTENT')
     env.assertEqual(res[0], 1)
-    env.assertEqual(res[1], 'none')
+    env.assertEqual(res[1], DOC_WITH_NONE)
 
-def JSONMissingTest(env, conn):
+def JSONMissingTest(env, conn, idx):
     """Performs tests for missing values indexing on JSON documents for all
     supported field types separately."""
     pass
 
-def HashMissingTest(env, conn):
+def MissingTestIndex(env, conn, idx, field1, field2, val, isjson=False):
     """Performs tests for missing values indexing on hash documents for all
     supported field types separately."""
 
-    # Create an index with multiple fields types that index missing values, i.e.,
-    # index documents that do not have these fields.
-    for field, ftype, val in fields_and_values:
-        idx = f'idx_{ftype}'
-        field1 = field + '1'
-        field2 = field + '2'
-        doc_field = f'doc_{ftype}'
-        doc_no_field = f'doc_no_{ftype}'
+    # ------------------------- Simple retrieval ---------------------------
+    # Search for the documents WITHOUT the indexed fields via the
+    # `ismissing(@field)` syntax
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
+        'SORTBY', field1, 'ASC')
+    env.assertEqual(res, [2, DOC_WITHOUT_FIELD, DOC_WITH_NONE])
 
-        conn.execute_command('FT.CREATE', idx, 'SCHEMA',
-                             field1, ftype, 'ISMISSING',
-                             field2, ftype, 'text', 'TEXT')
-        conn.execute_command('HSET', doc_field, field1, val)
-        conn.execute_command('HSET', doc_no_field, field2, val)
-        conn.execute_command('HSET', 'both', field1, val, field2, val)
-        conn.execute_command('HSET', 'none', 'text', 'dummy')
-        conn.execute_command('HSET', 'both_and_text', field1, val, field2, val,
-                             'text', 'dummy')
+    # ------------------------------ Negation ------------------------------
+    # Search for the documents WITH the indexed fields
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
+        'SORTBY', field1, 'ASC')
+    env.assertEqual(res, [3, DOC_WITH_FIELD, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
 
-        ALL_DOCS = [5, doc_field, 'both', 'both_and_text', doc_no_field, 'none']
+    # ------------------------------- Union --------------------------------
+    # Search for the documents WITH or WITHOUT the indexed fields
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
+        'NOCONTENT', 'SORTBY', field1, 'ASC')
+    env.assertEqual(res, ALL_DOCS)
 
-        # ------------------------- Simple retrieval ---------------------------
-        # Search for the documents WITHOUT the indexed fields via the
-        # `ismissing(@field)` syntax
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
-            'SORTBY', field1, 'ASC')
-        env.assertEqual(res, [2, doc_no_field, 'none'])
+    # --------------------- Optional operator-------------------------------
+    expected = [1, DOC_WITHOUT_FIELD]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
+        'SORTBY', field1, 'ASC')
+    env.assertEqual(res, ALL_DOCS)
 
-        # ------------------------------ Negation ------------------------------
-        # Search for the documents WITH the indexed fields
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
-            'SORTBY', field1, 'ASC')
-        env.assertEqual(res, [3, doc_field, 'both', 'both_and_text'])
+    # ---------------------------- Intersection ----------------------------
+    # Empty intersection
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'-ismissing(@{field1}) ismissing(@{field1})',
+        'NOCONTENT')
+    env.assertEqual(res, [0])
 
-        # ------------------------------- Union --------------------------------
-        # Search for the documents WITH or WITHOUT the indexed fields
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
-            'NOCONTENT', 'SORTBY', field1, 'ASC')
-        env.assertEqual(res, ALL_DOCS)
+    # Non-empty intersection
+    expected = [1, DOC_WITH_NONE]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1}) @text:(dummy)',
+        'NOCONTENT')
+    env.assertEqual(res, expected)
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'@text:(dummy) ismissing(@{field1})',
+        'NOCONTENT')
+    env.assertEqual(res, expected)
 
-        # --------------------- Optional operator-------------------------------
-        expected = [1, doc_no_field]
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
-            'SORTBY', field1, 'ASC')
-        env.assertEqual(res, ALL_DOCS)
+    # Non-empty intersection using negation operator
+    expected = [1, DOC_WITHOUT_FIELD]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1}) -@text:(dummy)',
+        'NOCONTENT')
+    env.assertEqual(res, expected)
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'-@text:(dummy) ismissing(@{field1})',
+        'NOCONTENT')
+    env.assertEqual(res, expected)
 
-        # ---------------------------- Intersection ----------------------------
-        # Empty intersection
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'-ismissing(@{field1}) ismissing(@{field1})',
-            'NOCONTENT')
-        env.assertEqual(res, [0])
+    # ---------------------- Update docs and search ------------------------
+    # Update a document to have the indexed field
+    if not isjson:
+        conn.execute_command('HSET', DOC_WITHOUT_FIELD, field1, val, field2, val)
+    else:
+        conn.execute_command('JSON.SET', DOC_WITHOUT_FIELD, '$', json.dumps({field1: val, field2: val}))
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
+    env.assertEqual(res, [1, DOC_WITH_NONE])
 
-        # Non-empty intersection
-        expected = [1, 'none']
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1}) @text:(dummy)',
-            'NOCONTENT')
-        env.assertEqual(res, expected)
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'@text:(dummy) ismissing(@{field1})',
-            'NOCONTENT')
-        env.assertEqual(res, expected)
+    # Update a document to not have the indexed field
+    if not isjson:
+        conn.execute_command('HDEL', DOC_WITHOUT_FIELD, field1)
+    else:
+        conn.execute_command('JSON.SET', DOC_WITHOUT_FIELD, '$', json.dumps({field2: val}))
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
+        'SORTBY', field1, 'ASC')
+    env.assertEqual(res, [2, DOC_WITH_NONE, DOC_WITHOUT_FIELD])
 
-        # Non-empty intersection using negation operator
-        expected = [1, doc_no_field]
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1}) -@text:(dummy)',
-            'NOCONTENT')
-        env.assertEqual(res, expected)
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'-@text:(dummy) ismissing(@{field1})',
-            'NOCONTENT')
-        env.assertEqual(res, expected)
-
-        # ---------------------- Update docs and search ------------------------
-        # Update a document to have the indexed field
-        conn.execute_command('HSET', doc_no_field, field1, val, field2, val)
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
-        env.assertEqual(res, [1, 'none'])
-
-        # Update a document to not have the indexed field
-        conn.execute_command('HDEL', doc_no_field, field1)
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
-            'SORTBY', field1, 'ASC')
-        env.assertEqual(res, [2, 'none', doc_no_field])
-
-        # ---------------------- Delete docs and search ------------------------
-        # Delete the document without the indexed field
-        conn.execute_command('DEL', doc_no_field)
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
-        env.assertEqual(res, [1, 'none'])
-
-        # Delete the documents (one by one for cluster compatibility)
-        conn.execute_command('DEL', doc_field)
-        conn.execute_command('DEL', doc_no_field)
-        conn.execute_command('DEL', 'both',)
-        conn.execute_command('DEL', 'none')
+    # ---------------------- Delete docs and search ------------------------
+    # Delete the document without the indexed field
+    if not isjson:
+        conn.execute_command('DEL', DOC_WITHOUT_FIELD)
+    else:
+        conn.execute_command('JSON.DEL', DOC_WITHOUT_FIELD)
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
+    env.assertEqual(res, [1, DOC_WITH_NONE])
 
 def testMissing():
     """Tests the missing values indexing feature thoroughly."""
@@ -206,9 +198,69 @@ def testMissing():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    # Perform the "isolated" tests per field-type
-    HashMissingTest(env, conn)
-    JSONMissingTest(env, conn)
+    # Create an index with multiple fields types that index missing values, i.e.,
+    # index documents that do not have these fields.
+    for field, ftype, val in fields_and_values:
+        idx = f'idx_{ftype}'
+        field1 = field + '1'
+        field2 = field + '2'
+
+        # Create Hash index
+        conn.execute_command(
+            'FT.CREATE', idx, 'SCHEMA',
+            field1, ftype, 'ISMISSING',
+            field2, ftype,
+            'text', 'TEXT'
+        )
+
+        # Populate db
+        conn.execute_command('HSET', DOC_WITH_FIELD, field1, val)
+        conn.execute_command('HSET', DOC_WITHOUT_FIELD, field2, val)
+        conn.execute_command('HSET', DOC_WITH_BOTH, field1, val, field2, val)
+        conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy')
+        conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val, 
+                             field2, val, 'text', 'dummy')
+
+        # Perform the "isolated" tests per field-type
+        MissingTestIndex(env, conn, idx, field1, field2, val)
+        env.flush()
+
+        # Create JSON index
+        jidx = 'j' + idx
+        conn.execute_command(
+            'FT.CREATE', jidx, 'ON', 'JSON', 'SCHEMA',
+            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING',
+            f'$.{field2}', 'AS', field2, ftype,
+            '$.text', 'AS', 'text', 'TEXT'
+        )
+
+        # Populate db
+        j_with_field = {
+            field1: val
+        }
+        conn.execute_command('JSON.SET', DOC_WITH_FIELD, '$', json.dumps(j_with_field))
+        j_without_field = {
+            field2: val
+        }
+        conn.execute_command('JSON.SET', DOC_WITHOUT_FIELD, '$', json.dumps(j_without_field))
+        j_with_both = {
+            field1: val,
+            field2: val
+        }
+        conn.execute_command('JSON.SET', DOC_WITH_BOTH, '$', json.dumps(j_with_both))
+        j_with_none = {
+            'text': 'dummy'
+        }
+        conn.execute_command('JSON.SET', DOC_WITH_NONE, '$', json.dumps(j_with_none))
+        j_with_both_and_text = {
+            field1: val,
+            field2: val,
+            'text': 'dummy'
+        }
+        conn.execute_command('JSON.SET', DOC_WITH_BOTH_AND_TEXT, '$', json.dumps(j_with_both_and_text))
+
+        MissingTestIndex(env, conn, jidx, field1, field2, val, True)
+        env.flush()
 
     # Things to test:
     # INTERSECT, UNION, NOT, Other query operators..
@@ -218,8 +270,6 @@ def testMissing():
     # `ismissing()` of two fields that index missing values.
     # Scoring.
     # SORTBY missing fields (what do we expect?)
-
-
 
 
     # Other fields (GEO, GEOSHAPE, NUMERIC, VECTOR)?
