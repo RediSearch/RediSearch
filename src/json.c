@@ -189,9 +189,9 @@ static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
 
 // via Fabian "ryg" Giesen.
 // https://gist.github.com/2156668
+// Not handling INF or NaN (we don't expect them, and we don't handle them elsewhere)
 static inline uint16_t floatToFP16bits(float input) {
   const uint32_t sign_mask = 1u << 31;
-  const uint32_t f32infty = 255u << 23;
   const uint32_t f16infty = 31u << 23;
   const uint32_t round_mask = ~0xfffu;
   const uint32_t magic_bits = 15u << 23;
@@ -201,17 +201,11 @@ static inline uint16_t floatToFP16bits(float input) {
   uint32_t sign = f32 & sign_mask;
   f32 ^= sign;
 
-  uint32_t out;
-  if (f32 >= f32infty) {
-    out = f32 > f32infty ? 0x7e00u : 0x7c00u; // Inf or NaN
-  } else {
-    float fscale = BIT_CAST(float, f32 & round_mask) * magic;
-    uint32_t f16 = BIT_CAST(uint32_t, fscale) - round_mask;
-    if (f16 > f16infty) f16 = f16infty; // Clamp to signed infinity if overflowed
-    out = f16 >> 13; // Take the bits!
-  }
+  float fscale = BIT_CAST(float, f32 & round_mask) * magic;
+  uint32_t f16 = BIT_CAST(uint32_t, fscale) - round_mask;
+  if (f16 > f16infty) f16 = f16infty; // Clamp to signed infinity if overflowed
 
-  return (out | (sign >> 16));
+  return ((f16 >> 13) | (sign >> 16));
 }
 
 static int JSON_getFloat16(RedisJSON json, uint16_t *val) {
