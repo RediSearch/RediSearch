@@ -473,7 +473,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
   const char *keyCstr = RedisModule_StringPtrLen(keyname, NULL);
 
-  // check prefixes
+  // check prefixes (always found for an index with no prefixes)
   bool match = false;
   sds *prefixes = sp->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
