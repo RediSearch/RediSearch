@@ -3219,7 +3219,7 @@ def testIssue1184(env):
 
         d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], str(num_docs))
+        env.assertEqual(int(d['num_records']), num_docs)
 
         for i in range(num_docs):
             env.expect('FT.DEL idx doc%d' % i).equal(1)

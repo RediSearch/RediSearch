@@ -158,14 +158,14 @@ def testMemoryAfterDrop(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j), 'tg', '%dworld%d' % (i, j), 'n', i, 'g', geo)
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        env.assertEqual(int(d['num_docs']), doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(0))
+        env.assertEqual(int(d['num_docs']), 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
@@ -219,14 +219,14 @@ def testMemoryAfterDrop_numeric(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'n', i)
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        env.assertEqual(int(d['num_docs']), doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(0))
+        env.assertEqual(int(d['num_docs']), 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
@@ -252,7 +252,7 @@ def testMemoryAfterDrop_geo(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'g', geo)
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        env.assertEqual(int(d['num_docs']), doc_count)
 
 
     for i in range(idx_count):
@@ -260,7 +260,7 @@ def testMemoryAfterDrop_geo(env):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(0))
+        env.assertEqual(int(d['num_docs']), 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
@@ -284,14 +284,14 @@ def testMemoryAfterDrop_text(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 't', '%dhello%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        env.assertEqual(int(d['num_docs']), doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(0))
+        env.assertEqual(int(d['num_docs']), 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
@@ -315,14 +315,14 @@ def testMemoryAfterDrop_tag(env):
             pl.execute_command('HSET', '%ddoc%d' % (i, j), 'tg', '%dworld%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(doc_count))
+        env.assertEqual(int(d['num_docs']), doc_count)
 
     for i in range(idx_count):
         for j in range(doc_count):
             pl.execute_command('DEL', '%ddoc%d' % (i, j))
         pl.execute()
         d = index_info(env, 'idx%d' % i)
-        env.assertEqual(d['num_docs'], str(0))
+        env.assertEqual(int(d['num_docs']), 0)
         forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
