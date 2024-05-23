@@ -156,6 +156,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  rv->sz += (*lp)->range->invertedIndexSize + (*rp)->range->invertedIndexSize;
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0, false);
@@ -178,6 +179,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   n->maxDepth = 0;
   n->range = rm_malloc(sizeof(NumericRange));
+  size_t index_memsize;
 
   *n->range = (NumericRange){
       .minVal = __DBL_MAX__,
@@ -188,9 +190,10 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .splitCard = splitCard,
       .values = array_new(CardinalityValue, 1),
       //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
-      .entries = NewInvertedIndex(Index_StoreNumeric, 1),
-      .invertedIndexSize = 0,
+      .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
   };
+
+  n->range->invertedIndexSize = index_memsize;
   return n;
 }
 
@@ -367,17 +370,19 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf)
   return leaves;
 }
 
-void NumericRangeNode_Free(NumericRangeNode *n) {
+void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (!n) return;
   if (n->range) {
+    rv->sz -= n->range->invertedIndexSize;
     InvertedIndex_Free(n->range->entries);
     array_free(n->range->values);
     rm_free(n->range);
     n->range = NULL;
+    rv->numRanges--;
   }
 
-  NumericRangeNode_Free(n->left);
-  NumericRangeNode_Free(n->right);
+  NumericRangeNode_Free(n->left, rv);
+  NumericRangeNode_Free(n->right, rv);
 
   rm_free(n);
 }
@@ -404,7 +409,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   if (docId <= t->lastDocId && !isMulti) {
     // When not handling multi values - do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
     // from it
-    return (NRN_AddRv){0, 0, 0};
+    return (NRN_AddRv){0, 0, 0, 0};
   }
   t->lastDocId = docId;
 
@@ -453,7 +458,7 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
-    if (n->range->invertedIndexSize == 0) {
+    if (n->range->entries->numDocs == 0) {
       return CHILD_EMPTY;
     } else {
       return CHILD_NOT_EMPTY;
@@ -478,20 +483,17 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 
   // we can remove local and use child's instead
   if (n->range) {
-    if (n->range->invertedIndexSize != 0) {
+    if (n->range->entries->numDocs != 0) {
       return CHILD_NOT_EMPTY;
     }
     removeRange(n, rv);
-    n->range = NULL;
-    rv->numRanges--;
   }
 
   // both children are empty, save one as parent
   if (rvRight == CHILD_EMPTY && rvLeft == CHILD_EMPTY) {
     rm_free(n);
     *node = rightChild;
-    NumericRangeNode_Free(leftChild);
-    rv->numRanges--;
+    NumericRangeNode_Free(leftChild, rv);
 
     return CHILD_EMPTY;
   }
@@ -501,20 +503,18 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     // right child is empty, save left as parent
     rm_free(n);
     *node = leftChild;
-    NumericRangeNode_Free(rightChild);
+    NumericRangeNode_Free(rightChild, rv);
   } else {
     // left child is empty, save right as parent
     rm_free(n);
     *node = rightChild;
-    NumericRangeNode_Free(leftChild);
+    NumericRangeNode_Free(leftChild, rv);
   }
-  rv->numRanges--;
   return CHILD_NOT_EMPTY;
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
-  NRN_AddRv rv = {.numRanges = 0,
-                  .changed = 0 };
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   NumericRangeNode_RemoveChild(&t->root, &rv);
   if (rv.changed) {
     // Update the NumericTree
@@ -526,7 +526,8 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
 }
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
-  NumericRangeNode_Free(t->root);
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
+  NumericRangeNode_Free(t->root, &rv);
   rm_free(t);
 }
 
@@ -610,6 +611,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
+  spec->stats.invertedSize += ((NumericRangeTree *)kdv->p)->root->range->invertedIndexSize;
   dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
