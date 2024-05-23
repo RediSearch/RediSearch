@@ -288,7 +288,7 @@ void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
 void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
                                  yieldFunc yieldCB, void *yield_ctx, size_t threshold) {
   long usec_timeout = 1000 * timeout;
-  while (priority_queue_unprocessed_jobs(&thpool_p->jobqueue); > threshold) {
+  while (priority_queue_unprocessed_jobs(&thpool_p->jobqueue) > threshold) {
     usleep(usec_timeout);
     if (yieldCB) yieldCB(yield_ctx);
   }
