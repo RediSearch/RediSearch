@@ -17,10 +17,11 @@ concurrency:
 
 jobs:
   # Get all the tags from the redis repo
-  get-latest-redis-tag:
+  get-latest-7-2-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '7.2'
   get-latest-7-0-redis-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
@@ -42,14 +43,14 @@ jobs:
 
   # Flat-out test-linux-x86_64 matrix. GitHub currently fails to report failures in nested matrices.
   # See https://github.com/actions/runner/issues/3041
-  test-linux-x86_64-redis-latest:
-    name: test-linux-x86_64 (${{ needs.get-latest-redis-tag.outputs.tag }})
-    needs: [docs-only, get-latest-redis-tag]
+  test-linux-x86_64-redis-7-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-2-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-7-2-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
       architecture: x86_64
   test-linux-x86_64-redis-7-0:
     name: test-linux-x86_64 (${{ needs.get-latest-7-0-redis-tag.outputs.tag }})
@@ -80,22 +81,22 @@ jobs:
       architecture: x86_64
 
   test-linux-aarch64:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-7-2-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
       test-config: QUICK=1
       architecture: aarch64
 
   test-macos:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-7-2-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
       test-config: QUICK=1
 
   coverage:
@@ -115,11 +116,11 @@ jobs:
   pr-validation:
     needs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
-      - get-latest-redis-tag
+      - get-latest-7-2-redis-tag
       - get-latest-7-0-redis-tag
       - get-latest-6-2-redis-tag
       - get-latest-6-0-redis-tag
-      - test-linux-x86_64-redis-latest
+      - test-linux-x86_64-redis-7-2
       - test-linux-x86_64-redis-7-0
       - test-linux-x86_64-redis-6-2
       - test-linux-x86_64-redis-6-0
