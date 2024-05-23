@@ -1,8 +1,8 @@
-/**********************************
- * @author      Johan Hanssen Seferidis
- * License:     MIT
- *
- **********************************/
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
 
 #ifndef _THPOOL_
 #define _THPOOL_
@@ -22,6 +22,7 @@ typedef struct timespec timespec;
 typedef enum {
   THPOOL_PRIORITY_HIGH,
   THPOOL_PRIORITY_LOW,
+  THPOOL_PRIORITY_ADMIN,
 } thpool_priority;
 
 typedef struct {
@@ -29,6 +30,7 @@ typedef struct {
   unsigned long total_pending_jobs;
   unsigned long high_priority_pending_jobs;
   unsigned long low_priority_pending_jobs;
+  unsigned long admin_priority_pending_jobs;
   unsigned long num_threads_alive;
 } thpool_stats;
 
@@ -45,6 +47,24 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log);
+
+/**
+ * @brief  Initialize an existing threadpool
+ *
+ * Initializes a threadpool. This function will not return until all
+ * threads have initialized successfully.
+ *
+ * @example
+ *
+ *    ..
+ *    threadpool thpool;                       //First we declare a threadpool
+ *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
+ *    thpool_init(&thpool);                  //Then we initialize the threads
+ *    ..
+ *
+ * @param threadpool    threadpool to initialize
+ */
+void redisearch_thpool_init(redisearch_threadpool);
 
 /**
  * @brief Add work to the job queue
@@ -173,7 +193,7 @@ typedef void (*yieldFunc)(void *);
  * @param threadpool    the threadpool to wait for it to finish
  * @param timeout       indicates the time in ms to wait before we wake up and call yieldCB
  * @param yieldCB       A callback to be called periodically whenever we wait for the jobs
- *                      to finish, every <x> time (as specified in timeout).
+ *                      to finish, every <x> time (as specified in timeout). might be NULL.
  * @param yieldCtx      The context to send to yieldCB
  * @param threshold     The maximum number of jobs to be left in the job queue after the drain.
  * @return nothing
