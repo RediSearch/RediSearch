@@ -12,7 +12,7 @@ parser.c: parser.y
 	$(LEMON) -l -s -T$(TEMPLATE) parser.y
 
 clean:
-	rm -f  $(SRCUTIL)/lexer.c  $(SRCUTIL)/parser.c
+	rm -f lexer.c parser.c
 
 $(LEMON):  $(SRCUTIL)/lemon.c  $(SRCUTIL)/lempar.c
 	gcc -o $(LEMON) $(SRCUTIL)/lemon.c

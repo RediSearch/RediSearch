@@ -128,10 +128,37 @@ def testBasic(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
 
     # check stats after insert
-    checkInfo(env, 'idx1', 1, 0.00018310546875)
-    checkInfo(env, 'idx2', 1, 2.288818359375e-05)
-    checkInfo(env, 'idx3', 1, 3.814697265625e-05)
-    checkInfo(env, 'idx4', 1, 6.103515625e-05)
+
+    # idx1 contains 24 entries, expected size of inverted index = 407
+    # the size is distributed in the left and right children ranges as follows:
+
+    # left range size = 303
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    #         sizeof(IndexBlock) = 48
+    #     Buffer grows up to 207 bytes trying to store 23 entries 8 bytes each.
+    #     See Buffer_Grow() in inverted_index.c
+
+    # right range size = 104:
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    #         sizeof(IndexBlock) = 48
+    #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
+    checkInfo(env, 'idx1', 1, 407 / (1024 * 1024))
+
+    # Expected size of inverted index for idx2 = 96 + 25 = 121
+    #     Size of NewInvertedIndex() structure = 96
+    #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
+    checkInfo(env, 'idx2', 1, 121 / (1024 * 1024))
+
+    # Expected size of inverted index for idx2 = 96 + 46 = 142
+    #     Size of NewInvertedIndex() structure = 96
+    #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
+    checkInfo(env, 'idx3', 1, 142 / (1024 * 1024))
+
+    # idx4 contains two GEO fields, the expected size of inverted index is 
+    # equivalent to the sum of the size of idx2 and idx3 = 121 + 142 = 263
+    checkInfo(env, 'idx4', 1, 263 / (1024 * 1024))
 
     # Geo range and Not
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -155,7 +182,7 @@ def testBasic(env):
     # check stats after deletion
     conn.execute_command('DEL', 'doc:1')
     forceInvokeGC(env, 'idx1')
-    checkInfo(env, 'idx1', 0,0)
+    checkInfo(env, 'idx1', 0, 0)
 
 
 def testMultiNonGeo(env):

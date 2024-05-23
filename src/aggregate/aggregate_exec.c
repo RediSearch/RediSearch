@@ -1157,15 +1157,13 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // Verify that the 4'th argument is `COUNT`.
       const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
       if (strcasecmp(count_str, "count") != 0) {
-        char err[128];
-        sprintf(err, "Unknown argument `%s`", count_str);
-        RedisModule_ReplyWithError(ctx, err);
+        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
         RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
 
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
+        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
         RedisModule_EndReply(reply);
         return REDISMODULE_OK;
       }
