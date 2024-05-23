@@ -277,7 +277,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     if (FieldSpec_IndexesMissing(fs) && !found_df) {
       InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
       if(iiMissingDocs == NULL) {
-        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1);
+        size_t dummy_mem;
+        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
         dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
       }
       // Add docId to inverted index
