@@ -1,8 +1,7 @@
 packaging >= 20.8
 gevent
 deepdiff
-conan
 RLTest >= 0.7.11
 numpy >= 1.21.6
 scipy >= 1.7.3
-bfloat16 >= 1.0.1
+tensorflow-cpu >= 2.6.0
