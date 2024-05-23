@@ -1403,7 +1403,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
   if (!FieldSpec_IndexesMissing(fs)) {
     QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
-                           "`ismissing` applied to field `%s`, which does not index missing values",
+                           "`ISMISSING` applied to field `%s`, which does not index missing values",
                            qn->miss.fieldName);
     return NULL;
   }
