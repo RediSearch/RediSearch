@@ -405,7 +405,7 @@ TEST_F(IndexTest, testNot) {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1, {0});
 
-  IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
+  IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
   int i = 0;
@@ -455,7 +455,7 @@ TEST_F(IndexTest, DISABLED_testOptional) {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
 
-  IndexIterator *ui = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
+  IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
   RSIndexResult *h = NULL;
 
   int i = 1;
@@ -733,7 +733,7 @@ TEST_F(IndexTest, testIntersection) {
   irs[1] = NewReadIterator(r2);
 
   int count = 0;
-  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
+  IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
 
   RSIndexResult *h = NULL;
 
@@ -973,7 +973,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   irs[1] = NULL;
   // The iterator is initialized with inOrder=true, to test the case where the null
   // child isn't the first child (since inOrder=true will trigger sorting).
-  IndexIterator *ii = NewIntersecIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
+  IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
 
   // Create hybrid iterator - should return NULL.
   HybridIteratorParams hParams = {.index = index,

@@ -133,12 +133,11 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     }
     break;
   case JSONType_Object:
-    if (fieldType == INDEXFLD_T_GEOMETRY || (fieldType == INDEXFLD_T_TAG)) {
+    if (fieldType == INDEXFLD_T_GEOMETRY) {
       // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
-      // An EMPTY TAG field can index empty objects.
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Object type can represent only GEOMETRY and EMPTY TAG fields");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Object type can represent only GEOMETRY fields");
     }
     break;
   // null type is not supported
@@ -587,22 +586,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       }
       break;
     case JSONType_Object:
-      if (FieldSpec_IndexesEmpty(fs)) {
-        size_t len;
-        japi->getLen(json, &len);
-        if (len == 0) {
-          // We wish to index empty JSON objects as empty values
-          df->strlen = 0;
-          df->strval = rm_strdup("");
-          df->unionType = FLD_VAR_T_CSTR;
-        } else {
-          // Only empty objects are indexed for TAGs (that index empty values)
-          rv = REDISMODULE_ERR;
-        }
-      } else {
-        // Only empty objects are indexed for TAGs (that index empty values)
-        rv = REDISMODULE_ERR;
-      }
+      rv = REDISMODULE_ERR;
       break;
     case JSONType__EOF:
       RS_LOG_ASSERT(0, "Should not happen");

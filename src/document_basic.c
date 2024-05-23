@@ -135,11 +135,11 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
+  // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
-    // Hash command is not related to other type such as JSON
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
     if (v == NULL) {
       continue;

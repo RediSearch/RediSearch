@@ -171,6 +171,17 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   return NULL;
 }
 
+// Get the field spec by the field mask.
+const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
+  for (int i = 0; i < sp->numFields; i++) {
+    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
+        FieldSpec_IsIndexable(&sp->fields[i])) {
+      return &sp->fields[i];
+    }
+  }
+  return NULL;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /*
@@ -367,17 +378,18 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
+  // Create the IndexSpec, along with its corresponding weak\strong refs
   StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
   }
 
-  // Sets weak and strong references to the spec, then pass it to the spec dictionary
-
+  // Add the spec to the global spec dictionary
   dictAdd(specDict_g, (char *)specName, spec_ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
+
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
@@ -418,55 +430,6 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   }
 
   return langauge_found;
-}
-
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
-  int rc;
-  // this is a text field
-  // init default weight and type
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
-      fs->options |= FieldSpec_NoStemming;
-      continue;
-
-    } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
-      double d;
-      if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "weight", rc);
-        return 0;
-      }
-      fs->ftWeight = d;
-      continue;
-
-    } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
-      if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
-        return 0;
-      }
-
-      const char *matcher = AC_GetStringNC(ac, NULL);
-      // try and parse the matcher
-      // currently we just make sure algorithm is double metaphone (dm)
-      // and language is one of the following : English (en), French (fr), Portuguese (pt) and
-      // Spanish (es)
-      // in the future we will support more algorithms and more languages
-      if (!checkPhoneticAlgorithmAndLang(matcher)) {
-        QueryError_SetError(
-            status, QUERY_EINVAL,
-            "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
-            "double metaphone (dm). Supported languages: English (en), French (fr), "
-            "Portuguese (pt) and Spanish (es)");
-        return 0;
-      }
-      fs->options |= FieldSpec_Phonetics;
-      continue;
-    } else if(AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-      fs->options |= FieldSpec_WithSuffixTrie;
-    } else {
-      break;
-    }
-  }
-  return 1;
 }
 
 // Tries to get vector data type from ac. This function need to stay updated with
@@ -752,9 +715,100 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
+// Parse the arguments of a TEXT field
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  int rc;
+  fs->types |= INDEXFLD_T_FULLTEXT;
+
+  // this is a text field
+  // init default weight and type
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
+      fs->options |= FieldSpec_NoStemming;
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      double d;
+      if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "weight", rc);
+        return 0;
+      }
+      fs->ftWeight = d;
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
+        return 0;
+      }
+
+      const char *matcher = AC_GetStringNC(ac, NULL);
+      // try and parse the matcher
+      // currently we just make sure algorithm is double metaphone (dm)
+      // and language is one of the following : English (en), French (fr), Portuguese (pt) and
+      // Spanish (es)
+      // in the future we will support more algorithms and more languages
+      if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        QueryError_SetError(
+            status, QUERY_EINVAL,
+            "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
+            "double metaphone (dm). Supported languages: English (en), French (fr), "
+            "Portuguese (pt) and Spanish (es)");
+        return 0;
+      }
+      fs->options |= FieldSpec_Phonetics;
+      continue;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      fs->options |= FieldSpec_WithSuffixTrie;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+      fs->options |= FieldSpec_IndexEmpty;
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+// Parse the arguments of a TAG field
+static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+    int rc = 1;
+    fs->types |= INDEXFLD_T_TAG;
+
+    while (!AC_IsAtEnd(ac)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+        if (AC_IsAtEnd(ac)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          rc = 0;
+          break;
+        }
+        const char *sep = AC_GetStringNC(ac, NULL);
+        if (strlen(sep) != 1) {
+          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                                "Tag separator must be a single character. Got `%s`", sep);
+          rc = 0;
+          break;
+        }
+        fs->tagOpts.tagSep = *sep;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        fs->options |= FieldSpec_WithSuffixTrie;
+      } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+        fs->options |= FieldSpec_IndexEmpty;
+      } else {
+        break;
+      }
+    }
+
+  return rc;
+}
+
 static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
+
+  fs->types |= INDEXFLD_T_VECTOR;
+  sp->flags |= Index_HasVecSim;
 
   memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams));
 
@@ -814,6 +868,19 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 }
 
+static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  fs->types |= INDEXFLD_T_GEOMETRY;
+  sp->flags |= Index_HasGeometry;
+  if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+  } else {
+    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+  }
+  return 1;
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
@@ -823,57 +890,20 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    fs->types |= INDEXFLD_T_FULLTEXT;
-    if (!parseTextField(fs, ac, status)) {
-      goto error;
-    }
+    if (!parseTextField(fs, ac, status)) goto error;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+    if (!parseTagField(fs, ac, status)) goto error;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
+    if (!parseGeometryField(sp, fs, ac, status)) goto error;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
+    if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
+    // Skip SORTABLE and NOINDEX options
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
-  } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
-    sp->flags |= Index_HasVecSim;
-    fs->types |= INDEXFLD_T_VECTOR;
-    if (!parseVectorField(sp, sp_ref, fs, ac, status)) {
-      goto error;
-    }
-    return 1;
-  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    fs->types |= INDEXFLD_T_TAG;
-    while (!AC_IsAtEnd(ac)) {
-      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
-        if (AC_IsAtEnd(ac)) {
-          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
-          goto error;
-        }
-        const char *sep = AC_GetStringNC(ac, NULL);
-        if (strlen(sep) != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                                "Tag separator must be a single character. Got `%s`", sep);
-          goto error;
-        }
-        fs->tagOpts.tagSep = *sep;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
-        fs->tagOpts.tagFlags |= TagField_CaseSensitive;
-      } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
-        fs->options |= FieldSpec_WithSuffixTrie;
-      } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
-        fs->options |= FieldSpec_IndexEmpty;
-      } else {
-        break;
-      }
-    }
-  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
-    sp->flags |= Index_HasGeometry;
-    fs->types |= INDEXFLD_T_GEOMETRY;
-    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-    } else {
-      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-    }
-  } else {  // nothing more supported currently
+  } else {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
@@ -1087,6 +1117,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
+  // TODO: Why is this masking performed?
   sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
   return 0;
 }
@@ -1214,13 +1245,12 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
 }
 
 // Assuming the spec is properly locked for writing before calling this function.
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
+void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
   if (isNew) {
     sp->stats.numTerms++;
     sp->stats.termsSize += len;
   }
-  return isNew;
 }
 
 // For testing purposes only
@@ -1572,8 +1602,6 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex_FormatName(&sctx, fs->name);
         break;
       case INDEXFLD_T_VECTOR:
-        // TODO: remove the whole thing
-        // NOT NECESSARY ANYMORE - used when field were in keyspace
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
       case INDEXFLD_T_GEOMETRY:
@@ -1949,8 +1977,6 @@ static IndexesScanner *IndexesScanner_NewGlobal() {
 static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = false;
-  scanner->scannedKeys = 0;
   scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   scanner->spec_ref = StrongRef_Demote(global_ref);

@@ -207,6 +207,12 @@
             "optional": true
           },
           {
+            "name": "isempty",
+            "type": "pure-token",
+            "token": "ISEMPTY",
+            "optional": true
+          },
+          {
             "name": "sortable",
             "type": "block",
             "optional": true,

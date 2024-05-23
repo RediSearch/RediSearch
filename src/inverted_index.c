@@ -328,13 +328,13 @@ void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
   printf("InvertedIndex {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numDocs %u, lastId %ld, size %u\n", idx->numDocs, idx->lastId, idx->size);
+  printf("numDocs %u, lastId %llu, size %u\n", idx->numDocs, idx->lastId, idx->size);
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     PRINT_INDENT(indent);
-    printf("value %f, docId %lu\n", res->num.value, res->docId);
+    printf("value %f, docId %llu\n", res->num.value, res->docId);
   }
   IR_Free(ir);
   --indent;
@@ -348,7 +348,7 @@ void IndexBlock_Dump(IndexBlock *b, int indent) {
   printf("IndexBlock {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numEntries %u, firstId %lu, lastId %lu, \n", b->numEntries, b->firstId, b->lastId);
+  printf("numEntries %u, firstId %llu, lastId %llu, \n", b->numEntries, b->firstId, b->lastId);
   --indent;
   PRINT_INDENT(indent);
   printf("}\n");
@@ -440,7 +440,6 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
     // 1. Full encoding - docId, freq, flags, offset
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
       return encodeFull;
-
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
       return encodeFullWide;
 

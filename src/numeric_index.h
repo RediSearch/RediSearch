@@ -29,12 +29,14 @@ typedef struct {
   size_t appearances;
 } CardinalityValue;
 
-/* A numeric range is a node in a numeric range tree, representing a range of values bunched
- * together.
- * Since we do not know the distribution of scores ahead, we use a splitting approach - we start
- * with single value nodes, and when a node passes some cardinality we split it.
- * We save the minimum and maximum values inside the node, and when we split we split by finding the
- * median value */
+/* A numeric range is a node in a numeric range tree, representing a range of
+ * values bunched together.
+ * Since we do not know the distribution of scores ahead, we use a splitting
+ * approach - we start with single value nodes, and when a node passes some
+ * cardinality we split it.
+ * We save the minimum and maximum values inside the node, and when we split we
+ * split by finding the median value.
+ */
 typedef struct {
   double minVal;
   double maxVal;
