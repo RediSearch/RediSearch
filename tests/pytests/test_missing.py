@@ -31,6 +31,26 @@ def testMissingValidations():
                'te', 'TEXT', 'ISMISSING', 'WITHSUFFIXTRIE', 'SORTABLE'
                ).ok()
 
+    # Create an index with a TAG, TEXT and a NUMERIC field, which don't index
+    # empty values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT',
+               'numeric', 'NUMERIC').ok()
+
+    # Test that we get an error in case of a user tries to use "ismissing(@field)"
+    # when `field` does not index missing values.
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
+        '`ISMISSING` applied to field `tag`, which does not index missing values'
+        )
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
+        '`ISMISSING` applied to field `text`, which does not index missing values'
+    )
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
+        '`ISMISSING` applied to field `numeric`, which does not index missing values'
+    )
+
+    # Empty search on a non-existing field
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@non_existing)').error().contains('Field not found')
+
 def testMissingInfo():
     """Tests that we get the `ISMISSING` keyword in the INFO response for fields
     that index missing values."""
