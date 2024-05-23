@@ -1784,8 +1784,12 @@ def test_index_multi_value_json():
             '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
             '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
-        for i in range(n):
+        for i in range(0, n, 2):
+            # Test setting vectors with python list
             conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+            # Test setting vectors with numpy array of the same type
+            conn.json().set(i + 1, '.', {'vecs': [
+                create_np_array_typed([i + 1 + j] * dim, data_t).tolist() for j in range(per_doc)]})
 
         score_field_name = 'dist'
         k = min(10, n)
