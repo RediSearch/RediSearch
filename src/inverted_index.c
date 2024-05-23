@@ -1198,13 +1198,10 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 }
 
 IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
-  // TODO: Check if we need the `weight` argument here?
-
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
   return NewIndexReaderGeneric(sp, idx, InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK),
                                dctx, false, record);
-  // TODO: Check out the `skip-multi` argument, and the `weight` argument (to this function, which is also passed to `NewVirtualResult(weight)`).
 }
 
 void IR_Free(IndexReader *ir) {
