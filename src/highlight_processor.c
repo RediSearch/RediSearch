@@ -296,7 +296,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   // The current result should not contain an index result
   const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
 
-  // we can't work withot the inex result, just return QUEUED
+  // we can't work without the index result, just return QUEUED
   if (!ir) {
     return RS_RESULT_OK;
   }
