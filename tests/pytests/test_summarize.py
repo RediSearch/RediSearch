@@ -43,8 +43,15 @@ def testSummarization(env):
                   'SUMMARIZE', 'FIELDS', 1, 'txt',
                   'SEPARATOR', '\r\n',
                   'FRAGS', 4, 'LEN', 3)
-    env.assertEqual([1, 'gen1', [
-                     'txt', 'name Isaac: and\r\nwith Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\n']], res)
+    env.assertEqual([
+            1,
+            'gen1',
+            [
+                'txt',
+                'name Isaac: and\r\nwith Isaac,\r\nIsaac. {21:4} And Abraham circumcised his son Isaac\r\nson Isaac was\r\n'
+            ]
+        ],
+        res)
 
     # Attempt a query which doesn't have a corresponding matched term
     res = env.cmd('FT.SEARCH', 'idx', '-blah', 'SUMMARIZE', 'LEN', 3)
