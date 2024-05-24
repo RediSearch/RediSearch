@@ -27,7 +27,7 @@ RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
     'short-reads/redisearch_2.8.0.rdb.zip',
     'short-reads/redisearch_2.8.4.rdb.zip',
-    'short-reads/redisearch_2.8.12_rejson_2.0.0.rdb.zip',
+    'short-reads/redisearch_2.10.3.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -40,7 +40,7 @@ RDBS_EXPECTED_INDICES = [
                          ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
                          ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
+                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35])
                         ]
 
 RDBS = []
@@ -192,6 +192,8 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
                        get_identifier('field6', isHash), 'as', 'f6', 'tag', 'isempty',
                        get_identifier('field6', isHash), 'as', 'f7', 'tag', 'isempty', 'SORTABLE',
+                       get_identifier('field8', isHash), 'as', 'f8', 'TEXT', 'isempty',
+                       get_identifier('field9', isHash), 'as', 'f9', 'TEXT', 'isempty', 'SORTABLE',
 
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
@@ -234,7 +236,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
 def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
-    create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+    create_indices(env, 'redisearch_2.10.3.rdb', 'idxSearch', True, False)
 
 def _testCreateIndexRdbFilesWithJSON(env):
     if not server_version_at_least(env, "6.2.0"):

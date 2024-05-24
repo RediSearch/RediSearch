@@ -56,7 +56,7 @@ void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
  * maxSlop is set and inOrder is 1, we assert that the terms are in
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
-IndexIterator *NewIntersecIterator(IndexIterator **its, size_t num, DocTable *t,
+IndexIterator *NewIntersectIterator(IndexIterator **its, size_t num, DocTable *t,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
 
 /* Add an iterator to an intersect iterator */
