@@ -417,15 +417,9 @@ class Bfloat16Array(np.ndarray):
 
 # Helper function to create numpy array vector with a specific type
 def create_np_array_typed(data, data_type='FLOAT32'):
-    if data_type == 'FLOAT32':
-        return np.array(data, dtype=np.float32)
-    if data_type == 'FLOAT64':
-        return np.array(data, dtype=np.float64)
-    if data_type == 'FLOAT16':
-        return np.array(data, dtype=np.float16)
-    if data_type == 'BFLOAT16':
+    if data_type.upper() == 'BFLOAT16':
         return Bfloat16Array(data)
-    return None
+    return np.array(data, dtype=data_type.lower())
 
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
