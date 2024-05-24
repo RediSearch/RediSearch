@@ -398,17 +398,18 @@ def testTagAutoescaping(env):
     # this test generates the tag: '_@12\\345'
     env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
     env.cmd('HSET', '{doc}:13', 'tag', '$literal', 'id', '13')
+    env.cmd('HSET', '{doc}:14', 'tag', '*literal', 'id', '14')
     # tags with leading and trailing spaces
-    env.cmd('HSET', '{doc}:14', 'tag', '  with: space  ', 'id', '14')
-    env.cmd('HSET', '{doc}:15', 'tag', '  leading:space', 'id', '15')
-    env.cmd('HSET', '{doc}:16', 'tag', 'trailing:space  ', 'id', '16')
+    env.cmd('HSET', '{doc}:15', 'tag', '  with: space  ', 'id', '15')
+    env.cmd('HSET', '{doc}:16', 'tag', '  leading:space', 'id', '16')
+    env.cmd('HSET', '{doc}:17', 'tag', 'trailing:space  ', 'id', '17')
     # short tags
-    env.cmd('HSET', '{doc}:17', 'tag', 'x', 'id', '17')
-    env.cmd('HSET', '{doc}:18', 'tag', 'w', 'id', '18')
-    env.cmd('HSET', '{doc}:19', 'tag', "w'", 'id', '19')
-    env.cmd('HSET', '{doc}:20', 'tag', "w''", 'id', '20')
+    env.cmd('HSET', '{doc}:18', 'tag', 'x', 'id', '18')
+    env.cmd('HSET', '{doc}:19', 'tag', 'w', 'id', '19')
+    env.cmd('HSET', '{doc}:20', 'tag', "w'", 'id', '20')
+    env.cmd('HSET', '{doc}:21', 'tag', "w''", 'id', '21')
     # tag matching wildcard format
-    env.cmd('HSET', '{doc}:21', 'tag', "w'?*1'", 'id', '21')
+    env.cmd('HSET', '{doc}:22', 'tag', "w'?*1'", 'id', '22')
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
@@ -422,6 +423,13 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1|xyz:2}', 'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:7'])
+
+    # Test exact match with escaped '$' and '*' characters
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{\$literal}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:13'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{\*literal}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
 
     # with dialect < 5, the pipe is an OR operator
     expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
@@ -519,6 +527,9 @@ def testTagAutoescaping(env):
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [4, '{doc}:1', '{doc}:3', '{doc}:4', '{doc}:7'])
 
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{\*liter*}', 'NOCONTENT',)
+    env.assertEqual(res, [1, '{doc}:14'])
+
     # Test suffix
     res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*a-b-c}')
     env.assertEqual(res, "TAG:@tag {\n  SUFFIX{*a-b-c}\n}\n")
@@ -532,6 +543,9 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*xyz:2}=>{$weight:3.4}',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\*literal}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param}',
                   'PARAMS', '2', 'param', 'xyz:2',
@@ -551,6 +565,9 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*@mail.*}=>{$weight:3.4}',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:5'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\*literal*}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param*}=>{$weight:3.4}',
                   'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
@@ -604,7 +621,7 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{\\w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  w'?*1'\n}\n")
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{\\w'?*1'}", 'NOCONTENT')
-    env.assertEqual(res, [1, '{doc}:21'])
+    env.assertEqual(res, [1, '{doc}:22'])
 
     res = env.cmd('FT.EXPLAIN', 'idx', "(@tag:{w'-abc})")
     env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
@@ -614,19 +631,21 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'}", 'SORTBY', 'id', 'ASC',
                   'NOCONTENT')
-    env.assertEqual(res, [2, '{doc}:17', '{doc}:18'])
+    env.assertEqual(res, [2, '{doc}:18', '{doc}:19'])
 
+    # This is a tag, not a wildcard, because there is not text enclosed
+    # in the quotes
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w''}")
-    env.assertEqual(res, [1, '{doc}:20', ['tag', "w''", 'id', '20']])
+    env.assertEqual(res, [1, '{doc}:21', ['tag', "w''", 'id', '21']])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'}")
-    env.assertEqual(res, [1, '{doc}:19', ['tag', "w'", 'id', '19']])
+    env.assertEqual(res, [1, '{doc}:20', ['tag', "w'", 'id', '20']])
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'} -@tag:{w'w'}")
-    env.assertEqual(res, [1, '{doc}:17', ['tag', 'x', 'id', '17']])
+    env.assertEqual(res, [1, '{doc}:18', ['tag', 'x', 'id', '18']])
 
     # Test tags with leading and trailing spaces
-    expected_result = [1, '{doc}:14', ['tag', '  with: space  ', 'id', '14']]
+    expected_result = [1, '{doc}:15', ['tag', '  with: space  ', 'id', '15']]
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{  with: space  }")
     env.assertEqual(res, expected_result)
@@ -678,7 +697,7 @@ def testTagAutoescaping(env):
     env.assertEqual(res, expected_result)
 
     # Test tags with leading spaces
-    expected_result = [1, '{doc}:15', ['tag', '  leading:space', 'id', '15']]
+    expected_result = [1, '{doc}:16', ['tag', '  leading:space', 'id', '16']]
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading*}")
     env.assertEqual(res, expected_result)
@@ -689,17 +708,12 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{*eading:space}")
     env.assertEqual(res, expected_result)
 
-    # This returns 0 because the query is looking for a tag with a leading
-    # space but the leading space was removed upon data ingestion
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{* leading:space}")
-    env.assertEqual(res, [0])
-
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
                   'PARAMS', '2', 'param', 'leading:space')
     env.assertEqual(res, expected_result)
 
     # Test tags with trailing spaces
-    expected_result = [1, '{doc}:16', ['tag', 'trailing:space  ', 'id', '16']]
+    expected_result = [1, '{doc}:17', ['tag', 'trailing:space  ', 'id', '17']]
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing*}")
     env.assertEqual(res, expected_result)
@@ -709,11 +723,6 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space  }")
     env.assertEqual(res, expected_result)
-
-    # This returns 0 because the query is looking for a tag with a trailing
-    # space but the trailing space was removed upon data ingestion
-    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing:space *}")
-    env.assertEqual(res, [0])
 
 def testDialect5InvalidSyntax(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')

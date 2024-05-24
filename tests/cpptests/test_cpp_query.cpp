@@ -451,12 +451,21 @@ TEST_F(QueryTest, testParser_v3) {
   assertValidQuery("@tags:{foo*}", ctx);
   assertValidQuery("@tags:{foo\\-*}", ctx);
   assertValidQuery("@tags:{bar | foo*}", ctx);
+  // Invalid: the '*' in the middle of the tag should be escaped.
+  // See 'tag_invalid_punct' in parser.rl
   assertInvalidQuery("@tags:{bar* | foo}", ctx);
+  // Valid: the '*' in the middle was escaped
+  assertValidQuery("@tags:{bar\\* | foo}", ctx);
   assertValidQuery("@tags:{bar*} | @tags:{foo}", ctx);
+  // Invalid: the '*' in the middle of the tag should be escaped
   assertInvalidQuery("@tags:{bar* | foo*}", ctx);
   assertValidQuery("@tags:{bar*} | @tags:{foo*}", ctx);
 
+  // Invalid: the '}'s should be escaped. See 'tag_invalid_punct' in parser.rl
   assertInvalidQuery("@title:{foo}}}}}", ctx);
+  // Valid: the '}' except the last one were escaped
+  assertValidQuery("@title:{foo\\}\\}\\}\\}}", ctx);
+  // Valid: the '{' does not need to be escaped, it is not part of 'tag_invalid_punct'
   assertValidQuery("@title:{{{{{foo}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|}", ctx);
   assertInvalidQuery("@tags:{foo|bar\\ baz|", ctx);
