@@ -207,7 +207,7 @@ static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
     its[1] = new;
     // use slop==-1 and inOrder==0 since not applicable
     // use weight 1 since we checked at `checkQueryTypes`
-    req->rootiter = NewIntersecIterator(its, 2, NULL, 0, -1, 0, 1);
+    req->rootiter = NewIntersectIterator(its, 2, NULL, 0, -1, 0, 1);
   }
 }
 

@@ -96,7 +96,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     RedisModuleKey *idxKey = NULL;
     bool isNew;
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
-    if (isNew) {
+    if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (invidx) {
@@ -108,9 +108,11 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       }
     }
 
-    if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
-                                            && entry->term[0] != PHONETIC_PREFIX
-                                            && entry->term[0] != SYNONYM_PREFIX_CHAR) {
+    if (spec->suffixMask & entry->fieldMask
+        && entry->term[0] != STEM_PREFIX
+        && entry->term[0] != PHONETIC_PREFIX
+        && entry->term[0] != SYNONYM_PREFIX_CHAR
+        && strlen(entry->term) != 0) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
     }
 
@@ -198,7 +200,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     if (cur->byteOffsets) {
       ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-      DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
+      DocTable_SetByteOffsets(md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
     DMD_Return(md);
@@ -275,7 +277,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     if (FieldSpec_IndexesMissing(fs) && !found_df) {
       InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
       if(iiMissingDocs == NULL) {
-        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1);
+        size_t dummy_mem;
+        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
         dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
       }
       // Add docId to inverted index
@@ -312,7 +315,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   Document *doc = aCtx->doc;
 
   /**
-   * Document ID assignment:
+   * Document ID & sorting-vector assignment:
    * In order to hold the GIL for as short a time as possible, we assign
    * document IDs in bulk. We begin using the first document ID that is assumed
    * to be zero.

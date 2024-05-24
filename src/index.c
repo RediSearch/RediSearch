@@ -709,7 +709,7 @@ void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter) {
   ii->its[ii->num - 1] = childIter;
 }
 
-IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *dt,
+IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
@@ -1300,7 +1300,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   return ret;
 }
 
-/* Wildcard iterator, matchin ALL documents in the index. This is used for one thing only -
+/* Wildcard iterator, matching ALL documents in the index. This is used for one thing only -
  * purely negative queries. If the root of the query is a negative expression, we cannot process
  * it
  * without a positive expression. So we create a wildcard iterator that basically just iterates

@@ -1943,6 +1943,17 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
         yymsp[-3].minor.yy65 = NewTagNode(s, slen);
         yymsp[-3].minor.yy65->tag.nen = NON_EXIST_EMPTY;
         break;
+      case INDEXFLD_T_FULLTEXT:
+        {
+          rm_free(s);
+          char *empty_str = rm_strdup("");
+          yymsp[-3].minor.yy65 = NewTokenNode(ctx, empty_str, 0);
+          QueryNode_SetFieldMask(yymsp[-3].minor.yy65, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
+          yymsp[-3].minor.yy65->tn.nen = NON_EXIST_EMPTY;
+          // Avoid any expansions
+          yymsp[-3].minor.yy65->opts.flags |= QueryNode_Verbatim;
+          break;
+        }
       default:
         reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Unsupported field type for ISEMPTY");
         yymsp[-3].minor.yy65 = NULL;
