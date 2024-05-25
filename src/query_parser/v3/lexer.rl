@@ -79,9 +79,9 @@ isempty = 'isempty'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
-contains_tag = lb star.single_tag.star rb $1;
-prefix_tag = lb single_tag.star rb $1;
-suffix_tag = lb star.single_tag rb $1;
+contains_tag = lb (star.single_tag.star | star.attr.star) rb $1;
+prefix_tag = lb (single_tag.star | attr.star) rb $1;
+suffix_tag = lb (star.single_tag | star.attr) rb $1;
 
 # in case that the expression enclosed by {} matches the wildcard format, we
 # need to escape it to be considered as a tag.
@@ -524,7 +524,7 @@ main := |*
     while(tok.len > 1 && isspace(tok.s[tok.len - 1])) {
       tok.len--;
     }
-    RSQuery_Parse_v3(pParser, SUFFIX, tok, q);
+    RSQuery_Parse_v3(pParser, SUFFIX_TAG, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -568,7 +568,7 @@ main := |*
     // we don't remove the trailing spaces, because the prefix ends when
     // '*' is found, then the spaces are part of the tag.
 
-    RSQuery_Parse_v3(pParser, PREFIX, tok, q);
+    RSQuery_Parse_v3(pParser, PREFIX_TAG, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -607,7 +607,7 @@ main := |*
       fbreak;
     }
 
-    RSQuery_Parse_v3(pParser, CONTAINS, tok, q);
+    RSQuery_Parse_v3(pParser, CONTAINS_TAG, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

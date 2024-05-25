@@ -784,11 +784,84 @@ def testDialect5InvalidSyntax(env):
 
     # test punct character
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.explaincli idx @t1:>")
+        env.cmd("FT.EXPLAIN idx @t1:>")
 
     # test cntrl character
     with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.explaincli idx @t1:\10")
+        env.cmd("FT.EXPLAIN idx @t1:\10")
+
+    # test escaped space
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.EXPLAIN", "idx", "@t1:{this\\ is a test}")
+    
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.EXPLAIN", "idx", "@t1:{this\\ single_escape}")
+
+def testDialect5ValidChars(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+
+    # test valid tag character: punct - tag_invalid_punct
+    # punct = [!-/:-@[-‘{-~]
+    list_1 = list(range(ord('!'), ord('/') + 1))  # Characters from '!' to '/'
+    list_2 = list(range(ord(':'), ord('@') + 1))  # Characters from ':' to '@'
+    list_3 = list(range(ord('['), ord('`') + 1))  # Characters from '[' to '`'
+    list_4 = list(range(ord('{'), ord('~') + 1))  # Characters from '{' to '~'
+
+    # tag_invalid_punct: '}', '*', '\', '$'
+    tag_invalid_punct = [ord('}'), ord('*'), ord('\\'), ord('$')]
+
+    valid_list = list_1 + list_2 + list_3 + list_4
+    valid_chars = [chr(c) for c in valid_list \
+                   if c not in tag_invalid_punct]
+    for c in valid_chars:
+        # ----------------------------------------------------------------------
+        # The valid tag characters do not need to be escaped
+        # ----------------------------------------------------------------------
+        # Test exact match
+        cmd = "FT.EXPLAIN idx @t:{valid_char:" + c + "}"
+        expected = "TAG:@t {\n  valid_char:" + c + "\n}\n"
+        res = env.cmd(cmd)
+        env.assertEqual(res, expected)
+
+        # Test prefix
+        cmd = "FT.EXPLAIN idx @t:{valid_char:" + c + "*}"
+        expected = "TAG:@t {\n  PREFIX{valid_char:" + c + "*}\n}\n"
+        res = env.cmd(cmd)
+        env.assertEqual(res, expected)
+
+        # Test suffix
+        cmd = "FT.EXPLAIN idx @t:{*valid_char:" + c + "}"
+        expected = "TAG:@t {\n  SUFFIX{*valid_char:" + c + "}\n}\n"
+        res = env.cmd(cmd)
+        env.assertEqual(res, expected)
+
+        # Test infix
+        cmd = "FT.EXPLAIN idx @t:{*valid_char:" + c + "*}"
+        expected = "TAG:@t {\n  INFIX{*valid_char:" + c + "*}\n}\n"
+        res = env.cmd(cmd)
+        env.assertEqual(res, expected)
+
+        # ----------------------------------------------------------------------
+        # The query is invalid if the valid tag character is escaped.
+        # ----------------------------------------------------------------------
+        # Exact match with escaped valid tag character
+        cmd = "FT.EXPLAIN idx @t:{valid_char:\\" + c + "}"
+        env.expect(cmd).contains('Syntax error')
+        
+        # Prefix with escaped valid tag character
+        cmd = "FT.EXPLAIN idx @t:{valid_char:\\" + c + "*}"
+        env.expect(cmd).contains('Syntax error')
+        
+        # Suffix with escaped valid tag character
+        cmd = "FT.EXPLAIN idx @t:{*valid_char:\\" + c + "}"
+        env.expect(cmd).contains('Syntax error')
+        
+        # Infix with escaped valid tag character
+        cmd = "FT.EXPLAIN idx @t:{*valid_char:\\" + c + "*}"
+        env.expect(cmd).contains('Syntax error')
 
 def testTagUNF(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')

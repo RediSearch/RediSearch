@@ -447,9 +447,16 @@ TEST_F(QueryTest, testParser_v3) {
   // Tag queries
   assertValidQuery("@tags:{foo}", ctx);
   assertValidQuery("@tags:{foo|bar baz|boo}", ctx);
+  // Invalid: only the 'tag_invalid_punct' characters should be escaped, ' ' is not one of them
   assertInvalidQuery("@tags:{foo|bar\\ baz|boo}", ctx);
   assertValidQuery("@tags:{foo*}", ctx);
-  assertValidQuery("@tags:{foo\\-*}", ctx);
+  // Invalid: only the 'tag_invalid_punct' characters should be escaped, '-' is not one of them
+  assertInvalidQuery("@tags:{foo\\-*}", ctx);
+  assertInvalidQuery("@tags:{*foo\\-}", ctx);
+  assertInvalidQuery("@tags:{*foo\\-*}", ctx);
+  assertValidQuery("@tags:{foo-*}", ctx);
+  assertValidQuery("@tags:{*foo-}", ctx);
+  assertValidQuery("@tags:{*foo-*}", ctx);
   assertValidQuery("@tags:{bar | foo*}", ctx);
   // Invalid: the '*' in the middle of the tag should be escaped.
   // See 'tag_invalid_punct' in parser.rl
