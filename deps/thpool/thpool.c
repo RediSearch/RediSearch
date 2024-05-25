@@ -30,6 +30,8 @@
 
 #define LOG_IF_EXISTS(level, str, ...) if (thpool_p->log) {thpool_p->log(level, str, ##__VA_ARGS__);}
 
+#define MAX_THPOOL_NAME_BUFFER_LEN 11
+
 /* ========================== ENUMS ============================ */
 
 typedef enum {
@@ -98,24 +100,17 @@ typedef struct priority_queue {
   volatile JobqueueState state;       /* Indicates wether the threads should pull jobs from the jobq or sleep */
 } priority_queue;
 
-/* Thread */
-typedef struct thread {
-  int id;                   /* friendly id               */
-  pthread_t pthread;        /* pointer to actual thread  */
-  struct redisearch_thpool_t* thpool_p; /* access to thpool          */
-} thread;
-
 /* Threadpool */
 typedef struct redisearch_thpool_t {
-  // TODO: remove this useless struct
-  thread** threads;                    /* pointer to threads        */
   size_t n_threads;
   volatile atomic_size_t num_threads_alive;   /* threads currently alive   */
   ThpoolState state;         /* thread pool state, accessed only by the main thread */
   priority_queue jobqueue;             /* job queue                 */
   LogFunc log;                         /* log callback              */
   volatile atomic_size_t total_jobs_done;  /* statistics for observability */
-  // TODO: add name
+  char name[MAX_THPOOL_NAME_BUFFER_LEN]; /* thpool identifier to name its threads.
+                            limited to 11 bytes length (including the null byte) to leave room for
+                            '-<thread id>'*/
 } redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
@@ -124,9 +119,8 @@ static void redisearch_thpool_verify_init(redisearch_thpool_t* thpool_p);
 static void redisearch_thpool_lock(redisearch_thpool_t* thpool_p);
 static void redisearch_thpool_unlock(redisearch_thpool_t* thpool_p);
 
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id);
-static void* thread_do(struct thread* thread_p);
-static void thread_destroy(struct thread* thread_p);
+static int thread_init(redisearch_thpool_t* thpool_p);
+static void* thread_do(redisearch_thpool_t* thpool_p);
 
 static int jobqueue_init(jobqueue* jobqueue_p);
 static void jobqueue_clear(jobqueue* jobqueue_p);
@@ -160,7 +154,7 @@ static void broadcast_new_state_job(redisearch_thpool_t *thpool, size_t n_thread
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
-struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log) {
+struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log, const char *thpool_name) {
   /* Make new thread pool */
   redisearch_thpool_t* thpool_p;
   thpool_p = (struct redisearch_thpool_t*)rm_malloc(sizeof(struct redisearch_thpool_t));
@@ -174,31 +168,13 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   thpool_p->state = THPOOL_UNINITIALIZED;
   thpool_p->total_jobs_done = 0;
 
+  // Seed the random number generator for the threads ids.
+  srand(time(NULL));
+  snprintf(thpool_p->name, MAX_THPOOL_NAME_BUFFER_LEN, "%s", thpool_name);
+
   /* Initialise the job queue */
   if (num_privileged_threads > num_threads) num_privileged_threads = num_threads;
   priority_queue_init(&thpool_p->jobqueue, num_threads, num_privileged_threads);
-
-  /* Make threads in pool */
-  thpool_p->threads = (struct thread**)rm_malloc(num_threads * sizeof(struct thread*));
-  if (thpool_p->threads == NULL) {
-    LOG_IF_EXISTS("warning", "redisearch_thpool_create(): Could not allocate memory for threads")
-    priority_queue_destroy(&thpool_p->jobqueue);
-    rm_free(thpool_p);
-    return NULL;
-  }
-
-  for (size_t i = 0; i < num_threads; i++) {
-    thpool_p->threads[i] = (struct thread*)rm_malloc(sizeof(struct thread));
-    if (thpool_p->threads[i] == NULL) {
-      LOG_IF_EXISTS("warning", "thread_create(): Could not allocate memory for thread")
-      priority_queue_destroy(&thpool_p->jobqueue);
-      for (size_t j = 0; j < i; j++) {
-        rm_free(thpool_p->threads[j]);
-      }
-      rm_free(thpool_p);
-      return NULL;
-    }
-  }
 
   return thpool_p;
 }
@@ -206,7 +182,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 void redisearch_thpool_init(redisearch_thpool_t* thpool_p) {
   /* Thread init */
   for (size_t n = 0; n < thpool_p->n_threads; n++) {
-    thread_init(thpool_p, &thpool_p->threads[n], n);
+    thread_init(thpool_p);
   }
 
   /* Wait for threads to initialize */
@@ -281,8 +257,8 @@ fail:
 /* Wait until all jobs have finished */
 void redisearch_thpool_wait(redisearch_thpool_t* thpool_p) {
   priority_queue* priority_queue_p = &thpool_p->jobqueue;
-  long usec_timeout = 1000 * 100;
-  redisearch_thpool_drain(thpool_p, usec_timeout, NULL, NULL, 0);
+  long msec_timeout = 100;
+  redisearch_thpool_drain(thpool_p, msec_timeout, NULL, NULL, 0);
 }
 
 void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
@@ -299,7 +275,6 @@ void redisearch_thpool_terminate_reset_threads(redisearch_thpool_t* thpool_p) {
   if (!priority_queue_is_empty(&thpool_p->jobqueue)) {
     LOG_IF_EXISTS("warning", "Terminate threadpool's thread was called when the jobq is not empty");
   }
-
   // Threads might be in terminate when empty state, we must lock before we read `num_threads_alive` to ensure they don't die (i.e check that jobq is not empty)
   // to read `num_threads_alive`
   redisearch_thpool_lock(thpool_p);
@@ -308,6 +283,7 @@ void redisearch_thpool_terminate_reset_threads(redisearch_thpool_t* thpool_p) {
     // create a barrier
     pthread_barrier_t barrier;
     pthread_barrier_init(&barrier, NULL, curr_num_threads_alive + 1);
+
     // create jobs and their args
     redisearch_thpool_work_t jobs[curr_num_threads_alive];
     SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = THREAD_DEAD};
@@ -322,7 +298,6 @@ void redisearch_thpool_terminate_reset_threads(redisearch_thpool_t* thpool_p) {
 
     // Unlock to allow the threads to pull from the jobq
     redisearch_thpool_unlock(thpool_p);
-
     // wait on barrier
     pthread_barrier_wait(&barrier);
     pthread_barrier_destroy(&barrier);
@@ -330,13 +305,15 @@ void redisearch_thpool_terminate_reset_threads(redisearch_thpool_t* thpool_p) {
     while (thpool_p->num_threads_alive) {
       usleep(1);
     }
+  } else {
+    redisearch_thpool_unlock(thpool_p);
   }
 
   thpool_p->state = THPOOL_UNINITIALIZED;
 }
 
 void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
-  sleep(2);// TODO: remove
+  assert(thpool_p->jobqueue.state == JOBQ_RUNNING);
   if (thpool_p->state == THPOOL_UNINITIALIZED) return;
   size_t n_threads = thpool_p->n_threads;
   broadcast_new_state_job(thpool_p, n_threads, THREAD_TERMINATE_WHEN_EMPTY);
@@ -355,12 +332,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
 
   /* Job queue cleanup */
   priority_queue_destroy(&thpool_p->jobqueue);
-  /* Deallocs */
-  size_t n;
-  for (n = 0; n < thpool_p->n_threads; n++) {
-    thread_destroy(thpool_p->threads[n]);
-  }
-  rm_free(thpool_p->threads);
+
   rm_free(thpool_p);
 }
 
@@ -409,6 +381,7 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t* thpool_p) {
   redisearch_thpool_lock(thpool_p);
   assert(redisearch_thpool_paused(thpool_p));
   thpool_p->jobqueue.state = JOBQ_RUNNING;
+  pthread_cond_broadcast(&thpool_p->jobqueue.has_jobs);
   redisearch_thpool_unlock(thpool_p);
 }
 
@@ -420,13 +393,10 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t* thpool_p) {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, int id) {
-
-  (*thread_p)->thpool_p = thpool_p;
-  (*thread_p)->id = id;
-
-  pthread_create(&(*thread_p)->pthread, NULL, (void*)thread_do, (*thread_p));
-  pthread_detach((*thread_p)->pthread);
+static int thread_init(redisearch_thpool_t* thpool_p) {
+  pthread_t thread_id;
+  pthread_create(&thread_id, NULL, (void*)thread_do, thpool_p);
+  pthread_detach(thread_id);
   return 0;
 }
 
@@ -438,11 +408,12 @@ static int thread_init(redisearch_thpool_t* thpool_p, struct thread** thread_p, 
  * @param  thread        thread that will run this function
  * @return nothing
  */
-static void* thread_do(struct thread* thread_p) {
+static void* thread_do(redisearch_thpool_t* thpool_p) {
 
   /* Set thread name for profiling and debugging */
-  char thread_name[128] = {0};
-  sprintf(thread_name, "thread-pool-%d", thread_p->id);
+  char thread_name[16] = {0};
+  short random_id = rand() % 10000;
+  snprintf(thread_name, sizeof(thread_name), "%s-%d", thpool_p->name, random_id);
 
 #if defined(__linux__)
   /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit declaration */
@@ -453,44 +424,35 @@ static void* thread_do(struct thread* thread_p) {
 	LOG_IF_EXISTS("warning", "thread_do(): pthread_setname_np is not supported on this system")
 #endif
 
-  /* Assure all threads have been created before starting serving */
-  redisearch_thpool_t* thpool_p = thread_p->thpool_p;
-  LOG_IF_EXISTS("verbose", "Creating background thread-%d", thread_p->id)
+  LOG_IF_EXISTS("verbose", "Creating background thread: %s", thread_name)
 
   /* Mark thread as alive (initialized) */
   thpool_p->num_threads_alive += 1;
   ThreadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
 
   while (true) {
-    // static int count = 0;
-    // if (count != 0) {
-
-    //   sleep(2);
-    // }
-    // ++count;
-    LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
-    ThreadState curr_thread_state = thread_ctx.thread_state;
+    LOG_IF_EXISTS("debug", "Thread %s is running iteration", thread_name)
 
     /* Read job from queue and execute it */
-
     PriorityJobCtx job_ctx = priority_queue_pull(&thpool_p->jobqueue);
     job* job_p = job_ctx.job;
     void* arg = job_p->arg;
 
+    AdminJobArg admin_job_arg = {0};
     if (job_ctx.is_admin) {
-      AdminJobArg job_arg = {.arg = arg, .thread_ctx = &thread_ctx};
-      arg = &job_arg;
+      admin_job_arg.arg = arg;
+      admin_job_arg.thread_ctx = &thread_ctx;
+      arg = &admin_job_arg;
     }
 
     job_p->function(arg);
     rm_free(job_p);
 
     // Both variables are atomic, so we can do this without a lock.
-    thpool_p->total_jobs_done++;
+    thpool_p->total_jobs_done += !job_ctx.is_admin;
     thpool_p->jobqueue.num_threads_working--;
 
-    // Check if we got change state job
-    if (curr_thread_state != thread_ctx.thread_state) {
+    if (thread_ctx.thread_state != THREAD_RUNNING) {
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
         // the thread might be revived so we need to encapsulate breaking the loop and
         // and modifying num_threads_alive under to lock
@@ -498,6 +460,7 @@ static void* thread_do(struct thread* thread_p) {
         if (priority_queue_len_unsafe(&thpool_p->jobqueue) == 0) {
           break;
         }
+        redisearch_thpool_unlock(thpool_p);
       } else if (thread_ctx.thread_state == THREAD_DEAD) {
         redisearch_thpool_lock(thpool_p);
         break;
@@ -505,16 +468,11 @@ static void* thread_do(struct thread* thread_p) {
     }
   }
 
-  LOG_IF_EXISTS("verbose", "Terminating thread %d", thread_p->id)
+  LOG_IF_EXISTS("verbose", "Terminating thread %s", thread_name)
   thpool_p->num_threads_alive--;
   redisearch_thpool_unlock(thpool_p);
 
   return NULL;
-}
-
-/* Frees a thread  */
-static void thread_destroy(thread* thread_p) {
-  rm_free(thread_p);
 }
 
 /* ============================ JOB QUEUE =========================== */
@@ -773,7 +731,7 @@ static void change_state_job(void* job_arg_) {
   ThreadState new_state = signal_struct->new_state;
   job_arg->thread_ctx->thread_state = new_state;
 
-  //wait all threads to get the barrier
+  // wait all threads to get the barrier
   pthread_barrier_wait(signal_struct->barrier);
 }
 

@@ -175,6 +175,7 @@ def test_burst_threads_sanity():
             # index (id 0)
             env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
             waitForRdbSaveToFinish(env)
+            print(f"{algo}, {data_type}")
             for i in env.reloadingIterator():
                 debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
                 env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)

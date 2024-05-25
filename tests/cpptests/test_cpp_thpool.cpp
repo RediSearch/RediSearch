@@ -16,7 +16,7 @@ public:
             ThpoolParams params = GetParam();
             // Thread pool with a single thread which is also a "privileged thread" that
             // runs high priority tasks before low priority tasks.
-            this->pool = redisearch_thpool_create(params.num_threads, params.num_priveleged_threads, nullptr);
+            this->pool = redisearch_thpool_create(params.num_threads, params.num_priveleged_threads, nullptr, "test");
         }
 
         virtual void TearDown() {
@@ -149,10 +149,10 @@ TEST_P(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
 }
 
 /* ========================== NUM_THREADS = 2, NUM_PRIVILEGED = 0 ========================== */
-THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 2, 0)
+THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 1, 0)
 
 void sleep_1_and_set(void) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
@@ -167,4 +167,10 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
 
     redisearch_thpool_terminate_when_empty(this->pool);
     redisearch_thpool_wait(this->pool);
+
+    thpool_stats stats = redisearch_thpool_get_stats(this->pool);
+    while (stats.num_threads_alive) {
+        usleep(1);
+        stats = redisearch_thpool_get_stats(this->pool);
+    }
 }

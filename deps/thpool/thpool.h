@@ -44,9 +44,15 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @param num_privileged_threads number of threads that run only high priority tasks as long as
  * there are such tasks waiting (num_privileged_threads <= num_threads).
  * @param log callback to be called for printing debug messages to the log
+ * @param name thpool identifier used to name the threads in thpool. limited to 10 characters
+ * including the null terminator. Each thread will be named <name>-<thread_id>. thread_id is a
+ * random number from 0 to 9,999.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log);
+redisearch_threadpool redisearch_thpool_create(size_t num_threads,
+                                               size_t num_privileged_threads,
+                                               LogFunc log,
+                                               const char *name);
 
 /**
  * @brief  Initialize an existing threadpool
