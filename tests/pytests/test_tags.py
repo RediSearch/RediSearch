@@ -633,7 +633,7 @@ def testTagAutoescaping(env):
                   'NOCONTENT')
     env.assertEqual(res, [2, '{doc}:18', '{doc}:19'])
 
-    # This is a tag, not a wildcard, because there is not text enclosed
+    # This is a tag, not a wildcard, because there is no text enclosed
     # in the quotes
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w''}")
     env.assertEqual(res, [1, '{doc}:21', ['tag', "w''", 'id', '21']])
