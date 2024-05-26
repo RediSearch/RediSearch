@@ -21,6 +21,7 @@
 
 #include "rmalloc.h"
 #include "thpool.h"
+#include "pthread_barrier.h"
 
 #ifdef THPOOL_DEBUG
 #define THPOOL_DEBUG 1
