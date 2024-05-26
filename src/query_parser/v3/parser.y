@@ -20,6 +20,7 @@
 
 %left RP RB RSQB.
 
+%left UNESCAPED_TAG.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.
@@ -38,9 +39,8 @@
 %left SIZE.
 %left STAR.
 
-%left TAGLIST.
 %left TERMLIST.
-%left PREFIX SUFFIX CONTAINS.
+%left PREFIX PREFIX_TAG SUFFIX SUFFIX_TAG CONTAINS CONTAINS_TAG.
 %left PERCENT.
 %left ATTRIBUTE.
 %left VERBATIM WILDCARD.
@@ -197,6 +197,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
 
+%type affix_tag { QueryNode * }
+%destructor affix_tag { QueryNode_Free($$); }
+
 %type suffix { QueryNode * }
 %destructor suffix { QueryNode_Free($$); }
 
@@ -224,8 +227,8 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
 
-%type tag_list { QueryNode *}
-%destructor tag_list { QueryNode_Free($$); }
+%type single_tag { QueryNode *}
+%destructor single_tag { QueryNode_Free($$); }
 
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
@@ -647,6 +650,22 @@ affix(A) ::= CONTAINS(B) . {
     A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
+/////////////////////////////////////////////////////////////////
+// Prefix expressions based on tags
+/////////////////////////////////////////////////////////////////
+
+affix_tag(A) ::= PREFIX_TAG(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+affix_tag(A) ::= SUFFIX_TAG(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+affix_tag(A) ::= CONTAINS_TAG(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
+}
+
 // verbatim(A) ::= VERBATIM(B) . {
 //    A = NewVerbatimNode_WithParams(ctx, &B);
 // }
@@ -731,10 +750,10 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Tag Lists - curly braces separated lists of words
+// Single Tag - tag enclosed in curly braces
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
+expr(A) ::= modifier(B) COLON LB single_tag(C) RB . {
     if (!C) {
         A = NULL;
     } else {
@@ -751,44 +770,26 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     }
 }
 
-tag_list(A) ::= param_term_case(B) . [TAGLIST] {
+single_tag(A) ::= ATTRIBUTE(B) . {
   A = NewPhraseNode(0);
+  B.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= affix(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+single_tag(A) ::= UNESCAPED_TAG(B) . {
+  A = NewPhraseNode(0);
+  B.type = QT_TERM_CASE;
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= verbatim(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+single_tag(A) ::= affix_tag(B) . {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= termlist(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
-}
-
-tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
-  A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
+single_tag(A) ::= verbatim(B) . {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -918,7 +919,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 }
 
 /////////////////////////////////////////////////////////////////
-// Geomtriy Queries
+// Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   if (C) {
@@ -1150,6 +1151,10 @@ term(A) ::= NUMBER(B) . {
 }
 
 term(A) ::= SIZE(B). {
+  A = B;
+}
+
+term(A) ::= UNESCAPED_TAG(B) . {
   A = B;
 }
 
