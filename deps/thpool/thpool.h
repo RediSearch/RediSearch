@@ -1,7 +1,7 @@
 /*
  * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2)
+ * or the Server Side Public License v1 (SSPLv1).
  */
 
 #ifndef _THPOOL_
@@ -14,9 +14,9 @@
 extern "C" {
 #endif
 
-/* =================================== API ======================================= */
+/* ======================= API ======================= */
 
-typedef struct redisearch_thpool_t* redisearch_threadpool;
+typedef struct redisearch_thpool_t *redisearch_threadpool;
 typedef struct timespec timespec;
 
 typedef enum {
@@ -44,15 +44,14 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @param num_privileged_threads number of threads that run only high priority tasks as long as
  * there are such tasks waiting (num_privileged_threads <= num_threads).
  * @param log callback to be called for printing debug messages to the log
- * @param name thpool identifier used to name the threads in thpool. limited to 11 characters
- * including the null terminator. Each thread will be named <name>-<thread_id>. thread_id is a
- * random number from 0 to 9,999.
+ * @param name thpool identifier used to name the threads in thpool. limited to
+ * 11 characters including the null terminator. Each thread will be named
+ * <name>-<thread_id>. thread_id is a random number from 0 to 9,999.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads,
                                                size_t num_privileged_threads,
-                                               LogFunc log,
-                                               const char *name);
+                                               LogFunc log, const char *name);
 
 /**
  * @brief  Initialize an existing threadpool
@@ -65,7 +64,7 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads,
  *    ..
  *    threadpool thpool;                       //First we declare a threadpool
  *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
- *    thpool_init(&thpool);                  //Then we initialize the threads
+ *    thpool_init(&thpool);                    //Then we initialize the threads
  *    ..
  *
  * @param threadpool    threadpool to initialize
@@ -100,9 +99,10 @@ void redisearch_thpool_init(redisearch_threadpool);
  * @param  priority      priority of the work, default is high
  * @return 0 on success, -1 otherwise.
  */
-typedef void (*redisearch_thpool_proc)(void*);
-int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p,
-                               void* arg_p, thpool_priority priority);
+typedef void (*redisearch_thpool_proc)(void *);
+int redisearch_thpool_add_work(redisearch_threadpool,
+                               redisearch_thpool_proc function_p, void *arg_p,
+                               thpool_priority priority);
 
 /**
  * @brief Add n jobs to the job queue
@@ -137,10 +137,11 @@ int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc fun
  */
 typedef struct thpool_work_t {
   redisearch_thpool_proc function_p;
-  void* arg_p;
+  void *arg_p;
 } redisearch_thpool_work_t;
-int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t* jobs,
-                                 size_t n_jobs, thpool_priority priority);
+int redisearch_thpool_add_n_work(redisearch_threadpool,
+                                 redisearch_thpool_work_t *jobs, size_t n_jobs,
+                                 thpool_priority priority);
 
 /**
  * @brief Wait for all queued jobs to finish
@@ -169,12 +170,13 @@ void redisearch_thpool_wait(redisearch_threadpool);
 typedef void (*yieldFunc)(void *);
 
 /**
- * @brief Wait until the job queue contains no more than a given number of jobs, yield periodically
- * while we wait.
+ * @brief Wait until the job queue contains no more than a given number of jobs,
+ * yield periodically while we wait.
  *
- * The same as redisearch_thpool_wait, but with a timeout and a threshold, so that if time passed
- * and we're still waiting, we run a yield callback function, and go back waiting again.
- * We do so until the queue contains no more than the number of jobs specified in the threshold.
+ * The same as redisearch_thpool_wait, but with a timeout and a threshold, so
+ * that if time passed and we're still waiting, we run a yield callback
+ * function, and go back waiting again. We do so until the queue contains no
+ * more than the number of jobs specified in the threshold.
  *
  * @example
  *
@@ -199,8 +201,9 @@ typedef void (*yieldFunc)(void *);
  * @return nothing
  */
 
-void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yieldCB,
-                                 void *yieldCtx, size_t threshold);
+void redisearch_thpool_drain(redisearch_threadpool, long timeout,
+                             yieldFunc yieldCB, void *yieldCtx,
+                             size_t threshold);
 
 /**
  * @brief Terminate the working threads (without deallocating the threadpool members).
@@ -213,7 +216,8 @@ void redisearch_thpool_terminate_reset_threads(redisearch_threadpool);
 void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
 
 /**
- * @brief Resume the working threads after they were paused by redisearch_thpool_terminate_pause_threads.
+ * @brief Resume the working threads after they were paused by
+ * redisearch_thpool_terminate_pause_threads.
  */
 void redisearch_thpool_resume_threads(redisearch_threadpool);
 
@@ -226,7 +230,8 @@ void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
 /**
  * @brief Destroy the threadpool
  *
- * This will wait for the currently active threads to finish and free all the threadpool resources.
+ * This will wait for the currently active threads to finish and free all the
+ * threadpool resources.
  *
  * @example
  * int main() {
@@ -242,7 +247,6 @@ void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
  * @return nothing
  */
 void redisearch_thpool_destroy(redisearch_threadpool);
-
 
 /**
  * @brief Show currently working threads
