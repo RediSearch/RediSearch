@@ -11,6 +11,8 @@
 #include "query_node.h"
 #include "query_ctx.h"
 
+#define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
+#define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
 #define VECSIM_TYPE_INT32 "INT32"

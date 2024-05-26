@@ -25,7 +25,7 @@ from unittest import SkipTest
 import inspect
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
@@ -403,13 +403,25 @@ def module_ver_filter(env, module_name, ver_filter):
 def has_json_api_v2(env):
     return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
 
+# A very simple implementation of a bfloat16 array type.
+# wrap a numpy array (for basic operations) and override `tobytes` to convert to bfloat16
+# This saves us the need to install a new package for bfloat16 support (e.g. tensorflow, torch, bfloat16 numpy extension)
+# and deal with dependencies and compatibility issues.
+class Bfloat16Array(np.ndarray):
+    offset = 2 if sys.byteorder == 'little' else 0
+    def __new__(cls, input_array):
+        return np.asarray(input_array).view(cls)
+
+    def tobytes(self):
+        b32 = np.ndarray.tobytes(self.astype(np.float32))
+        # Generate a byte string from every other pair of bytes in b32
+        return b''.join(b32[i:i+2] for i in range(Bfloat16Array.offset, len(b32), 4))
+
 # Helper function to create numpy array vector with a specific type
 def create_np_array_typed(data, data_type='FLOAT32'):
-    if data_type == 'FLOAT32':
-        return np.array(data, dtype=np.float32)
-    if data_type == 'FLOAT64':
-        return np.array(data, dtype=np.float64)
-    return None
+    if data_type.upper() == 'BFLOAT16':
+        return Bfloat16Array(data)
+    return np.array(data, dtype=data_type.lower())
 
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
