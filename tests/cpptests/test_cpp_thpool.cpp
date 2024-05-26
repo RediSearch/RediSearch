@@ -151,8 +151,8 @@ TEST_P(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
 /* ========================== NUM_THREADS = 2, NUM_PRIVILEGED = 0 ========================== */
 THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 1, 0)
 
-void sleep_1_and_set(void) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+void sleep_1_and_set(size_t *time_ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(*time_ms));
 }
 
 TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
@@ -161,7 +161,8 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     redisearch_thpool_terminate_pause_threads(this->pool);
 
     // Fill the job queue with tasks.
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, nullptr, THPOOL_PRIORITY_HIGH);
+    size_t time_ms = 1;
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
 
     redisearch_thpool_resume_threads(this->pool);
 
@@ -173,4 +174,33 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
         usleep(1);
         stats = redisearch_thpool_get_stats(this->pool);
     }
+
+    // Recreate threads
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
+
+    stats = redisearch_thpool_get_stats(this->pool);
+    while (!stats.num_threads_alive) {
+        usleep(1);
+        stats = redisearch_thpool_get_stats(this->pool);
+    }
+
+}
+
+TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
+    // add job long enough so they won't finish until we call pause
+    size_t time_ms = 1000;
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
+
+    // wait for them to be pulled
+    size_t curr_working  = redisearch_thpool_num_threads_working(this->pool);
+    while (curr_working != 1) {
+        usleep(1);
+    }
+
+    // pause threads
+    redisearch_thpool_terminate_pause_threads(this->pool);
+    // assert num_wrking =0
+    ASSERT_EQ(redisearch_thpool_num_threads_working(this->pool), 0) << "expected 0 working threads";
+    // aseert jobs_done =1
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_jobs_done, 1)<< "expected 1 job done";
 }
