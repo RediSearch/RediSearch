@@ -44,7 +44,7 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @param num_privileged_threads number of threads that run only high priority tasks as long as
  * there are such tasks waiting (num_privileged_threads <= num_threads).
  * @param log callback to be called for printing debug messages to the log
- * @param name thpool identifier used to name the threads in thpool. limited to 10 characters
+ * @param name thpool identifier used to name the threads in thpool. limited to 11 characters
  * including the null terminator. Each thread will be named <name>-<thread_id>. thread_id is a
  * random number from 0 to 9,999.
  * @return Newly allocated threadpool, or NULL if creation failed.
@@ -98,7 +98,7 @@ void redisearch_thpool_init(redisearch_threadpool);
  * @param  function_p    pointer to function to add as work
  * @param  arg_p         pointer to an argument
  * @param  priority      priority of the work, default is high
- * @return 0 on successs, -1 otherwise.
+ * @return 0 on success, -1 otherwise.
  */
 typedef void (*redisearch_thpool_proc)(void*);
 int redisearch_thpool_add_work(redisearch_threadpool, redisearch_thpool_proc function_p,
@@ -148,12 +148,6 @@ int redisearch_thpool_add_n_work(redisearch_threadpool, redisearch_thpool_work_t
  * Will wait for all jobs - both queued and currently running to finish.
  * Once the queue is empty and all work has completed, the calling thread
  * (probably the main program) will continue.
- *
- * Smart polling is used in wait. The polling is initially 0 - meaning that
- * there is virtually no polling at all. If after 1 seconds the threads
- * haven't finished, the polling interval starts growing exponentially
- * until it reaches max_secs seconds. Then it jumps down to a maximum polling
- * interval assuming that heavy processing is being used in the threadpool.
  *
  * @example
  *
@@ -209,14 +203,12 @@ void redisearch_thpool_drain(redisearch_threadpool, long timeout, yieldFunc yiel
                                  void *yieldCtx, size_t threshold);
 
 /**
- * @brief Terminate the working threads (without deallocating the job queue and the thread objects).
+ * @brief Terminate the working threads (without deallocating the threadpool members).
  */
 void redisearch_thpool_terminate_reset_threads(redisearch_threadpool);
 
 /**
- * @brief Same as redisearch_thpool_terminate_reset_threads, but for debugging purposes.
- *        The threads won't be restarted until redisearch_thpool_resume_threads is called,
- *        even if new jobs are added to the queue.
+ * @brief Pause pulling from the jobq. The function returns when no jobs are in progress.
  */
 void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
 
@@ -226,7 +218,7 @@ void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
 void redisearch_thpool_resume_threads(redisearch_threadpool);
 
 /**
- * @brief Set the terminate_when_empty flag, so that all threads are terminated when there are
+ * @brief Signal all threads to terminate when there are
  * no more pending jobs in the queue.
  */
 void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
@@ -234,8 +226,7 @@ void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
 /**
  * @brief Destroy the threadpool
  *
- * This will wait for the currently active threads to finish and then 'kill'
- * the whole threadpool to free up memory.
+ * This will wait for the currently active threads to finish and free all the threadpool resources.
  *
  * @example
  * int main() {
