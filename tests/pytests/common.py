@@ -405,6 +405,8 @@ def has_json_api_v2(env):
 
 # A very simple implementation of a bfloat16 array type.
 # wrap a numpy array (for basic operations) and override `tobytes` to convert to bfloat16
+# This saves us the need to install a new package for bfloat16 support (e.g. tensorflow, torch, bfloat16 numpy extension)
+# and deal with dependencies and compatibility issues.
 class Bfloat16Array(np.ndarray):
     offset = 2 if sys.byteorder == 'little' else 0
     def __new__(cls, input_array):
