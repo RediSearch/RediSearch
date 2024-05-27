@@ -172,7 +172,7 @@ class Test_burst_threads_sanity:
         n_local_vectors = get_vecsim_debug_dict(self.env, 'idx', 'vector')['INDEX_LABEL_COUNT']
 
         res_before = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                            '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
+                                            '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, self.k,
                                             'PARAMS', 4, 'K', self.k, 'vec_param', query_vec.tobytes())
         # Expect that the first result's would be around zero, since the query vector itself exists in the
         # index (id 0)
