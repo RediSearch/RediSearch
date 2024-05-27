@@ -17,7 +17,7 @@ typedef struct {
     pthread_cond_t condition_variable;
     int threads_required;
     int threads_left;
-    unsigned int cycle;
+    volatile unsigned int cycle;
 } pthread_barrier_t;
 
 static int pthread_barrier_init(pthread_barrier_t *barrier, void *attr, int count) {

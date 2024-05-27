@@ -173,8 +173,7 @@ void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback,"gc");
-    redisearch_thpool_init(gcThreadpool_g);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback, "gc");
   }
 }
 

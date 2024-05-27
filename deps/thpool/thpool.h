@@ -54,24 +54,6 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads,
                                                LogFunc log, const char *name);
 
 /**
- * @brief  Initialize an existing threadpool
- *
- * Initializes a threadpool. This function will not return until all
- * threads have initialized successfully.
- *
- * @example
- *
- *    ..
- *    threadpool thpool;                       //First we declare a threadpool
- *    thpool = thpool_create(4, 1, logCB);     //Next we create it with 4 threads (1 privileged)
- *    thpool_init(&thpool);                    //Then we initialize the threads
- *    ..
- *
- * @param threadpool    threadpool to initialize
- */
-void redisearch_thpool_init(redisearch_threadpool);
-
-/**
  * @brief Add work to the job queue
  *
  * Takes an action and its argument and adds it to the threadpool's job queue.
