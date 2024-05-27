@@ -158,6 +158,64 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
 //   return ret;
 // }
 
+#define BIT_CAST(type, value) ({ \
+  __typeof__(value) value_var = (value); \
+  static_assert(sizeof(type) == sizeof(value_var), "type and value must have the same size"); \
+  const void *ptr = &(value_var); \
+  *(type *)ptr; \
+})
+
+// Rounding the input to nearest even (float with 16 trailing zeros),
+// and returning the 16 significant bits of the float as uint16_t.
+// Calculation inspired by:
+// https://gitlab.com/libeigen/eigen/-/blob/d626762e3ff6cdcdf65325e6edf27c995029786d/Eigen/src/Core/arch/Default/BFloat16.h#L403
+static inline uint16_t floatToBF16bits(float input) {
+  uint32_t f32 = BIT_CAST(uint32_t, input);
+  uint32_t lsb = (f32 >> 16) & 1;
+  uint32_t round = lsb + 0x7FFF;
+  f32 += round;
+  return (f32 >> 16);
+}
+
+static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  if (REDISMODULE_OK == ret) {
+    *val = floatToBF16bits((float)temp);
+  }
+  return ret;
+}
+
+// via Fabian "ryg" Giesen.
+// https://gist.github.com/2156668
+// Not handling INF or NaN (we don't expect them, and we don't handle them elsewhere)
+static inline uint16_t floatToFP16bits(float input) {
+  const uint32_t sign_mask = 1u << 31;
+  const uint32_t f16infty = 31u << 23;
+  const uint32_t round_mask = ~0xfffu;
+  const uint32_t magic_bits = 15u << 23;
+  const float magic = BIT_CAST(const float, magic_bits);
+
+  uint32_t f32 = BIT_CAST(uint32_t, input);
+  uint32_t sign = f32 & sign_mask;
+  f32 ^= sign;
+
+  float fscale = BIT_CAST(float, f32 & round_mask) * magic;
+  uint32_t f16 = BIT_CAST(uint32_t, fscale) - round_mask;
+  if (f16 > f16infty) f16 = f16infty; // Clamp to signed infinity if overflowed
+
+  return ((f16 >> 13) | (sign >> 16));
+}
+
+static int JSON_getFloat16(RedisJSON json, uint16_t *val) {
+  double temp;
+  int ret = japi->getDouble(json, &temp);
+  if (REDISMODULE_OK == ret) {
+    *val = floatToFP16bits((float)temp);
+  }
+  return ret;
+}
+
 static int JSON_getFloat32(RedisJSON json, float *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
@@ -207,6 +265,10 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
       return (getJSONElementFunc)JSON_getFloat32;
     case VecSimType_FLOAT64:
       return (getJSONElementFunc)JSON_getFloat64;
+    case VecSimType_FLOAT16:
+      return (getJSONElementFunc)JSON_getFloat16;
+    case VecSimType_BFLOAT16:
+      return (getJSONElementFunc)JSON_getBFloat16;
     // Uncomment when support for more types is added
     // case VecSimType_INT32:
     //   return (getJSONElementFunc)JSON_getInt32;
