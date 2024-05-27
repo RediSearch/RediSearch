@@ -875,18 +875,19 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
-  while (!AC_IsAtEnd(ac)) {
+  
     if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
     } else {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-      break;
     }
-  }
+
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
+
   return 1;
 }
 
