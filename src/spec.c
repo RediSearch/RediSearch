@@ -446,6 +446,10 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     *type = VecSimType_FLOAT32;
   else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT64))
     *type = VecSimType_FLOAT64;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT16))
+    *type = VecSimType_FLOAT16;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_BFLOAT16))
+    *type = VecSimType_BFLOAT16;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
@@ -871,18 +875,19 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
-  while (!AC_IsAtEnd(ac)) {
+  
     if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
     } else {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-      break;
     }
-  }
+
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
+
   return 1;
 }
 
