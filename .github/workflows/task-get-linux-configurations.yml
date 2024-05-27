@@ -11,7 +11,7 @@ env:
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
-                    'ubuntu:focal',]"
+                    'ubuntu:focal']"
 
 on:
   workflow_call:
