@@ -194,7 +194,7 @@ class Test_burst_threads_sanity:
                 self.env.assertEqual(getWorkersThpoolStats(self.env)['totalJobsDone'], self.expected_total_jobs)
             # Run the same KNN query and see that we are getting the same results after the reload
             res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                        '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
+                                        '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, self.k,
                                         'PARAMS', 4, 'K', self.k, 'vec_param', query_vec.tobytes())
             self.env.assertEqual(res, res_before)
 
