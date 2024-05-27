@@ -378,8 +378,12 @@ def test_empty_suffix_withsuffixtrie(env):
     env.assertEqual(res, expected)
 
 def testTagAutoescaping(env):
-    
+
     env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'id', 'NUMERIC', 'SORTABLE').ok()
 
     # Create sample data
     env.cmd('HSET', '{doc}:1', 'tag', 'abc:1', 'id', '1')
@@ -410,11 +414,6 @@ def testTagAutoescaping(env):
     env.cmd('HSET', '{doc}:21', 'tag', "w''", 'id', '21')
     # tag matching wildcard format
     env.cmd('HSET', '{doc}:22', 'tag', "w'?*1'", 'id', '22')
-
-    # Create index
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'id', 'NUMERIC', 'SORTABLE').ok()
-    waitForIndex(env, 'idx')
 
     # Test exact match
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1}', 'NOCONTENT',
