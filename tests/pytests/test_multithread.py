@@ -200,7 +200,7 @@ class Test_burst_threads_sanity:
 
 for algo in VECSIM_ALGOS:
     for data_type in VECSIM_DATA_TYPES:
-        test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
+        test_name = f"test_{algo}_{data_type}"
         setattr(Test_burst_threads_sanity, test_name, lambda self, al=algo, dt=data_type: self.do_test(al, dt))
 
 def test_workers_priority_queue():
