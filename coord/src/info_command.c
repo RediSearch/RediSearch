@@ -49,9 +49,13 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
-    {.name = "current_hz", .type = InfoField_DoubleAverage},
     {.name = "bytes_collected", .type = InfoField_WholeSum},
-    {.name = "effectiv_cycles_rate", .type = InfoField_DoubleAverage}};
+    {.name = "total_ms_run", .type = InfoField_WholeSum},
+    {.name = "total_cycles", .type = InfoField_WholeSum},
+    {.name = "average_cycle_time_ms", .type = InfoField_DoubleAverage},
+    {.name = "last_run_time_ms", .type = InfoField_Max},
+    {.name = "gc_numeric_trees_missed", .type = InfoField_WholeSum},
+    {.name = "gc_blocks_denied", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_idle", .type = InfoField_WholeSum},
@@ -103,6 +107,7 @@ typedef struct {
   IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
+  MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
 } InfoFields;
 
@@ -214,9 +219,12 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     if (!fields->indexOptions) {
       fields->indexOptions = value;
     }
+  } else if (!strcmp(name, "stopwords_list")) {
+    if (!fields->stopWordList) {
+      fields->stopWordList = value;
+    }
   } else if (!strcmp(name, "gc_stats")) {
     processKvArray(fields, value, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, 1);
-
   } else if (!strcmp(name, "cursor_stats")) {
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
   } else if (!strcmp(name, "dialect_stats")) {
@@ -327,6 +335,10 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
   RedisModule_ReplyKV_Map(reply, "cursor_stats");
   replyKvArray(reply, fields, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC);
   RedisModule_Reply_MapEnd(reply);
+
+  if (fields->stopWordList) {
+    RedisModule_ReplyKV_MRReply(reply, "stopwords_list", fields->stopWordList);
+  }
 
   RedisModule_ReplyKV_Map(reply, "dialect_stats");
   replyKvArray(reply, fields, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
