@@ -452,7 +452,7 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
  */
 static int thread_init(redisearch_thpool_t *thpool_p) {
   pthread_t thread_id;
-  pthread_create(&thread_id, NULL, (void *)thread_do, thpool_p);
+  pthread_create(&thread_id, NULL, (void*(*)(void*))thread_do, thpool_p);
   pthread_detach(thread_id);
   return 0;
 }
