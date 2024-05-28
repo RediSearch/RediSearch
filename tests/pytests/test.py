@@ -397,12 +397,12 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.expect('ft.create', 'idx2', 'ON', 'HASH', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text').ok()
-    assertInfoField(env, 'idx2', 'stopwords_list', ['hello', 'world'])
+    assertInfoField(env, 'idx2', 'stopwords_list', ['hello', 'world'], test_inside_cluster=True)
 
     # Index with NO stopwords
     env.expect('ft.create', 'idx3', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text').ok()
-    assertInfoField(env, 'idx3', 'stopwords_list', [])
+    assertInfoField(env, 'idx3', 'stopwords_list', [], test_inside_cluster=True)
 
     # 2nd Index with NO stopwords - check global is used and freed
     env.expect('ft.create', 'idx4', 'ON', 'HASH', 'stopwords', 0,
