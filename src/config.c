@@ -18,9 +18,6 @@
 #include "spec.h"
 #include "util/dict.h"
 #include "resp3.h"
-#ifdef RS_COORDINATOR
-#include "coord/src/config.h"
-#endif
 
 #include "util/config_macros.h"
 
@@ -173,6 +170,8 @@ CONFIG_GETTER(getTimeout) {
 
 #ifdef MT_BUILD
 
+static RSConfigVar *getConfigVarFromGlobal(const char *name);
+
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
   // We limit the number of worker threads to limit the amount of memory used by the thread pool
@@ -189,9 +188,9 @@ CONFIG_SETTER(setWorkThreads) {
   }
   config->numWorkerThreads = newNumThreads;
 #ifdef RS_COORDINATOR
-  if (clusterConfig.connPerShard == 0) {
-    // set the number of connections per shard to the number of worker threads + 1
-  }
+  // Trigger the connection per shard to be updated
+  RSConfigVar *trigger = getConfigVarFromGlobal("_CONN_PER_SHARD");
+  trigger->setValue(config, NULL, NULL);
 #endif
   return REDISMODULE_OK;
 }
@@ -578,7 +577,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   while (!AC_IsAtEnd(&ac)) {
     const char *name = AC_GetStringNC(&ac, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
-    if (curVar == NULL) {
+    if (curVar == NULL || curVar->flags & RSCONFIGVAR_F_HIDDEN) {
       rm_asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
     }
@@ -814,6 +813,10 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
   dst->next = NULL;
 }
 
+static RSConfigVar *getConfigVarFromGlobal(const char *name) {
+  return findConfigVar(&RSGlobalConfigOptions, name);
+}
+
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
@@ -844,6 +847,9 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
 static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, RedisModule_Reply *reply,
                              bool isHelp) {
+  if (var->flags & RSCONFIGVAR_F_HIDDEN) {
+    return;
+  }
   sds currValue = var->getValue(config);
 
   if (!reply->resp3) {
@@ -903,7 +909,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
-  if (!var) {
+  if (!var || var->flags & RSCONFIGVAR_F_HIDDEN) {
     QueryError_SetError(status, QUERY_ENOOPTION, NULL);
     return REDISMODULE_ERR;
   }

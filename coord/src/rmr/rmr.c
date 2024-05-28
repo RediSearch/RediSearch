@@ -276,6 +276,7 @@ static void uvUpdateConnPerShard(void *p) {
 
 void MR_UpdateConnPerShard(size_t connPerShard) {
   void *p = (void *)(uintptr_t)connPerShard;
+  if (!rq_g) return; // not initialized yet, we have nothing to update yet.
   RQ_Push(rq_g, uvUpdateConnPerShard, p);
 }
 

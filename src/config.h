@@ -4,8 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_CONFIG_H_
-#define RS_CONFIG_H_
+#pragma once
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
@@ -160,7 +159,7 @@ typedef enum {
   RSCONFIGVAR_F_IMMUTABLE = 0x01,
   RSCONFIGVAR_F_MODIFIED = 0x02,
   RSCONFIGVAR_F_FLAG = 0x04,
-  RSCONFIGVAR_F_SHORTHAND = 0x08
+  RSCONFIGVAR_F_HIDDEN = 0x08,
 } RSConfigVarFlags;
 
 typedef struct {
@@ -299,5 +298,4 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
 }
-#endif
 #endif
