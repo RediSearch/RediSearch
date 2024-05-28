@@ -96,22 +96,22 @@ typedef struct priority_queue {
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
   volatile atomic_size_t num_threads_working; /* threads currently working */
-  volatile JobqueueState state; /* Indicates wether the threads should pull jobs
+  volatile JobqueueState state; /* Indicates whether the threads should pull jobs
                                    from the jobq or sleep */
 } priority_queue;
 
 /* Threadpool */
 typedef struct redisearch_thpool_t {
   size_t n_threads;
-  volatile atomic_size_t num_threads_alive; /* threads currently alive   */
-  ThpoolState state; /* thread pool state, accessed only by the main thread */
-  priority_queue jobqueues;               /* job queue                 */
-  LogFunc log;                            /* log callback              */
-  volatile atomic_size_t total_jobs_done; /* statistics for observability */
-  char name[MAX_THPOOL_NAME_BUFFER_SIZE]; /* thpool identifier to name its threads.
-                                              limited to 11 bytes length (including the
-                                              null byte) to leave room for
-                                              '-<thread id>'*/
+  volatile atomic_size_t num_threads_alive;   /* threads currently alive   */
+  ThpoolState state;                          /* threadpool state, accessed only by the main thread */
+  priority_queue jobqueues;                   /* job queue                 */
+  LogFunc log;                                /* log callback              */
+  volatile atomic_size_t total_jobs_done;     /* statistics for observability */
+  char name[MAX_THPOOL_NAME_BUFFER_SIZE];     /* thpool identifier to name its threads.
+                                                limited to 11 bytes length (including the
+                                                null byte) to leave room for
+                                                '-<thread id>'*/
 } redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
@@ -197,7 +197,7 @@ redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads,
   return thpool_p;
 }
 
-/* Initialise thread pool */
+/* Initialise thread pool. This function is not thread safe. */
 static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) {
   if (thpool_p->state != THPOOL_UNINITIALIZED)
     return; // Already initialized

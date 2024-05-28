@@ -59,6 +59,7 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads,
  * Takes an action and its argument and adds it to the threadpool's job queue.
  * If you want to add to work a function with more than one arguments then
  * a way to implement this is by passing a pointer to a structure.
+ * This function is not thread safe.
  *
  * NOTICE: You have to cast both the function and argument to not get warnings.
  *
@@ -92,6 +93,7 @@ int redisearch_thpool_add_work(redisearch_threadpool,
  * Takes an action and its argument and adds it to the threadpool's job queue.
  * If you want to add to work a function with more than one arguments then
  * a way to implement this is by passing a pointer to a structure.
+ * This function is not thread safe.
  *
  * NOTICE: You have to cast both the function and argument to not get warnings.
  *
@@ -206,6 +208,7 @@ void redisearch_thpool_resume_threads(redisearch_threadpool);
 /**
  * @brief Signal all threads to terminate when there are
  * no more pending jobs in the queue.
+ * NOTICE: Jobs added to the jobq after this call might not be executed.
  */
 void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
 
