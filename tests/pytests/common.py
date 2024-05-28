@@ -114,13 +114,14 @@ def toSortedFlatList(res):
         return py2sorted(finalList)
     return [res]
 
-def assertInfoField(env, idx, field, expected, delta=None):
-    if not env.isCluster():
-        d = index_info(env, idx)
-        if delta is None:
-            env.assertEqual(d[field], expected)
-        else:
-            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
+def assertInfoField(env, idx, field, expected, delta=None, test_inside_cluster=False):
+    if env.isCluster() and not test_inside_cluster:
+        return
+    d = index_info(env, idx)
+    if delta is None:
+        env.assertEqual(d[field], expected)
+    else:
+        env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
