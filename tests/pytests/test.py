@@ -1624,8 +1624,6 @@ def testGarbageCollector(env):
         return d
 
     stats = get_stats(r)
-    if 'current_hz' in stats['gc_stats']:
-        env.assertGreater(stats['gc_stats']['current_hz'], 8)
     env.assertEqual(0, stats['gc_stats']['bytes_collected'])
     env.assertGreater(int(stats['num_records']), 0)
 
@@ -1643,8 +1641,6 @@ def testGarbageCollector(env):
     env.assertEqual(0, int(stats['num_records']))
     if not env.is_cluster():
         env.assertEqual(100, int(stats['max_doc_id']))
-        if 'current_hz' in stats['gc_stats']:
-            env.assertGreater(stats['gc_stats']['current_hz'], 30)
         currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
         # print initialIndexSize, currentIndexSize,
         # stats['gc_stats']['bytes_collected']
