@@ -1320,7 +1320,13 @@ def test_ft_info():
                           'dialect_5': 0},
         'doc_table_size_mb': 0.0,
         'gc_stats': {
-          'bytes_collected': 0
+              'average_cycle_time_ms': 0.0,
+              'bytes_collected': 0.0,
+              'gc_blocks_denied': 0.0,
+              'gc_numeric_trees_missed': 0.0,
+              'last_run_time_ms': 0.0,
+              'total_cycles': 0.0,
+              'total_ms_run': 0.0
         },
         'hash_indexing_failures': 0,
         'index_definition': {
