@@ -843,7 +843,7 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 
 def mod5778_add_new_shard_to_cluster(env: Env):
     for i in range(env.shardsCount):
-      verify_shard_init(env, env.getConnection(i))
+      verify_shard_init(env.getConnection(i))
     conn = env.getConnection()
     initial_shards_count = env.shardsCount
     # The first two fields in the cluster info reply are the number of partition in thr cluster.
@@ -854,7 +854,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
-    verify_shard_init(env, new_shard_conn)
+    verify_shard_init(new_shard_conn)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
     # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
