@@ -5,16 +5,13 @@ name: Get Linux Configurations
 env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
-                    'centos:7',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
-                    'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:focal']"
 
 on:
   workflow_call:
