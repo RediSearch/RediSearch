@@ -45,9 +45,13 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "number_of_uses", .type = InfoField_Max}};
 
 static InfoFieldSpec gcSpecs[] = {
-    {.name = "current_hz", .type = InfoField_DoubleAverage},
     {.name = "bytes_collected", .type = InfoField_WholeSum},
-    {.name = "effectiv_cycles_rate", .type = InfoField_DoubleAverage}};
+    {.name = "total_ms_run", .type = InfoField_WholeSum},
+    {.name = "total_cycles", .type = InfoField_WholeSum},
+    {.name = "average_cycle_time_ms", .type = InfoField_DoubleAverage},
+    {.name = "last_run_time_ms", .type = InfoField_Max},
+    {.name = "gc_numeric_trees_missed", .type = InfoField_WholeSum},
+    {.name = "gc_blocks_denied", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_idle", .type = InfoField_WholeSum},
@@ -92,6 +96,7 @@ typedef struct {
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
+  MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
 } InfoFields;
 
@@ -111,9 +116,7 @@ static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *v
                            InfoFieldSpec *specs, size_t numFields);
 
 // Writes field data to the target
-static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec) {
-  int type = spec->type;
-
+static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
   if (type == InfoField_WholeSum) {
     long long tmp;
     MRReply_ToInteger(src, &tmp);
@@ -135,6 +138,40 @@ static void convertField(InfoValue *dst, MRReply *src, const InfoFieldSpec *spec
     }
   }
   dst->isSet = 1;
+}
+
+struct InfoFieldTypeAndValue {
+  InfoValue *value;
+  InfoFieldType type;
+};
+
+static struct InfoFieldTypeAndValue findInfoTypeAndValue(InfoValue *values, InfoFieldSpec *specs, size_t numFields, const char *name) {
+  struct InfoFieldTypeAndValue result = {.value = NULL, .type = InfoField_WholeSum};
+  for (size_t ii = 0; ii < numFields; ++ii) {
+    if (!strcmp(specs[ii].name, name)) {
+      result.value = values + ii;
+      result.type = specs[ii].type;
+      return result;
+    }
+  }
+  return result;
+}
+
+// Recompute the average cycle time based on total cycles and total ms run
+static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSpecs, size_t numFields) {
+  struct InfoFieldTypeAndValue avg_cycle_time_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "average_cycle_time_ms");
+  if (!avg_cycle_time_ms.value) {
+    return;
+  }
+  avg_cycle_time_ms.value->isSet = 0;
+
+  struct InfoFieldTypeAndValue total_cycles = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "total_cycles");
+  struct InfoFieldTypeAndValue total_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "total_ms_run");
+  if (total_cycles.value && total_ms.value && avg_cycle_time_ms.type == InfoField_DoubleAverage) {
+    avg_cycle_time_ms.value->u.avg.count = total_cycles.value->u.total_l;
+    avg_cycle_time_ms.value->u.avg.avg = total_ms.value->u.total_l;
+    avg_cycle_time_ms.value->isSet = 1;
+  }
 }
 
 // Handle fields which aren't InfoValue types
@@ -160,9 +197,13 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     if (!fields->indexOptions) {
       fields->indexOptions = value;
     }
+  } else if (!strcmp(name, "stopwords_list")) {
+    if (!fields->stopWordList) {
+      fields->stopWordList = value;
+    }
   } else if (!strcmp(name, "gc_stats")) {
     processKvArray(fields, value, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, 1);
-
+    recomputeAverageCycleTimeMs(fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
   } else if (!strcmp(name, "cursor_stats")) {
     processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
   } else if (!strcmp(name, "dialect_stats")) {
@@ -183,20 +224,12 @@ static void processKvArray(InfoFields *ctx, MRReply *array, InfoValue *dsts, Inf
   for (size_t ii = 0; ii < numElems; ii += 2) {
     MRReply *value = MRReply_ArrayElement(array, ii + 1);
     const char *s = MRReply_String(MRReply_ArrayElement(array, ii), NULL);
-
-    for (size_t jj = 0; jj < numFields; ++jj) {
-      if (!strcmp(s, specs[jj].name)) {
-        convertField(dsts + jj, value, specs + jj);
-        goto next_elem;
-      }
-    }
-
-    if (!onlyScalarValues) {
+    struct InfoFieldTypeAndValue field = findInfoTypeAndValue(dsts, specs, numFields, s);
+    if (field.value) {
+      convertField(field.value, value, field.type);
+    } else if (!onlyScalarValues) {
       handleSpecialField(ctx, s, value);
     }
-
-  next_elem:
-    continue;
   }
 }
 
@@ -266,6 +299,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   size_t nGcStats = replyKvArray(fields, ctx, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
   RedisModule_ReplySetArrayLength(ctx, nGcStats);
   n += 2;
+
+  if (fields->stopWordList) {
+    RedisModule_ReplyWithSimpleString(ctx, "stopwords_list");
+    MR_ReplyWithMRReply(ctx, fields->stopWordList);
+    n += 2;
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
