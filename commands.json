@@ -213,6 +213,12 @@
             "optional": true
           },
           {
+            "name": "ismissing",
+            "type": "pure-token",
+            "token": "ISMISSING",
+            "optional": true
+          },
+          {
             "name": "sortable",
             "type": "block",
             "optional": true,

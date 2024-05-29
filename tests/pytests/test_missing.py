@@ -7,7 +7,7 @@ fields_and_values = [
     ('n', 'NUMERIC', '', 42),
     ('loc', 'GEO', '', '1.23, 4.56'),
     ('gs', 'GEOSHAPE', '', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),
-    # ('v', 'VECTOR', 'FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2', [1.0, 2.0]),
+    ('v', 'VECTOR', 'FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2', [5.7, 6.4]),
 ]
 DOC_WITH_FIELD = 'doc_with_field'
 DOC_WITHOUT_FIELD = 'doc_without_field'
@@ -120,23 +120,27 @@ def JSONMissingTest(env, conn, idx):
     supported field types separately."""
     pass
 
-def MissingTestIndex(env, conn, idx, field1, field2, val, isjson=False):
+def MissingTestIndex(env, conn, idx, ftype, field1, field2, val, isjson=False):
     """Performs tests for missing values indexing on hash documents for all
     supported field types separately."""
+
+    # For vector fields in hash, we need to convert the value to bytes
+    if ftype == 'VECTOR' and not isjson:
+        val = np.array(val, dtype=np.float32).tobytes()
 
     # ------------------------- Simple retrieval ---------------------------
     # Search for the documents WITHOUT the indexed fields via the
     # `ismissing(@field)` syntax
     res = conn.execute_command(
         'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
-        'SORTBY', field1, 'ASC')
+        'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [2, DOC_WITHOUT_FIELD, DOC_WITH_NONE])
 
     # ------------------------------ Negation ------------------------------
     # Search for the documents WITH the indexed fields
     res = conn.execute_command(
         'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
-        'SORTBY', field1, 'ASC')
+        'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [3, DOC_WITH_FIELD, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
 
     # ------------------------------- Union --------------------------------
@@ -199,7 +203,7 @@ def MissingTestIndex(env, conn, idx, field1, field2, val, isjson=False):
         conn.execute_command('JSON.SET', DOC_WITHOUT_FIELD, '$', json.dumps({field2: val}))
     res = conn.execute_command(
         'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
-        'SORTBY', field1, 'ASC')
+        'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [2, DOC_WITH_NONE, DOC_WITHOUT_FIELD])
 
     # ---------------------- Delete docs and search ------------------------
@@ -218,7 +222,10 @@ def testMissing():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    def _populateHashDB(conn, field1, field2, val):
+    def _populateHashDB(conn, ftype, field1, field2, val):
+            if ftype == 'VECTOR':
+                val = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
             # Populate db
             conn.execute_command('HSET', DOC_WITH_FIELD, field1, val)
             conn.execute_command('HSET', DOC_WITHOUT_FIELD, field2, val)
@@ -227,7 +234,10 @@ def testMissing():
             conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val, 
                                 field2, val, 'text', 'dummy')
             
-    def _populateJSONDB(conn, field1, field2, val):
+    def _populateJSONDB(conn, ftype, field1, field2, val):
+        if ftype == 'VECTOR':
+                val = [5.7, 6.4]
+
         j_with_field = {
             field1: val,
             'id'  : 1
@@ -265,77 +275,78 @@ def testMissing():
         field2 = field + '2'
 
         # Create Hash index
-        query = (
+        cmd = (
             f'FT.CREATE {idx} SCHEMA '
             f'{field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
             f'{field2} {ftype} {opt if len(opt) > 0 else ""} text TEXT '
             f'id NUMERIC SORTABLE'
         )
-        conn.execute_command(query) 
+        env.expect(cmd).ok()
 
         # Populate db
-        _populateHashDB(conn, field1, field2, val)
+        _populateHashDB(conn, ftype, field1, field2, val)
 
         # Perform the "isolated" tests per field-type
-        MissingTestIndex(env, conn, idx, field1, field2, val)
+        MissingTestIndex(env, conn, idx, ftype, field1, field2, val)
         env.flush()
 
         # ----------------------------- SORTABLE case --------------------------
         # Create a hash index with a ISMISSING SORTABLE field
         if ftype != 'VECTOR':
             sidx = f'idx_{ftype}_sortable'
-            query = (
+            cmd = (
                 f'FT.CREATE {sidx} SCHEMA '
                 f'{field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING SORTABLE '
                 f'{field2} {ftype} {opt if len(opt) > 0 else ""} text TEXT '
                 f'id NUMERIC SORTABLE'
             )
-            conn.execute_command(query)
+            env.expect(cmd).ok()
 
             # Populate db
-            _populateHashDB(conn, field1, field2, val)
+            _populateHashDB(conn, ftype, field1, field2, val)
 
             # Perform the "isolated" tests per field-type for the SORTABLE case
-            MissingTestIndex(env, conn, sidx, field1, field2, val)
+            MissingTestIndex(env, conn, sidx, ftype, field1, field2, val)
             env.flush()
 
         # Create JSON index
         jidx = 'j' + idx
-        query = (
+        cmd = (
             f'FT.CREATE {jidx} ON JSON SCHEMA '
             f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
             f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
             f'$.text AS text TEXT '
             f'id NUMERIC SORTABLE'
         )
-        conn.execute_command(query)
+        env.expect(cmd).ok
 
         # Populate db
-        _populateJSONDB(conn, field1, field2, val)
+        _populateJSONDB(conn, ftype, field1, field2, val)
 
         # Perform the "isolated" tests per field-type
-        MissingTestIndex(env, conn, jidx, field1, field2, val, True)
+        MissingTestIndex(env, conn, jidx, ftype, field1, field2, val, True)
         env.flush()
 
         # ----------------------------- SORTABLE case --------------------------
         # Create a JSON index with a ISMISSING SORTABLE field
         if ftype != 'VECTOR':
             sjidx = 'sj' + idx
-            query = (
+            cmd = (
                 f'FT.CREATE {sjidx} ON JSON SCHEMA '
                 f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING SORTABLE '
                 f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
                 f'$.text AS text TEXT '
                 f'id NUMERIC SORTABLE'
             )
-            conn.execute_command(query)
+            env.expect(cmd).ok()
         
             # Populate db
-            _populateJSONDB(conn, field1, field2, val)
+            _populateJSONDB(conn, ftype, field1, field2, val)
 
             # Perform the "isolated" tests per field-type for the SORTABLE case
-            MissingTestIndex(env, conn, sjidx, field1, field2, val, True)
+            MissingTestIndex(env, conn, sjidx, ftype, field1, field2, val, True)
             env.flush()
+
 
     # Things to test:
     # INTERSECT, UNION, NOT, Other query operators..
