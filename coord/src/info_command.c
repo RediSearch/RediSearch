@@ -215,14 +215,14 @@ static struct InfoFieldTypeAndValue findInfoTypeAndValue(InfoValue *values, Info
 // Recompute the average cycle time based on total cycles and total ms run
 static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSpecs, size_t numFields)
 {
-  struct InfoFieldTypeAndValue avg_cycle_time_ms = findInfoTypeAndValue(gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, "average_cycle_time_ms");
+  struct InfoFieldTypeAndValue avg_cycle_time_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "average_cycle_time_ms");
   if (!avg_cycle_time_ms.value) {
     return;
   }
   avg_cycle_time_ms.value->isSet = 0;
 
-  struct InfoFieldTypeAndValue total_cycles = findInfoTypeAndValue(gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, "total_cycles");
-  struct InfoFieldTypeAndValue total_ms = findInfoTypeAndValue(gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, "total_ms_run");
+  struct InfoFieldTypeAndValue total_cycles = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "total_cycles");
+  struct InfoFieldTypeAndValue total_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "total_ms_run");
   if (total_cycles.value && total_ms.value && avg_cycle_time_ms.type == InfoField_DoubleAverage) {
     avg_cycle_time_ms.value->u.avg.count = total_cycles.value->u.total_l;
     avg_cycle_time_ms.value->u.avg.sum = total_ms.value->u.total_l;
