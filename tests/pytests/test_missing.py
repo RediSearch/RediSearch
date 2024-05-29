@@ -2,19 +2,19 @@ from common import *
 import json
 
 fields_and_values = [
-    ('ta', 'TAG', 'foo'),
-    ('te', 'TEXT', 'foo'),
-    #  ('n', 'NUMERIC', '42'),
-    #  ('loc', 'GEO', '1.23, 4.56'),
-    #  ('gs', 'GEOSHAPE', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')
-    # ('v', 'VECTOR', ...)
+    ('ta', 'TAG', '', 'foo'),
+    ('te', 'TEXT', '', 'foo'),
+    ('n', 'NUMERIC', '', 42),
+    ('loc', 'GEO', '', '1.23, 4.56'),
+    ('gs', 'GEOSHAPE', '', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),
+    # ('v', 'VECTOR', 'FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2', [1.0, 2.0]),
 ]
 DOC_WITH_FIELD = 'doc_with_field'
 DOC_WITHOUT_FIELD = 'doc_without_field'
 DOC_WITH_BOTH = 'both'
 DOC_WITH_NONE = 'none'
 DOC_WITH_BOTH_AND_TEXT = 'both_and_text'
-ALL_DOCS = [5, DOC_WITH_FIELD, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITHOUT_FIELD, DOC_WITH_NONE]
+ALL_DOCS = [5, DOC_WITH_FIELD, DOC_WITHOUT_FIELD, DOC_WITH_BOTH, DOC_WITH_NONE, DOC_WITH_BOTH_AND_TEXT]
 
 def testMissingValidations():
     """Tests the validations for missing values indexing"""
@@ -143,14 +143,14 @@ def MissingTestIndex(env, conn, idx, field1, field2, val, isjson=False):
     # Search for the documents WITH or WITHOUT the indexed fields
     res = conn.execute_command(
         'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
-        'NOCONTENT', 'SORTBY', field1, 'ASC')
+        'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, ALL_DOCS)
 
     # --------------------- Optional operator-------------------------------
     expected = [1, DOC_WITHOUT_FIELD]
     res = conn.execute_command(
         'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
-        'SORTBY', field1, 'ASC')
+        'SORTBY', 'id', 'ASC')
     env.assertEqual(res, ALL_DOCS)
 
     # ---------------------------- Intersection ----------------------------
@@ -229,43 +229,49 @@ def testMissing():
             
     def _populateJSONDB(conn, field1, field2, val):
         j_with_field = {
-            field1: val
+            field1: val,
+            'id'  : 1
         }
         conn.execute_command('JSON.SET', DOC_WITH_FIELD, '$', json.dumps(j_with_field))
         j_without_field = {
-            field2: val
+            field2: val,
+            'id'  : 2
         }
         conn.execute_command('JSON.SET', DOC_WITHOUT_FIELD, '$', json.dumps(j_without_field))
         j_with_both = {
             field1: val,
-            field2: val
+            field2: val,
+            'id'  : 3
         }
         conn.execute_command('JSON.SET', DOC_WITH_BOTH, '$', json.dumps(j_with_both))
         j_with_none = {
-            'text': 'dummy'
+            'text': 'dummy',
+            'id'  : 4
         }
         conn.execute_command('JSON.SET', DOC_WITH_NONE, '$', json.dumps(j_with_none))
         j_with_both_and_text = {
             field1: val,
             field2: val,
-            'text': 'dummy'
+            'text': 'dummy',
+            'id'  : 1
         }
         conn.execute_command('JSON.SET', DOC_WITH_BOTH_AND_TEXT, '$', json.dumps(j_with_both_and_text))
 
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
-    for field, ftype, val in fields_and_values:
+    for field, ftype, opt, val in fields_and_values:
         idx = f'idx_{ftype}'
         field1 = field + '1'
         field2 = field + '2'
 
         # Create Hash index
-        conn.execute_command(
-            'FT.CREATE', idx, 'SCHEMA',
-            field1, ftype, 'ISMISSING',
-            field2, ftype,
-            'text', 'TEXT'
+        query = (
+            f'FT.CREATE {idx} SCHEMA '
+            f'{field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
+            f'{field2} {ftype} {opt if len(opt) > 0 else ""} text TEXT '
+            f'id NUMERIC SORTABLE'
         )
+        conn.execute_command(query) 
 
         # Populate db
         _populateHashDB(conn, field1, field2, val)
@@ -275,30 +281,34 @@ def testMissing():
         env.flush()
 
         # ----------------------------- SORTABLE case --------------------------
-        # Create an index with a ISMISSING SORTABLE field
-        sidx = f'idx_{ftype}_sortable'
-        conn.execute_command(
-            'FT.CREATE', sidx, 'SCHEMA',
-            field1, ftype, 'ISMISSING', 'SORTABLE',
-            field2, ftype,
-            'text', 'TEXT'
-        )
+        # Create a hash index with a ISMISSING SORTABLE field
+        if ftype != 'VECTOR':
+            sidx = f'idx_{ftype}_sortable'
+            query = (
+                f'FT.CREATE {sidx} SCHEMA '
+                f'{field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING SORTABLE '
+                f'{field2} {ftype} {opt if len(opt) > 0 else ""} text TEXT '
+                f'id NUMERIC SORTABLE'
+            )
+            conn.execute_command(query)
 
-        # Populate db
-        _populateHashDB(conn, field1, field2, val)
+            # Populate db
+            _populateHashDB(conn, field1, field2, val)
 
-        # Perform the "isolated" tests per field-type for the SORTABLE case
-        MissingTestIndex(env, conn, sidx, field1, field2, val)
-        env.flush()
+            # Perform the "isolated" tests per field-type for the SORTABLE case
+            MissingTestIndex(env, conn, sidx, field1, field2, val)
+            env.flush()
 
         # Create JSON index
         jidx = 'j' + idx
-        conn.execute_command(
-            'FT.CREATE', jidx, 'ON', 'JSON', 'SCHEMA',
-            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING',
-            f'$.{field2}', 'AS', field2, ftype,
-            '$.text', 'AS', 'text', 'TEXT'
+        query = (
+            f'FT.CREATE {jidx} ON JSON SCHEMA '
+            f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
+            f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
+            f'$.text AS text TEXT '
+            f'id NUMERIC SORTABLE'
         )
+        conn.execute_command(query)
 
         # Populate db
         _populateJSONDB(conn, field1, field2, val)
@@ -309,24 +319,27 @@ def testMissing():
 
         # ----------------------------- SORTABLE case --------------------------
         # Create a JSON index with a ISMISSING SORTABLE field
-        sjidx = 'sj' + idx
-        conn.execute_command(
-            'FT.CREATE', sjidx, 'ON', 'JSON', 'SCHEMA',
-            f'$.{field1}', 'AS', field1, ftype, 'ISMISSING', 'SORTABLE',
-            f'$.{field2}', 'AS', field2, ftype,
-            '$.text', 'AS', 'text', 'TEXT'
-        )
-        # Populate db
-        _populateJSONDB(conn, field1, field2, val)
+        if ftype != 'VECTOR':
+            sjidx = 'sj' + idx
+            query = (
+                f'FT.CREATE {sjidx} ON JSON SCHEMA '
+                f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} ISMISSING SORTABLE '
+                f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
+                f'$.text AS text TEXT '
+                f'id NUMERIC SORTABLE'
+            )
+            conn.execute_command(query)
+        
+            # Populate db
+            _populateJSONDB(conn, field1, field2, val)
 
-        # Perform the "isolated" tests per field-type for the SORTABLE case
-        MissingTestIndex(env, conn, sjidx, field1, field2, val, True)
-        env.flush()
+            # Perform the "isolated" tests per field-type for the SORTABLE case
+            MissingTestIndex(env, conn, sjidx, field1, field2, val, True)
+            env.flush()
 
     # Things to test:
     # INTERSECT, UNION, NOT, Other query operators..
     # TEXT features: HIGHLIGHT, SUMMARIZE, PHONETIC, FUZZY.. ? Not sure that they are interesting.
-    # EXPLAINCLI
     # FT.SEARCH & FT.AGGREGATE
     # `ismissing()` of two fields that index missing values.
     # Scoring.

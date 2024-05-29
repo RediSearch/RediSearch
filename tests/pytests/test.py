@@ -633,7 +633,6 @@ def testExplain(env):
     _testExplain(env, 'idx', ['@bar:[(-1 $n]','PARAMS', '2', 'n', '10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
 
-
     # test numeric operators - they are only supported in DIALECT 5
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
     
@@ -666,6 +665,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar<-10 | @bar>10'],
                  'UNION {\n  NUMERIC {-inf <= @bar < -10.000000}\n  NUMERIC {10.000000 < @bar <= inf}\n}\n')
+
     # test ISMISSING()
     env.expect(
         'FT.CREATE', 'idx_im', 'ON', 'HASH', 'SCHEMA',
