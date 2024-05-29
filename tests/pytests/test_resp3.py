@@ -1373,7 +1373,7 @@ def test_ft_info():
                           'dialect_5': 0},
         'doc_table_size_mb': 0.0,
         'gc_stats': {
-              'average_cycle_time_ms': nan,
+              'average_cycle_time_ms': 0.0,
               'bytes_collected': 0.0,
               'gc_blocks_denied': 0.0,
               'gc_numeric_trees_missed': 0.0,

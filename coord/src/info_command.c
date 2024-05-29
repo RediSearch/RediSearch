@@ -213,8 +213,7 @@ static struct InfoFieldTypeAndValue findInfoTypeAndValue(InfoValue *values, Info
 }
 
 // Recompute the average cycle time based on total cycles and total ms run
-static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSpecs, size_t numFields)
-{
+static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSpecs, size_t numFields) {
   struct InfoFieldTypeAndValue avg_cycle_time_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "average_cycle_time_ms");
   if (!avg_cycle_time_ms.value) {
     return;
