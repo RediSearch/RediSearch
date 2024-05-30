@@ -93,7 +93,7 @@ def assertInfoField(env, idx, field, expected, delta=None):
     res = env.cmd('ft.info', idx)
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     if delta is None:
-        env.assertEqual(d[field], expected)
+        env.assertEqual(d[field], expected, message='field %s' % field)
     else:
         env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
