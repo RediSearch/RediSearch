@@ -3,8 +3,7 @@
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
+
 
 if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
@@ -25,34 +24,30 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	exit 0
 fi
 
-OP=
-[[ $NOP == 1 ]] && OP=echo
 
 if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 	echo "Invalid SAN setting: '$SAN'"
 	exit 1
 fi
 
-if [[ -z $BINROOT ]]; then
-	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
-fi
+# if [[ -z $BINROOT ]]; then
+# 	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
+# fi
 TARGET_DIR=$BINROOT/RedisJSON
 echo Building into $TARGET_DIR ...
 
 if [[ $FORCE == 1 ]]; then
-	runn rm -rf $TARGET_DIR
+	rm -rf $TARGET_DIR
 fi
 
 BRANCH=${BRANCH:-master}
 
-$OP cd $ROOT/deps
-if [[ ! -d RedisJSON ]]; then
-	runn git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
-fi
+# cd $ROOT/deps
+# if [[ ! -d RedisJSON ]]; then
+# 	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+# fi
 
-$OP cd RedisJSON
-runn git checkout $BRANCH
-runn git pull --quiet --recurse-submodules
+cd ../
 
 # Patch RedisJSON to build in Alpine - disable static linking
 # This is to fix RedisJSON build in Alpine, which is used only for testing
