@@ -6,7 +6,6 @@
 
 #pragma once
 
-#define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
   QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
   return REDISMODULE_ERR;

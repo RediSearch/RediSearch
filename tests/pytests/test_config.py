@@ -63,13 +63,11 @@ def testGetConfigOptions(env):
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     check_config('MINSTEMLEN')
 
-'''
 
-Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
-
+@skip(cluster=True)
 def testSetConfigOptions(env):
 
-    env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Success (not an error)')  ## TODO incorrect code
+    env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
     env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
@@ -78,9 +76,9 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal(not_modifiable)
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('OK')
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Success (not an error)')
+    env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
     env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect('ft.config', 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
     env.expect('ft.config', 'set', 'GC_POLICY', 1).equal(not_modifiable)
@@ -88,13 +86,16 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
 
+@skip(cluster=True)
 def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 'str').equal('Success (not an error)')
-    env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Success (not an error)')
-    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
-    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
-'''
+    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
+    env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
+    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
+    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
+    if MT_BUILD:
+        env.expect('ft.config', 'set', 'WORKER_THREADS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -136,10 +137,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_PRIORITIZE_INTERSECT_UNION_CHILDREN'][0], 'false')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
     env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
-
-# skip ctest configured tests
-    #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
-    #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
+    env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
+    env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
 @skip(cluster=True)
 def testInitConfig():

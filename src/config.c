@@ -270,7 +270,8 @@ CONFIG_SETTER(setOnTimeout) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
-    RETURN_ERROR("Invalid ON_TIMEOUT value");
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
+    return REDISMODULE_ERR;
   }
   config->requestConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
