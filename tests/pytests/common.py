@@ -118,7 +118,7 @@ def toSortedFlatList(res):
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)
     if delta is None:
-        env.assertEqual(d[field], expected)
+        env.assertEqual(d[field], expected, message=f'expected {field} to be {expected}, got {d[field]}')
     else:
         env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
