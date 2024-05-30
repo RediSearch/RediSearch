@@ -471,6 +471,16 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
 
+  // If this is an empty value search, and the field does not index empty values
+  // throw an error
+  if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
+    QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
+                              SPEC_INDEXEMPTY_STR);
+    return NULL;
+  }
+
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
@@ -605,7 +615,6 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
-
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
                            runeIterCb, &ctx, &q->sctx->timeout);
   }
@@ -624,7 +633,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 }
 
-/* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
+/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
@@ -752,7 +761,6 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  // rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;
@@ -806,10 +814,6 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_PHRASE) {
-    // printf("Not a phrase node!\n");
-    return NULL;
-  }
   QueryPhraseNode *node = &qn->pn;
   // an intersect stage with one child is the same as the child, so we just
   // return it
@@ -827,7 +831,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
@@ -844,7 +848,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
       slop = __INT_MAX__;
     }
 
-    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
                               EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
@@ -1315,6 +1319,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret = NULL;
 
   if (!idx) {
+    if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
+      QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              fs->name, SPEC_INDEXEMPTY_STR);
+    }
     goto done;
   }
   if (qn->tag.nen == NON_EXIST_EMPTY) {
@@ -1431,7 +1440,9 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .trace_log = NULL
 #endif
   };
-  if (dialectVersion >= 2)
+  if (dialectVersion >= 5) {
+    dst->root = RSQuery_ParseRaw_v3(&qpCtx);
+  } else if (dialectVersion >= 2)
     dst->root = RSQuery_ParseRaw_v2(&qpCtx);
   else
     dst->root = RSQuery_ParseRaw_v1(&qpCtx);
@@ -1723,7 +1734,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", (char *)qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      if (!strcmp(qs->tn.str, "")) {
+        s = sdscatprintf(s, "<%s>%s", SPEC_INDEXEMPTY_STR, qs->tn.expanded ? "(expanded)" : "");
+      } else {
+        s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      }
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }

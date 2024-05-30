@@ -9,6 +9,7 @@
 
 %left LOWEST.
 
+%left PUNCTUATION.
 %left TEXTEXPR.
 
 %left ORX.
@@ -19,12 +20,17 @@
 
 %left RP RB RSQB.
 
+%left UNESCAPED_TAG.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS.
+%left TILDE MINUS PLUS.
 %left AND.
+
+%left EQUAL.
+%left NOT_EQUAL EQUAL_EQUAL.
+%left GE GT LE LT.
 
 %left ARROW.
 %left COLON.
@@ -33,9 +39,8 @@
 %left SIZE.
 %left STAR.
 
-%left TAGLIST.
 %left TERMLIST.
-%left PREFIX SUFFIX CONTAINS.
+%left PREFIX PREFIX_TAG SUFFIX SUFFIX_TAG CONTAINS CONTAINS_TAG.
 %left PERCENT.
 %left ATTRIBUTE.
 %left VERBATIM WILDCARD.
@@ -47,7 +52,7 @@
 
 %token_type {QueryToken}
 
-%name RSQueryParser_v2_
+%name RSQueryParser_v3_
 
 %stack_size 256
 
@@ -131,6 +136,43 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define AND_EXPRESSION(B, C, OUT) \
+    int rv = one_not_null(B, C, (void**)&OUT); \
+    if (rv == NODENN_BOTH_INVALID) { \
+        OUT = NULL; \
+    } else if (rv == NODENN_ONE_NULL) { \
+        /* Nothing- `OUT` is already assigned */ \
+    } else { \
+        if (B && B->type == QN_PHRASE && B->pn.exact == 0 && \
+            B->opts.fieldMask == RS_FIELDMASK_ALL ) { \
+            OUT = B; \
+        } else { \
+            OUT = NewPhraseNode(0); \
+            QueryNode_AddChild(OUT, B); \
+        } \
+        QueryNode_AddChild(OUT, C); \
+    }
+
+#define OR_EXPRESSION(B, C, OUT) \
+    int rv = one_not_null(B, C, (void**)&OUT); \
+    if (rv == NODENN_BOTH_INVALID) { \
+        OUT = NULL; \
+    } else if (rv == NODENN_ONE_NULL) { \
+        /* Nothing- already assigned */ \
+    } else { \
+        if (B && B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) { \
+            OUT = B; \
+        } else { \
+            OUT = NewUnionNode(); \
+            QueryNode_AddChild(OUT, B); \
+            OUT->opts.fieldMask |= B->opts.fieldMask; \
+        } \
+        /* Handle C */ \
+        QueryNode_AddChild(OUT, C); \
+        OUT->opts.fieldMask |= C->opts.fieldMask; \
+        QueryNode_SetFieldMask(OUT, OUT->opts.fieldMask); \
+    }
+
 } // END %include
 
 %extra_argument { QueryParseCtx *ctx }
@@ -155,6 +197,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
 
+%type affix_tag { QueryNode * }
+%destructor affix_tag { QueryNode_Free($$); }
+
 %type suffix { QueryNode * }
 %destructor suffix { QueryNode_Free($$); }
 
@@ -176,11 +221,14 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type text_expr { QueryNode * }
 %destructor text_expr { QueryNode_Free($$); }
 
+%type unaryop_text_expr { QueryNode * }
+%destructor unaryop_text_expr { QueryNode_Free($$); }
+
 %type fuzzy { QueryNode *}
 %destructor fuzzy { QueryNode_Free($$); }
 
-%type tag_list { QueryNode *}
-%destructor tag_list { QueryNode_Free($$); }
+%type single_tag { QueryNode *}
+%destructor single_tag { QueryNode_Free($$); }
 
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
@@ -228,6 +276,11 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   QueryParam_Free($$);
 }
 
+%type numeric_operator { QueryParam * }
+%destructor numeric_operator {
+  QueryParam_Free($$);
+}
+
 query ::= expr(A) . {
   setup_trace(ctx);
   ctx->root = A;
@@ -247,89 +300,48 @@ star ::= STAR.
 star ::= LP star RP.
 
 // This rule switches from text contex to regular context.
-// In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
+// In general, we want to stay in text contex as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
 
+expr(A) ::= unaryop_text_expr(B). [TEXTEXPR] {
+  A = B;
+}
 /////////////////////////////////////////////////////////////////
 // AND Clause / Phrase
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
-    }
+  AND_EXPRESSION(B, C, A);
 }
 
 // This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
-    }
+  AND_EXPRESSION(B, C, A);
 }
 
 expr(A) ::= expr(B) text_expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
-    }
+  AND_EXPRESSION(B, C, A);
 }
 
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
-    }
+  AND_EXPRESSION(B, C, A);
+}
+
+text_expr(A) ::= text_expr(B) unaryop_text_expr(C) . [AND] {
+  AND_EXPRESSION(B, C, A);
+}
+
+text_expr(A) ::= unaryop_text_expr(B) text_expr(C) . [AND] {
+  AND_EXPRESSION(B, C, A);
+}
+
+text_expr(A) ::= unaryop_text_expr(B) unaryop_text_expr(C) . [AND] {
+  AND_EXPRESSION(B, C, A);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -341,24 +353,7 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+    OR_EXPRESSION(B, C, A);
 }
 
 union(A) ::= union(B) OR expr(C). [OR] {
@@ -373,45 +368,11 @@ union(A) ::= union(B) OR expr(C). [OR] {
 // This rule is needed for queries like "hello|(world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  OR_EXPRESSION(B, C, A);
 }
 
 union(A) ::= expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  OR_EXPRESSION(B, C, A);
 }
 
 text_expr(A) ::= text_union(B) . [ORX] {
@@ -420,24 +381,19 @@ text_expr(A) ::= text_union(B) . [ORX] {
 
 // This rule is identical to "union ::= expr OR expr", but keeps the text context.
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  OR_EXPRESSION(B, C, A);
+}
+
+text_union(A) ::= unaryop_text_expr(B) OR text_expr(C) . [OR] {
+  OR_EXPRESSION(B, C, A);
+}
+
+text_union(A) ::= unaryop_text_expr(B) OR unaryop_text_expr(C) . [OR] {
+  OR_EXPRESSION(B, C, A);
+}
+
+text_union(A) ::= text_expr(B) OR unaryop_text_expr(C) . [OR] {
+  OR_EXPRESSION(B, C, A);
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
@@ -454,6 +410,28 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON text_expr(C) . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
+expr(A) ::= modifier(B) COLON LP text_expr(C) RP . {
+    if (C == NULL) {
+        A = NULL;
+    } else {
+        if (ctx->sctx->spec) {
+            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        }
+        A = C;
+    }
+}
+
+expr(A) ::= modifier(B) COLON LP unaryop_text_expr(C) RP . {
     if (C == NULL) {
         A = NULL;
     } else {
@@ -496,6 +474,10 @@ expr(A) ::= LP expr(B) RP . {
 }
 
 text_expr(A) ::= LP text_expr(B) RP . {
+  A = B;
+}
+
+text_expr(A) ::= LP unaryop_text_expr(B) RP . {
   A = B;
 }
 
@@ -624,7 +606,7 @@ expr(A) ::= MINUS expr(B) . {
     }
 }
 
-text_expr(A) ::= MINUS text_expr(B) . {
+unaryop_text_expr(A) ::= MINUS text_expr(B) . {
     if (B) {
         A = NewNotNode(B);
     } else {
@@ -644,7 +626,7 @@ expr(A) ::= TILDE expr(B) . {
     }
 }
 
-text_expr(A) ::= TILDE text_expr(B) . {
+unaryop_text_expr(A) ::= TILDE text_expr(B) . {
     if (B) {
         A = NewOptionalNode(B);
     } else {
@@ -653,7 +635,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -665,6 +647,22 @@ affix(A) ::= SUFFIX(B) . {
 }
 
 affix(A) ::= CONTAINS(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, true);
+}
+
+/////////////////////////////////////////////////////////////////
+// Prefix expressions based on tags
+/////////////////////////////////////////////////////////////////
+
+affix_tag(A) ::= PREFIX_TAG(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+}
+
+affix_tag(A) ::= SUFFIX_TAG(B) . {
+    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+}
+
+affix_tag(A) ::= CONTAINS_TAG(B) . {
     A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
@@ -752,10 +750,10 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Tag Lists - curly braces separated lists of words
+// Single Tag - tag enclosed in curly braces
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
+expr(A) ::= modifier(B) COLON LB single_tag(C) RB . {
     if (!C) {
         A = NULL;
     } else {
@@ -772,44 +770,26 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     }
 }
 
-tag_list(A) ::= param_term_case(B) . [TAGLIST] {
+single_tag(A) ::= ATTRIBUTE(B) . {
   A = NewPhraseNode(0);
+  B.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= affix(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+single_tag(A) ::= UNESCAPED_TAG(B) . {
+  A = NewPhraseNode(0);
+  B.type = QT_TERM_CASE;
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
-tag_list(A) ::= verbatim(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+single_tag(A) ::= affix_tag(B) . {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= termlist(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
-}
-
-tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
-  A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
+single_tag(A) ::= verbatim(B) . {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -871,6 +851,48 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 }
 
 /////////////////////////////////////////////////////////////////
+// Numeric Operators
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C). {
+  QueryParam *D = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  // we keep the capitalization as is
+  D->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(D);
+  A = NewNotNode(E);
+}
+
+expr(A) ::= modifier(B) numeric_operator(C). {
+  if (C) {
+    // we keep the capitalization as is
+    C->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(C);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
+}
+
+numeric_operator(A) ::= EQUAL_EQUAL param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+numeric_operator(A) ::= GT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 0, 1);
+}
+
+numeric_operator(A) ::= GE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, NULL, 1, 1);
+}
+
+numeric_operator(A) ::= LT param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 0);
+}
+
+numeric_operator(A) ::= LE param_num(B). {
+  A = NewNumericFilterQueryParam_WithParams(ctx, NULL, &B, 1, 1);
+}
+
+/////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
@@ -897,7 +919,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 }
 
 /////////////////////////////////////////////////////////////////
-// Geomtriy Queries
+// Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   if (C) {
@@ -1112,6 +1134,9 @@ num(A) ::= NUMBER(B). {
   A.inclusive = 1;
 }
 
+num(A) ::= PLUS num(B). {
+  A = B;
+}
 num(A) ::= MINUS num(B). {
   B.num = -B.num;
   A = B;
@@ -1126,6 +1151,10 @@ term(A) ::= NUMBER(B) . {
 }
 
 term(A) ::= SIZE(B). {
+  A = B;
+}
+
+term(A) ::= UNESCAPED_TAG(B) . {
   A = B;
 }
 
@@ -1167,6 +1196,21 @@ param_size(A) ::= ATTRIBUTE(B). {
 
 param_num(A) ::= ATTRIBUTE(B). {
     A = B;
+    A.sign = 1; // default
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
+param_num(A) ::= MINUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = -1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
+param_num(A) ::= PLUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = 1;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 1;
 }
@@ -1182,9 +1226,23 @@ exclusive_param_num(A) ::= LP num(B). {
   A.inclusive = 0;
   A.type = QT_NUMERIC;
 }
-
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
+    A = B;
+    A.sign = 1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+}
+
+exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
+    A.sign = -1;
+}
+
+exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+    A.sign = 1;
 }
