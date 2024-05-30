@@ -716,7 +716,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
 }
 
 // Parse the arguments of a TEXT field
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseTextField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
   fs->types |= INDEXFLD_T_FULLTEXT;
 
@@ -762,6 +762,13 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_WithSuffixTrie;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
       fs->options |= FieldSpec_IndexEmpty;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+      if(isSpecJson(sp)) {
+        fs->options |= FieldSpec_JSONIndexNull;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "`%s` is only valid for JSON index", SPEC_JSON_INDEXNULL_STR);
+        return 0;
+      }
     } else {
       break;
     }
@@ -770,7 +777,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 }
 
 // Parse the arguments of a TAG field
-static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+static int parseTagField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
     fs->types |= INDEXFLD_T_TAG;
 
@@ -795,6 +802,13 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         fs->options |= FieldSpec_WithSuffixTrie;
       } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
         fs->options |= FieldSpec_IndexEmpty;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+        if(isSpecJson(sp)) {
+          fs->options |= FieldSpec_JSONIndexNull;
+        } else {
+          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "`%s` is only valid for JSON index", SPEC_JSON_INDEXNULL_STR);
+          return 0;
+        }
       } else {
         break;
       }
@@ -878,6 +892,15 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
   } else {
     fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
   }
+
+  if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+    if(isSpecJson(sp)) {
+      fs->options |= FieldSpec_JSONIndexNull;
+    } else {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "`%s` is only valid for JSON index", SPEC_JSON_INDEXNULL_STR);
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -890,9 +913,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    if (!parseTextField(fs, ac, status)) goto error;
+    if (!parseTextField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!parseTagField(fs, ac, status)) goto error;
+    if (!parseTagField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
@@ -901,8 +924,24 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
+    if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+      if(isSpecJson(sp)) {
+        fs->options |= FieldSpec_JSONIndexNull;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "`%s` is only valid for JSON index", SPEC_JSON_INDEXNULL_STR);
+        goto error;
+      }
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
+    if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+      if(isSpecJson(sp)) {
+        fs->options |= FieldSpec_JSONIndexNull;
+      } else {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "`%s` is only valid for JSON index", SPEC_JSON_INDEXNULL_STR);
+        goto error;
+      }
+    }
   } else {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;

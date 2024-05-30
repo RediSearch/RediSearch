@@ -67,6 +67,7 @@ typedef enum {
   FieldSpec_WithSuffixTrie = 0x40,
   FieldSpec_UndefinedOrder = 0x80,
   FieldSpec_IndexEmpty = 0x100,       // Index empty values (i.e., empty strings)
+  FieldSpec_JSONIndexNull = 0x400,     // Index JSON NULL values
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
