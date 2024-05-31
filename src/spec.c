@@ -1380,6 +1380,18 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
+  // Free missingFieldDict
+  if (spec->missingFieldDict) {
+    dictIterator* iter = dictGetIterator(spec->missingFieldDict);
+    dictEntry* entry = NULL;
+    while ((entry = dictNext(iter))) {
+      InvertedIndex *idx = dictGetVal(entry);
+      InvertedIndex_Free(idx);
+      dictDelete(spec->missingFieldDict, dictGetKey(entry));
+    }
+    dictReleaseIterator(iter);
+    dictRelease(spec->missingFieldDict);
+  }
   // Free synonym data
   if (spec->smap) {
     SynonymMap_Free(spec->smap);

@@ -530,6 +530,7 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
     }
   }
+  dictReleaseIterator(iter);
 
   // we are done with missing field docs inverted indexes
   FGC_sendTerminator(gc);
