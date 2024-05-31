@@ -851,7 +851,6 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
 static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, RedisModule_Reply *reply,
                              bool isHelp) {
-
   sds currValue = var->getValue(config);
 
   if (!reply->resp3) {
