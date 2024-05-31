@@ -61,7 +61,7 @@ CONFIG_GETTER(getGlobalPass) {
 }
 
 // CONN_PER_SHARD
-CONFIG_SETTER(triggerConnPerShard) {
+int triggerConnPerShard(RSConfig *config) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   size_t connPerShard;
   if (realConfig->connPerShard != 0) {
@@ -77,7 +77,7 @@ CONFIG_SETTER(setConnPerShard) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetSize(ac, &realConfig->connPerShard, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  return triggerConnPerShard(config, NULL, NULL);
+  return triggerConnPerShard(config);
 }
 
 CONFIG_GETTER(getConnPerShard) {
@@ -141,9 +141,6 @@ static RSConfigOptions clusterOptions_g = {
              .helpText = "Number of connections to each shard in the cluster",
              .setValue = setConnPerShard,
              .getValue = getConnPerShard,},
-            {.name = "_CONN_PER_SHARD",
-             .setValue = triggerConnPerShard,
-             .flags = RSCONFIGVAR_F_HIDDEN},
             {.name = "CURSOR_REPLY_THRESHOLD",
              .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR READ` on the shards",
              .setValue = setCursorReplyThreshold,
@@ -193,4 +190,9 @@ MRClusterType DetectClusterType() {
 
 RSConfigOptions *GetClusterConfigOptions(void) {
   return &clusterOptions_g;
+}
+
+void ClusterConfig_RegisterTriggers(void) {
+  const char *connPerShardConfigs[] = {"WORKER_THREADS", NULL};
+  RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
 }

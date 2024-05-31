@@ -21,6 +21,8 @@
 
 #include "util/config_macros.h"
 
+RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -170,8 +172,6 @@ CONFIG_GETTER(getTimeout) {
 
 #ifdef MT_BUILD
 
-static RSConfigVar *getConfigVarFromGlobal(const char *name);
-
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
   // We limit the number of worker threads to limit the amount of memory used by the thread pool
@@ -187,11 +187,8 @@ CONFIG_SETTER(setWorkThreads) {
     return REDISMODULE_ERR;
   }
   config->numWorkerThreads = newNumThreads;
-#ifdef RS_COORDINATOR
-  // Trigger the connection per shard to be updated
-  RSConfigVar *trigger = getConfigVarFromGlobal("_CONN_PER_SHARD");
-  trigger->setValue(config, NULL, NULL);
-#endif
+  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
@@ -578,7 +575,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   while (!AC_IsAtEnd(&ac)) {
     const char *name = AC_GetStringNC(&ac, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
-    if (curVar == NULL || curVar->flags & RSCONFIGVAR_F_HIDDEN) {
+    if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
     }
@@ -587,7 +584,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    if (curVar->setValue(&RSGlobalConfig, &ac, &status) != REDISMODULE_OK) {
+    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
       *err = rm_strdup(QueryError_GetError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -814,8 +811,14 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
   dst->next = NULL;
 }
 
-static RSConfigVar *getConfigVarFromGlobal(const char *name) {
-  return findConfigVar(&RSGlobalConfigOptions, name);
+void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const char **configs) {
+  static uint32_t numTriggers = 0;
+  RS_LOG_ASSERT(numTriggers < RS_MAX_CONFIG_TRIGGERS, "Too many config triggers");
+  for (const char *config = *configs; config; config = *++configs) {
+    RSConfigVar *var = findConfigVar(&RSGlobalConfigOptions, config);
+    var->triggerId = numTriggers;
+  }
+  RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
@@ -848,9 +851,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
 
 static void dumpConfigOption(const RSConfig *config, const RSConfigVar *var, RedisModule_Reply *reply,
                              bool isHelp) {
-  if (var->flags & RSCONFIGVAR_F_HIDDEN) {
-    return;
-  }
+
   sds currValue = var->getValue(config);
 
   if (!reply->resp3) {
@@ -910,7 +911,7 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
-  if (!var || var->flags & RSCONFIGVAR_F_HIDDEN) {
+  if (!var) {
     QueryError_SetError(status, QUERY_ENOOPTION, NULL);
     return REDISMODULE_ERR;
   }
@@ -920,7 +921,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   }
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
-  int rc = var->setValue(config, &ac, status);
+  int rc = var->setValue(config, &ac, var->triggerId, status);
   *offset += ac.offset;
   return rc;
 }

@@ -22,7 +22,7 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
+#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, uint32_t externalTriggerId, QueryError *status)
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
 #define CONFIG_BOOLEAN_GETTER(name, var, invert) \
@@ -48,3 +48,9 @@
     }                                          \
     RETURN_STATUS(acrc);                       \
   }
+
+#ifdef RS_COORDINATOR
+#define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)
+#else
+#define COORDINATOR_TRIGGER()
+#endif

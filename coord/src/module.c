@@ -2069,6 +2069,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Chain the config into RediSearch's global config and set the default values
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
+  ClusterConfig_RegisterTriggers();
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
