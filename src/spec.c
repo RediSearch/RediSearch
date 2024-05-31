@@ -1387,7 +1387,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     while ((entry = dictNext(iter))) {
       InvertedIndex *idx = dictGetVal(entry);
       InvertedIndex_Free(idx);
-      dictDelete(spec->missingFieldDict, dictGetKey(entry));
     }
     dictReleaseIterator(iter);
     dictRelease(spec->missingFieldDict);
