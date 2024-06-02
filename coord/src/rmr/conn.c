@@ -137,6 +137,7 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
       RedisModule_ReplyWithSimpleString(ctx, MRConnState_Str(pool->conns[i]->state));
     }
   }
+  dictReleaseIterator(it);
 }
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
@@ -261,8 +262,8 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
     pool->rr %= num; // set the round robin counter to the new pool size bound
     pool->conns = rm_realloc(pool->conns, num * sizeof(MRConn *));
   }
-
   m->nodeConns = num;
+  dictReleaseIterator(it);
 }
 
 // Expand the connection pool to the given number of connections
@@ -284,8 +285,8 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
     }
     pool->num = num;
   }
-
   m->nodeConns = num;
+  dictReleaseIterator(it);
 }
 
 static void MRConn_Stop(MRConn *conn) {

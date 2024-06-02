@@ -297,3 +297,5 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
     # Test Coordinator only debug command
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').noError()
+    # Look for the coordinator only command in the help command
+    env.expect(debug_cmd(), 'HELP').contains('SHARD_CONNECTION_STATES')
