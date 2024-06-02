@@ -116,19 +116,19 @@ def test_MOD_7126(env):
 
   point1 = 'POINT(10 10)'
   point2 = 'POINT(50 50)'
-  polyg1 = 'POLYGON((20 20, 25 35, 35 25, 20 20))'
-  polyg2 = 'POLYGON((60 60, 65 75, 70 70, 65 55, 60 60))'
+  triangle = 'POLYGON((20 20, 25 35, 35 25, 20 20))'
+  rectangle = 'POLYGON((60 60, 65 75, 70 70, 65 55, 60 60))'
   conn.execute_command('HSET', 'point1', 'geom', point1)
   conn.execute_command('HSET', 'point2', 'geom', point2)
-  conn.execute_command('HSET', 'polyg1', 'geom', polyg1)
-  conn.execute_command('HSET', 'polyg2', 'geom', polyg2)
+  conn.execute_command('HSET', 'triangle', 'geom', triangle)
+  conn.execute_command('HSET', 'rectangle', 'geom', rectangle)
 
   query = 'POLYGON((15 15, 75 15, 50 70, 20 40, 15 15))'
 
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
-  env.assertEqual(toSortedFlatList(res), [2, 'point2', 'polyg1'])
+  env.assertEqual(toSortedFlatList(res), [2, 'point2', 'triangle'])
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
-  env.assertEqual(toSortedFlatList(res), [2, 'point1', 'polyg2'])
+  env.assertEqual(toSortedFlatList(res), [2, 'point1', 'rectangle'])
 
 
 
