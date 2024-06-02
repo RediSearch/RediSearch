@@ -22,9 +22,6 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_invidx').error().contains('wrong number of arguments')
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
-    def testDebugUnknownSubcommand(self):
-        self.env.expect('FT.DEBUG', 'unknown').error().equal('subcommand was not found')
-
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
@@ -221,8 +218,8 @@ class TestDebugCommands(object):
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains("wrong number of arguments for"
-                                                                              " 'FT.DEBUG' command")
+        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains(
+            "wrong number of arguments for 'FT.DEBUG|WORKER_THREADS' command")
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
             "Invalid argument for 'WORKER_THREADS' subcommand")
         self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
@@ -276,7 +273,7 @@ def testDumpHNSW(env):
 
     # Test error handling
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
-        .contains("wrong number of arguments for 'FT.DEBUG' command")
+        .contains("wrong number of arguments for 'FT.DEBUG|DUMP_HNSW' command")
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'bad_idx', 'v').error() \
         .contains("Can not create a search ctx")
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \

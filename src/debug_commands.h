@@ -4,11 +4,15 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef SRC_DEBUG_COMMADS_H_
-#define SRC_DEBUG_COMMADS_H_
+#pragma once
 
 #include "redismodule.h"
 
-int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+#define RS_DEBUG_FLAGS "readonly", 0, 0, 0
 
-#endif /* SRC_DEBUG_COMMADS_H_ */
+typedef struct DebugCommandType {
+  char *name;
+  int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+} DebugCommandType;
+
+int RegisterDebugCommands(RedisModuleCommand *debugCommand);
