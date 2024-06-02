@@ -308,15 +308,16 @@ void redisearch_thpool_drain(redisearch_thpool_t *thpool_p, long timeout,
 
 void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
   RedisModule_Assert(thpool_p);
-  if (!priority_queue_is_empty(&thpool_p->jobqueues)) {
-    LOG_IF_EXISTS(
-        "warning",
-        "Terminate threadpool's thread was called when the jobq is not empty");
-  }
   /** Threads might be in terminate when empty state, we must lock before we
    * read `num_threads_alive` to ensure they don't die (i.e check that jobq is
    * not empty) to read `num_threads_alive` */
   redisearch_thpool_lock(thpool_p);
+
+  if (!priority_queue_is_empty_unsafe(&thpool_p->jobqueues)) {
+    LOG_IF_EXISTS(
+        "warning",
+        "Terminate threadpool's thread was called when the jobq is not empty");
+  }
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   if (curr_num_threads_alive) {
     /* Ensure jobq is running */
@@ -518,7 +519,7 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
     if (thread_ctx.thread_state != THREAD_RUNNING) {
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
         /*  We need to lock pulling from the jobqueue and update
-        num_threads_alive together to prevents make sure num_threads_alive won't
+        num_threads_alive together to make sure num_threads_alive won't
         change while we are pushing admin jobs to the queue. */
         redisearch_thpool_lock(thpool_p);
         if (priority_queue_len_unsafe(&thpool_p->jobqueues) == 0) {
