@@ -110,6 +110,27 @@ def testSanitySearchHashIntersectsDisjoint(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
 
+def test_MOD_7126(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+
+  point1 = 'POINT(10 10)'
+  point2 = 'POINT(50 50)'
+  polyg1 = 'POLYGON((20 20, 25 35, 35 25, 20 20))'
+  polyg2 = 'POLYGON((60 60, 65 75, 70 70, 65 55, 60 60))'
+  conn.execute_command('HSET', 'point1', 'geom', point1)
+  conn.execute_command('HSET', 'point2', 'geom', point2)
+  conn.execute_command('HSET', 'polyg1', 'geom', polyg1)
+  conn.execute_command('HSET', 'polyg2', 'geom', polyg2)
+
+  query = 'POLYGON((15 15, 75 15, 50 70, 20 40, 15 15))'
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point2', 'polyg1'])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point1', 'polyg2'])
+
+
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @skip(asan=True)
