@@ -121,6 +121,24 @@ void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
 }
 
+void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
+  RedisModule_ReplyWithMap(ctx, dictSize(mgr->map));
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    if (!pool) continue;
+    RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "%s:%d", pool->conns[0]->ep.host,
+                                                                          pool->conns[0]->ep.port);
+    RedisModule_ReplyWithString(ctx, key);
+    RedisModule_FreeString(ctx, key);
+    RedisModule_ReplyWithArray(ctx, pool->num);
+    for (size_t i = 0; i < pool->num; i++) {
+      RedisModule_ReplyWithSimpleString(ctx, MRConnState_Str(pool->conns[i]->state));
+    }
+  }
+}
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 

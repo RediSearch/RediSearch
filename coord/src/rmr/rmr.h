@@ -41,6 +41,8 @@ int MR_CheckTopologyConnections(bool mastersOnly);
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
+void MR_GetConnectionPoolState(RedisModuleCtx *ctx);
+
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 void MR_UpdateConnPerShard(size_t connPerShard);

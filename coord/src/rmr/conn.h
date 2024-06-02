@@ -67,6 +67,8 @@ typedef struct {
 
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
+void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 

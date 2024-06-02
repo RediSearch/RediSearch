@@ -280,6 +280,21 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
   RQ_Push(rq_g, uvUpdateConnPerShard, p);
 }
 
+static void uvGetConnectionPoolState(void *p) {
+  RedisModuleBlockedClient *bc = p;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+}
+
+void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RQ_Push(rq_g, uvGetConnectionPoolState, bc);
+}
+
 static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);

@@ -20,10 +20,6 @@
 #include "util/workers.h"
 #include "cursor.h"
 
-#define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
-
-#define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \

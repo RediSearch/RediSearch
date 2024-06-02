@@ -5,5 +5,6 @@
  */
 
 static const char *coordCommandsNames[] = {
+  "SHARD_CONNECTION_STATES",
   NULL
 };
