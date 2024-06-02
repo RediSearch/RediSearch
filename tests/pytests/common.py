@@ -115,12 +115,11 @@ def toSortedFlatList(res):
     return [res]
 
 def assertInfoField(env, idx, field, expected, delta=None):
-    if not env.isCluster():
-        d = index_info(env, idx)
-        if delta is None:
-            env.assertEqual(d[field], expected)
-        else:
-            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
+    d = index_info(env, idx)
+    if delta is None:
+        env.assertEqual(d[field], expected)
+    else:
+        env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
@@ -630,13 +629,15 @@ def get_TLS_args():
     return cert_file, key_file, ca_cert_file, passphrase
 
 # Use FT.* command to make sure that the module is loaded and initialized
-def verify_shard_init(env, shard=None):
-    shard = shard if shard is not None else env # use default shard if not specified
-    try:
-        shard.execute_command('FT.SEARCH', 'non-existing', '*')
-        raise Exception('Expected FT.SEARCH to fail')
-    except redis_exceptions.ResponseError as e:
-        env.assertContains('no such index', str(e))
+def verify_shard_init(shard):
+    with TimeLimit(5, 'Failed to verify shard initialization'):
+        while True:
+            try:
+                shard.execute_command('FT.SEARCH', 'non-existing', '*')
+                raise Exception('Expected FT.SEARCH to fail')
+            except redis_exceptions.ResponseError as e:
+                if 'no such index' in str(e):
+                    break
 
 def cmd_assert(env, cmd, res):
     db_res = env.cmd(*cmd)
