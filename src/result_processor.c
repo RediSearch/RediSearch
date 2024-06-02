@@ -863,7 +863,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   // Then, lock Redis to guarantee safe access to Redis keyspace
-  RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+  RedisModule_ThreadSafeContextLockRead(sctx->redisCtx);
 
   rpSafeLoader_Load(self);
 
