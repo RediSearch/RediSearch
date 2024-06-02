@@ -27,6 +27,8 @@
 #include "profile.h"
 #include "resp3.h"
 #include "dist_profile.h"
+#include "debug_commands.h"
+#include "commands.h"
 
 #include "libuv/include/uv.h"
 
@@ -2103,6 +2105,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1));
   }
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1));
+  // Assumes RS_DEBUG is registered (from `RediSearch_InitModuleInternal`)
+  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, RS_DEBUG)));
 
   if (RSBuildType_g == RSBuildType_OSS) {
     RedisModule_Log(ctx, "notice", "Register write commands");

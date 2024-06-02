@@ -1253,7 +1253,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {NULL, NULL}};
 
 #ifdef RS_COORDINATOR
-#include "coord/src/debug_commands.c"
+#include "coord/src/debug_command_names.h"
 #endif
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
