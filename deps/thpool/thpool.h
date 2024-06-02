@@ -192,7 +192,7 @@ void redisearch_thpool_drain(redisearch_threadpool, long timeout,
 /**
  * @brief Terminate the working threads (without deallocating the threadpool members).
  */
-void redisearch_thpool_terminate_reset_threads(redisearch_threadpool);
+void redisearch_thpool_terminate_threads(redisearch_threadpool);
 
 /**
  * @brief Pause pulling from the jobq. The function returns when no jobs are in progress.
@@ -243,7 +243,7 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  *    threadpool thpool1 = thpool_init(2);
  *    threadpool thpool2 = thpool_init(2);
  *    ..
- *    printf("Working threads: %d\n", redisearch_thpool_num_threads_working(thpool1));
+ *    printf("Working threads: %d\n", redisearch_thpool_num_jobs_in_progress(thpool1));
  *    ..
  *    return 0;
  * }
@@ -251,9 +251,11 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-size_t redisearch_thpool_num_threads_working(redisearch_threadpool);
+size_t redisearch_thpool_num_jobs_in_progress(redisearch_threadpool);
 
 int redisearch_thpool_paused(redisearch_threadpool);
+
+int redisearch_thpool_is_initialized(redisearch_threadpool);
 
 thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
 

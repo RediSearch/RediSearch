@@ -45,7 +45,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
 size_t workersThreadPool_WorkingThreadCount(void) {
   assert(_workers_thpool != NULL);
 
-  return redisearch_thpool_num_threads_working(_workers_thpool);
+  return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
 // add task for worker thread
@@ -74,7 +74,7 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold) {
 }
 
 void workersThreadPool_Terminate(void) {
-  redisearch_thpool_terminate_reset_threads(_workers_thpool);
+  redisearch_thpool_terminate_threads(_workers_thpool);
 }
 
 void workersThreadPool_Destroy(void) {
