@@ -277,6 +277,13 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
     RedisModule_ReplyWithStringBuffer(ctx, fields->indexName, fields->indexNameLen);
     n += 2;
   }
+
+  if (fields->indexOptions) {
+    RedisModule_ReplyWithSimpleString(ctx, "index_options");
+    MR_ReplyWithMRReply(ctx, fields->indexOptions);
+    n += 2;
+  }
+
   if (fields->indexDef) {
     RedisModule_ReplyWithSimpleString(ctx, "index_definition");
     MR_ReplyWithMRReply(ctx, fields->indexDef);
@@ -285,12 +292,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModuleCtx *ctx) {
   if (fields->indexSchema) {
     RedisModule_ReplyWithSimpleString(ctx, "attributes");
     MR_ReplyWithMRReply(ctx, fields->indexSchema);
-    n += 2;
-  }
-
-  if (fields->indexOptions) {
-    RedisModule_ReplyWithSimpleString(ctx, "index_options");
-    MR_ReplyWithMRReply(ctx, fields->indexOptions);
     n += 2;
   }
 
