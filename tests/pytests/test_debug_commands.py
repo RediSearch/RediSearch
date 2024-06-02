@@ -1,7 +1,4 @@
-from RLTest import Env
-from includes import *
-from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit, index_info, skip
-
+from common import *
 
 class TestDebugCommands(object):
 
@@ -292,3 +289,11 @@ def testDumpHNSW(env):
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
         equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
                "Doc id 3 doesn't contain the given field"])
+
+@skip(cluster=False)
+def testCoordDebug(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    # Sanity check - regular debug command
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
+    # Test Coordinator only debug command
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').noError()

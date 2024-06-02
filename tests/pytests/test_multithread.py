@@ -410,3 +410,55 @@ def test_switch_loader_modes():
     cursor3 = read_from_cursor(cursor3)
 
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
+
+@skip(cluster=False)
+def test_change_num_connections(env: Env):
+
+    # Validate the default values
+    env.expect(config_cmd(), 'GET', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
+    env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
+
+    # The logic of the number of connections is as follows:
+    # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
+    # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKER_THREADS` + 1
+
+    # Helper that will return the expected output structure.
+    # In this test we don't care about the actual values, so we use the ANY matcher.
+    # Example of the expected output (for 3 shards and 2 connections):
+    # ['127.0.0.1:6379', ['Connected', 'Connected'],
+    #  '127.0.0.1:6381', ['Connected', 'Connecting'],
+    #  '127.0.0.1:6383', ['Connected', 'Connected']]
+    def expected(conns):
+        exp = []
+        for _ in range(env.shardsCount):
+            exp.append(ANY) # The shard id (host:port)
+            exp.append([ANY] * conns) # The connections states
+        return exp
+
+    # By default, the number of connections is 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+
+    # Increase the number of worker threads to 6
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '6').ok()
+    # The number of connections should be 7
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(7))
+
+    # Set the number of connections to 4
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
+    # The number of connections should be 4
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+
+    # Decrease the number of worker threads to 5
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '5').ok()
+    # The number of connections should remain 4
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+
+    # Set the number of connections to 0
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
+    # The number of connections should be 6 (5 worker threads + 1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(6))
+
+    # Set back the number of worker threads to 0
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    # The number of connections should be 1 again
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
