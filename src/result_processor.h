@@ -191,7 +191,8 @@ void SearchResult_Destroy(SearchResult *r);
 ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs);
+                              const ScoringFunctionArgs *fnargs,
+                              RLookupKey *rlk);
 
 ResultProcessor *RPMetricsLoader_New();
 

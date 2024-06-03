@@ -291,7 +291,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     // If we have sort by clause and don't need to return scores, we can avoid computing them.
-    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
+    if (req->reqflags & QEXEC_F_IS_SEARCH && !((QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD) & req->reqflags)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -470,6 +470,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
+
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
@@ -487,6 +488,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
       {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+      {.name = "WITH_SCORE_FIELD", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreField},
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
@@ -567,6 +569,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
     QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
     return REDISMODULE_ERR;
+  }
+
+  if (searchOpts->scoreField) {
+    req->reqflags |= QEXEC_F_SEND_SCORES_AS_FIELD;
   }
 
   searchOpts->inkeys = (const char **)inKeys.objs;
@@ -1271,7 +1277,7 @@ end:
 }
 
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(AREQ *req) {
+static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
@@ -1285,7 +1291,11 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   IndexSpec_GetStats(req->sctx->spec, &scargs.indexStats);
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
-  ResultProcessor *rp = RPScorer_New(fns, &scargs);
+  RLookupKey *scoreName = NULL;
+  if (req->searchopts.scoreField) {
+    scoreName = RLookup_GetKey(rl, req->searchopts.scoreField, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  }
+  ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreName);
   return rp;
 }
 
@@ -1333,10 +1343,10 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+  if ((req->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
       (IsSearch(req) && !IsCount(req) &&
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
-    rp = getScorerRP(req);
+    rp = getScorerRP(req, first);
     PUSH_RP();
   }
 }

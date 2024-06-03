@@ -82,6 +82,8 @@ typedef enum {
   // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
   QEXEC_FORMAT_DEFAULT = 0x100000,
 
+  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,     // Output: Send scores with each result
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
