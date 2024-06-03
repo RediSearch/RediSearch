@@ -173,20 +173,16 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     redisearch_thpool_wait(this->pool);
 
     // Wait for the threads to terminate.
-    thpool_stats stats = redisearch_thpool_get_stats(this->pool);
-    while (stats.num_threads_alive) {
+    while (redisearch_thpool_get_stats(this->pool).num_threads_alive) {
         usleep(1);
-        stats = redisearch_thpool_get_stats(this->pool);
     }
 
     // Recreate threads
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be initialized";
 
-    stats = redisearch_thpool_get_stats(this->pool);
-    while (!stats.num_threads_alive) {
+    while (!redisearch_thpool_get_stats(this->pool).num_threads_alive) {
         usleep(1);
-        stats = redisearch_thpool_get_stats(this->pool);
     }
 
 }
@@ -197,8 +193,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
 
     // Wait for the job to be pulled.
-    size_t curr_working  = redisearch_thpool_num_jobs_in_progress(this->pool);
-    while (curr_working != 1) {
+    while (redisearch_thpool_num_jobs_in_progress(this->pool) != 1) {
         usleep(1);
     }
 
@@ -206,7 +201,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     redisearch_thpool_terminate_pause_threads(this->pool);
 
     // The job should have finished.
-    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_jobs_done, 1)<< "expected 1 job done";
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_jobs_done, 1) << "expected 1 job done";
 
     // There should not be any jobs in progress
     ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), 0) << "expected 0 working threads";
