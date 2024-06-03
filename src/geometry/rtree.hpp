@@ -75,8 +75,13 @@ class RTree {
   [[nodiscard]] auto lookup(doc_type const& doc) const -> boost::optional<geom_type const&>;
   void insert(geom_type const& geom, t_docId id);
 
+  // Predicte refers to the bgi::predicate concept that rtree.query(predicate) expects
+  // Filter reduces the set of results from the Predicate applied on the MBRs by applying a predicate between geometries
   template <typename Predicate, typename Filter>
-  [[nodiscard]] auto apply_predicate(Predicate&& predicate, Filter&& filter) const
+  [[nodiscard]] auto apply_intersection_of_predicates(Predicate predicate, Filter filter) const
+      -> query_results;
+  template <typename Predicate, typename Filter>
+  [[nodiscard]] auto apply_union_of_predicates(Predicate predicate, Filter filter) const
       -> query_results;
   [[nodiscard]] auto query_begin(QueryType query_type, geom_type const& query_geom) const
       -> query_results;
