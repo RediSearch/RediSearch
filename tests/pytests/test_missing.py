@@ -73,16 +73,10 @@ def testMissingInfo():
 
     # The fields' section is in different places for cluster and standalone builds
     n_found = 0
-    if env.isCluster():
-        fields = res[5]
-        for field in fields:
-            env.assertEqual(field[-1], "ISMISSING")
-            n_found += 1
-    else:
-        fields = res[7]
-        for field in fields:
-            env.assertEqual(field[-1], "ISMISSING")
-            n_found += 1
+    fields = res[7]
+    for field in fields:
+        env.assertEqual(field[-1], "ISMISSING")
+        n_found += 1
     env.assertEqual(n_found, 2)
 
 def testMissingBasic():
