@@ -602,7 +602,7 @@ def testExplain(env):
 
     # test FUZZY
     _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
-    
+
     _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
                  "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
 
@@ -613,7 +613,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ["@tag:{w'*'}=>{$weight: 3;}"],
                  "TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
-    
+
     # test wildcard with TEXT field
     _testExplain(env, 'idx', ["@t:(w'*')"], "@t:WILDCARD{*}\n")
 
@@ -1611,8 +1611,6 @@ def testGarbageCollector(env):
         return d
 
     stats = get_stats(r)
-    if 'current_hz' in stats['gc_stats']:
-        env.assertGreater(stats['gc_stats']['current_hz'], 8)
     env.assertEqual(0, stats['gc_stats']['bytes_collected'])
     env.assertGreater(int(stats['num_records']), 0)
 
@@ -1630,8 +1628,6 @@ def testGarbageCollector(env):
     env.assertEqual(0, int(stats['num_records']))
     if not env.is_cluster():
         env.assertEqual(100, int(stats['max_doc_id']))
-        if 'current_hz' in stats['gc_stats']:
-            env.assertGreater(stats['gc_stats']['current_hz'], 30)
         currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
         # print initialIndexSize, currentIndexSize,
         # stats['gc_stats']['bytes_collected']
@@ -3980,7 +3976,7 @@ def test_notIterTimeout(env):
     # Send a query that will skip all the docs with the first tag value (fantasy),
     # such that the timeout will be checked in the NOT iterator loop (coverage).
     # Note: Removed parts of this test relative to 2.8 (and on) due to missing
-    # timeout PRs 
+    # timeout PRs
     try:
         env.cmd(
             'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',

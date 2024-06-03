@@ -1115,8 +1115,8 @@ def test_wrong_vector_size():
         conn.execute_command('HSET', '5', 'v', vector[:dimension+1].tobytes())
 
         waitForIndex(env, 'idx')
-        assertInfoField(env, 'idx', 'num_docs', '2')
-        assertInfoField(env, 'idx', 'hash_indexing_failures', '4')
+        assertInfoField(env, 'idx', 'num_docs', '2' if not env.isCluster() else 2)
+        assertInfoField(env, 'idx', 'hash_indexing_failures', '4' if not env.isCluster() else 4)
         env.expect('FT.SEARCH', 'idx', '*=>[KNN 6 @v $q]', 'NOCONTENT', 'PARAMS', 2, 'q',
                    create_np_array_typed([1]*dimension, data_type).tobytes()).equal([2, '1', '4'])
 
