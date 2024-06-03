@@ -341,16 +341,16 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
     RedisModule_ReplyKV_StringBuffer(reply, "index_name", fields->indexName, fields->indexNameLen);
   }
 
+  if (fields->indexOptions) {
+    RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
+  }
+
   if (fields->indexDef) {
     RedisModule_ReplyKV_MRReply(reply, "index_definition", fields->indexDef);
   }
 
   if (fields->indexSchema) {
     RedisModule_ReplyKV_MRReply(reply, "attributes", fields->indexSchema);
-  }
-
-  if (fields->indexOptions) {
-    RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
   }
 
   RedisModule_ReplyKV_Map(reply, "gc_stats");
