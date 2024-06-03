@@ -141,6 +141,7 @@ typedef struct FieldSpec {
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
+#define FieldSpec_JsonIndexesNull(fs) ((fs)->options & FieldSpec_JSONIndexNull)
 #define FieldSpec_IsUnf(fs) ((fs)->options & FieldSpec_UNF)
 
 void FieldSpec_SetSortable(FieldSpec* fs);

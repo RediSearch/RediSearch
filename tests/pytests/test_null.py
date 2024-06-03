@@ -33,8 +33,19 @@ def testNullInfo():
         env.expect('FT.CREATE', f'idx_{fieldType}' , 'ON', 'JSON', 'SCHEMA',
                    'field', fieldType, 'ISNULL').ok()
 
-        env.expect('FT.INFO', f'idx_{fieldType}').equal([f'idx_{fieldType}', 'json', '1', 'field', fieldType, 'ISNULL'])
+        info = index_info(env, f'idx_{fieldType}')
+        field_info = info['attributes'][0]
+        env.assertEqual(field_info[-1], 'ISNULL')
 
+    # Tes FT.INFO for a VECTOR field
+    for data_type in ['FLOAT32', 'FLOAT64']:
+        env.expect(
+            'FT.CREATE', f'idx_{data_type}' , 'ON', 'JSON', 'SCHEMA',
+            '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+            'DIM', '2','DISTANCE_METRIC', 'L2', 'ISNULL').ok()
+        info = index_info(env, f'idx_{data_type}')
+        field_info = info['attributes'][0]
+        env.assertEqual(field_info[-1], 'ISNULL')
 
 def testNullBasic():
     """Tests the basic functionality of null values indexing."""

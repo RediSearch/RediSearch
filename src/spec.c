@@ -845,6 +845,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   const char *algStr;
   size_t len;
   int rc;
+  int result;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
@@ -858,7 +859,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
-    return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
+    result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
@@ -875,9 +876,18 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
 
-    return parseVectorField_hnsw(fs, params, ac, status);
+    result = parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
+    return 0;
+  }
+
+  if(result != 0) {
+    if (AC_AdvanceIfMatch(ac, SPEC_JSON_INDEXNULL_STR)) {
+      fs->options |= FieldSpec_JSONIndexNull;
+    }
+    return result;
+  } else {
     return 0;
   }
 }
