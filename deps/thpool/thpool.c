@@ -59,6 +59,7 @@ typedef struct job {
 typedef struct {
   job *job;
   bool is_admin;
+  bool is_privileged;
 } priorityJobCtx;
 
 typedef struct {
@@ -91,6 +92,8 @@ typedef struct priority_queue {
                                        from queue */
   unsigned char n_privileged_threads; /* number of threads that always run high
                                          priority tasks */
+  atomic_uchar privilege_tickets; /* number of currently available privilege
+                                    tickets */
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
   volatile atomic_size_t num_jobs_in_progress; /* threads currently working */
@@ -512,9 +515,12 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
     job_p->function(arg);
     rm_free(job_p);
 
-    /* Both variables are atomic, so we can do this without a lock. */
+    /* These variables are atomic, so we can do this without a lock. */
     thpool_p->total_jobs_done += !job_ctx.is_admin;
     thpool_p->jobqueues.num_jobs_in_progress--;
+    if (job_ctx.is_privileged) {
+      thpool_p->jobqueues.privilege_tickets++;
+    }
 
     if (thread_ctx.thread_state != THREAD_RUNNING) {
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
@@ -667,6 +673,7 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   pthread_mutex_init(&priority_queue_p->lock, NULL);
   priority_queue_p->alternating_pulls = 0;
   priority_queue_p->n_privileged_threads = num_privileged_threads;
+  priority_queue_p->privilege_tickets = num_privileged_threads;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);
@@ -706,7 +713,7 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
 }
 
 static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
-  bool is_admin = true;
+  bool is_admin = true, is_privileged = false;
   job *job_p = NULL;
 
   pthread_mutex_lock(&priority_queue_p->lock);
@@ -721,8 +728,12 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
 
   if (!job_p) {
     is_admin = false;
-    if (priority_queue_p->num_jobs_in_progress <
-        priority_queue_p->n_privileged_threads) {
+    // When taking a privilege ticket, we must hold the lock (not atomic)
+    if (priority_queue_p->privilege_tickets > 0) {
+      is_privileged = true;
+      priority_queue_p->privilege_tickets--;
+    }
+    if (is_privileged) {
       /* This is a privileged thread id, try taking from the high priority
        * queue. */
       job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
@@ -730,6 +741,9 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
       queue. */
       if (!job_p) {
         job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
+        // If we didn't find a high priority job, return the privilege ticket
+        is_privileged = false;
+        priority_queue_p->privilege_tickets++;
       }
     } else {
       /* For non-privileged threads, alternate between both queues every
@@ -758,7 +772,7 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
    * num_jobs_in_progress together. */
   priority_queue_p->num_jobs_in_progress++;
   pthread_mutex_unlock(&priority_queue_p->lock);
-  priorityJobCtx job_ctx = {.job = job_p, .is_admin = is_admin};
+  priorityJobCtx job_ctx = {.job = job_p, .is_admin = is_admin, .is_privileged = is_privileged};
   return job_ctx;
 }
 
