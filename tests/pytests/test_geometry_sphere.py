@@ -114,6 +114,27 @@ def testSanitySearchHashIntersectsDisjoint(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
 
+def test_MOD_7126(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
+
+  point1 = 'POINT(34.9010 29.710)'
+  point2 = 'POINT(34.9050 29.750)'
+  triangle = 'POLYGON((34.9020 29.720, 34.9025 29.735, 34.9035 29.725, 34.9020 29.720))'
+  rectangle = 'POLYGON((34.9060 29.760, 34.9065 29.775, 34.9070 29.770, 34.9065 29.755, 34.9060 29.760))'
+  conn.execute_command('HSET', 'point1', 'geom', point1)
+  conn.execute_command('HSET', 'point2', 'geom', point2)
+  conn.execute_command('HSET', 'triangle', 'geom', triangle)
+  conn.execute_command('HSET', 'rectangle', 'geom', rectangle)
+
+  query = 'POLYGON((34.9015 29.715, 34.9075 29.715, 34.9050 29.770, 34.9020 29.740, 34.9015 29.715))'
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point2', 'triangle'])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point1', 'rectangle'])
+
+
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
 @skip(asan=True)
 def testWKTIngestError(env):
