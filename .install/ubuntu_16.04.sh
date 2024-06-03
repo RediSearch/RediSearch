@@ -27,8 +27,12 @@ cd -
 # software-properties-common needed to get the ppa is broken on ubuntu16.04
 # Add the ppa manually
 cd /etc/apt/sources.list.d
+# ppa to install gcc-9
 echo "deb http://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu xenial main" | $MODE tee ubuntu-toolchain-r-test.list
 $MODE apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 60C317803A41BA51845E371A1E9377A2BA9EF27F
+# ppa to install git
+echo "deb http://ppa.launchpad.net/git-core/ppa/ubuntu xenial main" | $MODE tee git-core-test.list
+$MODE apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E1DD270288B4E6030699E45FA1715D88E1DF1F24
 $MODE apt-get update
 $MODE apt install -yqq gcc-9 g++-9 git
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
