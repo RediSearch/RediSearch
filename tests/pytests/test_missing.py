@@ -56,9 +56,6 @@ def testMissingValidations():
         '`ISMISSING` applied to field `numeric`, which does not index missing values'
     )
 
-    # Empty search on a non-existing field
-    env.expect('FT.SEARCH', 'idx', 'ismissing(@non_existing)').error().contains('Field not found')
-
 def testMissingInfo():
     """Tests that we get the `ISMISSING` keyword in the INFO response for fields
     that index missing values."""

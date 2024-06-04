@@ -1398,9 +1398,11 @@ done:
 }
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
-  // We already know that the field exists (checked in the parser), we just need
-  // to check that it indexes "missing values".
   const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  if (!fs) {
+    // Field does not exist
+    return NULL;
+  }
   if (!FieldSpec_IndexesMissing(fs)) {
     QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
                            "`ISMISSING` applied to field `%s`, which does not index missing values",

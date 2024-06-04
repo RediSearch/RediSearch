@@ -1934,7 +1934,7 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
     // Non-existing field
-    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Field not found");
+    // reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Field not found");
     yymsp[-3].minor.yy65 = NULL;
     rm_free(s);
   } else {
@@ -1967,16 +1967,7 @@ yylhsminor.yy65 = yymsp[0].minor.yy65;
 {
   char *s = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
   size_t slen = unescapen(s, yymsp[-1].minor.yy0.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Field not found");
-    yymsp[-3].minor.yy65 = NULL;
-    rm_free(s);
-  } else {
-    yymsp[-3].minor.yy65 = NewMissingNode(s, slen);
-  }
+  yymsp[-3].minor.yy65 = NewMissingNode(s, slen);
 }
         break;
       case 51: /* expr ::= modifier COLON LB tag_list RB */

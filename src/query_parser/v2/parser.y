@@ -722,7 +722,6 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
     // Non-existing field
-    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
     A = NULL;
     rm_free(s);
   } else {
@@ -754,16 +753,7 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
 expr(A) ::= ISMISSING LP modifier(B) RP . {
   char *s = rm_strndup(B.s, B.len);
   size_t slen = unescapen(s, B.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
-    A = NULL;
-    rm_free(s);
-  } else {
-    A = NewMissingNode(s, slen);
-  }
+  A = NewMissingNode(s, slen);
 }
 
 /////////////////////////////////////////////////////////////////
