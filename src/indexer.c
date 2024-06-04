@@ -262,17 +262,26 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
   bool found_df;
+  // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
+  dict *df_fields_dict = dictCreate(&dictTypeHeapStrings, NULL);
+  uint last_ind = 0;
 
   for(size_t i = 0; i < spec->numFields; i++) {
+    found_df = false;
     const FieldSpec *fs = spec->fields + i;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    found_df = false;
-    for (size_t j = 0; j < aCtx->doc->numFields; j++) {
-      if (!strcmp(fs->name, doc->fields[j].name)) {
-        found_df = true;
-        break;
+    if (dictFind(df_fields_dict, (void *)fs->name) != NULL) {
+      found_df = true;
+    } else {
+      for (size_t j = last_ind; j < aCtx->doc->numFields; last_ind++) {
+        if (!strcmp(fs->name, doc->fields[j].name)) {
+          found_df = true;
+          last_ind++;
+          break;
+        }
+        dictAdd(df_fields_dict, (void *)doc->fields[j].name, NULL);
       }
     }
 
@@ -291,6 +300,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
       InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
     }
   }
+
+  dictRelease(df_fields_dict);
 }
 
 /**
