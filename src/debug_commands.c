@@ -1268,9 +1268,8 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
-    if (RedisModule_CreateSubcommand(debugCommand, c->name, c->callback, RS_DEBUG_FLAGS) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
+    int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback, RS_DEBUG_FLAGS);
+    if (rc != REDISMODULE_OK) return rc;
   }
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand, RS_DEBUG_FLAGS);
 }
