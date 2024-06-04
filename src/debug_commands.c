@@ -5,6 +5,7 @@
  */
 
 #include "debug_commands.h"
+#include "coord/src/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "index.h"
@@ -1248,20 +1249,16 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 #endif
                                {NULL, NULL}};
 
-#ifdef RS_COORDINATOR
-#include "coord/src/debug_command_names.h"
-#endif
-
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t len = 0;
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
-    RedisModule_ReplyWithStringBuffer(ctx, c->name, strlen(c->name));
+    RedisModule_ReplyWithCString(ctx, c->name);
     ++len;
   }
 #ifdef RS_COORDINATOR
-  for (const char **name = &coordCommandsNames[0]; *name != NULL; name++) {
-    RedisModule_ReplyWithStringBuffer(ctx, *name, strlen(*name));
+  for (size_t i = 0; coordCommandsNames[i]; i++) {
+    RedisModule_ReplyWithCString(ctx, coordCommandsNames[i]);
     ++len;
   }
 #endif

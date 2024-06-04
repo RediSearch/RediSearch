@@ -268,15 +268,15 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   RQ_Push_Topology(uvUpdateTopologyRequest, newTopo);
 }
 
-/* on-loop update topology request. This can't be done from the main thread */
+/* Modifying the connection pools cannot be done from the main thread */
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
 }
 
 void MR_UpdateConnPerShard(size_t connPerShard) {
-  void *p = (void *)(uintptr_t)connPerShard;
   if (!rq_g) return; // not initialized yet, we have nothing to update yet.
+  void *p = (void *)(uintptr_t)connPerShard;
   RQ_Push(rq_g, uvUpdateConnPerShard, p);
 }
 
