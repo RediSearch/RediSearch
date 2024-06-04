@@ -372,7 +372,7 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
  * Helper function to allocate memory before passing it to RSValue_NewArray
  */
 static inline RSValue **RSValue_AllocateArray(uint32_t len) {
-  return rm_malloc(len * sizeof(RSValue *));
+  return (RSValue **)rm_malloc(len * sizeof(RSValue *));
 }
 
 /**
