@@ -2544,7 +2544,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
     } else {
-      RedisModule_Log(ctx, "warning",
+      RedisModule_Log(ctx, "notice",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
