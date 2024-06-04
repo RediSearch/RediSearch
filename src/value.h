@@ -369,6 +369,13 @@ RSValue *RS_Int64Val(int64_t ii);
 RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
 
 /**
+ * Helper function to allocate memory before passing it to RSValue_NewArray
+ */
+static inline RSValue **RSValue_AllocateArray(uint32_t len) {
+  return rm_malloc(len * sizeof(RSValue *));
+}
+
+/**
  * Create a new map from existing pairs
  * @param pairs the <key,value> pair array to use for the map.
  * @param numPairs number of the pairs in the array (not the number of elements)

@@ -401,7 +401,7 @@ RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = rm_calloc(sz, sizeof(*arr));
+  RSValue **arr = RSValue_AllocateArray(sz);
   va_list ap;
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
@@ -414,7 +414,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
@@ -423,7 +423,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);

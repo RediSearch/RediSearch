@@ -215,7 +215,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
     }
     case MR_REPLY_ARRAY: {
       size_t n = MRReply_Length(r);
-      RSValue **arr = rm_malloc(n * sizeof(*arr));
+      RSValue **arr = RSValue_AllocateArray(n);
       for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }

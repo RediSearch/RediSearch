@@ -54,13 +54,14 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   char *c;
   tm_len_t l;
   RSValue *val;
-  RSValue **arr = rm_malloc(tlc->values->cardinality * sizeof(RSValue*));
+  RSValue **arr = RSValue_AllocateArray(tlc->values->cardinality);
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, (void **)&val)) {
     if (val) {
       arr[i++] = RSValue_IncrRef(val);
     }
   }
+  memset(arr + i, 0, sizeof(*arr) * (tlc->values->cardinality - i)); // TODO: can i != cardinality?
 
   RSValue *ret = RSValue_NewArray(arr, i);
   TrieMapIterator_Free(it);

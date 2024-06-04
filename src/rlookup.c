@@ -473,7 +473,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
     // Array
     japi->getLen(json, &len);
     if (len) {
-      RSValue **arr = rm_malloc(sizeof(RSValue*) * len);
+      RSValue **arr = RSValue_AllocateArray(len);
       for (size_t i = 0; i < len; ++i) {
         RedisJSON value = japi->getAt(json, i);
         arr[i] = jsonValToValueExpanded(ctx, value);
@@ -500,7 +500,7 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
   if (len) {
     japi->resetIter(iter);
     RedisJSON json;
-    RSValue **arr = rm_malloc(sizeof(RSValue*) * len);
+    RSValue **arr = RSValue_AllocateArray(len);
     for (size_t i = 0; (json = japi->next(iter)); ++i) {
       arr[i] = jsonValToValueExpanded(ctx, json);
     }
