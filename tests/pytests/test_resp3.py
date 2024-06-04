@@ -417,7 +417,7 @@ def test_info():
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
       'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
-      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
+      'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0, 'dialect_5': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
       'hash_indexing_failures': 0,
@@ -1289,7 +1289,8 @@ def test_ft_info():
           'dialect_1': 0,
           'dialect_2': 0,
           'dialect_3': 0,
-          'dialect_4': 0
+          'dialect_4': 0,
+          'dialect_5': 0
         },
         'doc_table_size_mb': 0.0,
         'gc_stats': {
@@ -1368,10 +1369,17 @@ def test_ft_info():
         'dialect_stats': {'dialect_1': 0,
                           'dialect_2': 0,
                           'dialect_3': 0,
-                          'dialect_4': 0},
+                          'dialect_4': 0,
+                          'dialect_5': 0},
         'doc_table_size_mb': 0.0,
         'gc_stats': {
-          'bytes_collected': 0
+              'average_cycle_time_ms': 0.0,
+              'bytes_collected': 0.0,
+              'gc_blocks_denied': 0.0,
+              'gc_numeric_trees_missed': 0.0,
+              'last_run_time_ms': 0.0,
+              'total_cycles': 0.0,
+              'total_ms_run': 0.0
         },
         'hash_indexing_failures': 0,
         'index_definition': {
