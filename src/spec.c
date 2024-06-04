@@ -1382,13 +1382,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free missingFieldDict
   if (spec->missingFieldDict) {
-    dictIterator* iter = dictGetIterator(spec->missingFieldDict);
-    dictEntry* entry = NULL;
-    while ((entry = dictNext(iter))) {
-      InvertedIndex *idx = dictGetVal(entry);
-      InvertedIndex_Free(idx);
-    }
-    dictReleaseIterator(iter);
     dictRelease(spec->missingFieldDict);
   }
   // Free synonym data
@@ -1754,6 +1747,22 @@ static void valFreeCb(void *unused, void *p) {
   rm_free(kdv);
 }
 
+static void valIIFreeCb(void *unused, void *p) {
+  InvertedIndex *ii = p;
+  if(ii) {
+    InvertedIndex_Free(ii);
+  }
+}
+
+static dictType missingFieldDictType = {
+        .hashFunction = stringsHashFunction,
+        .keyDup = NULL,
+        .valDup = NULL,
+        .keyCompare = NULL,
+        .keyDestructor = NULL,
+        .valDestructor = valIIFreeCb,
+};
+
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   // Initialize only once:
@@ -1762,7 +1771,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
     invidxDictType.valDestructor = valFreeCb;
   }
   sp->keysDict = dictCreate(&invidxDictType, NULL);
-  sp->missingFieldDict = dictCreate(&dictTypeHeapStrings, NULL);
+  sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
 }
 
 // Only used on new specs so it's thread safe

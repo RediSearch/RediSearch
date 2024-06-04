@@ -275,7 +275,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     if (dictFind(df_fields_dict, (void *)fs->name) != NULL) {
       found_df = true;
     } else {
-      for (size_t j = last_ind; j < aCtx->doc->numFields; last_ind++) {
+      for (size_t j = last_ind; j < aCtx->doc->numFields; j++) {
         if (!strcmp(fs->name, doc->fields[j].name)) {
           found_df = true;
           last_ind++;
