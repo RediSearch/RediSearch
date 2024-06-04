@@ -59,7 +59,7 @@ typedef struct job {
 typedef struct {
   job *job;
   bool is_admin;
-  bool is_privileged;
+  bool has_priority_ticket;
 } priorityJobCtx;
 
 typedef struct {
@@ -88,12 +88,11 @@ typedef struct priority_queue {
   jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
   jobqueue admin_priority_jobqueue; /* job queue for administration tasks */
   pthread_mutex_t lock;             /* used for queue r/w access */
-  unsigned char alternating_pulls;  /* number of pulls by non-privileged threads
-                                       from queue */
-  unsigned char n_privileged_threads; /* number of threads that always run high
-                                         priority tasks */
-  atomic_uchar privilege_tickets; /* number of currently available privilege
-                                    tickets */
+  unsigned char alternating_pulls;  /* number of pulls by non-bias threads from queue */
+  unsigned char n_high_priority_bias; /* minimal number of high priority jobs to run in
+                                       * parallel (if there are enough threads) */
+  atomic_uchar high_priority_tickets; /* number of currently available priority
+                                       * tickets to reach the high priority bias */
   pthread_cond_t has_jobs; /* Conditional variable to wake up threads waiting
                               for new jobs */
   volatile atomic_size_t num_jobs_in_progress; /* threads currently working */
@@ -189,8 +188,6 @@ struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t 
   snprintf(thpool_p->name, MAX_THPOOL_NAME_BUFFER_SIZE, "%s", thpool_name);
 
   /* Initialise the job queue */
-  if (num_privileged_threads > num_threads)
-    num_privileged_threads = num_threads;
   priority_queue_init(&thpool_p->jobqueues, num_threads,
                       num_privileged_threads);
 
@@ -515,8 +512,8 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
     rm_free(job_p);
 
     /* These variables are atomic, so we can do this without a lock. */
-    if (job_ctx.is_privileged) {
-      thpool_p->jobqueues.privilege_tickets++;
+    if (job_ctx.has_priority_ticket) {
+      thpool_p->jobqueues.high_priority_tickets++;
     }
     thpool_p->total_jobs_done += !job_ctx.is_admin;
     thpool_p->jobqueues.num_jobs_in_progress--;
@@ -671,8 +668,8 @@ static int priority_queue_init(priorityJobqueue *priority_queue_p,
   jobqueue_init(&priority_queue_p->admin_priority_jobqueue);
   pthread_mutex_init(&priority_queue_p->lock, NULL);
   priority_queue_p->alternating_pulls = 0;
-  priority_queue_p->n_privileged_threads = num_privileged_threads;
-  priority_queue_p->privilege_tickets = num_privileged_threads;
+  priority_queue_p->n_high_priority_bias = num_privileged_threads;
+  priority_queue_p->high_priority_tickets = num_privileged_threads;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);
@@ -712,7 +709,7 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
 }
 
 static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
-  bool is_admin = true, is_privileged = false;
+  bool is_admin = true, has_priority_ticket = false;
   job *job_p = NULL;
 
   pthread_mutex_lock(&priority_queue_p->lock);
@@ -727,22 +724,20 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
 
   if (!job_p) {
     is_admin = false;
-    // When taking a privilege ticket, we must hold the lock (read-and-then-update not atomic)
-    if (priority_queue_p->privilege_tickets > 0) {
-      /* This is a privileged thread id, try taking from the high priority
-       * queue. */
+    // When taking a high priority ticket, we must hold the lock (read-and-then-update not atomic)
+    if (priority_queue_p->high_priority_tickets > 0) {
+      /* Prefer high priority jobs, try taking from the high priority queue. */
       job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
       if (job_p) {
-        is_privileged = true;
-        priority_queue_p->privilege_tickets--;
+        has_priority_ticket = true;
+        priority_queue_p->high_priority_tickets--;
       } else {
         /* If the higher priority queue is empty, pull from the low priority
-        queue (as unprivileged). */
+        queue (without taking a ticket). */
         job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
       }
     } else {
-      /* For non-privileged threads, alternate between both queues every
-      iteration. */
+      /* For non-bias threads, alternate between both queues every iteration */
       if (priority_queue_p->alternating_pulls % 2 == 1) {
         job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
         /* If the lower priority queue is empty, pull from the higher priority
@@ -767,7 +762,11 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
    * num_jobs_in_progress together. */
   priority_queue_p->num_jobs_in_progress++;
   pthread_mutex_unlock(&priority_queue_p->lock);
-  priorityJobCtx job_ctx = {.job = job_p, .is_admin = is_admin, .is_privileged = is_privileged};
+  priorityJobCtx job_ctx = {
+    .job = job_p,
+    .is_admin = is_admin,
+    .has_priority_ticket = has_priority_ticket,
+  };
   return job_ctx;
 }
 
