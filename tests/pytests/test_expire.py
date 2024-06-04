@@ -195,7 +195,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
 
-        # Active lazy expire again to ensure the key is not expired before we run the query
+        # Activate lazy expire again to ensure the key is not expired before we run the query
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
         # expire doc1
@@ -232,10 +232,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
 def testExpireFields(env, field_name_to_expire, document_name_to_expire, field_to_schema_list:dict[str, list[str]]={}
                      , expected_results=[]):
     conn = getConnectionByEnv(env)
-    # fields expiration doesn't currently support lazy expiration
-    # can't use SET-ACTIVE-EXPIRE at this present time
-    # just use a long sleep for now
-    # conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     fields_to_expire = {}
     schema = []
     for field, expire in field_name_to_expire.items():
@@ -260,9 +257,13 @@ def testExpireFields(env, field_name_to_expire, document_name_to_expire, field_t
     env.expect('FT.SEARCH', 'idx', '*').equal(expected_before_expiration)
 
     for doc_name, expire in document_name_to_expire.items():
-        for expire, fields in fields_to_expire.items():
+        if not expire:
+            continue
+        for duration, fields in fields_to_expire.items():
             conn.execute_command('HPEXPIRE', doc_name, '1', 'FIELDS', str(len(fields)), *fields)
-    time.sleep(2)
+    # now allow active expiration to delete the expired fields
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
+    time.sleep(0.5)
     env.expect('FT.SEARCH', 'idx', '*').equal(expected_results)
     conn.execute_command('FLUSHALL')
 
@@ -285,17 +286,20 @@ def testSingleSortableFieldWithExpiration(env):
                      field_to_schema_list={'x': ['SORTABLE']},
                      expected_results=[2, 'doc1', ['x', 't'], 'doc2', ['x', 'f']])
 
+
 def testSortableFieldWithExpirationAndRegularField(env):
     testExpireFields(env, field_name_to_expire={'x': 1, 'y': None},
                      document_name_to_expire={'doc1': True, 'doc2': False},
                      field_to_schema_list={'x': ['SORTABLE']},
                      expected_results=[2, 'doc1', ['x', 't', 'y', 'f'], 'doc2', ['x', 'f', 'y', 'f']])
 
+
 def testFieldWithExpirationAndSortableField(env):
     testExpireFields(env, field_name_to_expire={'x': 1, 'y': None},
                      document_name_to_expire={'doc1': True, 'doc2': False},
                      field_to_schema_list={'y': ['SORTABLE']},
                      expected_results=[2, 'doc1', ['y', 'f'], 'doc2', ['x', 'f', 'y', 'f']])
+
 
 def testExpireMultipleFields(env):
     testExpireFields(env, field_name_to_expire={'x': 1, 'y': 3},
