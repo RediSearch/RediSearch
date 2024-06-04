@@ -329,7 +329,6 @@ QueryNode *NewMissingNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
   ret->miss.fieldName = field;
   ret->miss.len = len;
-  ret->miss.nen = NON_EXIST_MISSING;
   return ret;
 }
 

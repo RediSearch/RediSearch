@@ -143,7 +143,6 @@ typedef struct {
 typedef struct {
   const char *fieldName;
   size_t len;
-  NonExistNode nen;
 } QueryMissingNode;
 
 typedef enum {

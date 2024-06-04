@@ -2154,7 +2154,6 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
     // Non-existing field
-    // reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Field not found");
     yymsp[-3].minor.yy35 = NULL;
     rm_free(s);
   } else {

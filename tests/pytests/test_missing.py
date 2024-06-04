@@ -141,11 +141,9 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         env.assertEqual(res, [3, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITH_ONLY_FIELD1])
     else:
         env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
-        
-
 
     # ------------------------------- Union --------------------------------
-    # Search for the documents WITH or WITHOUT the indexed fields
+    # Search for the documents WITH or WITHOUT the indexed fields (i.e., all docs)
     res = conn.execute_command(
         'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
         'NOCONTENT', 'SORTBY', 'id', 'ASC', 'WITHCOUNT')
@@ -460,13 +458,3 @@ def testMissing(env):
 
         # Test missing fields indexing on JSON documents
         JSONMissingTest(env, conn)
-
-
-
-    # Things to test:
-    # INTERSECT, UNION, NOT, Other query operators..
-    # TEXT features: HIGHLIGHT, SUMMARIZE, PHONETIC, FUZZY.. ? Not sure that they are interesting.
-    # FT.SEARCH & FT.AGGREGATE
-    # `ismissing()` of two fields that index missing values.
-    # Scoring.
-    # SORTBY missing fields (what do we expect?)
