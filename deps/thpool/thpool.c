@@ -137,7 +137,7 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
                                    size_t n_jobs);
 
 static int priority_queue_init(priorityJobqueue *priority_queue_p,
-                               size_t n_threads, size_t num_privileged_threads);
+                               size_t n_threads, size_t num_high_priority_bias);
 static void priority_queue_clear(priorityJobqueue *priority_queue_p);
 static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                                              job *first_newjob,
@@ -165,7 +165,7 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
 /* ========================== THREADPOOL ============================ */
 
 /* Create thread pool */
-struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads,
+struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t num_high_priority_bias,
                          LogFunc log, const char *thpool_name) {
   /* Make new thread pool */
   redisearch_thpool_t *thpool_p;
@@ -189,7 +189,7 @@ struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t 
 
   /* Initialise the job queue */
   priority_queue_init(&thpool_p->jobqueues, num_threads,
-                      num_privileged_threads);
+                      num_high_priority_bias);
 
   return thpool_p;
 }
@@ -661,15 +661,15 @@ fail:
 
 static int priority_queue_init(priorityJobqueue *priority_queue_p,
                                size_t num_threads,
-                               size_t num_privileged_threads) {
+                               size_t num_high_priority_bias) {
 
   jobqueue_init(&priority_queue_p->high_priority_jobqueue);
   jobqueue_init(&priority_queue_p->low_priority_jobqueue);
   jobqueue_init(&priority_queue_p->admin_priority_jobqueue);
   pthread_mutex_init(&priority_queue_p->lock, NULL);
   priority_queue_p->alternating_pulls = 0;
-  priority_queue_p->n_high_priority_bias = num_privileged_threads;
-  priority_queue_p->high_priority_tickets = num_privileged_threads;
+  priority_queue_p->n_high_priority_bias = num_high_priority_bias;
+  priority_queue_p->high_priority_tickets = num_high_priority_bias;
   priority_queue_p->state = JOBQ_RUNNING;
   priority_queue_p->num_jobs_in_progress = 0;
   pthread_cond_init(&(priority_queue_p->has_jobs), NULL);

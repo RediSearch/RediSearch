@@ -239,14 +239,14 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
 }
 
 // PRIVILEGED_THREADS_NUM
-CONFIG_SETTER(setPrivilegedThreadsNum) {
-  int acrc = AC_GetSize(ac, &config->privilegedThreadsNum, AC_F_GE0);
+CONFIG_SETTER(setHighPriorityBiasNum) {
+  int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getPrivilegedThreadsNum) {
+CONFIG_GETTER(getHighPriorityBiasNum) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->privilegedThreadsNum);
+  return sdscatprintf(ss, "%lu", config->highPriorityBiasNum);
 }
 #endif // MT_BUILD
 
@@ -672,8 +672,8 @@ RSConfigOptions RSGlobalConfigOptions = {
             .helpText = "The number of threads in worker thread pool that always execute high"
                         " priority tasks, if there exist any in the job queue. Other threads will"
                         " excute high and low priority tasks alterntely.",
-            .setValue = setPrivilegedThreadsNum,
-            .getValue = getPrivilegedThreadsNum,
+            .setValue = setHighPriorityBiasNum,
+            .getValue = getHighPriorityBiasNum,
             .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif

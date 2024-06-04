@@ -6,7 +6,7 @@
 
 typedef struct {
     size_t num_threads;
-    size_t num_priveleged_threads;
+    size_t num_high_priority_bias;
 } ThpoolParams;
 
 class PriorityThpoolTestBase : public testing::TestWithParam<ThpoolParams> {
@@ -14,22 +14,22 @@ public:
     redisearch_threadpool pool;
         virtual void SetUp() {
             ThpoolParams params = GetParam();
-            // Thread pool with a single thread which is also a "privileged thread" that
+            // Thread pool with a single thread which is also high-priority bias that
             // runs high priority tasks before low priority tasks.
-            this->pool = redisearch_thpool_create(params.num_threads, params.num_priveleged_threads, nullptr, "test");
+            this->pool = redisearch_thpool_create(params.num_threads, params.num_high_priority_bias, nullptr, "test");
         }
 
         virtual void TearDown() {
             redisearch_thpool_destroy(this->pool);
         }
 };
-#define THPOOL_TEST_SUITE(CLASS_NAME, NUM_THREADS, NUM_PRIVILEGED) \
+#define THPOOL_TEST_SUITE(CLASS_NAME, NUM_THREADS, NUM_HIGH_PRIORITY_BIAS) \
     class CLASS_NAME : public PriorityThpoolTestBase {}; \
     INSTANTIATE_TEST_SUITE_P(CLASS_NAME, \
                             CLASS_NAME, \
-                            testing::Values(ThpoolParams{NUM_THREADS, NUM_PRIVILEGED}));
+                            testing::Values(ThpoolParams{NUM_THREADS, NUM_HIGH_PRIORITY_BIAS}));
 
-/* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 1 ========================== */
+/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */
 THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
 
 struct test_struct {
@@ -87,8 +87,7 @@ TEST_P(PriorityThpoolTestBasic, AllHighPriority) {
 /* The purpose of the test is to check that tasks with different priorities are handled
  * in FIFO manner. The test adds 2 tasks with high priority and 1 task with low priority between them
  * and checks that the high priority tasks are handled before the low priority task, since the
- * single thread in the pool is a privileged thread that is handling high priority tasks before low
- * priority tasks.
+ * single thread in the pool is high priority bias and will prefer to take high priority tasks.
  */
 TEST_P(PriorityThpoolTestBasic, HighLowHighTest) {
     int high_priority_tasks = 2;
@@ -113,10 +112,10 @@ TEST_P(PriorityThpoolTestBasic, HighLowHighTest) {
     }
 }
 
-/* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 0 ========================== */
-THPOOL_TEST_SUITE(PriorityThpoolTestWithoutPrivilegedThreads, 1, 0)
+/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 0 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestWithoutBiasThreads, 1, 0)
 
-TEST_P(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
+TEST_P(PriorityThpoolTestWithoutBiasThreads, CombinationTest) {
     int total_tasks = 5;
     std::chrono::time_point<std::chrono::high_resolution_clock> arr[total_tasks];
 
@@ -148,7 +147,7 @@ TEST_P(PriorityThpoolTestWithoutPrivilegedThreads, CombinationTest) {
     ASSERT_LT(arr[4], arr[3]);
 }
 
-/* ========================== NUM_THREADS = 1, NUM_PRIVILEGED = 0 ========================== */
+/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 0 ========================== */
 THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 1, 0)
 
 void sleep_1_and_set(size_t *time_ms) {
@@ -208,10 +207,10 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
 
 }
 
-/* ========================== NUM_THREADS = 2, NUM_PRIVILEGED = 1 ========================== */
-THPOOL_TEST_SUITE(PriorityThpoolTestPrivilegedAndUnprivileged, 2, 1)
+/* ========================== NUM_THREADS = 2, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestBiasAndNonBias, 2, 1)
 
-TEST_P(PriorityThpoolTestPrivilegedAndUnprivileged, TestTakingAsPrivileged) {
+TEST_P(PriorityThpoolTestBiasAndNonBias, TestTakingTasksAsBias) {
     size_t num_jobs = 5;
 
     // This job will keep the thread busy until we tell it to finish.
@@ -246,25 +245,25 @@ TEST_P(PriorityThpoolTestPrivilegedAndUnprivileged, TestTakingAsPrivileged) {
     };
 
     /* Scenario of the test:
-     * 1. We add 2 waiting jobs with low priority, so both threads will be unprivileged, and we can control
+     * 1. We add 2 waiting jobs with low priority, so both threads will be unbiased, and we can control
      *    which thread will take the next job.
      * 2. We add 5 count jobs with high priority and 5 count jobs with low priority.
      * 3. We add a state check job for each priority.
      * 4. Add a final job to release the other waiting thread (low priority job)
      * 5. Release one of the threads from the waiting job to execute the rest of the jobs.
      *
-     * We expect that the unblocked thread will understand that it is privileged and will take the high priority jobs
-     * before the low priority jobs. therefore, the high priority state check is expected to see 5 high priority jobs
+     * We expect that the unblocked thread will understand that it should be high priority biased and will take the high priority
+     * jobs before the low priority jobs. therefore, the high priority state check is expected to see 5 high priority jobs
      * and 0 low priority jobs, and the low priority state check is expected to see 5 high priority jobs and 5 low priority jobs.
      *
-     * Before the mechanism fix, the unblocked thread would assume it is unprivileged because it sees there is one running thread
-     * (num jobs in progress is not smaller than the number of privileged threads), and would take a high priority job and
+     * Before the mechanism fix, the unblocked thread would assume it is unbiased because it sees there is one running thread
+     * (num jobs in progress is not smaller than the high priority bias number), and would take a high priority job and
      * a low priority job alternately, and we would get to both state checks after executing all the count jobs.
      */
 
     bool sign1 = true, sign2 = true;
     size_t countHigh = 0, countLow = 0;
-    // Add two jobs as a low priority job so the threads taking them will be the unprivileged one.
+    // Add two jobs as a low priority job so the threads taking them will be the unbiased one.
     redisearch_thpool_add_work(this->pool, waitForSignFunc, &sign1, THPOOL_PRIORITY_LOW);
     redisearch_thpool_add_work(this->pool, waitForSignFunc, &sign2, THPOOL_PRIORITY_LOW);
     // Wait for the threads to take the jobs before adding any high priority jobs.

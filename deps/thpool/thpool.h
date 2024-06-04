@@ -8,7 +8,7 @@
 #define _THPOOL_
 #include <stddef.h>
 
-#define DEFAULT_PRIVILEGED_THREADS_NUM 1
+#define DEFAULT_HIGH_PRIORITY_BIAS_NUM 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,8 +41,8 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @brief  Create a new threadpool (without initializing the threads)
  *
  * @param num_threads number of threads to be created in the threadpool
- * @param num_privileged_threads number of threads that run only high priority tasks as long as
- * there are such tasks waiting (num_privileged_threads <= num_threads).
+ * @param num_high_priority_bias number of threads that run only high priority tasks as long as
+ * there are such tasks waiting (num_high_priority_bias <= num_threads).
  * @param log callback to be called for printing debug messages to the log
  * @param name thpool identifier used to name the threads in thpool. limited to
  * 11 characters including the null terminator. Each thread will be named
@@ -50,7 +50,7 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
 redisearch_threadpool redisearch_thpool_create(size_t num_threads,
-                                               size_t num_privileged_threads,
+                                               size_t num_high_priority_bias,
                                                LogFunc log, const char *name);
 
 /**
