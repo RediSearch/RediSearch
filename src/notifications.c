@@ -34,6 +34,7 @@ typedef enum {
   trimmed_cmd,
   restore_cmd,
   expired_cmd,
+  hexpire_cmd,
   evicted_cmd,
   change_cmd,
   loaded_cmd,
@@ -72,7 +73,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0;
+                    *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0;
 
   // clang-format off
 
@@ -88,6 +89,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(hexpire)
   else CHECK_CACHED_EVENT(expired)
   else CHECK_CACHED_EVENT(evicted)
   else CHECK_CACHED_EVENT(change)
@@ -152,6 +154,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case del_cmd:
     case set_cmd:
     case trimmed_cmd:
+    case hexpire_cmd:
     case expired_cmd:
     case evicted_cmd:
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
