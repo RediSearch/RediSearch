@@ -475,9 +475,8 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
 
   /* Set thread name for profiling and debugging */
   char thread_name[16] = {0};
-  short random_id = rand() % 10000;
-  snprintf(thread_name, sizeof(thread_name), "%s-%d", thpool_p->name,
-           random_id);
+  unsigned short random_id = rand() % 10000U;
+  snprintf(thread_name, sizeof(thread_name), "%s-%04u", thpool_p->name, random_id);
 
 #if defined(__linux__)
   /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
