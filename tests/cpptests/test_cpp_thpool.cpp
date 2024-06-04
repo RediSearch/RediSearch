@@ -207,3 +207,84 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), 0) << "expected 0 working threads";
 
 }
+
+/* ========================== NUM_THREADS = 2, NUM_PRIVILEGED = 1 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestPrivilegedAndUnprivileged, 2, 1)
+
+TEST_P(PriorityThpoolTestPrivilegedAndUnprivileged, TestTakingAsPrivileged) {
+    size_t num_jobs = 5;
+
+    // This job will keep the thread busy until we tell it to finish.
+    auto waitForSignFunc = [](void *p) {
+        bool *waitForSign = (bool *)p;
+        while (*waitForSign) {
+            usleep(1);
+        }
+    };
+    // This job will signal the waiting job to finish.
+    auto signalFunc = [](void *p) {
+        bool *waitForSign = (bool *)p;
+        *waitForSign = false;
+    };
+    // This job will count how many times it was taken with a specific priority.
+    auto countFunc = [](void *p) {
+        size_t *count = (size_t *)p;
+        (*count)++;
+    };
+    // This job will check the state of the counts.
+    struct state_test {
+        size_t *countHigh;
+        size_t *countLow;
+
+        size_t expectedHigh;
+        size_t expectedLow;
+    };
+    auto stateCheck = [](void *p) {
+        state_test *state = (state_test *)p;
+        ASSERT_EQ(*state->countHigh, state->expectedHigh);
+        ASSERT_EQ(*state->countLow, state->expectedLow);
+    };
+
+    /* Scenario of the test:
+     * 1. We add 2 waiting jobs with low priority, so both threads will be unprivileged, and we can control
+     *    which thread will take the next job.
+     * 2. We add 5 count jobs with high priority and 5 count jobs with low priority.
+     * 3. We add a state check job for each priority.
+     * 4. Add a final job to release the other waiting thread (low priority job)
+     * 5. Release one of the threads from the waiting job to execute the rest of the jobs.
+     *
+     * We expect that the unblocked thread will understand that it is privileged and will take the high priority jobs
+     * before the low priority jobs. therefore, the high priority state check is expected to see 5 high priority jobs
+     * and 0 low priority jobs, and the low priority state check is expected to see 5 high priority jobs and 5 low priority jobs.
+     *
+     * Before the mechanism fix, the unblocked thread would assume it is unprivileged because it sees there is one running thread
+     * (num jobs in progress is not smaller than the number of privileged threads), and would take a high priority job and
+     * a low priority job alternately, and we would get to both state checks after executing all the count jobs.
+     */
+
+    bool sign1 = true, sign2 = true;
+    size_t countHigh = 0, countLow = 0;
+    // Add two jobs as a low priority job so the threads taking them will be the unprivileged one.
+    redisearch_thpool_add_work(this->pool, waitForSignFunc, &sign1, THPOOL_PRIORITY_LOW);
+    redisearch_thpool_add_work(this->pool, waitForSignFunc, &sign2, THPOOL_PRIORITY_LOW);
+    // Wait for the threads to take the jobs before adding any high priority jobs.
+    while (redisearch_thpool_num_jobs_in_progress(this->pool) != 2) {
+        usleep(1);
+    }
+    // Add 5 count jobs for each priority.
+    for (int i = 0; i < num_jobs; i++) {
+        redisearch_thpool_add_work(this->pool, countFunc, &countHigh, THPOOL_PRIORITY_HIGH);
+        redisearch_thpool_add_work(this->pool, countFunc, &countLow, THPOOL_PRIORITY_LOW);
+    }
+    // Add the state check job.
+    state_test state1 = {&countHigh, &countLow, num_jobs, 0};
+    state_test state2 = {&countHigh, &countLow, num_jobs, num_jobs};
+    redisearch_thpool_add_work(this->pool, stateCheck, &state1, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, stateCheck, &state2, THPOOL_PRIORITY_LOW);
+    // Add the signal job for the first sign.
+    redisearch_thpool_add_work(this->pool, signalFunc, &sign1, THPOOL_PRIORITY_LOW);
+
+    // Release the second sign and wait for the jobs to finish.
+    sign2 = false;
+    redisearch_thpool_wait(this->pool);
+}
