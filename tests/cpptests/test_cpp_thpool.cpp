@@ -257,9 +257,9 @@ TEST_P(PriorityThpoolTestPrivilegedAndUnprivileged, TestTakingAsPrivileged) {
      * before the low priority jobs. therefore, the high priority state check is expected to see 5 high priority jobs
      * and 0 low priority jobs, and the low priority state check is expected to see 5 high priority jobs and 5 low priority jobs.
      *
-     * Before the mechanism fix, the unblocked thread would see that there is one running thread, and would assume that it is
-     * unprivileged (num jobs in progress is not smaller than the number of privileged threads), and would take once a high priority
-     * job and once a low priority job, and we would get to both state checks after executing all the count jobs.
+     * Before the mechanism fix, the unblocked thread would assume it is unprivileged because it sees there is one running thread
+     * (num jobs in progress is not smaller than the number of privileged threads), and would take a high priority job and
+     * a low priority job alternately, and we would get to both state checks after executing all the count jobs.
      */
 
     bool sign1 = true, sign2 = true;

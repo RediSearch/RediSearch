@@ -516,11 +516,11 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
     rm_free(job_p);
 
     /* These variables are atomic, so we can do this without a lock. */
-    thpool_p->total_jobs_done += !job_ctx.is_admin;
-    thpool_p->jobqueues.num_jobs_in_progress--;
     if (job_ctx.is_privileged) {
       thpool_p->jobqueues.privilege_tickets++;
     }
+    thpool_p->total_jobs_done += !job_ctx.is_admin;
+    thpool_p->jobqueues.num_jobs_in_progress--;
 
     if (thread_ctx.thread_state != THREAD_RUNNING) {
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
@@ -728,22 +728,18 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
 
   if (!job_p) {
     is_admin = false;
-    // When taking a privilege ticket, we must hold the lock (not atomic)
+    // When taking a privilege ticket, we must hold the lock (read-and-then-update not atomic)
     if (priority_queue_p->privilege_tickets > 0) {
-      is_privileged = true;
-      priority_queue_p->privilege_tickets--;
-    }
-    if (is_privileged) {
       /* This is a privileged thread id, try taking from the high priority
        * queue. */
       job_p = jobqueue_pull(&priority_queue_p->high_priority_jobqueue);
-      /* If the higher priority queue is empty, pull from the low priority
-      queue. */
-      if (!job_p) {
+      if (job_p) {
+        is_privileged = true;
+        priority_queue_p->privilege_tickets--;
+      } else {
+        /* If the higher priority queue is empty, pull from the low priority
+        queue (as unprivileged). */
         job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
-        // If we didn't find a high priority job, return the privilege ticket
-        is_privileged = false;
-        priority_queue_p->privilege_tickets++;
       }
     } else {
       /* For non-privileged threads, alternate between both queues every
