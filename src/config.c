@@ -238,7 +238,7 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
 
-// PRIVILEGED_THREADS_NUM
+// PRIORITY_BIAS_NUM
 CONFIG_SETTER(setHighPriorityBiasNum) {
   int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -247,6 +247,12 @@ CONFIG_SETTER(setHighPriorityBiasNum) {
 CONFIG_GETTER(getHighPriorityBiasNum) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->highPriorityBiasNum);
+}
+
+// PRIVILEGED_THREADS_NUM
+CONFIG_SETTER(setPrivilegedThreadsNum) {
+  RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting PRIORITY_BIAS_NUM instead.");
+  return setHighPriorityBiasNum(config, ac, status);
 }
 #endif // MT_BUILD
 
@@ -668,13 +674,20 @@ RSConfigOptions RSGlobalConfigOptions = {
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-        {.name = "PRIVILEGED_THREADS_NUM",
-            .helpText = "The number of threads in worker thread pool that always execute high"
-                        " priority tasks, if there exist any in the job queue. Other threads will"
-                        " excute high and low priority tasks alterntely.",
-            .setValue = setHighPriorityBiasNum,
-            .getValue = getHighPriorityBiasNum,
-            .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        {.name = "PRIVILEGED_THREADS_NUM", // Deprecated alias of PRIORITY_BIAS_NUM
+         .helpText = "Deprecated. See `PRIORITY_BIAS_NUM`",
+         .setValue = setPrivilegedThreadsNum,
+         .getValue = getHighPriorityBiasNum,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        },
+        {.name = "PRIORITY_BIAS_NUM",
+         .helpText = "The number of high priority tasks to be executed at any given time by the "
+                     "worker thread pool, before executing low priority tasks. After this number "
+                     "of high priority tasks are being executed, the worker thread pool will execute "
+                     "high and low priority tasks alternately.",
+         .setValue = setHighPriorityBiasNum,
+         .getValue = getHighPriorityBiasNum,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
 #endif
         {.name = "FRISOINI",
