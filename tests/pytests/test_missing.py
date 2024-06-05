@@ -22,7 +22,6 @@ DOC_WITH_BOTH = 'both'
 DOC_WITH_NONE = 'none'
 DOC_WITH_BOTH_AND_TEXT = 'both_and_text'
 ALL_DOCS = [5, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_BOTH, DOC_WITH_NONE, DOC_WITH_BOTH_AND_TEXT]
-ALL_DOCS_WRONG_ORDER = [5, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE]
 
 def testMissingValidations():
     """Tests the validations for missing values indexing"""
@@ -114,7 +113,7 @@ def testMissingBasic():
     env.assertEqual(res[0], 1)
     env.assertEqual(res[1], DOC_WITH_NONE)
 
-def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Opt, isjson=False, twomissing=False):
+def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Opt, isjson=False):
     """Performs tests for missing values indexing on hash documents for all
     supported field types separately."""
 
@@ -136,33 +135,21 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     res = conn.execute_command(
         'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
         'WITHCOUNT', 'SORTBY', 'id', 'ASC')
-    if isjson and env.isCluster():
-        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
-        env.assertEqual(res, [3, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITH_ONLY_FIELD1])
-    else:
-        env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
+    env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
 
     # ------------------------------- Union --------------------------------
     # Search for the documents WITH or WITHOUT the indexed fields (i.e., all docs)
     res = conn.execute_command(
         'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
         'NOCONTENT', 'SORTBY', 'id', 'ASC', 'WITHCOUNT')
-    if isjson and env.isCluster():
-        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
-        env.assertEqual(res, ALL_DOCS_WRONG_ORDER)
-    else:
-        env.assertEqual(res, ALL_DOCS)
+    env.assertEqual(res, ALL_DOCS)
 
     # --------------------- Optional operator-------------------------------
     expected = [1, DOC_WITH_ONLY_FIELD2]
     res = conn.execute_command(
         'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
         'SORTBY', 'id', 'ASC', 'WITHCOUNT')
-    if isjson and env.isCluster():
-        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
-        env.assertEqual(res, ALL_DOCS_WRONG_ORDER)
-    else:
-        env.assertEqual(res, ALL_DOCS)
+    env.assertEqual(res, ALL_DOCS)
 
     # ---------------------------- Intersection ----------------------------
     # Empty intersection
@@ -235,55 +222,6 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
 
         env.assertEqual(res, expected)
 
-    if twomissing:
-        # ---------------------------- Intersection ----------------------------
-        # Non-empty intersection
-        expected = [1, DOC_WITH_NONE]
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1}) ismissing(@{field2})',
-            'NOCONTENT'
-        )
-        env.assertEqual(res, expected)
-
-        # Bug MOD-6886. This fails when running with raw DocID encoding
-        # Non-empty intersection using negation operator
-        raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
-        if raw_encoding == 'false':
-            expected = [1, DOC_WITH_ONLY_FIELD2]
-            res = conn.execute_command(
-                'FT.SEARCH', idx, f'ismissing(@{field1}) -ismissing(@{field2})',
-                'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-            )
-            env.assertEqual(res, expected)
-            res = conn.execute_command(
-                'FT.SEARCH', idx, f'-ismissing(@{field2}) ismissing(@{field1})',
-                'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-            )
-            env.assertEqual(res, expected)
-
-        # Union of missing fields
-        expected = [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE]
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'ismissing(@{field1}) | ismissing(@{field2})',
-            'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-        )
-        env.assertEqual(res, expected)
-
-        # Union of missing fields using negation operator
-        expected = [4, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_NONE, DOC_WITH_BOTH_AND_TEXT]
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field2})',
-            'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-        )
-        env.assertEqual(res, expected)
-
-        # Union of missing fields using optional operator
-        res = conn.execute_command(
-            'FT.SEARCH', idx, f'~ismissing(@{field1}) | ismissing(@{field2})',
-            'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-        )
-        env.assertEqual(res, ALL_DOCS)
-
     # ---------------------- Update docs and search ------------------------
     # Update a document to have the indexed field
     # Add field1 to DOC_WITH_ONLY_FIELD2
@@ -310,11 +248,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     res = conn.execute_command(
         'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
         'SORTBY', 'id', 'ASC', 'WITHCOUNT')
-    if isjson and not env.isCluster():
-        # Bug MOD-7184: The order of the results is wrong using JSON
-        env.assertEqual(res, [3, DOC_WITH_NONE, DOC_WITH_ONLY_FIELD2, DOC_WITH_ONLY_FIELD1])
-    else:
-        env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE])
+    env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE])
 
     # Restore original value of DOC_WITH_ONLY_FIELD1
     if not isjson:
@@ -331,6 +265,61 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     res = conn.execute_command(
         'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT')
     env.assertEqual(res, [1, DOC_WITH_NONE])
+
+def MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, isjson=False):
+
+    # For vector fields in hash, we need to convert the value to bytes
+    if ftype == 'VECTOR' and not isjson:
+        val1 = np.array(val1, dtype=np.float32).tobytes()
+        val2 = np.array(val2, dtype=np.float32).tobytes()
+
+    # ---------------------------- Intersection ----------------------------
+    # Non-empty intersection
+    expected = [1, DOC_WITH_NONE]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1}) ismissing(@{field2})',
+        'NOCONTENT'
+    )
+    env.assertEqual(res, expected)
+
+    # Bug MOD-6886. This fails when running with raw DocID encoding
+    # Non-empty intersection using negation operator
+    raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
+    if raw_encoding == 'false':
+        expected = [1, DOC_WITH_ONLY_FIELD2]
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'ismissing(@{field1}) -ismissing(@{field2})',
+            'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+        )
+        env.assertEqual(res, expected)
+        res = conn.execute_command(
+            'FT.SEARCH', idx, f'-ismissing(@{field2}) ismissing(@{field1})',
+            'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+        )
+        env.assertEqual(res, expected)
+
+    # Union of missing fields
+    expected = [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'ismissing(@{field1}) | ismissing(@{field2})',
+        'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+    )
+    env.assertEqual(res, expected)
+
+    # Union of missing fields using negation operator
+    expected = [4, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_NONE, DOC_WITH_BOTH_AND_TEXT]
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field2})',
+        'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+    )
+    env.assertEqual(res, expected)
+
+    # Union of missing fields using optional operator
+    res = conn.execute_command(
+        'FT.SEARCH', idx, f'~ismissing(@{field1}) | ismissing(@{field2})',
+        'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+    )
+    env.assertEqual(res, ALL_DOCS)
 
 def JSONMissingTest(env, conn):
     """Performs tests for missing values indexing on JSON documents for all
@@ -362,7 +351,7 @@ def JSONMissingTest(env, conn):
             field1: val1,
             field2: val2,
             'text': 'dummy',
-            'id'  : 1
+            'id'  : 5
         }
         conn.execute_command('JSON.SET', DOC_WITH_BOTH_AND_TEXT, '$', json.dumps(j_with_both_and_text))
 
@@ -381,7 +370,7 @@ def JSONMissingTest(env, conn):
             f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
             f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
             f'$.text AS text TEXT '
-            f'id NUMERIC SORTABLE'
+            f'$.id AS id NUMERIC SORTABLE'
         )
         env.expect(cmd).ok
 
@@ -390,6 +379,24 @@ def JSONMissingTest(env, conn):
 
         # Perform the "isolated" tests per field-type
         MissingTestIndex(env, conn, jidx, ftype, field1, field2, val1, val2, field1Opt, True)
+        env.flush()
+
+        # Create JSON index with two ISMISSING fields
+        cmd = (
+            f'FT.CREATE {idx} ON JSON SCHEMA '
+            f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} '
+            f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
+            f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
+            f'$.text AS text TEXT '
+            f'$.id AS id NUMERIC SORTABLE'
+        )
+        env.expect(cmd).ok()
+
+        # Populate db
+        _populateJSONDB(conn, ftype, field1, field2, val1, val2)
+
+        # Perform the tests using two missing fields of the same type
+        MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, True)
         env.flush()
 
 def HashMissingTest(env, conn):
@@ -450,7 +457,7 @@ def HashMissingTest(env, conn):
         _populateHashDB(conn, ftype, field1, field2, val1, val2)
 
         # Perform the tests using two missing fields of the same type
-        MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Opt, False, True)
+        MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, False)
         env.flush()
 
 def testMissing(env):
