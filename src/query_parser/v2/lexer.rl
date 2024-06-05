@@ -61,6 +61,7 @@ as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
 isempty = 'isempty'i $1;
+isnull = 'isnull'i $1;
 
 main := |*
 
@@ -246,6 +247,17 @@ main := |*
       fbreak;
     }
   };
+
+  isnull => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, ISNULL, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   term => {
     tok.len = te-ts;
     tok.s = ts;
