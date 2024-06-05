@@ -2414,7 +2414,7 @@ void Indexes_ScanAndReindex() {
     reindexPool = redisearch_thpool_create(1, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback, "reindex");
   }
 
-  RedisModule_Log(NULL, "notice", "Scanning all indexes");
+  RedisModule_Log(RSDummyContext, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_NewGlobal();
   // check no global scan is in progress
   if (scanner) {
@@ -2512,7 +2512,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     int rc = IndexAlias_Add(s, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
-      RedisModule_Log(NULL, "notice", "Loading existing alias failed");
+      RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
   }
 
@@ -2526,7 +2526,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
     // spec already exists lets just free this one
-    RedisModule_Log(NULL, "notice", "Loading an already existing index, will just ignore.");
+    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
     sp->uniqueId = 0;
@@ -2738,14 +2738,6 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-// from this version we will have the loaded notification which means that scan
-// will no longer be needed
-Version noScanVersion = {
-    .majorVersion = 6,
-    .minorVersion = 0,
-    .patchVersion = 7,
-};
-
 int CompareVestions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;
@@ -2794,11 +2786,8 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 
     LegacySchemaRulesArgs_Free(ctx);
 
-    if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
+    if (hasLegacyIndexes) {
       Indexes_ScanAndReindex();
-    } else {
-      RedisModule_Log(ctx, "warning",
-                      "Skip background reindex scan, redis version contains loaded event.");
     }
 #ifdef MT_BUILD
     workersThreadPool_waitAndTerminate(ctx);
