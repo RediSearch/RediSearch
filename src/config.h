@@ -177,7 +177,6 @@ typedef struct RSConfigOptions {
   struct RSConfigOptions *next;
 } RSConfigOptions;
 
-#define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 typedef int (*RSConfigExternalTrigger)(RSConfig *);
 
 // global config extern references
@@ -190,7 +189,9 @@ extern RSConfigOptions RSGlobalConfigOptions;
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst);
 
 /**
- * Register a new external trigger for configuration changes
+ * Register a new external trigger for configuration changes.
+ * This function should be called on the module load time, before we start reading
+ * any configuration.
  * @param trigger the trigger function
  * @param configs an array of configuration names that trigger the function.
  *                The array must be NULL-terminated.

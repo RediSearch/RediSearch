@@ -21,6 +21,7 @@
 
 #include "util/config_macros.h"
 
+#define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
 // EXTLOAD
@@ -584,6 +585,9 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
+    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+    // If we don't have a coordinator or this configuration has no trigger, this value
+    // is meaningless and should be ignored
     if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
       *err = rm_strdup(QueryError_GetError(&status));
       QueryError_ClearError(&status);
@@ -653,9 +657,9 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getWorkThreads,
         },
         {.name = "MT_MODE",
-         .helpText = "Let ft.search and vector indexing be done in background threads as default if "
-                     "set to MT_MODE_FULL (if `WORKER_THREADS` > 0). "
-                     "MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
+         .helpText = "If set to MT_MODE_FULL and `WORKER_THREADS` > 0, queries and vector indexing "
+                     "will be performed in background threads by default. If set to MT_MODE_ONLY_ON_OPERATIONS, "
+                     "the workers thread pool will be used only for operational needs.",
          .setValue = setMtMode,
          .getValue = getMtMode,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
