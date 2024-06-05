@@ -137,7 +137,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         'FT.SEARCH', idx, f'-ismissing(@{field1})', 'NOCONTENT',
         'WITHCOUNT', 'SORTBY', 'id', 'ASC')
     if isjson and env.isCluster():
-        # TODO: The order of the results is wrong in cluster using JSON
+        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
         env.assertEqual(res, [3, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT, DOC_WITH_ONLY_FIELD1])
     else:
         env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_BOTH, DOC_WITH_BOTH_AND_TEXT])
@@ -148,7 +148,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         'FT.SEARCH', idx, f'-ismissing(@{field1}) | ismissing(@{field1})',
         'NOCONTENT', 'SORTBY', 'id', 'ASC', 'WITHCOUNT')
     if isjson and env.isCluster():
-        # TODO: The order of the results is wrong in cluster using JSON
+        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
         env.assertEqual(res, ALL_DOCS_WRONG_ORDER)
     else:
         env.assertEqual(res, ALL_DOCS)
@@ -159,7 +159,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         'FT.SEARCH', idx, f'~ismissing(@{field1})', 'NOCONTENT',
         'SORTBY', 'id', 'ASC', 'WITHCOUNT')
     if isjson and env.isCluster():
-        # TODO: The order of the results is wrong in cluster using JSON
+        # Bug MOD-7184: The order of the results is wrong in cluster using JSON
         env.assertEqual(res, ALL_DOCS_WRONG_ORDER)
     else:
         env.assertEqual(res, ALL_DOCS)
@@ -194,9 +194,9 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     env.assertEqual(res, expected)
 
     # ---------------------------- FT.AGGREGATE --------------------------------
-    # TODO: For dialect > 3, FT.AGGREGATE returns "Success (not an error)"
+    # Bug MOD-7185: For dialect > 3, FT.AGGREGATE + SORTBY returns "Success (not an error)"
     dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
-    if dialect in [3]:
+    if dialect in [2, 3]:
         res = conn.execute_command(
             'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}', 
             'REDUCE', 'COUNT', '0', 'AS', 'count',
@@ -212,19 +212,26 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
             expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
         else: # JSON
             if dialect == 2:
-                expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
+                if ftype == 'VECTOR':
+                    expected = [2, [field1, '[0.0,0.0]', 'count', '3'],
+                                   [field1, None, 'count', '2']]
+                else:
+                    expected = [2, [field1, f'{val1}', 'count', '3'],
+                                   [field1, None, 'count', '2']]
             else:
-                # TODO: is this correct? why the value format depends on "SORTABLE"?
+                # Bug MOD-7186: The value format depends on "SORTABLE" option
                 if field1Opt == 'SORTABLE':
-                    expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
+                    expected = [2, [field1, f'{val1}', 'count', '3'],
+                                   [field1, None, 'count', '2']]
                 else:
                     exp_val = f'"{val1}"'
                     if ftype == 'VECTOR':
                         exp_val = "[0.0,0.0]"
-                    if ftype == 'NUMERIC':
+                    elif ftype == 'NUMERIC':
                         exp_val = f'{val1}'
 
-                    expected = [2, [field1, f'[{exp_val}]', 'count', '3'], [field1, None, 'count', '2']]
+                    expected = [2, [field1, f'[{exp_val}]', 'count', '3'],
+                                   [field1, None, 'count', '2']]
 
         env.assertEqual(res, expected)
 
@@ -238,19 +245,21 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         )
         env.assertEqual(res, expected)
 
-        # TODO: This fails when running with raw DocID encoding
+        # Bug MOD-6886. This fails when running with raw DocID encoding
         # Non-empty intersection using negation operator
-        # expected = [1, DOC_WITH_ONLY_FIELD2]
-        # res = conn.execute_command(
-        #     'FT.SEARCH', idx, f'ismissing(@{field1}) -ismissing(@{field2})',
-        #     'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-        # )
-        # env.assertEqual(res, expected)
-        # res = conn.execute_command(
-        #     'FT.SEARCH', idx, f'-ismissing(@{field2}) ismissing(@{field1})',
-        #     'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
-        # )
-        # env.assertEqual(res, expected)
+        raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
+        if raw_encoding == 'false':
+            expected = [1, DOC_WITH_ONLY_FIELD2]
+            res = conn.execute_command(
+                'FT.SEARCH', idx, f'ismissing(@{field1}) -ismissing(@{field2})',
+                'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+            )
+            env.assertEqual(res, expected)
+            res = conn.execute_command(
+                'FT.SEARCH', idx, f'-ismissing(@{field2}) ismissing(@{field1})',
+                'NOCONTENT', 'WITHCOUNT', 'SORTBY', 'id', 'ASC'
+            )
+            env.assertEqual(res, expected)
 
         # Union of missing fields
         expected = [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE]
@@ -302,7 +311,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
         'FT.SEARCH', idx, f'ismissing(@{field1})', 'NOCONTENT',
         'SORTBY', 'id', 'ASC', 'WITHCOUNT')
     if isjson and not env.isCluster():
-        # TODO: The order of the results is wrong using JSON
+        # Bug MOD-7184: The order of the results is wrong using JSON
         env.assertEqual(res, [3, DOC_WITH_NONE, DOC_WITH_ONLY_FIELD2, DOC_WITH_ONLY_FIELD1])
     else:
         env.assertEqual(res, [3, DOC_WITH_ONLY_FIELD1, DOC_WITH_ONLY_FIELD2, DOC_WITH_NONE])
