@@ -282,6 +282,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
           break;
         }
         dictAdd(df_fields_dict, (void *)doc->fields[j].name, NULL);
+        last_ind++;
       }
     }
 
