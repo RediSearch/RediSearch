@@ -1,3 +1,4 @@
+import copy
 from itertools import chain
 
 from common import *
@@ -222,12 +223,12 @@ def expireDocs(env, isSortable, expected_results, isJson):
         conn.execute_command('FLUSHALL')
 
 
-def createTextualSchema(fields, field_to_schema_list):
+def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
-    for field in fields:
+    for field, additional_schema_words in field_to_additional_schema_keywords.items():
         schema.append(field)
         schema.append('TEXT')
-        for keyword in field_to_schema_list.get(field, []):
+        for keyword in additional_schema_words:
             schema.append(keyword)
     return schema
 
@@ -263,73 +264,90 @@ def transform_document_list_to_dict(document_list):
 # e.g SORTABLE, this can affect the expected results
 # The value for each field will be 't' if the field is marked to expire and the document is marked to expire,
 # otherwise 'f'
-def commonFieldExpiration(env, field_name_to_expire_ms_interval, document_name_to_expire,
-                          field_to_schema_list={}, expected_results={}):
-    schema = createTextualSchema(field_name_to_expire_ms_interval.keys(), field_to_schema_list)
-    expiration_interval_to_fields = createExpirationIntervalToFieldMap(field_name_to_expire_ms_interval)
-    documents = {}
-    for document_name, will_expire in document_name_to_expire.items():
-        documents[document_name] = {}
-        field_to_value = documents[document_name]
-        for field_name in field_name_to_expire_ms_interval.keys():
-            field_to_value[field_name] = field_name
-
+def commonFieldExpiration(env, schema, fields, field_name_to_expire_ms_interval, document_name_to_expire):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+    expiration_interval_to_fields = createExpirationIntervalToFieldMap(field_name_to_expire_ms_interval)
+    values = {field_name: field_name for field_name in fields}
+    documents = {document_name: copy.deepcopy(values) for document_name in document_name_to_expire.keys()}
     for document_name, fields in documents.items():
         values = list(chain.from_iterable(fields.items()))
         conn.execute_command('HSET', document_name, *values)
 
     env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(documents)
+    expected_results = documents
     for doc_name, should_expire in document_name_to_expire.items():
         if not should_expire:
             continue
-        for expiration_interval, fields in expiration_interval_to_fields.items():
-            conn.execute_command('HPEXPIRE', doc_name, str(expiration_interval), 'FIELDS', str(len(fields)), *fields)
+        for expiration_interval, field_list in expiration_interval_to_fields.items():
+            conn.execute_command('HPEXPIRE', doc_name, str(expiration_interval), 'FIELDS', str(len(field_list)), *field_list)
+            for field in field_list:
+                del expected_results[doc_name][field]
+            if len(expected_results[doc_name]) == 0:
+                del expected_results[doc_name]
 
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
     time.sleep(0.5)
     env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
-    conn.execute_command('FLUSHALL')
+    expected_inverted_index = {}
+    for document_name, fields in expected_results.items():
+        for field_name, field_value in fields.items():
+            if field_value not in expected_inverted_index:
+                expected_inverted_index[field_value] = []
+            expected_inverted_index[field_value].append(document_name)
+    #conn.execute_command(debug_cmd(), "GC_FORCEINVOKE", "idx")
+    for field_name_and_value, expected_docs in expected_inverted_index.items():
+        (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
+         .equal([len(expected_docs), *expected_docs], message=field_name_and_value))
+    #conn.execute_command('FLUSHALL')
 
-
+@skip(redis_less_than='7.4')
 def testSingleExpireField(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': 1},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          expected_results={'doc2': {'x': 'x'}})
+    field_to_additional_schema_keywords = {'x': []}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'x': 1},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
 
-
+@skip(redis_less_than='7.4')
 def testTwoFieldsOneOfThemWillExpire(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': None, 'y': 1},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          expected_results={'doc1': {'x': 'x'}, 'doc2': {'x': 'x', 'y': 'y'}})
+    field_to_additional_schema_keywords = {'x': [], 'y': []}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'y': 1},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
 
-
+@skip(redis_less_than='7.4')
 def testSingleSortableFieldWithExpiration(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': 1},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          field_to_schema_list={'x': ['SORTABLE']},
-                          expected_results={'doc2': {'x': 'x'}})
+    field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': []}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'x': 1},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
 
-
+@skip(redis_less_than='7.4')
 def testSortableFieldWithExpirationAndRegularField(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': 1, 'y': None},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          field_to_schema_list={'x': ['SORTABLE']},
-                          expected_results={'doc1': {'y': 'y'}, 'doc2': {'x': 'x', 'y': 'y'}})
+    field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': []}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'x': 1, 'y': None},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
 
-
+@skip(redis_less_than='7.4')
 def testFieldWithExpirationAndSortableField(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': 1, 'y': None},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          field_to_schema_list={'y': ['SORTABLE']},
-                          expected_results={'doc1': {'y': 'y'}, 'doc2': {'x': 'x', 'y': 'y'}})
+    field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'x': 1},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
 
-
+@skip(redis_less_than='7.4')
 def testExpireMultipleFields(env):
-    commonFieldExpiration(env, field_name_to_expire_ms_interval={'x': 1, 'y': 3},
-                          document_name_to_expire={'doc1': True, 'doc2': False},
-                          field_to_schema_list={'y': ['SORTABLE']},
-                          expected_results={'doc2': {'x': 'x', 'y': 'y'}})
+    field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          field_name_to_expire_ms_interval={'x': 1, 'y': 3},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
