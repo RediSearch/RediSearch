@@ -15,7 +15,7 @@ def testNullValidations(env):
 
             # JSON index field with ISNULL is valid
             env.expect('FT.CREATE', f'idx_{fieldType}' , 'ON', 'JSON', 'SCHEMA',
-                    'field', fieldType, 'ISNULL').ok()
+                    '$.field', 'AS', 'field', fieldType, 'ISNULL').ok()
             
             # HASH index field with ISNULL is invalid
             env.expect('FT.CREATE', f'idx_{fieldType}_hash1' , 'ON', 'HASH',
@@ -37,7 +37,7 @@ def testNullInfo(env):
 
         for fieldType in ["TAG", "TEXT", "NUMERIC", "GEO", "GEOSHAPE"]:
             env.expect('FT.CREATE', f'idx_{fieldType}' , 'ON', 'JSON', 'SCHEMA',
-                    'field', fieldType, 'ISNULL').ok()
+                    f'$.field', 'AS', 'field', fieldType, 'ISNULL').ok()
 
             info = index_info(env, f'idx_{fieldType}')
             field_info = info['attributes'][0]
