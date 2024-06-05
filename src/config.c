@@ -238,7 +238,7 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
 
-// PRIORITY_BIAS_NUM
+// WORKERS_PRIORITY_BIAS_THRESHOLD
 CONFIG_SETTER(setHighPriorityBiasNum) {
   int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -251,7 +251,7 @@ CONFIG_GETTER(getHighPriorityBiasNum) {
 
 // PRIVILEGED_THREADS_NUM
 CONFIG_SETTER(setPrivilegedThreadsNum) {
-  RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting PRIORITY_BIAS_NUM instead.");
+  RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting WORKERS_PRIORITY_BIAS_THRESHOLD instead.");
   return setHighPriorityBiasNum(config, ac, status);
 }
 #endif // MT_BUILD
@@ -674,13 +674,13 @@ RSConfigOptions RSGlobalConfigOptions = {
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-        {.name = "PRIVILEGED_THREADS_NUM", // Deprecated alias of PRIORITY_BIAS_NUM
-         .helpText = "Deprecated. See `PRIORITY_BIAS_NUM`",
+        {.name = "PRIVILEGED_THREADS_NUM", // Deprecated alias of WORKERS_PRIORITY_BIAS_THRESHOLD
+         .helpText = "Deprecated. See `WORKERS_PRIORITY_BIAS_THRESHOLD`",
          .setValue = setPrivilegedThreadsNum,
          .getValue = getHighPriorityBiasNum,
          .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-        {.name = "PRIORITY_BIAS_NUM",
+        {.name = "WORKERS_PRIORITY_BIAS_THRESHOLD",
          .helpText = "The number of high priority tasks to be executed at any given time by the "
                      "worker thread pool, before executing low priority tasks. After this number "
                      "of high priority tasks are being executed, the worker thread pool will execute "

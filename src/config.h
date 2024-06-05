@@ -237,7 +237,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .numWorkerThreads = 0,                                                                                            \
     .mt_mode = MT_MODE_OFF,                                                                                           \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
-    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_NUM,
+    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
 #else
 #define MT_BUILD_CONFIG
 #endif
