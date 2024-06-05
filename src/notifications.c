@@ -140,7 +140,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
-	case hexpire_cmd:
+    case hexpire_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       break;
 
