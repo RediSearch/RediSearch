@@ -60,6 +60,7 @@ escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
 escaped_term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $0;
+empty_string = quote.quote | squote.squote;
 
 # these are the punctuations that are not valid in a tag, they have special
 # meaning and need to be escaped to be considered as part of a tag
@@ -72,6 +73,7 @@ single_tag = ( (any - (tag_invalid_punct) ) | (escape (tag_invalid_punct)) )+ $2
 contains = (star.escaped_term.star | star.number.star | star.attr.star) $1;
 prefix = (escaped_term.star | number.star | attr.star) $1;
 suffix = (star.escaped_term | star.number | star.attr) $1;
+empty_text = lp empty_string rp $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $2;
@@ -82,6 +84,7 @@ assign_attr = arrow lb attr colon escaped_term rb $2;
 contains_tag = lb (star.single_tag.star | star.attr.star) rb $1;
 prefix_tag = lb (single_tag.star | attr.star) rb $1;
 suffix_tag = lb (star.single_tag | star.attr) rb $1;
+empty_tag = lb empty_string rb $1;
 
 # in case that the expression enclosed by {} matches the wildcard format, we
 # need to escape it to be considered as a tag.
@@ -164,6 +167,14 @@ main := |*
     tok.len = te-ts;
     tok.numval = *ts == '-' ? -INFINITY : INFINITY;
     RSQuery_Parse_v3(pParser, NUMBER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  empty_string => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -402,6 +413,59 @@ main := |*
     tok.s = ts + 3 + is_attr;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, WILDCARD, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  empty_text => {
+    tok.len = 1;
+    tok.s = ts;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LP, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = te - (ts + 1);
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, RP, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  empty_tag => {
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, LB, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 0;
+    tok.s = ts + 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
