@@ -127,7 +127,6 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    if (!pool) continue;
     RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "%s:%d", pool->conns[0]->ep.host,
                                                                           pool->conns[0]->ep.port);
     RedisModule_ReplyWithString(ctx, key);
@@ -226,7 +225,6 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    if (!pool) continue;
     for (size_t i = 0; i < pool->num; i++) {
       if (MRConn_StartNewConnection(pool->conns[i]) == REDIS_OK) {
         n++;
@@ -253,7 +251,6 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    if (!pool) continue;
 
     for (size_t i = num; i < pool->num; i++) {
       MRConn_Stop(pool->conns[i]);
@@ -273,7 +270,6 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    if (!pool) continue;
 
     pool->conns = rm_realloc(pool->conns, num * sizeof(MRConn *));
     // Use the first connection's endpoint to create new connections
