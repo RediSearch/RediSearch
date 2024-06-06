@@ -18,7 +18,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
     threadpools_g = array_new(redisearch_threadpool, 1); // Only used by the coordinator, so 1 is enough
   }
   int poolId = array_len(threadpools_g);
-  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, DEFAULT_PRIVILEGED_THREADS_NUM,
+  threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
                                                                        LogCallback, "coord"));
 
   return poolId;
