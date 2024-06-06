@@ -46,13 +46,14 @@ def testMissingValidations():
     # Test that we get an error in case of a user tries to use "ismissing(@field)"
     # when `field` does not index missing values.
     env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
-        '`INDEXMISSING` applied to field `tag`, which does not index missing values'
+        #'`INDEXMISSING` applied to field `tag`, which does not index missing values'
+        "'ismissing' requires field 'tag' to be defined with 'INDEXMISSING'"
         )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
-        '`INDEXMISSING` applied to field `text`, which does not index missing values'
+        "'ismissing' requires field 'text' to be defined with 'INDEXMISSING'"
     )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
-        '`INDEXMISSING` applied to field `numeric`, which does not index missing values'
+        "'ismissing' requires field 'numeric' to be defined with 'INDEXMISSING'"
     )
 
 def testMissingInfo():

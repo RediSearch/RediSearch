@@ -1404,7 +1404,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (!FieldSpec_IndexesMissing(fs)) {
     QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
-                           "`INDEXMISSING` applied to field `%s`, which does not index missing values",
+                           "'ismissing' requires field '%s' to be defined with '" SPEC_INDEXMISSING_STR "'",
                            qn->miss.fieldName);
     return NULL;
   }
@@ -1598,7 +1598,6 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
     case QN_GEOMETRY:
-    case QN_MISSING:
       res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
@@ -1606,6 +1605,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
       assert(n->params == NULL);
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
   }
@@ -1640,6 +1640,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
       }
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
     case QN_UNION:
@@ -1657,7 +1658,6 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_LEXRANGE:
     case QN_VECTOR:
     case QN_GEOMETRY:
-    case QN_MISSING:
       break;
   }
   // Handle children

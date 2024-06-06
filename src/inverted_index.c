@@ -1199,9 +1199,12 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
 IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);  
+  if (!decoder.decoder) {  
+    return NULL;  
+  } 
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
-  return NewIndexReaderGeneric(sp, idx, InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK),
-                               dctx, false, record);
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 
 void IR_Free(IndexReader *ir) {
