@@ -1756,10 +1756,10 @@ static void valIIFreeCb(void *unused, void *p) {
 
 static dictType missingFieldDictType = {
         .hashFunction = stringsHashFunction,
-        .keyDup = NULL,
+        .keyDup = stringsKeyDup,
         .valDup = NULL,
-        .keyCompare = NULL,
-        .keyDestructor = NULL,
+        .keyCompare = stringsKeyCompare,
+        .keyDestructor = stringsKeyDestructor,
         .valDestructor = valIIFreeCb,
 };
 
