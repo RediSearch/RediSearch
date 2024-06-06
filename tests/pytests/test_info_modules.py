@@ -144,7 +144,7 @@ def test_redis_info():
   res = env.cmd('INFO', 'MODULES')
 
   env.assertEqual(res['search_number_of_indexes'], 1)
-  env.assertEqual(res['search_fields_text'], 'Text=1')
+  env.assertEqual(res['search_fields_text']['Text'], 1)
   env.assertEqual(res['search_fields_tag']['Tag'], 1)
   env.assertEqual(res['search_fields_tag']['Sortable'], 1)
   env.assertGreater(res['search_used_memory_indexes'], 0)
