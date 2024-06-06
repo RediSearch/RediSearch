@@ -173,7 +173,6 @@ typedef struct Version {
   int buildVersion;  // if not exits then its zero
 } Version;
 
-extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
