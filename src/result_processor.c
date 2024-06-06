@@ -529,15 +529,14 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      int rc;
       if (v1) {
         return 1;
       } else if (v2) {
         return -1;
       } else {
-        rc = h1->docId < h2->docId ? -1 : 1;
+        // Both have no sort key, so they are equal. Continue to next sort key
+        continue;
       }
-      return ascending ? -rc : rc;
     }
 
     int rc = RSValue_Cmp(v1, v2, qerr);
