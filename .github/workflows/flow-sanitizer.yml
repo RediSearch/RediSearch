@@ -11,9 +11,9 @@ on:
 
 jobs:
   clang-sanitizer:
+    runs-on: ubuntu-latest
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: ${{ inputs.flow-config }}
-      get-redis: 'skip getting redis'
       san: addr
     secrets: inherit

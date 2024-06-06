@@ -100,9 +100,9 @@ jobs:
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+      # - name: Install Boost
+      #   working-directory: .install
+      #   run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
@@ -119,9 +119,8 @@ jobs:
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
