@@ -1205,3 +1205,56 @@ def testWithKNN(env):
                                 'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                 'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', dialect)
         env.assertEqual(res[1:], expected_res)
+
+def testMathOperators(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'n', '1')
+
+    # Test exponentiation
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '2*3^2', 'AS', 'val')
+    expected = [1, ['val', str(2*3**2)]]
+    env.assertEqual(res, expected)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '2^3*2', 'AS', 'val')
+    expected = [1, ['val', str(2**3*2)]]
+    env.assertEqual(res, expected)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '2^3^2', 'AS', 'val')
+    expected = [1, ['val', str(2**3**2)]]
+    env.assertEqual(res, expected)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '8^4/2', 'AS', 'val')
+    expected = [1, ['val', str(int(8**4/2))]] # 8^4 = 4096, 4096/2 = 2048
+    env.assertEqual(res, expected)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '8/4^2', 'AS', 'val')
+    expected = [1, ['val', str(8/4**2)]] # 8/4 = 2, 2^2 = 4
+    env.assertEqual(res, expected)
+
+    # Test modulo
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '2*11%3', 'AS', 'val')
+    expected = [1, ['val', str(2*11%3)]]  # 2*11 = 22, 22%3 = 1
+    env.assertEqual(res, expected)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '11%3*2', 'AS', 'val')
+    expected = [1, ['val', str(11%3*2)]]  # 11%3 = 2, 2*2 = 4
+    env.assertEqual(res, expected)
+    
+    # Test division
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '18/3*2', 'AS', 'val')
+    expected = [1, ['val', str(int(18/3*2))]]
+    env.assertEqual(res, expected)
+    
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'APPLY', '18*3/2', 'AS', 'val')
+    expected = [1, ['val', str(int(18*3/2))]]
+    env.assertEqual(res, expected)

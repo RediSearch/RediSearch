@@ -140,11 +140,11 @@ typedef union {
 #define RSExprParser_ParseCTX_PARAM
 #define RSExprParser_ParseCTX_FETCH
 #define RSExprParser_ParseCTX_STORE
-#define YYNSTATE             37
+#define YYNSTATE             41
 #define YYNRULE              27
 #define YYNRULE_WITH_ACTION  27
 #define YYNTOKEN             24
-#define YY_MAX_SHIFT         36
+#define YY_MAX_SHIFT         40
 #define YY_MIN_SHIFTREDUCE   48
 #define YY_MAX_SHIFTREDUCE   74
 #define YY_ERROR_ACTION      75
@@ -221,7 +221,7 @@ typedef union {
 #define YY_ACTTAB_COUNT (122)
 static const YYACTIONTYPE yy_action[] = {
  /*     0 */    96,    5,    4,   21,   11,   10,    9,    8,    7,    6,
- /*    10 */    18,   14,   16,   15,   12,   13,   77,   49,   78,    5,
+ /*    10 */    18,   14,   16,   15,   12,   13,   13,   49,   78,    5,
  /*    20 */     4,    1,   11,   10,    9,    8,    7,    6,   18,   14,
  /*    30 */    16,   15,   12,   13,    5,    4,   68,   11,   10,    9,
  /*    40 */     8,    7,    6,   18,   14,   16,   15,   12,   13,   11,
@@ -230,13 +230,13 @@ static const YYACTIONTYPE yy_action[] = {
  /*    70 */    76,   20,   96,   34,   17,   22,   69,   35,   65,   67,
  /*    80 */    16,   15,   12,   13,   96,   96,   96,   23,   24,   25,
  /*    90 */    96,   96,   77,   26,   27,   96,   96,   96,   28,   29,
- /*   100 */    30,   96,   96,   96,   31,   85,   84,   96,   96,   96,
- /*   110 */    33,   82,   81,   96,   96,   70,   19,   32,   77,   77,
+ /*   100 */    30,   96,   96,   96,   31,   37,   38,   96,   96,   96,
+ /*   110 */    33,   39,   40,   96,   96,   70,   19,   32,   77,   77,
  /*   120 */    77,    2,
 };
 static const YYCODETYPE yy_lookahead[] = {
  /*     0 */    24,    1,    2,   27,    4,    5,    6,    7,    8,    9,
- /*    10 */    10,   11,   12,   13,   14,   15,   28,   17,    0,    1,
+ /*    10 */    10,   11,   12,   13,   14,   15,   15,   17,    0,    1,
  /*    20 */     2,   16,    4,    5,    6,    7,    8,    9,   10,   11,
  /*    30 */    12,   13,   14,   15,    1,    2,   21,    4,    5,    6,
  /*    40 */     7,    8,    9,   10,   11,   12,   13,   14,   15,    4,
@@ -251,14 +251,15 @@ static const YYCODETYPE yy_lookahead[] = {
  /*   130 */    28,   28,   28,   28,   28,   28,   28,   28,   28,   28,
  /*   140 */    24,   24,   24,   24,   24,   24,
 };
-#define YY_SHIFT_COUNT    (36)
+#define YY_SHIFT_COUNT    (40)
 #define YY_SHIFT_MIN      (0)
 #define YY_SHIFT_MAX      (98)
 static const unsigned char yy_shift_ofst[] = {
  /*     0 */    58,   58,   58,   58,   58,   58,   58,   58,   58,   58,
  /*    10 */    58,   58,   58,   58,   58,   58,   58,   58,   58,    0,
  /*    20 */    18,   33,   33,   45,   45,   45,   52,   52,   52,   52,
- /*    30 */    52,   52,   68,   68,   98,    5,   15,
+ /*    30 */    52,   52,   68,   68,   98,    5,   15,    1,    1,    1,
+ /*    40 */     1,
 };
 #define YY_REDUCE_COUNT (18)
 #define YY_REDUCE_MIN   (-24)
@@ -271,7 +272,8 @@ static const YYACTIONTYPE yy_default[] = {
  /*     0 */    75,  102,   75,   75,   75,   75,   75,   75,   75,   75,
  /*    10 */    75,   75,   75,   75,   75,   75,   75,   75,   75,   75,
  /*    20 */    75,  104,  103,   94,   93,   92,   91,   90,   89,   88,
- /*    30 */    87,   86,   80,   83,   75,  101,   75,
+ /*    30 */    87,   86,   80,   83,   75,  101,   75,   85,   84,   82,
+ /*    40 */    81,
 };
 /********** End of lemon-generated parsing tables *****************************/
 

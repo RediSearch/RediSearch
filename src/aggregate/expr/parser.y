@@ -11,8 +11,8 @@
 %left EQ NE LT LE GT GE.
 
 %left PLUS MINUS.
-%left DIVIDE TIMES MOD POW.
-
+%left DIVIDE TIMES MOD.
+%right POW.
 %right LP.
 %left RP.
 
