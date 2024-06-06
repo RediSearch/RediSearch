@@ -4,7 +4,7 @@ import json
 EMPTY_RESULT = [0]
 
 def testEmptyValidations():
-    """Validates the edge-cases of the `ISEMPTY` field option"""
+    """Validates the edge-cases of the `INDEXEMPTY` field option"""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
@@ -226,10 +226,9 @@ def testEmptyTag(env):
             'INTERSECT {',
             '  NOT{',
             '    TAG:@t {',
-            '      <ISEMPTY>', '    }',
+            '    }',
             '  }',
             '  TAG:@t {',
-            '    <ISEMPTY>',
             '  }',
             '}',
             ''
@@ -247,7 +246,6 @@ def testEmptyTag(env):
             '      foo',
             '    }',
             '    TAG:@t {',
-            '      <ISEMPTY>',
             '    }',
             '  }',
             '}',
@@ -268,7 +266,6 @@ def testEmptyTag(env):
             '      foo',
             '    }',
             '    TAG:@t {',
-            '      <ISEMPTY>',
             '    }',
             '  }',
             '}',
@@ -290,7 +287,6 @@ def testEmptyTag(env):
             '    }',
             '    NOT{',
             '      TAG:@t {',
-            '        <ISEMPTY>',
             '      }',
             '    }',
             '  }',
@@ -305,11 +301,9 @@ def testEmptyTag(env):
             '  INTERSECT {',
             '    NOT{',
             '      TAG:@t {',
-            '        <ISEMPTY>',
             '      }',
             '    }',
             '    TAG:@t {',
-            '      <ISEMPTY>',
             '    }',
             '  }',
             '  TAG:@t {',
@@ -324,7 +318,6 @@ def testEmptyTag(env):
         expected = [
             'UNION {',
             '  TAG:@t {',
-            '    <ISEMPTY>',
             '  }',
             '  INTERSECT {',
             '    NOT{',
@@ -334,7 +327,6 @@ def testEmptyTag(env):
             '    }',
             '    NOT{',
             '      TAG:@t {',
-            '        <ISEMPTY>',
             '      }',
             '    }',
             '  }',
@@ -348,7 +340,6 @@ def testEmptyTag(env):
             'UNION {',
             '  NOT{',
             '    TAG:@t {',
-            '      <ISEMPTY>',
             '    }',
             '  }',
             '  INTERSECT {',
@@ -358,7 +349,6 @@ def testEmptyTag(env):
             '      }',
             '    }',
             '    TAG:@t {',
-            '      <ISEMPTY>',
             '    }',
             '  }',
             '}',
@@ -372,37 +362,37 @@ def testEmptyTag(env):
 
         # Create an index with a TAG field, that also indexes empty strings, another
         # TAG field that doesn't index empty values, and a TEXT field
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'text', 'TEXT').ok()
         testEmptyTagHash(env, conn, 'idx')
         env.flush()
 
         # ----------------------------- SORTABLE case ------------------------------
         # Create an index with a SORTABLE TAG field, that also indexes empty strings
-        env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
+        env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
         testEmptyTagHash(env, conn, 'idx_sortable')
         env.flush()
 
         # --------------------------- WITHSUFFIXTRIE case --------------------------
         # Create an index with a TAG field, that also indexes empty strings, while
         # using a suffix trie
-        env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
+        env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
         testEmptyTagHash(env, conn, 'idx_suffixtrie')
         env.flush()
 
         # ---------------------------------- JSON ----------------------------------
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
         EmptyJSONTest(env, 'jidx', dialect)
         env.flush()
 
-        env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
+        env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE').ok()
         EmptyJSONTest(env, 'jidx_sortable', dialect)
         env.flush()
 
-        env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+        env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
         EmptyJSONTest(env, 'jidx_suffix', dialect)
         env.flush()
 
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'INDEXEMPTY').ok()
         # Empty array values ["a", "", "c"] with explicit array components indexing
         arr = {
             'arr': ['a', '', 'c']
@@ -443,7 +433,7 @@ def testEmptyTag(env):
             "t": {"lala": "lali"}
         }
         js = json.dumps(j)
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
         env.expect('JSON.SET', 'j', '$', js).equal('OK')
         cmd = f'FT.SEARCH jidx @t:("")'.split(' ')
         expected = EMPTY_RESULT
@@ -457,7 +447,7 @@ def testEmptyTag(env):
 
         # Test that when we index many docs, we find the wanted portion of them upon
         # empty value indexing
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
         n_docs = 1000
         for i in range(n_docs):
             conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
@@ -548,7 +538,7 @@ def testEmptyText(env):
         # --------------------------- EXPLAINCLI -------------------------------
         cmd = f'FT.EXPLAINCLI {idx} @t:("")'.split(' ')
         expected = [
-            '@t:<ISEMPTY>',
+            '@t:',
             ''
         ]
 
@@ -591,40 +581,40 @@ def testEmptyText(env):
 
         # Create an index with a TAG field, that also indexes empty strings, another
         # TAG field that doesn't index empty values, and a TEXT field
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY').ok()
         testEmptyTextHash('idx', env)
         env.flush()
 
         # ----------------------------- SORTABLE case ------------------------------
         # Create an index with a SORTABLE TAG field, that also indexes empty strings
-        env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'SORTABLE').ok()
+        env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'SORTABLE').ok()
         testEmptyTextHash('idx_sortable', env)
         env.flush()
 
         # --------------------------- WITHSUFFIXTRIE case --------------------------
         # Create an index with a TAG field, that also indexes empty strings, while
         # using a suffix trie
-        env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+        env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
         testEmptyTextHash('idx_suffixtrie', env)
         env.flush()
 
         # ------------------------------- Phonetic ---------------------------------
         # Create an index with a TEXT field, that also indexes empty strings, and
         # uses phonetic indexing
-        env.expect('FT.CREATE', 'idx_phonetic', 'SCHEMA', 't', 'TEXT', 'ISEMPTY', 'PHONETIC', 'dm:en').ok()
+        env.expect('FT.CREATE', 'idx_phonetic', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'PHONETIC', 'dm:en').ok()
         testEmptyTextHash('idx_phonetic', env)
         env.flush()
 
         # ---------------------------------- JSON ----------------------------------
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY').ok()
+        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY').ok()
         EmptyJSONTest(env, 'jidx', dialect)
         env.flush()
 
-        env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY', 'SORTABLE').ok()
+        env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY', 'SORTABLE').ok()
         EmptyJSONTest(env, 'jidx_sortable', dialect)
         env.flush()
 
-        env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
+        env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
         EmptyJSONTest(env, 'jidx_suffix', dialect)
         env.flush()
 
@@ -635,10 +625,10 @@ def testEmptyInfo():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
     # Create an index with the currently supported field types (TAG, TEXT)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT', 'ISEMPTY').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'text', 'TEXT', 'INDEXEMPTY').ok()
 
     info = index_info(env, 'idx')
     tag_info = info['attributes'][0]
-    env.assertEqual(tag_info[-1], 'ISEMPTY')
+    env.assertEqual(tag_info[-1], 'INDEXEMPTY')
     text_info = info['attributes'][1]
-    env.assertEqual(text_info[-1], 'ISEMPTY')
+    env.assertEqual(text_info[-1], 'INDEXEMPTY')

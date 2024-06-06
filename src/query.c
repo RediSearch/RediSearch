@@ -1734,11 +1734,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      if (!strcmp(qs->tn.str, "")) {
-        s = sdscatprintf(s, "<%s>%s", SPEC_INDEXEMPTY_STR, qs->tn.expanded ? "(expanded)" : "");
-      } else {
-        s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
-      }
+      s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }
@@ -1787,12 +1783,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      if (qs->tag.nen == NON_EXIST_EMPTY) {
-        s = doPad(s, depth + 1);
-        s = sdscat(s, "<ISEMPTY>\n");
-      } else {
-        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
-      }
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
