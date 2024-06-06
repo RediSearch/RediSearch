@@ -10,7 +10,6 @@ on:
         required: true
 
 jobs:
-  runs-on: ubuntu-latest
   clang-sanitizer:
     uses: ./.github/workflows/task-test.yml
     with:
