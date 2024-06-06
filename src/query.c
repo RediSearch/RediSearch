@@ -1404,7 +1404,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (!FieldSpec_IndexesMissing(fs)) {
     QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
-                           "`ISMISSING` applied to field `%s`, which does not index missing values",
+                           "`INDEXMISSING` applied to field `%s`, which does not index missing values",
                            qn->miss.fieldName);
     return NULL;
   }

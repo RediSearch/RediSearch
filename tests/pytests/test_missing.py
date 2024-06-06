@@ -28,14 +28,14 @@ def testMissingValidations():
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
-    # Validate successful index creation with the `ISMISSING` keyword for TAG,
+    # Validate successful index creation with the `INDEXMISSING` keyword for TAG,
     # TEXT fields
-    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'ta', 'TAG', 'ISMISSING', 'te', 'TEXT', 'ISMISSING').ok()
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'ta', 'TAG', 'INDEXMISSING', 'te', 'TEXT', 'INDEXMISSING').ok()
 
     # Same with SORTABLE, WITHSUFFIXTRIE
     env.expect('FT.CREATE', 'idx2', 'SCHEMA',
-               'ta', 'TAG', 'ISMISSING', 'WITHSUFFIXTRIE', 'SORTABLE',
-               'te', 'TEXT', 'ISMISSING', 'WITHSUFFIXTRIE', 'SORTABLE'
+               'ta', 'TAG', 'INDEXMISSING', 'WITHSUFFIXTRIE', 'SORTABLE',
+               'te', 'TEXT', 'INDEXMISSING', 'WITHSUFFIXTRIE', 'SORTABLE'
                ).ok()
 
     # Create an index with a TAG, TEXT and a NUMERIC field, which don't index
@@ -46,23 +46,23 @@ def testMissingValidations():
     # Test that we get an error in case of a user tries to use "ismissing(@field)"
     # when `field` does not index missing values.
     env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
-        '`ISMISSING` applied to field `tag`, which does not index missing values'
+        '`INDEXMISSING` applied to field `tag`, which does not index missing values'
         )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
-        '`ISMISSING` applied to field `text`, which does not index missing values'
+        '`INDEXMISSING` applied to field `text`, which does not index missing values'
     )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
-        '`ISMISSING` applied to field `numeric`, which does not index missing values'
+        '`INDEXMISSING` applied to field `numeric`, which does not index missing values'
     )
 
 def testMissingInfo():
-    """Tests that we get the `ISMISSING` keyword in the INFO response for fields
+    """Tests that we get the `INDEXMISSING` keyword in the INFO response for fields
     that index missing values."""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
     # Create an index with TAG and TEXT fields that index empty fields.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ta', 'TAG', 'ISMISSING', 'te', 'TEXT', 'ISMISSING').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ta', 'TAG', 'INDEXMISSING', 'te', 'TEXT', 'INDEXMISSING').ok()
 
     # Validate `INFO` response
     res = env.cmd('FT.INFO', 'idx')
@@ -71,7 +71,7 @@ def testMissingInfo():
     n_found = 0
     fields = res[7]
     for field in fields:
-        env.assertEqual(field[-1], "ISMISSING")
+        env.assertEqual(field[-1], "INDEXMISSING")
         n_found += 1
     env.assertEqual(n_found, 2)
 
@@ -83,7 +83,7 @@ def testMissingBasic():
 
     # Create an index with TAG and TEXT fields that index missing values, i.e.,
     # index documents that do not have these fields.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ta', 'TAG', 'ISMISSING', 'te', 'TEXT', 'ISMISSING').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ta', 'TAG', 'INDEXMISSING', 'te', 'TEXT', 'INDEXMISSING').ok()
 
     # Add some documents, with\without the indexed fields.
     conn.execute_command('HSET', 'all', 'ta', 'foo', 'te', 'foo')
@@ -367,7 +367,7 @@ def JSONMissingTest(env, conn):
         cmd = (
             f'FT.CREATE {jidx} ON JSON SCHEMA '
             f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} '
-            f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
+            f'INDEXMISSING {field1Opt if len(field1Opt) > 0 else ""} '
             f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} '
             f'$.text AS text TEXT '
             f'$.id AS id NUMERIC SORTABLE'
@@ -381,12 +381,12 @@ def JSONMissingTest(env, conn):
         MissingTestIndex(env, conn, jidx, ftype, field1, field2, val1, val2, field1Opt, True)
         env.flush()
 
-        # Create JSON index with two ISMISSING fields
+        # Create JSON index with two INDEXMISSING fields
         cmd = (
             f'FT.CREATE {idx} ON JSON SCHEMA '
             f'$.{field1} AS {field1} {ftype} {opt if len(opt) > 0 else ""} '
-            f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
-            f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
+            f'INDEXMISSING {field1Opt if len(field1Opt) > 0 else ""} '
+            f'$.{field2} AS {field2} {ftype} {opt if len(opt) > 0 else ""} INDEXMISSING '
             f'$.text AS text TEXT '
             f'$.id AS id NUMERIC SORTABLE'
         )
@@ -426,11 +426,11 @@ def HashMissingTest(env, conn):
         field1 = field + '1'
         field2 = field + '2'
 
-        # Create Hash index with a single ISMISSING field
+        # Create Hash index with a single INDEXMISSING field
         cmd = (
             f'FT.CREATE {idx} SCHEMA '
             f'{field1} {ftype} {opt if len(opt) > 0 else ""} '
-            f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
+            f'INDEXMISSING {field1Opt if len(field1Opt) > 0 else ""} '
             f'{field2} {ftype} {opt if len(opt) > 0 else ""} '
             f'text TEXT id NUMERIC SORTABLE'
         )
@@ -443,12 +443,12 @@ def HashMissingTest(env, conn):
         MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Opt)
         env.flush()
 
-        # Create Hash index with two ISMISSING fields
+        # Create Hash index with two INDEXMISSING fields
         cmd = (
             f'FT.CREATE {idx} SCHEMA '
             f'{field1} {ftype} {opt if len(opt) > 0 else ""} '
-            f'ISMISSING {field1Opt if len(field1Opt) > 0 else ""} '
-            f'{field2} {ftype} {opt if len(opt) > 0 else ""} ISMISSING '
+            f'INDEXMISSING {field1Opt if len(field1Opt) > 0 else ""} '
+            f'{field2} {ftype} {opt if len(opt) > 0 else ""} INDEXMISSING '
             f'text TEXT id NUMERIC SORTABLE'
         )
         env.expect(cmd).ok()

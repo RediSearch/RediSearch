@@ -666,11 +666,11 @@ def testExplain(env):
     _testExplain(env, 'idx', ['@bar<-10 | @bar>10'],
                  'UNION {\n  NUMERIC {-inf <= @bar < -10.000000}\n  NUMERIC {10.000000 < @bar <= inf}\n}\n')
 
-    # test ISMISSING()
+    # test INDEXMISSING()
     env.expect(
         'FT.CREATE', 'idx_im', 'ON', 'HASH', 'SCHEMA',
-        't', 'TEXT', 'ISMISSING',
-        'tag', 'TAG', 'ISMISSING').ok()
+        't', 'TEXT', 'INDEXMISSING',
+        'tag', 'TAG', 'INDEXMISSING').ok()
 
     _testExplain(env, 'idx_im', ['ismissing(@t)'], "ISMISSING{t}\n")
     _testExplain(env, 'idx_im', ['ismissing(@tag)'], "ISMISSING{tag}\n")
