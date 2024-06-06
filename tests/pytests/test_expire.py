@@ -232,16 +232,6 @@ def createTextualSchema(field_to_additional_schema_keywords):
             schema.append(keyword)
     return schema
 
-def createExpirationIntervalToFieldMap(field_to_expiration_interval):
-    expiration_interval_to_fields = {}
-    for field, interval in field_to_expiration_interval.items():
-        if interval is None:
-            continue
-        if interval not in expiration_interval_to_fields:
-            expiration_interval_to_fields[interval] = []
-        expiration_interval_to_fields[interval].append(field)
-    return expiration_interval_to_fields
-
 
 def transform_document_list_to_dict(document_list):
     if len(document_list) == 0:
@@ -258,18 +248,17 @@ def transform_document_list_to_dict(document_list):
     return result
 
 # The test creates an index, then documents based on document_name_to_expire
-# Each document will hold the fields based on field_name_to_expire_ms_interval
+# Each document will hold the fields based on fields argument
 # If the field is marked to expire and the document is marked to expire, the field will be expired
 # The field_to_schema_list allows specifying additional schema keywords for the field
 # e.g SORTABLE, this can affect the expected results
 # The value for each field will be 't' if the field is marked to expire and the document is marked to expire,
 # otherwise 'f'
-def commonFieldExpiration(env, schema, fields, field_name_to_expire_ms_interval, document_name_to_expire):
+def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, document_name_to_expire):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
 
-    expiration_interval_to_fields = createExpirationIntervalToFieldMap(field_name_to_expire_ms_interval)
     values = {field_name: field_name for field_name in fields}
     documents = {document_name: copy.deepcopy(values) for document_name in document_name_to_expire.keys()}
     for document_name, fields in documents.items():
@@ -298,56 +287,74 @@ def commonFieldExpiration(env, schema, fields, field_name_to_expire_ms_interval,
             if field_value not in expected_inverted_index:
                 expected_inverted_index[field_value] = []
             expected_inverted_index[field_value].append(document_name)
-    #conn.execute_command(debug_cmd(), "GC_FORCEINVOKE", "idx")
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .equal([len(expected_docs), *expected_docs], message=field_name_and_value))
-    #conn.execute_command('FLUSHALL')
+    conn.execute_command('FLUSHALL')
 
+
+# Aims to expire a single field in a document and make sure that document expires as well
 @skip(redis_less_than='7.4')
 def testSingleExpireField(env):
     field_to_additional_schema_keywords = {'x': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'x': 1},
+                          expiration_interval_to_fields={1: ['x']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
+# Aims to test that the expiration of a single field will not affect the search results
 @skip(redis_less_than='7.4')
 def testTwoFieldsOneOfThemWillExpire(env):
     field_to_additional_schema_keywords = {'x': [], 'y': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'y': 1},
+                          expiration_interval_to_fields={1: ['y']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
+# Aims to test that the expiration of a single sortable field will cause the document to expire
 @skip(redis_less_than='7.4')
 def testSingleSortableFieldWithExpiration(env):
-    field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': []}
+    field_to_additional_schema_keywords = {'x': ['SORTABLE']}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'x': 1},
+                          expiration_interval_to_fields={1: ['x']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
+# Aims to test that the expiration of a single sortable field will not affect the search results
 @skip(redis_less_than='7.4')
 def testSortableFieldWithExpirationAndRegularField(env):
     field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'x': 1, 'y': None},
+                          expiration_interval_to_fields={1: ['x']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
+
+# Aims to test that the expiration of a single non sortable field will not affect the search results
 @skip(redis_less_than='7.4')
 def testFieldWithExpirationAndSortableField(env):
     field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'x': 1},
+                          expiration_interval_to_fields={1: ['x']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
+
+# Aims to test that two fields with different expiration times will eventually cause the key itself to expire
 @skip(redis_less_than='7.4')
-def testExpireMultipleFields(env):
+def testExpireTwoFields(env):
     field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          field_name_to_expire_ms_interval={'x': 1, 'y': 3},
+                          expiration_interval_to_fields={1: ['x'], 3: ['y']},
+                          document_name_to_expire={'doc1': True, 'doc2': False})
+
+
+# Aims to test that the expectation that for 2 fields with the same expiration time we will get a single notification
+@skip(redis_less_than='7.4')
+def testExpireMultipleFields(env):
+    field_to_additional_schema_keywords = {'x': [], 'y': [], 'z': []}
+    schema = createTextualSchema(field_to_additional_schema_keywords)
+    commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
+                          expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
