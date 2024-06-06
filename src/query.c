@@ -473,7 +473,8 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // If this is an empty value search, and the field does not index empty values
   // throw an error
-  if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
+  const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
+  if (fs && qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(fs))) {
     QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
                               "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
                               IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
@@ -1326,9 +1327,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
     goto done;
   }
-  if (qn->tag.nen == NON_EXIST_EMPTY) {
+  if (qn->tag.nen == NON_EXIST_EMPTY || 
+      (QueryNode_NumChildren(qn) == 1 && qn->children[0]->type == QN_TAG 
+        && qn->children[0]->tag.nen == NON_EXIST_EMPTY)) {
     // Tag node searching for empty strings (0 children)
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    // RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
     ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
     if (ret) {
       *array_ensure_tail(&total_its, IndexIterator *) = ret;

@@ -58,12 +58,9 @@ attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
-empty_text = lp empty_string rp $1;
-empty_tag = lb empty_string rb $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
-isempty = 'isempty'i $1;
 
 main := |*
 
@@ -135,7 +132,15 @@ main := |*
       fbreak;
     }
   };
-  
+
+  empty_string => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);  
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   quote => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);  
@@ -240,74 +245,12 @@ main := |*
   punct;
   cntrl;
   
-  isempty => {
-    tok.pos = ts-q->raw;
-    tok.len = te - ts;
-    tok.s = ts;
-    RSQuery_Parse_v2(pParser, ISEMPTY, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
   term => {
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, TERM, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
-  empty_text => {
-    tok.len = 1;
-    tok.s = ts;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, LP, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = te - (ts + 1);
-    tok.s = ts + 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = 1;
-    tok.s = te - 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, RP, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
-  empty_tag => {
-    tok.numval = 0;
-    tok.len = 1;
-    tok.s = ts;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, LB, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = 0;
-    tok.s = ts + 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = 1;
-    tok.s = te - 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v2(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
