@@ -18,14 +18,9 @@ def testEmptyValidations(env):
 
         # Test that we get an error in case of a user tries to search for an
         # empty value when `field` does not index empty values.
-        # TODO: For dialect < 5, we should also throw the error
-        if dialect == 5:
-            env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
-                'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
-                )
-        else:
-            res = conn.execute_command('FT.SEARCH', 'idx', '@tag:{""}')
-            env.assertEqual(res, EMPTY_RESULT)
+        env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
+            'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
+        )
 
         env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
             'In order to query for empty values the field `text` is required to be defined with `INDEXEMPTY`'
@@ -59,12 +54,19 @@ def EmptyTagJSONTest(env, idx, dialect):
     env.assertEqual(res, expected)
 
     # Multi-value (automatically dereferenced).
+    # add a document with an empty value
     j = {
         't': ['a', '', 'c']
     }
     js = json.dumps(j, separators=(',', ':'))
     conn.execute_command('JSON.SET', 'j', '$', js)
     res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
+    # add a document where all values are non-empty
+    k = {
+        't': ['a', 'b', 'c']
+    }
+    ks = json.dumps(k, separators=(',', ':'))
+    conn.execute_command('JSON.SET', 'k', '$', ks)
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
     expected = [1, 'j', ['$', js]]
@@ -91,11 +93,19 @@ def EmptyTextJSONTest(env, idx, dialect):
     env.assertEqual(res, expected)
 
     # Multi-value (automatically dereferenced).
+    # add a document with an empty value
     j = {
         't': ['a', '', 'c']
     }
     js = json.dumps(j, separators=(',', ':'))
     conn.execute_command('JSON.SET', 'j', '$', js)
+    # add a document where all values are non-empty
+    k = {
+        't': ['a', 'b', 'c']
+    }
+    ks = json.dumps(k, separators=(',', ':'))
+    conn.execute_command('JSON.SET', 'k', '$', ks)
+
     res = conn.execute_command('FT.SEARCH', idx, '@t:""')
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
@@ -144,6 +154,18 @@ def testEmptyTag(env):
         res = conn.execute_command('FT.SEARCH', idx, '-@t:{foo}')
         expected = [1, 'h1', ['t', '']]
         env.assertEqual(res, expected)
+
+        # --------------------- Optional Operator ------------------------------
+        res = conn.execute_command('FT.SEARCH', idx, '~@t:{""}')
+        expected = [1, 'h1', ['t', '']]
+        env.assertEqual(res, expected)
+
+        conn.execute_command('HSET', 'h2', 't', 'bar')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '~@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+        env.assertEqual(res, expected)
+        conn.execute_command('DEL', 'h2')
 
         # ------------------------------- Union --------------------------------
         # Union of empty and non-empty values
@@ -617,6 +639,18 @@ def testEmptyText(env):
 
         res = conn.execute_command('FT.SEARCH', idx, '-foo')
         env.assertEqual(res, expected)
+
+        # --------------------- Optional Operator ------------------------------
+        res = conn.execute_command('FT.SEARCH', idx, '~@t:""')
+        expected = [1, 'h1', ['t', '']]
+        env.assertEqual(res, expected)
+
+        conn.execute_command('HSET', 'h2', 't', 'bar')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '~@t:("")', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+        env.assertEqual(res, expected)
+        conn.execute_command('DEL', 'h2')
 
         # ------------------------------- Union --------------------------------
         # Union of empty and non-empty values

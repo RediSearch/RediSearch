@@ -1325,6 +1325,19 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
                               "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               fs->name, SPEC_INDEXEMPTY_STR);
     }
+    // for dialect [2-4], the tag contains a phrase which contains a leaf tag node
+    else if (!FieldSpec_IndexesEmpty(fs) && QueryNode_NumChildren(qn) == 1) {
+      QueryNode* child = qn->children[0];
+      if (QueryNode_NumChildren(child) == 1 && child->type == QN_PHRASE) {
+        QueryNode* grandChild = child->children[0];
+        if (QueryNode_NumChildren(grandChild) == 0 && grandChild->type == QN_TAG 
+            && grandChild->tag.nen == NON_EXIST_EMPTY) {
+            QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                            "In order to query for empty values the field `%s` is required to be defined with `%s`",
+                            fs->name, SPEC_INDEXEMPTY_STR);
+        }
+      }
+    }
     goto done;
   }
   if (qn->tag.nen == NON_EXIST_EMPTY || 
