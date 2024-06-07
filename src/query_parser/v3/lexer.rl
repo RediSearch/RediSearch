@@ -76,6 +76,7 @@ suffix = (star.escaped_term | star.number | star.attr) $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $2;
+ismissing = 'ismissing'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
@@ -373,6 +374,16 @@ main := |*
   };
   
   cntrl;
+
+  ismissing => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, ISMISSING, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
 
   escaped_term => {
     tok.len = te-ts;

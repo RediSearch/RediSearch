@@ -15,7 +15,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING.
+%left EMPTY_STRING ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -47,8 +47,8 @@
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
-// if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T .
+// if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
+%fallback TERM AS_T ISMISSING.
 
 %token_type {QueryToken}
 
@@ -722,27 +722,6 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
-/////////////////////////////////////////////////////////////////
-// Single Tag - tag enclosed in curly braces
-/////////////////////////////////////////////////////////////////
-
-expr(A) ::= modifier(B) COLON LB single_tag(C) RB . {
-    if (!C) {
-        A = NULL;
-    } else {
-      // Tag field names must be case sensitive, we can't do rm_strdupcase
-        char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen(s, B.len);
-
-        A = NewTagNode(s, slen);
-        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
-
-        // Set the children count on C to 0 so they won't get recursively free'd
-        QueryNode_ClearChildren(C, 0);
-        QueryNode_Free(C);
-    }
-}
-
 expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
   char *s = rm_strndup(B.s, B.len);
   size_t slen = unescapen(s, B.len);
@@ -764,6 +743,33 @@ expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
         break;
     }
   }
+}
+
+expr(A) ::= ISMISSING LP modifier(B) RP . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen(s, B.len);
+  A = NewMissingNode(s, slen);
+}
+
+/////////////////////////////////////////////////////////////////
+// Single Tag - tag enclosed in curly braces
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) COLON LB single_tag(C) RB . {
+    if (!C) {
+        A = NULL;
+    } else {
+      // Tag field names must be case sensitive, we can't do rm_strdupcase
+        char *s = rm_strndup(B.s, B.len);
+        size_t slen = unescapen(s, B.len);
+
+        A = NewTagNode(s, slen);
+        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
+
+        // Set the children count on C to 0 so they won't get recursively free'd
+        QueryNode_ClearChildren(C, 0);
+        QueryNode_Free(C);
+    }
 }
 
 single_tag(A) ::= ATTRIBUTE(B) . {

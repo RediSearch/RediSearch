@@ -213,6 +213,12 @@
             "optional": true
           },
           {
+            "name": "indexmissing",
+            "type": "pure-token",
+            "token": "INDEXMISSING",
+            "optional": true
+          },
+          {
             "name": "sortable",
             "type": "block",
             "optional": true,

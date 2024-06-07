@@ -762,6 +762,8 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_WithSuffixTrie;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
       fs->options |= FieldSpec_IndexEmpty;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
     } else {
       break;
     }
@@ -793,8 +795,10 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
         fs->options |= FieldSpec_WithSuffixTrie;
-      } else if(AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
+      } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
         fs->options |= FieldSpec_IndexEmpty;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+        fs->options |= FieldSpec_IndexMissing;
       } else {
         break;
       }
@@ -831,6 +835,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   const char *algStr;
   size_t len;
   int rc;
+  int result;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
@@ -844,7 +849,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
-    return parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
+    result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
@@ -860,10 +865,18 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
-
-    return parseVectorField_hnsw(fs, params, ac, status);
+    result = parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
+    return 0;
+  }
+
+  if(result != 0) {
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
+    return result;
+  } else {
     return 0;
   }
 }
@@ -871,13 +884,19 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
-  if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
-  } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-  } else {
-    fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-  }
+  
+    if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else {
+      fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    }
+
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
+
   return 1;
 }
 
@@ -901,8 +920,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
+    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    }
   } else {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
@@ -1355,6 +1380,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
+  // Free missingFieldDict
+  if (spec->missingFieldDict) {
+    dictRelease(spec->missingFieldDict);
+  }
   // Free synonym data
   if (spec->smap) {
     SynonymMap_Free(spec->smap);
@@ -1718,6 +1747,22 @@ static void valFreeCb(void *unused, void *p) {
   rm_free(kdv);
 }
 
+static void valIIFreeCb(void *unused, void *p) {
+  InvertedIndex *ii = p;
+  if(ii) {
+    InvertedIndex_Free(ii);
+  }
+}
+
+static dictType missingFieldDictType = {
+        .hashFunction = stringsHashFunction,
+        .keyDup = stringsKeyDup,
+        .valDup = NULL,
+        .keyCompare = stringsKeyCompare,
+        .keyDestructor = stringsKeyDestructor,
+        .valDestructor = valIIFreeCb,
+};
+
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   // Initialize only once:
@@ -1726,6 +1771,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
     invidxDictType.valDestructor = valFreeCb;
   }
   sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
 }
 
 // Only used on new specs so it's thread safe
@@ -2385,7 +2431,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -2874,7 +2919,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
-  }
+  } 
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {

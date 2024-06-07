@@ -255,6 +255,56 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
+// Index missing field docs.
+// Add field names to missingFieldDict if it is missing in the document
+// and add the doc to its corresponding inverted index
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  Document *doc = aCtx->doc;
+  IndexSpec *spec = sctx->spec;
+  bool found_df;
+  // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
+  dict *df_fields_dict = dictCreate(&dictTypeHeapStrings, NULL);
+  uint last_ind = 0;
+
+  for(size_t i = 0; i < spec->numFields; i++) {
+    found_df = false;
+    const FieldSpec *fs = spec->fields + i;
+    if (!FieldSpec_IndexesMissing(fs)) {
+      continue;
+    }
+    if (dictFind(df_fields_dict, (void *)fs->name) != NULL) {
+      found_df = true;
+    } else {
+      for (size_t j = last_ind; j < aCtx->doc->numFields; j++) {
+        if (!strcmp(fs->name, doc->fields[j].name)) {
+          found_df = true;
+          last_ind++;
+          break;
+        }
+        dictAdd(df_fields_dict, (void *)doc->fields[j].name, NULL);
+        last_ind++;
+      }
+    }
+
+    // We wish to index this document for this field only if the document doesn't contain it.
+    if (!found_df) {
+      InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
+      if(iiMissingDocs == NULL) {
+        size_t dummy_mem;
+        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
+        dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
+      }
+      // Add docId to inverted index
+      t_docId docId = aCtx->doc->docId;
+      IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
+      RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
+      InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
+    }
+  }
+
+  dictRelease(df_fields_dict);
+}
+
 /**
  * Perform the processing chain on a single document entry, optionally merging
  * the tokens of further entries in the queue
@@ -297,6 +347,9 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
     doAssignIds(firstZeroId, &ctx);
   }
+
+  // Handle missing values indexing
+  writeMissingFieldDocs(aCtx, &ctx);
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {

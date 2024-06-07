@@ -14,7 +14,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING.
+%left EMPTY_STRING ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -42,8 +42,8 @@
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
-// if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T .
+// if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
+%fallback TERM AS_T ISMISSING.
 
 %token_type {QueryToken}
 
@@ -725,6 +725,12 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
+}
+
+expr(A) ::= ISMISSING LP modifier(B) RP . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen(s, B.len);
+  A = NewMissingNode(s, slen);
 }
 
 /////////////////////////////////////////////////////////////////
