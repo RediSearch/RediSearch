@@ -722,29 +722,6 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
-expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
-  char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen(s, B.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    A = NULL;
-    rm_free(s);
-  } else {
-    switch (fs->types) {
-      case INDEXFLD_T_TAG:
-        A = NewTagNode(s, slen);
-        A->tag.nen = NON_EXIST_EMPTY;
-        break;
-      default:
-        A = NULL;
-        rm_free(s);
-        break;
-    }
-  }
-}
-
 expr(A) ::= ISMISSING LP modifier(B) RP . {
   char *s = rm_strndup(B.s, B.len);
   size_t slen = unescapen(s, B.len);
@@ -792,6 +769,30 @@ single_tag(A) ::= affix_tag(B) . {
 single_tag(A) ::= verbatim(B) . {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
+}
+
+// empty string as single tag
+expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen(s, B.len);
+
+  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
+  if (!fs) {
+    // Non-existing field
+    A = NULL;
+    rm_free(s);
+  } else {
+    switch (fs->types) {
+      case INDEXFLD_T_TAG:
+        A = NewTagNode(s, slen);
+        A->tag.nen = NON_EXIST_EMPTY;
+        break;
+      default:
+        A = NULL;
+        rm_free(s);
+        break;
+    }
+  }
 }
 
 /////////////////////////////////////////////////////////////////

@@ -14,17 +14,52 @@ def testEmptyValidations(env):
 
         # Create an index with a TAG and a TEXT field, both of which don't index
         # empty values
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT',
+                   'tag2', 'TAG', 'INDEXEMPTY', 'text2', 'TEXT', 'INDEXEMPTY').ok()
 
         # Test that we get an error in case of a user tries to search for an
         # empty value when `field` does not index empty values.
+        TagErrorMessage = 'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
+        TxtErrorMessage = 'In order to query for empty values the field `text` is required to be defined with `INDEXEMPTY`'
         env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
-            'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
+            TagErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
+            TxtErrorMessage
+        )
+        # Test that we get the same error when using UNION of TAG fields
+        env.expect('FT.SEARCH', 'idx', '@tag:{""} | @tag2:{""}').error().contains(
+            TagErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@tag2:{""} | @tag:{""}').error().contains(
+            TagErrorMessage
+        )
+        # Test that we get the same error when using UNION of TEXT fields
+        env.expect('FT.SEARCH', 'idx', '@text:"" | @text2:""').error().contains(
+            TxtErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@text2:"" | @text:""').error().contains(
+            TxtErrorMessage
+        )
+        # Test that we get the same error when using UNION of TAG/TEXT fields
+        env.expect('FT.SEARCH', 'idx', '@tag:{""} | @text:""').error().contains(
+            TagErrorMessage
+        )
+        # Test that we get the same error when using INTERSECTION
+        env.expect('FT.SEARCH', 'idx', '@tag:{""} @tag2:{""}').error().contains(
+            TagErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@tag2:{""} @tag:{""}').error().contains(
+            TagErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@text:"" @text2:""').error().contains(
+            TxtErrorMessage
+        )
+        env.expect('FT.SEARCH', 'idx', '@text2:"" @text:""').error().contains(
+            TxtErrorMessage
         )
 
-        env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
-            'In order to query for empty values the field `text` is required to be defined with `INDEXEMPTY`'
-        )
+
         # Empty search on a non-existing field does not throw an error, just returns no results
         res = conn.execute_command('FT.SEARCH', 'idx', '@non_existing:""')
         env.assertEqual(res, EMPTY_RESULT)
