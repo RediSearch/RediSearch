@@ -3,28 +3,42 @@ import json
 
 EMPTY_RESULT = [0]
 
-def testEmptyValidations():
+def testEmptyValidations(env):
     """Validates the edge-cases of the `INDEXEMPTY` field option"""
 
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    MAX_DIALECT = set_max_dialect(env)
 
-    # Create an index with a TAG and a TEXT field, both of which don't index
-    # empty values
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+    for dialect in range(2, MAX_DIALECT + 1):
+        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        conn = getConnectionByEnv(env)
 
-    # Test that we get an error in case of a user tries to use "isempty(@field)"
-    # when `field` does not index empty values.
-    # env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
-    #     'Field `tag` should enable `ISEMPTY` in the index SCHEMA in order to support empty values'
-    #     )
-    # env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
-    #     'Field `text` should enable `ISEMPTY` in the index SCHEMA in order to support empty values'
-    # )
-    # Empty search on a non-existing field
-    # env.expect('FT.SEARCH', 'idx', '@non_existing:""').error().contains('Field not found')
+        # Create an index with a TAG and a TEXT field, both of which don't index
+        # empty values
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+
+        # Test that we get an error in case of a user tries to search for an
+        # empty value when `field` does not index empty values.
+        # TODO: For dialect < 5, we should also throw the error
+        if dialect == 5:
+            env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
+                'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
+                )
+        else:
+            res = conn.execute_command('FT.SEARCH', 'idx', '@tag:{""}')
+            env.assertEqual(res, EMPTY_RESULT)
+
+        env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
+            'In order to query for empty values the field `text` is required to be defined with `INDEXEMPTY`'
+        )
+        # Empty search on a non-existing field does not throw an error, just returns no results
+        res = conn.execute_command('FT.SEARCH', 'idx', '@non_existing:""')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@non_existing:{""}')
+        env.assertEqual(res, EMPTY_RESULT)
 
 
-def EmptyJSONTest(env, idx, dialect):
+def EmptyTagJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TAG field of a
     JSON index"""
 
@@ -38,11 +52,11 @@ def EmptyJSONTest(env, idx, dialect):
     env.expect('JSON.SET', 'j', '$', empty_js).equal('OK')
 
     # Search for a single document, via its indexed empty value
-    cmd = f'FT.SEARCH {idx} @t:{{""}}'.split(' ')
+    res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
     if dialect >= 3:
         empty_js = json.dumps([empty_j], separators=(',', ':'))
     expected = [1, 'j', ['$', empty_js]]
-    cmd_assert(env, cmd, expected)
+    env.assertEqual(res, expected)
 
     # Multi-value (automatically dereferenced).
     j = {
@@ -50,11 +64,43 @@ def EmptyJSONTest(env, idx, dialect):
     }
     js = json.dumps(j, separators=(',', ':'))
     conn.execute_command('JSON.SET', 'j', '$', js)
-    cmd = f'FT.SEARCH {idx} @t:{{""}}'.split(' ')
+    res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
     expected = [1, 'j', ['$', js]]
-    cmd_assert(env, cmd, expected)
+    env.assertEqual(res, expected)
+
+def EmptyTextJSONTest(env, idx, dialect):
+    """Tests the indexing and querying of empty values for a TEXT field of a
+    JSON index"""
+
+    conn = getConnectionByEnv(env)
+
+    # Populate the db with a document that has an empty TEXT field
+    empty_j = {
+    't': ''
+    }
+    empty_js = json.dumps(empty_j, separators=(',', ':'))
+    env.expect('JSON.SET', 'j', '$', empty_js).equal('OK')
+
+    # Search for a single document, via its indexed empty value
+    res = conn.execute_command('FT.SEARCH', idx, '@t:("")')
+    if dialect >= 3:
+        empty_js = json.dumps([empty_j], separators=(',', ':'))
+    expected = [1, 'j', ['$', empty_js]]
+    env.assertEqual(res, expected)
+
+    # Multi-value (automatically dereferenced).
+    j = {
+        't': ['a', '', 'c']
+    }
+    js = json.dumps(j, separators=(',', ':'))
+    conn.execute_command('JSON.SET', 'j', '$', js)
+    res = conn.execute_command('FT.SEARCH', idx, '@t:""')
+    if dialect >= 3:
+        js = json.dumps([j], separators=(',', ':'))
+    expected = [1, 'j', ['$', js]]
+    env.assertEqual(res, expected)
 
 def testEmptyTag(env):
     """Tests that empty values are indexed properly"""
@@ -70,26 +116,32 @@ def testEmptyTag(env):
 
         # ------------------------- Simple retrieval ---------------------------
         # Search for a single document, via its indexed empty value
-        res = conn.execute_command('FT.SEARCH', f'{idx}', "@t:{''}")
+        res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
         expected = [1, 'h1', ['t', '']]
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, "@t:{''}")
         env.assertEqual(res, expected)
 
         # Make sure the document is NOT returned when searching for a non-empty
         # value
-        res = conn.execute_command('FT.SEARCH', f'{idx}', '@t:foo')
+        res = conn.execute_command('FT.SEARCH', idx, '@t:foo')
         expected = EMPTY_RESULT
         env.assertEqual(res, expected)
 
         # ------------------------------ Negation ------------------------------
         # Search for a negation of an empty value, make sure the document is NOT
         # returned
-        res = conn.execute_command('FT.SEARCH', f'{idx}', '-@t:{""}')
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:{""}')
         expected = EMPTY_RESULT
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, "-@t:{''}")
         env.assertEqual(res, expected)
 
         # Search for a negation of a non-empty value, make sure the document is
         # returned
-        res = conn.execute_command('FT.SEARCH', idx, f'-@t:{{foo}}')
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:{foo}')
         expected = [1, 'h1', ['t', '']]
         env.assertEqual(res, expected)
 
@@ -99,11 +151,53 @@ def testEmptyTag(env):
         expected = [1, 'h1', ['t', '']]
         env.assertEqual(res, expected)
 
+        res = conn.execute_command('FT.SEARCH', idx, "@t:{''} | @t:{foo}")
+        env.assertEqual(res, expected)
+
+        # adding documents with two tags, one of which is empty
+        conn.execute_command('HSET', 'h2', 't', 'bar,')
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:{""} | @t:{foo}',
+            'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar,']]
+        env.assertEqual(res, expected)
+
+        conn.execute_command('DEL', 'h2')
+
+        # adding another document with an non-empty value
+        conn.execute_command('HSET', 'h2', 't', 'bar')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}', 
+            'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}', 
+            'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}', 
+            'SORTBY', 't', 'ASC', 'WITHCOUNT')
+        env.assertEqual(res, expected)
+
+        conn.execute_command('DEL', 'h2')
+
         # ---------------------------- Intersection ----------------------------
         # Intersection of empty and non-empty values
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{""} @t:{foo}']
+        res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{foo}')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
+
+        # adding documents with two tags, one of which is empty
+        conn.execute_command('HSET', 'h2', 't', 'bar,')
+        res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{bar}')
+        expected = [1, 'h2', ['t', 'bar,']]
+        env.assertEqual(res, expected)
+
+        conn.execute_command('DEL', 'h2')
 
         # ------------------------------- Prefix -------------------------------
         # We shouldn't get the document when searching for a prefix of "__empty"
@@ -356,8 +450,7 @@ def testEmptyTag(env):
         # ]
         # env.assertEqual(res, expected)
 
-    # for dialect in range(2, MAX_DIALECT + 1):
-    for dialect in [2]:
+    for dialect in range(2, MAX_DIALECT + 1):
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
         conn = getConnectionByEnv(env)
 
@@ -382,15 +475,15 @@ def testEmptyTag(env):
 
         # ---------------------------------- JSON ----------------------------------
         env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
-        EmptyJSONTest(env, 'jidx', dialect)
+        EmptyTagJSONTest(env, 'jidx', dialect)
         env.flush()
 
         env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE').ok()
-        EmptyJSONTest(env, 'jidx_sortable', dialect)
+        EmptyTagJSONTest(env, 'jidx_sortable', dialect)
         env.flush()
 
         env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
-        EmptyJSONTest(env, 'jidx_suffix', dialect)
+        EmptyTagJSONTest(env, 'jidx_suffix', dialect)
         env.flush()
 
         env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'INDEXEMPTY').ok()
@@ -463,7 +556,7 @@ def testEmptyText(env):
 
     MAX_DIALECT = set_max_dialect(env)
 
-    def testEmptyTextHash(idx, env):
+    def testEmptyTextHash(env, idx, dialect):
         """Tests the indexing and querying of empty values for a TEXT field of a
         hash index
         Extensive tests are added here, specifically to the query part, due to
@@ -477,47 +570,137 @@ def testEmptyText(env):
 
         # ------------------------- Simple retrieval ---------------------------
         # Search for a single document, via its indexed empty value
-        res = conn.execute_command('FT.SEARCH', f'{idx}', "@t:('')")
+        res = conn.execute_command('FT.SEARCH', idx, "@t:''")
         expected = [1, 'h1', ['t', '']]
+        env.assertEqual(res, expected)
+
+        # Search without the field name
+        res = conn.execute_command('FT.SEARCH', idx, '""')
+        env.assertEqual(res, expected)
+
+        # Search using double quotes
+        res = conn.execute_command('FT.SEARCH', idx, '@t:""')
+        env.assertEqual(res, expected)
+
+        # Search using double quotes and parentheses
+        res = conn.execute_command('FT.SEARCH', idx, '@t:("")')
+        env.assertEqual(res, expected)
+
+        # Search using single quotes and parentheses
+        res = conn.execute_command('FT.SEARCH', idx, "@t:('')")
         env.assertEqual(res, expected)
 
         # ------------------------------ Negation ------------------------------
         # Search for a negation of an empty value, make sure the document is NOT
         # returned
-        cmd = f'FT.SEARCH {idx} -@t:("")'.split(' ')
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:("")')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, '-""')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:""')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:("")')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, "-@t:('')")
+        env.assertEqual(res, expected)
 
         # Search for a negation of a non-empty value, make sure the document is
         # returned
-        cmd = f'FT.SEARCH {idx} -@t:foo'.split(' ')
+        res = conn.execute_command('FT.SEARCH', idx, '-@t:foo')
         expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', idx, '-foo')
+        env.assertEqual(res, expected)
 
         # ------------------------------- Union --------------------------------
         # Union of empty and non-empty values
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:("") | @t:foo']
+        res = conn.execute_command('FT.SEARCH', idx, '@t:("") | @t:foo')
         expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
 
         # Same in opposite order
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:foo | @t:("")']
-        cmd_assert(env, cmd, expected)
+        res = conn.execute_command('FT.SEARCH', idx, '@t:foo | @t:("")')
+        env.assertEqual(res, expected)
+
+        if dialect < 5:
+            res = conn.execute_command('FT.SEARCH', idx, '@t:(foo | "")')
+            env.assertEqual(res, expected)
+
+            res = conn.execute_command('FT.SEARCH', idx, '@t:("" | foo)')
+            env.assertEqual(res, expected)
+
+        # adding another document with an non-empty value
+        conn.execute_command('HSET', 'h2', 't', 'bar')
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:"" | @t:foo | @t:bar', 'SORTBY', 't', 'ASC')
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:foo | @t:"" | @t:bar', 'SORTBY', 't', 'ASC')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:foo | @t:bar | @t:""', 'SORTBY', 't', 'ASC')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', idx, "@t:foo | @t:bar | @t:''", 'SORTBY', 't', 'ASC')
+        env.assertEqual(res, expected)
+
+        if dialect < 5:
+            res = conn.execute_command(
+                'FT.SEARCH', idx, '@t:(foo | "" | bar)', 'SORTBY', 't', 'ASC')
+            env.assertEqual(res, expected)
+
+            res = conn.execute_command(
+                'FT.SEARCH', idx, '@t:("" | foo | bar)', 'SORTBY', 't', 'ASC')
+            env.assertEqual(res, expected)
+
+            res = conn.execute_command(
+                'FT.SEARCH', idx, '@t:(foo | bar | "")', 'SORTBY', 't', 'ASC')
+            env.assertEqual(res, expected)
+
+            res = conn.execute_command(
+                'FT.SEARCH', idx, "@t:(foo | bar | '')", 'SORTBY', 't', 'ASC')
+            env.assertEqual(res, expected)
 
         # ---------------------------- Intersection ----------------------------
         # Empty intersection
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:("") @t:foo']
+        res = conn.execute_command('FT.SEARCH',idx, '@t:("") @t:foo')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH',idx, '@t:"" @t:foo')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH',idx, "@t:'' @t:foo")
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH',idx, "'' foo")
+        env.assertEqual(res, expected)
 
         # Non-empty intersection
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:("") -@t:foo']
+        res = conn.execute_command('FT.SEARCH',idx, '@t:"" -@t:foo')
         expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH',idx, '"" -foo')
+        env.assertEqual(res, expected)
 
         # Same in opposite order
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['-@t:foo @t:("")']
-        cmd_assert(env, cmd, expected)
+        res = conn.execute_command('FT.SEARCH',idx, '-@t:foo @t:""')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH',idx, '-foo ""')
+        env.assertEqual(res, expected)
 
         # ------------------------------- Prefix -------------------------------
         cmd = f'FT.SEARCH {idx} @t:*pty'.split(' ')
@@ -537,11 +720,11 @@ def testEmptyText(env):
         conn.execute_command('DEL', 'h2')
 
         # --------------------------- EXPLAINCLI -------------------------------
-        cmd = f'FT.EXPLAINCLI {idx} @t:("")'.split(' ')
-        expected = [
-            '@t:',
-            ''
-        ]
+        # cmd = f'FT.EXPLAINCLI {idx} @t:("")'.split(' ')
+        # expected = [
+        #     '@t:',
+        #     ''
+        # ]
 
         # ----------------------------- Fuzzy search ---------------------------
         # We don't expect to get empty results in a fuzzy search.
@@ -552,7 +735,9 @@ def testEmptyText(env):
         # ------------------------------- Summarization ------------------------
         # When searching for such a query, we expect to get an empty value, and
         # thus an "empty summary".
-        cmd = f'FT.SEARCH {idx} @t:("") SUMMARIZE FIELDS 1 t FRAGS 3 LEN 10'.split(' ')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:("")', 'SUMMARIZE', 'FIELDS', 1, 't',
+            'FRAGS', 3, 'LEN', 10)
         expected = [
             1,
             "h1",
@@ -561,12 +746,13 @@ def testEmptyText(env):
                 "... "
             ]
         ]
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
 
         # ---------------------------- Highlighting ----------------------------
         # When searching for such a query, we expect to get an empty value, and
         # thus an "empty highlight".
-        cmd = f'FT.SEARCH {idx} @t:("") HIGHLIGHT FIELDS 1 t'.split(' ')
+        res = conn.execute_command(
+            'FT.SEARCH', idx, '@t:("")', 'HIGHLIGHT', 'FIELDS', 1, 't')
         expected = [
             1,
             "h1",
@@ -575,48 +761,48 @@ def testEmptyText(env):
                 "<b></b>"
             ]
         ]
-        cmd_assert(env, cmd, expected)
+        env.assertEqual(res, expected)
 
-    for dialect in range(5, MAX_DIALECT + 1):
+    for dialect in range(2, MAX_DIALECT + 1):
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
 
         # Create an index with a TAG field, that also indexes empty strings, another
         # TAG field that doesn't index empty values, and a TEXT field
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY').ok()
-        testEmptyTextHash('idx', env)
+        testEmptyTextHash(env, 'idx', dialect)
         env.flush()
 
         # ----------------------------- SORTABLE case ------------------------------
         # Create an index with a SORTABLE TAG field, that also indexes empty strings
         env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'SORTABLE').ok()
-        testEmptyTextHash('idx_sortable', env)
+        testEmptyTextHash(env, 'idx_sortable', dialect)
         env.flush()
 
         # --------------------------- WITHSUFFIXTRIE case --------------------------
         # Create an index with a TAG field, that also indexes empty strings, while
         # using a suffix trie
         env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
-        testEmptyTextHash('idx_suffixtrie', env)
+        testEmptyTextHash(env, 'idx_suffixtrie', dialect)
         env.flush()
 
         # ------------------------------- Phonetic ---------------------------------
         # Create an index with a TEXT field, that also indexes empty strings, and
         # uses phonetic indexing
         env.expect('FT.CREATE', 'idx_phonetic', 'SCHEMA', 't', 'TEXT', 'INDEXEMPTY', 'PHONETIC', 'dm:en').ok()
-        testEmptyTextHash('idx_phonetic', env)
+        testEmptyTextHash(env, 'idx_phonetic', dialect)
         env.flush()
 
         # ---------------------------------- JSON ----------------------------------
         env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY').ok()
-        EmptyJSONTest(env, 'jidx', dialect)
+        EmptyTextJSONTest(env, 'jidx', dialect)
         env.flush()
 
         env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY', 'SORTABLE').ok()
-        EmptyJSONTest(env, 'jidx_sortable', dialect)
+        EmptyTextJSONTest(env, 'jidx_sortable', dialect)
         env.flush()
 
         env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
-        EmptyJSONTest(env, 'jidx_suffix', dialect)
+        EmptyTextJSONTest(env, 'jidx_suffix', dialect)
         env.flush()
 
 def testEmptyInfo():

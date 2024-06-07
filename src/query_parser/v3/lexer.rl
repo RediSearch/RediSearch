@@ -73,11 +73,9 @@ single_tag = ( (any - (tag_invalid_punct) ) | (escape (tag_invalid_punct)) )+ $2
 contains = (star.escaped_term.star | star.number.star | star.attr.star) $1;
 prefix = (escaped_term.star | number.star | attr.star) $1;
 suffix = (star.escaped_term | star.number | star.attr) $1;
-empty_text = lp empty_string rp $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $2;
-isempty = 'isempty'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
@@ -375,16 +373,6 @@ main := |*
   };
   
   cntrl;
-  
-  isempty => {
-    tok.pos = ts-q->raw;
-    tok.len = te - ts;
-    tok.s = ts;
-    RSQuery_Parse_v3(pParser, ISEMPTY, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
 
   escaped_term => {
     tok.len = te-ts;
@@ -421,32 +409,6 @@ main := |*
     tok.s = te - 1;
     tok.pos = tok.s - q->raw;
     RSQuery_Parse_v3(pParser, RB, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-  };
-
-  empty_text => {
-    tok.len = 1;
-    tok.s = ts;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v3(pParser, LP, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = te - (ts + 1);
-    tok.s = ts + 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      fbreak;
-    }
-
-    tok.len = 1;
-    tok.s = te - 1;
-    tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v3(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

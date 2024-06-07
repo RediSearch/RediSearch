@@ -476,7 +476,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   if (fs && qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(fs))) {
     QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
                               SPEC_INDEXEMPTY_STR);
     return NULL;
@@ -1318,11 +1318,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-
+ 
   if (!idx) {
     if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
       QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               fs->name, SPEC_INDEXEMPTY_STR);
     }
     goto done;

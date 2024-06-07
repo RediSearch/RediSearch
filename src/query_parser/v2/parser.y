@@ -727,42 +727,6 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     A = B;
 }
 
-// expr(A) ::= ISEMPTY LP modifier(B) RP . {
-//   char *s = rm_strndup(B.s, B.len);
-//   size_t slen = unescapen(s, B.len);
-
-//   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-//   if (!fs) {
-//     // Non-existing field
-//     reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
-//     A = NULL;
-//     rm_free(s);
-//   } else {
-//     switch (fs->types) {
-//       case INDEXFLD_T_TAG:
-//         A = NewTagNode(s, slen);
-//         A->tag.nen = NON_EXIST_EMPTY;
-//         break;
-//       case INDEXFLD_T_FULLTEXT:
-//         {
-//           rm_free(s);
-//           char *empty_str = rm_strdup("");
-//           A = NewTokenNode(ctx, empty_str, 0);
-//           QueryNode_SetFieldMask(A, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
-//           A->tn.nen = NON_EXIST_EMPTY;
-//           // Avoid any expansions
-//           A->opts.flags |= QueryNode_Verbatim;
-//           break;
-//         }
-//       default:
-//         reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
-//         A = NULL;
-//         rm_free(s);
-//         break;
-//     }
-//   }
-// }
-
 /////////////////////////////////////////////////////////////////
 // Tag Lists - curly braces separated lists of words
 /////////////////////////////////////////////////////////////////
