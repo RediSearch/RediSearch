@@ -143,8 +143,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
   setEof(it, 0);
   it->lastDocId = 0;
-  it->base.current = NewVirtualResult(weight);
-  it->base.current->fieldMask = RS_FIELDMASK_ALL;
+  it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
 
   it->offset = 0;
 

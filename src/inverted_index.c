@@ -1085,7 +1085,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    * continuously.
    *
    * The seeker function saves CPU by avoiding unnecessary function
-   * calls and pointer derefences/accesses if the requested ID is
+   * calls and pointer dereferences/accesses if the requested ID is
    * not found. Because less checking is required
    *
    * We:
@@ -1194,6 +1194,16 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+}
+
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
+  IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);  
+  if (!decoder.decoder) {  
+    return NULL;  
+  } 
+  RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 

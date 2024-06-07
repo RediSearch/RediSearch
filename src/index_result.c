@@ -79,13 +79,13 @@ RSIndexResult *NewNumericResult() {
   return res;
 }
 
-RSIndexResult *NewVirtualResult(double weight) {
+RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
       .type = RSResultType_Virtual,
       .docId = 0,
-      .fieldMask = 0,
+      .fieldMask = fieldMask,
       .freq = 0,
       .weight = weight,
       .metrics = NULL,
