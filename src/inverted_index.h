@@ -53,7 +53,7 @@ typedef struct InvertedIndex {
 
 /**
  * This context is passed to the decoder callback, and can contain either
- * a a pointer or integer. It is intended to relay along any kind of additional
+ * a pointer or an integer. It is intended to relay along any kind of additional
  * configuration information to help the decoder determine whether to filter
  * the entry */
 typedef struct {
@@ -222,6 +222,9 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  */
 IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
+
+/* Create a new index reader on an inverted index of "missing values". */
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp);
 
 void IR_Abort(void *ctx);
 
