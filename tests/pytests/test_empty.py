@@ -20,8 +20,6 @@ def testEmptyValidations():
     env.expect('FT.SEARCH', 'idx', 'isempty(@text)').error().contains(
         'Field `text` should enable `ISEMPTY` in the index SCHEMA in order to support empty values'
     )
-    # Empty search on a non-existing field
-    env.expect('FT.SEARCH', 'idx', 'isempty(@non_existing)').error().contains('Field not found')
 
 
 def EmptyJSONTest(env, idx, dialect):

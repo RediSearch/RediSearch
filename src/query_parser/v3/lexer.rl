@@ -76,6 +76,7 @@ as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $2;
 wildcard = 'w' . verbatim $2;
 isempty = 'isempty'i $1;
+ismissing = 'ismissing'i $1;
 
 assign_attr = arrow lb attr colon escaped_term rb $2;
 
@@ -370,6 +371,16 @@ main := |*
     tok.len = te - ts;
     tok.s = ts;
     RSQuery_Parse_v3(pParser, ISEMPTY, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  ismissing => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v3(pParser, ISMISSING, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

@@ -14,7 +14,7 @@
 %left ORX.
 %left OR.
 
-%left ISEMPTY.
+%left ISEMPTY ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -42,8 +42,8 @@
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
-// if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T ISEMPTY.
+// if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
+%fallback TERM AS_T ISEMPTY ISMISSING.
 
 %token_type {QueryToken}
 
@@ -722,7 +722,6 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
   const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
   if (!fs) {
     // Non-existing field
-    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
     A = NULL;
     rm_free(s);
   } else {
@@ -749,6 +748,12 @@ expr(A) ::= ISEMPTY LP modifier(B) RP . {
         break;
     }
   }
+}
+
+expr(A) ::= ISMISSING LP modifier(B) RP . {
+  char *s = rm_strndup(B.s, B.len);
+  size_t slen = unescapen(s, B.len);
+  A = NewMissingNode(s, slen);
 }
 
 /////////////////////////////////////////////////////////////////
