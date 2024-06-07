@@ -1094,8 +1094,7 @@ static t_docId NI_LastDocId(void *ctx) {
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout) {
   NotContext *nc = rm_malloc(sizeof(*nc));
-  nc->base.current = NewVirtualResult(weight);
-  nc->base.current->fieldMask = RS_FIELDMASK_ALL;
+  nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   nc->base.current->docId = 0;
   nc->child = it ? it : NewEmptyIterator();
   nc->lastDocId = 0;
@@ -1276,8 +1275,7 @@ static void OI_Rewind(void *ctx) {
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
   OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
-  nc->virt = NewVirtualResult(weight);
-  nc->virt->fieldMask = RS_FIELDMASK_ALL;
+  nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   nc->virt->freq = 1;
   nc->base.current = nc->virt;
   nc->child = it ? it : NewEmptyIterator();
@@ -1397,9 +1395,8 @@ IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
   c->topId = maxId;
   c->numDocs = numDocs;
 
-  CURRENT_RECORD(c) = NewVirtualResult(1);
+  CURRENT_RECORD(c) = NewVirtualResult(1, RS_FIELDMASK_ALL);
   CURRENT_RECORD(c)->freq = 1;
-  CURRENT_RECORD(c)->fieldMask = RS_FIELDMASK_ALL;
 
   IndexIterator *ret = &c->base;
   ret->ctx = c;

@@ -64,6 +64,10 @@ static void QueryVectorNode_Free(QueryVectorNode *vn) {
   }
 }
 
+static void QueryMissingNode_Free(QueryMissingNode *missn) {
+  rm_free((char *)missn->fieldName);
+}
+
 void QueryNode_Free(QueryNode *n) {
   if (!n) return;
 
@@ -121,6 +125,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
+      break;
+    case QN_MISSING:
+      QueryMissingNode_Free(&n->miss);
       break;
     case QN_UNION:
     case QN_NOT:
@@ -288,7 +295,6 @@ QueryNode *NewPhraseNode(int exact) {
 }
 
 QueryNode *NewTagNode(const char *field, size_t len) {
-
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
@@ -316,6 +322,13 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewMissingNode(const char *field, size_t len) {
+  QueryNode *ret = NewQueryNode(QN_MISSING);
+  ret->miss.fieldName = field;
+  ret->miss.len = len;
   return ret;
 }
 
@@ -1383,6 +1396,33 @@ done:
   return ret;
 }
 
+static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
+  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  if (!fs) {
+    // Field does not exist
+    return NULL;
+  }
+  if (!FieldSpec_IndexesMissing(fs)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
+                           "'ismissing' requires field '%s' to be defined with '" SPEC_INDEXMISSING_STR "'",
+                           qn->miss.fieldName);
+    return NULL;
+  }
+
+  // Get the InvertedIndex corresponding to the queried field.
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
+
+  if (!missingII) {
+    // There are no missing values for this field.
+    return NULL;
+  }
+
+  // Create a reader for the missing values InvertedIndex.
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+
+  return NewReadIterator(ir);
+}
+
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
@@ -1419,6 +1459,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalGeometryNode(q, n);
     case QN_NULL:
       return NewEmptyIterator();
+    case QN_MISSING:
+      return Query_EvalMissingNode(q, n);
   }
 
   return NULL;
@@ -1563,6 +1605,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
       assert(n->params == NULL);
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
   }
@@ -1597,6 +1640,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
       }
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
     case QN_UNION:
@@ -1869,6 +1913,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_GEOMETRY:
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      break;
+    case QN_MISSING:
+      s = sdscatprintf(s, "ISMISSING{%.*s}", (int)qs->miss.len, qs->miss.fieldName);
       break;
   }
 
