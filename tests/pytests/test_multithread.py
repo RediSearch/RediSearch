@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from common import *
 
-def initEnv(moduleArgs: str = 'WORKER_THREADS 1 MT_MODE MT_MODE_FULL'):
+def initEnv(moduleArgs: str = 'WORKERS 1'):
     if(moduleArgs == ''):
         raise SkipTest('moduleArgs cannot be empty')
     if not MT_BUILD:
@@ -52,7 +52,7 @@ def testMultipleBlocksBuffer():
 
 @skip(cluster=True)
 def test_worker_threads_sanity():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2')
     n_vectors = 100
     dim = 4
     # Load random vectors into redis.
@@ -63,7 +63,7 @@ def test_worker_threads_sanity():
     for it in range(2):
         # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
         # n_vectors, n_vector+1,...,2*n_vectors-1.
-        env.expect('FT.DEBUG', 'WORKER_THREADS', 'PAUSE').ok()
+        env.expect('FT.DEBUG', 'WORKERS', 'PAUSE').ok()
         load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
         env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], n_vectors, message=f"iteration {it+1}")
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0 if it==0 else 2*n_vectors,
@@ -89,17 +89,17 @@ def test_worker_threads_sanity():
             assertInfoField(env, 'idx', 'num_docs', n_vectors*(it+1))
             # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
             if i==1:
-                env.expect('FT.DEBUG', 'WORKER_THREADS', 'RESUME').ok()
+                env.expect('FT.DEBUG', 'WORKERS', 'RESUME').ok()
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
             debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
             if i==2:
                 env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0, message=f"iteration {it+1} after reloading")
-            env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+            env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
 
 
 def test_delete_index_while_indexing():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
     n_vectors = 100 * n_shards
     dim = 4
@@ -107,7 +107,7 @@ def test_delete_index_while_indexing():
     # Load random vectors into redis.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', data_type, 'M', '64',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
     n_local_vector = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
@@ -117,16 +117,15 @@ def test_delete_index_while_indexing():
     env.cmd('FT.DROPINDEX', 'idx')
     stats = getWorkersThpoolStats(env)
     env.assertEqual(n_local_vector, stats['totalPendingJobs'], message=stats)
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
 
 
-
 class Test_burst_threads_sanity:
     def __init__(self):
-        self.env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS DEFAULT_DIALECT 2')
+        self.env = initEnv(moduleArgs='MIN_OPERATION_WORKERS 2 DEFAULT_DIALECT 2')
         self.n_vectors = 100 * self.env.shardsCount
         self.dim = 4
         self.k = 10
@@ -175,7 +174,7 @@ for algo in VECSIM_ALGOS:
         setattr(Test_burst_threads_sanity, test_name, lambda self, al=algo, dt=data_type: self.do_test(al, dt))
 
 def test_workers_priority_queue():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2')
+    env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2')
     n_shards = env.shardsCount
     n_vectors = 200 * n_shards
     dim = 4
@@ -184,7 +183,7 @@ def test_workers_priority_queue():
     # Load random vectors into redis, save the last one to use as query vector later on.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type, 'DIM', dim,
                'DISTANCE_METRIC', 'L2').ok()
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     query_vec = load_vectors_to_redis(env, n_vectors, n_vectors-1, dim, data_type)
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
@@ -196,7 +195,7 @@ def test_workers_priority_queue():
     # Run queries during indexing
     iteration_count = 0
     while debug_info['BACKGROUND_INDEXING'] == 1:
-        env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
         iteration_count+=1
         res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, 10,
@@ -204,7 +203,7 @@ def test_workers_priority_queue():
         # Expect that the first result's would be around zero, since the query vector itself exists in the
         # index (last id)
         env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
-        env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
         # We expect that the number of vectors left to index will decrease from one iteration to another.
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
         vectors_left_to_index_new = to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE']
@@ -213,13 +212,12 @@ def test_workers_priority_queue():
         # Number of jobs done should be the number of vector indexed plus number of queries that ran.
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'],
                         local_n_vectors-vectors_left_to_index + iteration_count)
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
 
 def test_buffer_limit():
     buffer_limit = 100
-    env = initEnv(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2'
-                             f' TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
+    env = initEnv(moduleArgs=f'WORKERS 2 DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
     n_shards = env.shardsCount
     dim = 4
     n_vectors = 2 * n_shards * buffer_limit
@@ -227,7 +225,7 @@ def test_buffer_limit():
     # Load random vectors into redis
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'PAUSE').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     load_vectors_to_redis(env, n_vectors, 0, dim)
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
 
@@ -238,8 +236,8 @@ def test_buffer_limit():
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], buffer_limit)
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors-buffer_limit)
 
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'RESUME').ok()
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
     # After running all insert jobs, all vectors should move to the backend index.
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -248,7 +246,7 @@ def test_buffer_limit():
 
 
 def test_async_updates_sanity():
-    env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
+    env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     n_shards = env.shardsCount
     dim = 4
@@ -270,8 +268,8 @@ def test_async_updates_sanity():
     env.assertAlmostEqual(float(res[2][1]), 0, 1e-5)
 
     # Wait until all vectors are indexed into HNSW.
-    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'DRAIN']), ['OK']*n_shards)
-    stats = run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'STATS'])
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'DRAIN']), ['OK']*n_shards)
+    stats = run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'STATS'])
     env.assertEqual(sum([to_dict(shard_stat)['totalPendingJobs'] for shard_stat in stats]), 0)  # 0 in each shard
     total_jobs_done = sum([to_dict(shard_stat)['totalJobsDone'] for shard_stat in stats])
 
@@ -282,7 +280,7 @@ def test_async_updates_sanity():
     # Overwrite vectors. All vectors were ingested into the background index, so now we collect new vectors
     # into the frontend index and prepare repair and ingest jobs. The overwritten vector were not removed from
     # the backend index yet.
-    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'PAUSE']), ['OK']*n_shards)
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=0, seed=11) # new seed to generate new vectors
     assertInfoField(env, 'idx', 'num_docs', n_vectors)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -298,7 +296,7 @@ def test_async_updates_sanity():
     # We dispose marked deleted vectors whenever we have at least <block_size> vectors that are ready
     # (that is, no other node in HNSW is pointing to the deleted node).
     while local_marked_deleted_vectors > block_size:
-        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'RESUME']), ['OK']*n_shards)
+        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'RESUME']), ['OK']*n_shards)
         res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN $K @vector $vec_param EF_RUNTIME {n_local_vectors}]',
                                    'SORTBY', '__vector_score', 'RETURN', 1, '__vector_score',
                                    'LIMIT', 0, 10, 'PARAMS', 4, 'K', 10, 'vec_param', query_vec.tobytes())
@@ -316,7 +314,7 @@ def test_async_updates_sanity():
         forceInvokeGC(env)
 
         # Number of zombies should decrease from one iteration to another.
-        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'PAUSE']), ['OK']*n_shards)
+        env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
 
         local_marked_deleted_vectors_new = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
@@ -324,8 +322,8 @@ def test_async_updates_sanity():
         local_marked_deleted_vectors = local_marked_deleted_vectors_new
 
     # Eventually, all updated vectors should be in the backend index, and all zombies should be removed.
-    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'RESUME']), ['OK']*n_shards)
-    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKER_THREADS', 'DRAIN']), ['OK']*n_shards)
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'RESUME']), ['OK']*n_shards)
+    env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'DRAIN']), ['OK']*n_shards)
 
     forceInvokeGC(env)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
@@ -352,8 +350,8 @@ def test_multiple_loaders():
 
 @skip(cluster=True)
 def test_switch_loader_modes():
-    # Create an environment with MT_MODE_FULL (0)
-    env = initEnv('WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    # Create an environment with workers (0)
+    env = initEnv('WORKERS 1')
     n_docs = 10
     cursor_count = 2
     # Having two loaders to test when the loader is last and when it is not
@@ -369,7 +367,7 @@ def test_switch_loader_modes():
     _, cursor1 = env.cmd(*query)
 
     # Turn off the multithread mode (1)
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
 
     # Create a cursor while using the off mode
     _, cursor2 = env.cmd(*query)
@@ -377,21 +375,21 @@ def test_switch_loader_modes():
     cursor1 = read_from_cursor(cursor1)
 
     # Turn on the multithread mode (2)
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn off the multithread mode (3)
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn on the multithread mode last time (4)
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
 
     # Read from the second cursor
     cursor2 = read_from_cursor(cursor2)
@@ -406,11 +404,11 @@ def test_switch_loader_modes():
     _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
                          'WITHCURSOR', 'COUNT', cursor_count)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
@@ -420,12 +418,12 @@ def test_switch_loader_modes():
 def test_change_num_connections(env: Env):
 
     # Validate the default values
-    env.expect(config_cmd(), 'GET', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
+    env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
 
     # The logic of the number of connections is as follows:
     # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
-    # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKER_THREADS` + 1
+    # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKERS` + 1
 
     # Helper that will return the expected output structure.
     # In this test we don't care about the actual values, so we use the ANY matcher.
@@ -444,7 +442,7 @@ def test_change_num_connections(env: Env):
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
 
     # Increase the number of worker threads to 6
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '6').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '6').ok()
     # The number of connections should be 7
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(7))
 
@@ -454,7 +452,7 @@ def test_change_num_connections(env: Env):
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
 
     # Decrease the number of worker threads to 5
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '5').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '5').ok()
     # The number of connections should remain 4
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
 
@@ -464,7 +462,7 @@ def test_change_num_connections(env: Env):
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(6))
 
     # Set back the number of worker threads to 0
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
     # The number of connections should be 1 again
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
 

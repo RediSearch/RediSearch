@@ -3,10 +3,10 @@ from common import *
 class TestDebugCommands(object):
 
     def __init__(self):
+        skipTest(cluster=True)
         self.workers_count = 2
-        module_args = f'MT_MODE MT_MODE_FULL WORKER_THREADS {self.workers_count}' if MT_BUILD else ''
+        module_args = f'WORKERS {self.workers_count}' if MT_BUILD else ''
         self.env = Env(testName="testing debug commands", moduleArgs=module_args)
-        self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
@@ -28,7 +28,7 @@ class TestDebugCommands(object):
                      'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
-            help_list.append('WORKER_THREADS')
+            help_list.append('WORKERS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -216,15 +216,15 @@ class TestDebugCommands(object):
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains(
-            "wrong number of arguments for 'FT.DEBUG|WORKER_THREADS' command")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
-            "Invalid argument for 'WORKER_THREADS' subcommand")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').error()\
+        self.env.expect('FT.DEBUG', 'WORKERS').error().contains(
+            "wrong number of arguments for 'FT.DEBUG|WORKERS' command")
+        self.env.expect('FT.DEBUG', 'WORKERS', 'invalid').error().contains(
+            "Invalid argument for 'WORKERS' subcommand")
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is not running")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
     def testWorkersPoolDrain(self):
@@ -232,8 +232,8 @@ class TestDebugCommands(object):
             self.env.skip()
         # test stats and drain
         orig_stats = getWorkersThpoolStats(self.env)
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').error() \
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').error() \
             .contains("Operation failed: workers thread pool is not running")
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test',
                         'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
@@ -248,8 +248,8 @@ class TestDebugCommands(object):
 
         # After resuming, expect that the job is done.
         orig_stats = stats
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
         stats = getWorkersThpoolStats(self.env)
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone']+1,
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
@@ -257,11 +257,13 @@ class TestDebugCommands(object):
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
                                      'numThreadsAlive': self.workers_count})
 
-        def testWorkersNumThreads(self):
-            if not MT_BUILD:
-                self.env.skip()
-            # test stats and drain
-            self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'n_threads').equal(self.workers_count)
+    def testWorkersNumThreads(self):
+        if not MT_BUILD:
+            self.env.skip()
+        # test stats and drain
+        self.env.expect('FT.DEBUG', 'WORKERS', 'n_threads').equal(self.workers_count)
+
+
 @skip(cluster=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.

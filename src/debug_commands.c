@@ -1175,7 +1175,7 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 #ifdef MT_BUILD
 /**
- * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
+ * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (argc != 3) {
@@ -1213,7 +1213,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   }  else if (!strcasecmp(op, "n_threads")) {
     RedisModule_ReplyWithLongLong(ctx, workersThreadPool_NumThreads());
   } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS' subcommand");
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKERS' subcommand");
   }
   return RedisModule_ReplyWithCString(ctx, "OK");
 }
@@ -1248,7 +1248,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
 #ifdef MT_BUILD
-                               {"WORKER_THREADS", WorkerThreadsSwitch},
+                               {"WORKERS", WorkerThreadsSwitch},
 #endif
                                {NULL, NULL}};
 

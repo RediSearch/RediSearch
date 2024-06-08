@@ -143,7 +143,7 @@ static RSConfigOptions clusterOptions_g = {
              .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
              .helpText = "Number of connections to each shard in the cluster. Default to 0. "
-                         "If 0, the number of connections is set to `WORKER_THREADS` + 1.",
+                         "If 0, the number of connections is set to `WORKERS` + 1.",
              .setValue = setConnPerShard,
              .getValue = getConnPerShard,},
             {.name = "CURSOR_REPLY_THRESHOLD",
@@ -199,7 +199,7 @@ RSConfigOptions *GetClusterConfigOptions(void) {
 
 void ClusterConfig_RegisterTriggers(void) {
 #ifdef MT_BUILD
-  const char *connPerShardConfigs[] = {"WORKER_THREADS", NULL};
+  const char *connPerShardConfigs[] = {"WORKERS", NULL};
   RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
 #endif
 }

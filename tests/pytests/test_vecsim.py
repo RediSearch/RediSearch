@@ -2336,8 +2336,7 @@ def test_score_name_case_sensitivity():
 @skip(cluster=True, noWorkers=True)
 def test_tiered_index_gc():
     N = 100
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL 1000000000000'
-                         f' FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2376,7 +2375,7 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
 
     debug_info = get_debug_info()

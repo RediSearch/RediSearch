@@ -174,19 +174,24 @@ CONFIG_GETTER(getTimeout) {
 
 #ifdef MT_BUILD
 
-// WORKER_THREADS
+// We limit the number of worker threads to limit the amount of memory used by the thread pool
+// and to prevent the system from running out of resources.
+// The number of worker threads should be proportional to the number of cores in the system at most,
+// otherwise no performance improvement will be achieved.
+#define MAX_WORKER_THREADS (1 << 13)
+
+static inline int errorTooManyThreads(QueryError *status) {
+  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  return REDISMODULE_ERR;
+}
+
+// WORKERS
 CONFIG_SETTER(setWorkThreads) {
-  // We limit the number of worker threads to limit the amount of memory used by the thread pool
-  // and to prevent the system from running out of resources.
-  // The number of worker threads should be proportional to the number of cores in the system at most,
-  // otherwise no performance improvement will be achieved.
-  #define MAX_WORKER_THREADS (1 << 13)
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
-    return REDISMODULE_ERR;
+    return errorTooManyThreads(status);
   }
 
   size_t res = workersThreadPool_SetNumWorkers(newNumThreads);
@@ -204,34 +209,32 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// MT_MODE
-
-CONFIG_SETTER(setMtMode) {
-  const char *mt_mode;
-  int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
+// MIN_OPERATION_WORKERS
+CONFIG_SETTER(setMinOperationWorkers) {
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
-    config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
-    config->mt_mode = MT_MODE_FULL;
-  } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid MT mode");
-    return REDISMODULE_ERR;
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    return errorTooManyThreads(status);
   }
+  config->minOperationWorkers = newNumThreads;
   return REDISMODULE_OK;
 }
-static inline const char *MTMode_ToString(MTMode mt_mode) {
-  switch (mt_mode) {
-    case MT_MODE_ONLY_ON_OPERATIONS:
-      return "MT_MODE_ONLY_ON_OPERATIONS";
-    case MT_MODE_FULL:
-      return "MT_MODE_FULL";
-    // No default so the compiler will warn us if we forget to handle a case
-  }
+
+CONFIG_GETTER(getMinOperationWorkers) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->minOperationWorkers);
 }
 
-CONFIG_GETTER(getMtMode) {
-  return sdsnew(MTMode_ToString(config->mt_mode));
+// MT_MODE, WORKER_THREADS
+CONFIG_SETTER(setMtModeAndWorkerThreads) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  int acrc = AC_Advance(ac); // Consume the value argument
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMtModeAndWorkerThreads) {
+  return sdsempty();
 }
 
 // TIERED_HNSW_BUFFER_LIMIT
@@ -663,22 +666,29 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setTimeout,
          .getValue = getTimeout},
 #ifdef MT_BUILD
-        {.name = "WORKER_THREADS",
-         .helpText = "Create at most this number of search threads",
+        {.name = "WORKERS",
+         .helpText = "", // TODO: add help text
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
         },
+        {.name = "MIN_OPERATION_WORKERS",
+         .helpText = "", // TODO: add help text
+         .setValue = setMinOperationWorkers,
+         .getValue = getMinOperationWorkers,
+        },
+        {.name = "WORKER_THREADS",
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
+         .setValue = setMtModeAndWorkerThreads,
+         .getValue = getMtModeAndWorkerThreads,
+        },
         {.name = "MT_MODE",
-         .helpText = "If set to MT_MODE_FULL and `WORKER_THREADS` > 0, queries and vector indexing "
-                     "will be performed in background threads by default. If set to MT_MODE_ONLY_ON_OPERATIONS, "
-                     "the workers thread pool will be used only for operational needs.",
-         .setValue = setMtMode,
-         .getValue = getMtMode,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
+         .setValue = setMtModeAndWorkerThreads,
+         .getValue = getMtModeAndWorkerThreads,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                    " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
+                    " HNSW index, so that if we are using WORKERS for indexing, and the"
                     " number of vectors waiting in the buffer to be indexed exceeds this limit,"
                     " we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
