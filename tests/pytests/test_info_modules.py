@@ -147,12 +147,9 @@ def test_redis_info():
   env.assertEqual(res['search_number_of_indexes'], 1)
 
   # amanzonlinux:2 install redis version '5.1.0a1' which has different output
-  print(redis.__version__)
   if redis.__version__ >= '5.0.5' and redis.__version__ != '5.1.0a1':
-    print('using new redis version')
     env.assertEqual(res['search_fields_text']['Text'], 1)
   else:
-    print('using old redis version')
     env.assertEqual(res['search_fields_text'], 'Text=1')
 
   env.assertEqual(res['search_fields_tag']['Tag'], 1)
