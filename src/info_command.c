@@ -197,6 +197,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (FieldSpec_IndexesEmpty(fs)) {
       RedisModule_Reply_SimpleString(reply, SPEC_INDEXEMPTY_STR);
     }
+    if (FieldSpec_IndexesMissing(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXMISSING_STR);
+    }
 
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
