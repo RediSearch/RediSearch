@@ -584,7 +584,6 @@ def runShortRead(env, data, total_len, expected_index):
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
 
-# Create a temporary directory for the test
 seed = str(time.time())
 random.seed(seed)
 
@@ -616,8 +615,8 @@ def doTest(env: Env, test_name, rdb_name, expected_index):
         # test without MT (no need to change configuration)
         sendShortReads(env, fullPath, expected_index)
 
-# Dynamically create test functions
-@skip(cluster=True, macos=True, asan=True, arch='aarch64', redis_less_than='6.2.0')
+# Dynamically create a test function for each rdb file
+@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64')
 def register_tests():
     for rdb_name, expected_index in RDBS.items():
         test_name = 'test_' + rdb_name.replace('/', '_').replace('.', '_')

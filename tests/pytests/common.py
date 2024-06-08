@@ -380,7 +380,7 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
             if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-               raise SkipTest()
+                raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
                 return f(env)

@@ -13,7 +13,7 @@
 #include "config.h"
 #include <assert.h>
 
-#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS)
+#define USE_BURST_THREADS() (RSGlobalConfig.minOperationWorkers)
 
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise

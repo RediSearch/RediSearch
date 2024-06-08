@@ -224,7 +224,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  if (RSGlobalConfig.mt_mode == MT_MODE_FULL && RSGlobalConfig.numWorkerThreads > 0) {
+  if (RSGlobalConfig.numWorkerThreads > 0) {
     // If the module configuration states that worker threads should always be active,
     // we log about the threadpool creation.
     DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
