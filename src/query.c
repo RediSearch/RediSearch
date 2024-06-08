@@ -486,9 +486,10 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // If this is an empty value search, and the field does not index empty values
   // throw an error
-  if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
+  const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
+  if (fs && qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(fs))) {
     QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
                               SPEC_INDEXEMPTY_STR);
     return NULL;
@@ -1330,18 +1331,33 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-
+ 
   if (!idx) {
     if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
       QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               fs->name, SPEC_INDEXEMPTY_STR);
+    }
+    // for dialect [2-4], the tag contains a phrase which contains a leaf tag node
+    else if (!FieldSpec_IndexesEmpty(fs) && QueryNode_NumChildren(qn) == 1) {
+      QueryNode* child = qn->children[0];
+      if (QueryNode_NumChildren(child) == 1 && child->type == QN_PHRASE) {
+        QueryNode* grandChild = child->children[0];
+        if (QueryNode_NumChildren(grandChild) == 0 && grandChild->type == QN_TAG 
+            && grandChild->tag.nen == NON_EXIST_EMPTY) {
+            QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                            "In order to query for empty values the field `%s` is required to be defined with `%s`",
+                            fs->name, SPEC_INDEXEMPTY_STR);
+        }
+      }
     }
     goto done;
   }
-  if (qn->tag.nen == NON_EXIST_EMPTY) {
+  if (qn->tag.nen == NON_EXIST_EMPTY || 
+      (QueryNode_NumChildren(qn) == 1 && qn->children[0]->type == QN_TAG 
+        && qn->children[0]->tag.nen == NON_EXIST_EMPTY)) {
     // Tag node searching for empty strings (0 children)
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    // RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
     ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
     if (ret) {
       *array_ensure_tail(&total_its, IndexIterator *) = ret;
@@ -1778,11 +1794,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      if (!strcmp(qs->tn.str, "")) {
-        s = sdscatprintf(s, "<%s>%s", SPEC_INDEXEMPTY_STR, qs->tn.expanded ? "(expanded)" : "");
-      } else {
-        s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
-      }
+      s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }
@@ -1831,12 +1843,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      if (qs->tag.nen == NON_EXIST_EMPTY) {
-        s = doPad(s, depth + 1);
-        s = sdscat(s, "<ISEMPTY>\n");
-      } else {
-        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
-      }
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;

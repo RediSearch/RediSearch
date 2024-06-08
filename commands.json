@@ -207,9 +207,9 @@
             "optional": true
           },
           {
-            "name": "isempty",
+            "name": "INDEXEMPTY",
             "type": "pure-token",
-            "token": "ISEMPTY",
+            "token": "INDEXEMPTY",
             "optional": true
           },
           {

@@ -2,7 +2,7 @@
 #define TEXTEXPR                         2
 #define ORX                              3
 #define OR                               4
-#define ISEMPTY                          5
+#define EMPTY_STRING                     5
 #define ISMISSING                        6
 #define MODIFIER                         7
 #define RP                               8
