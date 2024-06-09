@@ -52,6 +52,7 @@ escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
+empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
@@ -60,7 +61,7 @@ suffix = (star.term | star.number | star.attr) $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
-isempty = 'isempty'i $1;
+ismissing = 'ismissing'i $1;
 
 main := |*
 
@@ -132,7 +133,15 @@ main := |*
       fbreak;
     }
   };
-  
+
+  empty_string => {
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);  
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   quote => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);  
@@ -237,11 +246,11 @@ main := |*
   punct;
   cntrl;
   
-  isempty => {
+  ismissing => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
     tok.s = ts;
-    RSQuery_Parse_v2(pParser, ISEMPTY, tok, q);
+    RSQuery_Parse_v2(pParser, ISMISSING, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -256,6 +265,7 @@ main := |*
       fbreak;
     }
   };
+
   prefix => {
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;

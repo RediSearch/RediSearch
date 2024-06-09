@@ -67,7 +67,8 @@ struct DocumentIndexer;
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
-#define SPEC_INDEXEMPTY_STR "ISEMPTY"
+#define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
+#define SPEC_INDEXMISSING_STR "INDEXMISSING"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
@@ -174,7 +175,6 @@ typedef struct Version {
   int buildVersion;  // if not exits then its zero
 } Version;
 
-extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
@@ -255,6 +255,8 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
   char *name;                     // Index name
@@ -318,6 +320,10 @@ typedef struct IndexSpec {
 
   // Quick access to the spec's strong ref
   StrongRef own_ref;
+
+  // Contains inverted indexes of missing fields
+  dict *missingFieldDict;
+
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

@@ -207,9 +207,15 @@
             "optional": true
           },
           {
-            "name": "isempty",
+            "name": "INDEXEMPTY",
             "type": "pure-token",
-            "token": "ISEMPTY",
+            "token": "INDEXEMPTY",
+            "optional": true
+          },
+          {
+            "name": "indexmissing",
+            "type": "pure-token",
+            "token": "INDEXMISSING",
             "optional": true
           },
           {

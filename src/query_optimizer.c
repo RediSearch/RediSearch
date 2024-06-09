@@ -122,6 +122,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_VECTOR:    // NO SCORE
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:
+    case QN_MISSING:
       break;
   }
   return ret;
