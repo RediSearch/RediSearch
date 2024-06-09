@@ -2,7 +2,18 @@
 #include "thpool/thpool.h"
 #include <chrono>
 #include <thread>
+#include <stdarg.h>
+#include <string>
 
+static void LogCallback(const char *level, const char *fmt, ...) {
+    std::string msg(1024, '\0');
+
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(&msg[0], msg.size(), fmt, ap);
+    std::cout << msg << std::endl;
+    va_end(ap);
+}
 
 typedef struct {
     size_t num_threads;
@@ -16,7 +27,7 @@ public:
             ThpoolParams params = GetParam();
             // Thread pool with a single thread which is also high-priority bias that
             // runs high priority tasks before low priority tasks.
-            this->pool = redisearch_thpool_create(params.num_threads, params.num_high_priority_bias, nullptr, "test");
+            this->pool = redisearch_thpool_create(params.num_threads, params.num_high_priority_bias, LogCallback, "test");
         }
 
         virtual void TearDown() {
@@ -205,6 +216,71 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     // There should not be any jobs in progress
     ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), 0) << "expected 0 working threads";
 
+}
+
+/* ========================== NUM_THREADS = 5, NUM_HIGH_PRIORITY_BIAS = 0 ========================== */
+static constexpr size_t RUNTIME_CONFIG_N_THREADS = 5;
+THPOOL_TEST_SUITE(PriorityThpoolTestRuntimeConfig, RUNTIME_CONFIG_N_THREADS, 0)
+
+TEST_P(PriorityThpoolTestRuntimeConfig, TestVerifyInit) {
+    // set terminate when empty
+    // while jobs still are running, push a new job to the queue
+    // expect all the threads to be revived
+    // thpool is now initalized
+
+}
+TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
+    // schenario 1: remove threads from a running pool
+    // Add a job to trigger thpool initialization
+    size_t time_ms = 1;
+    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
+
+    // assert num_threads_alive is 5
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, RUNTIME_CONFIG_N_THREADS) << "expected " << RUNTIME_CONFIG_N_THREADS << " threads alive";
+
+    // remove 3 threads
+    size_t n_threads_to_remove = 3;
+    size_t n_threads = RUNTIME_CONFIG_N_THREADS - n_threads_to_remove;
+    ASSERT_EQ(redisearch_thpool_remove_threads(this->pool, n_threads_to_remove), n_threads) << "expected " << n_threads << " n_threads";
+    // assert num threads alive is 2
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, n_threads) << "expected " << n_threads << " threads alive";
+    ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be initialized";
+
+    // Try remove threads when jobq is paused
+
+    // remove all threads while jbos in the queue
+
+    // scenario: remove threads in TWE mode
+    // set threads to terminate when empty
+    // add threads
+        // test 1: case 1.a curr_num_threads_alive >= n_threads
+        // original number was 10, we want 5, 4 already died, so we have 6 (more than we need).
+
+
+        // test 2: case 1.b curr_num_threads_alive < n_threads
+        // original number was 10, we want 5, 6 already died so we have 4 (less than we need).
+        // or original number was 10,  we want 15, some of them are still alive,
+
+    // add jobs
+        // case 1.a
+    // Set to 0 scenario:
+        // set to terminate when empty
+        // remove all threads while there are still threads alive
+
+    // Set to 0 after decreasing to 1 scenario:
+        // set num threads to 1
+        // set to terminate when empty
+        // set to 0
+
+    // set to 0 and then add threads scenario:
+        // set to 0
+        // add threads
+        // push job to queue
+        // verify it's done
+
+    // remove all threads from the pool, expect a warning message
+
+    //
 }
 
 /* ========================== NUM_THREADS = 2, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */

@@ -33,7 +33,9 @@
 
 typedef enum {
   THPOOL_INITIALIZED = (1 << 0),
-  THPOOL_UNINITIALIZED = 0,
+  THPOOL_UNINITIALIZED = 0,   /** Can be one of two states:
+                                * 1. There are no threads alive
+                                * 2. There are threads alive in THREAD_TERMINATE_WHEN_EMPTY state. */
 } ThpoolState;
 
 typedef enum {
@@ -196,11 +198,77 @@ struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t 
 
 /* Initialise thread pool. This function is not thread safe. */
 static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) {
-  if (thpool_p->state != THPOOL_UNINITIALIZED)
-    return; // Already initialized
+  if (thpool_p->state == THPOOL_INITIALIZED)
+    return; // Already initialized and all threads are active.
 
-  /* Thread init */
-  for (size_t n = 0; n < thpool_p->n_threads; n++) {
+  /** Else, either:
+   * case 1: There are threads alive in terminate_when_empty state.
+   * In this case, we need to add the missing threads to adjust `num_threads_alive` to n_threads
+   *    case 1.a: num_threads_alive >= n_threads ( we have set the thpool to terminate when empty and then decreased n_threads)
+              - n_threads_to_revive = n_threads
+              - n_threads_to_kill = n_threads_alive - n_threads
+        case 1.b: num_threads_alive < n_threads ( we have set the thpool to terminate when empty and *might also* increased n_threads)
+              - n_threads_to_revive = num_threads_alive
+              - n_new_threads = n_threads - num_threads_alive new threads
+
+   * case 2: There are no threads alive, just add n_threads threads.
+   */
+  redisearch_thpool_lock(thpool_p);
+  size_t curr_num_threads_alive = thpool_p->num_threads_alive;
+  size_t n_threads = thpool_p->n_threads;
+  size_t n_new_threads = 0;
+  if (curr_num_threads_alive) { // Case 1 - some or all threads are alive in TERMINATE_WHEN_EMPTY state
+    size_t n_threads_to_revive = 0;
+    size_t n_threads_to_kill = 0;
+    if (curr_num_threads_alive >= n_threads) { // Case 1.a
+      // Revive n_threads
+      n_threads_to_revive = n_threads;
+      // Kill extra threads
+      n_threads_to_kill = curr_num_threads_alive - n_threads;
+    } else {                                  // Case 1.b
+      // Revive all threads
+      n_threads_to_revive = curr_num_threads_alive;
+      // Add missing threads
+      n_new_threads = n_threads - curr_num_threads_alive;
+    }
+
+    /* In both cases we send `curr_num_threads_alive` jobs. */
+    pthread_barrier_t barrier;
+    pthread_barrier_init(&barrier, NULL, curr_num_threads_alive + 1);
+
+    /* Create jobs and their args */
+    redisearch_thpool_work_t jobs[n_threads_to_revive];
+    SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = THREAD_RUNNING};
+
+    /* Set new state of `n_threads_to_revive` threads state to 'THREAD_RUNNING' */
+    for (size_t i = 0; i < n_threads_to_revive; i++) {
+      jobs[i].arg_p = &job_arg;
+      jobs[i].function_p = admin_job_change_state;
+    }
+
+    /* Set new state of `n_threads_to_kill` threads state to 'THREAD_TERMINATE_ASAP' */
+    for (size_t i = 0; i < n_threads_to_revive; i++) {
+      jobs[i].arg_p = &job_arg;
+      jobs[i].function_p = admin_job_change_state;
+    }
+
+    jobsChain jobs_chain = create_jobs_chain(jobs, n_threads_to_revive);
+    priority_queue_push_chain_unsafe(
+        &thpool_p->jobqueues, jobs_chain.first_job, jobs_chain.last_job,
+        n_threads_to_revive, THPOOL_PRIORITY_ADMIN);
+
+    /* Unlock to allow the threads to pull from the jobq */
+    redisearch_thpool_unlock(thpool_p);
+    /* Wait on barrier */
+    pthread_barrier_wait(&barrier);
+    pthread_barrier_destroy(&barrier);
+  } else { // Case 2 - no threads alive
+    redisearch_thpool_unlock(thpool_p);
+    n_new_threads = n_threads;
+  }
+
+  /* Add new threads if needed */
+  for (size_t n = 0; n < n_new_threads; n++) {
     thread_init(thpool_p);
   }
 
@@ -213,6 +281,43 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu created successfully",
                 thpool_p->n_threads)
+}
+
+ /** Returns new n_threads*/
+size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
+                               size_t n_threads_to_remove) {
+  /*  n_threads is only configured and read by the main thread (protected by the GIL). */
+  thpool_p->n_threads -= n_threads_to_remove;
+
+  /** THPOOL_UNINITIALIZED means either:
+   * 1. There are no threads alive
+   * 2. There are threads alive in terminate_when_empty state.
+   * In both cases only calling `verify_init` will add/remove threads to adjust `num_threads_alive` to `n_threads` */
+  if (thpool_p->state == THPOOL_UNINITIALIZED)
+    return thpool_p->n_threads;
+
+  if (thpool_p->n_threads == 0 && priority_queue_is_empty(&thpool_p->jobqueues)) {
+    LOG_IF_EXISTS("warning",  "redisearch_thpool_remove_threads(): "
+                          "Killing all threads while jobqueue is not empty");
+  }
+
+  assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
+
+
+  size_t n_threads = thpool_p->n_threads;
+  redisearch_thpool_broadcast_new_state(thpool_p, n_threads_to_remove,
+                                        THREAD_TERMINATE_ASAP);
+
+  /* Wait until `num_threads_alive` == `n_threads` */
+  while (thpool_p->num_threads_alive != n_threads) {
+    usleep(1);
+  }
+
+  LOG_IF_EXISTS("verbose", "Thread pool size decreased to %zu successfully",
+              thpool_p->n_threads)
+
+  return n_threads;
+
 }
 
 /* Add work to the thread pool */
