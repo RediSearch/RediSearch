@@ -120,7 +120,7 @@ jobs:
           path: redis
       - name: Build Redis
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.

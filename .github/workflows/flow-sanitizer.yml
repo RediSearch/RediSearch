@@ -9,11 +9,13 @@ on:
         type: string
         required: true
 
+
 jobs:
+
   clang-sanitizer:
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: ${{ inputs.flow-config }}
-      san: addr
+      san: address
+      env: ubuntu-latest
     secrets: inherit

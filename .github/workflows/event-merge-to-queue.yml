@@ -48,12 +48,13 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: docs-only
+    needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
     with:
       flow-config: '' # full sanitization
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
   pr-validation:
     needs:
