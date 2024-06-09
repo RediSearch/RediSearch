@@ -2,7 +2,7 @@ name: Release a Version
 
 on:
   release:
-    types: [released]
+    types: [published]
 
 jobs:
   update-version:
