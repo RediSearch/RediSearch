@@ -253,7 +253,7 @@ CONFIG_GETTER(getHighPriorityBiasNum) {
 // PRIVILEGED_THREADS_NUM
 CONFIG_SETTER(setPrivilegedThreadsNum) {
   RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting WORKERS_PRIORITY_BIAS_THRESHOLD instead.");
-  return setHighPriorityBiasNum(config, ac, status);
+  return setHighPriorityBiasNum(config, ac, -1, status);
 }
 #endif // MT_BUILD
 
