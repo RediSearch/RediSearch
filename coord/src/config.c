@@ -67,7 +67,11 @@ int triggerConnPerShard(RSConfig *config) {
   if (realConfig->connPerShard != 0) {
     connPerShard = realConfig->connPerShard;
   } else {
-    connPerShard = config->numWorkerThreads + 1;
+    #ifdef MT_BUILD
+      connPerShard = config->numWorkerThreads + 1;
+    #else
+      connPerShard = 1;
+    #endif
   }
   MR_UpdateConnPerShard(connPerShard);
   return REDISMODULE_OK;
@@ -194,6 +198,8 @@ RSConfigOptions *GetClusterConfigOptions(void) {
 }
 
 void ClusterConfig_RegisterTriggers(void) {
+#ifdef MT_BUILD
   const char *connPerShardConfigs[] = {"WORKER_THREADS", NULL};
   RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+#endif
 }
