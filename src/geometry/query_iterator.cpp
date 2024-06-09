@@ -104,7 +104,7 @@ IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
       .isValid = 1,
       .ctx = ctx,
-      .current = NewVirtualResult(0),
+      .current = NewVirtualResult(0, 0),
       .type = ID_LIST_ITERATOR,
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
