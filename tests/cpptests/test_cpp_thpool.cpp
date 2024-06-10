@@ -237,7 +237,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
     total_jobs_pushed++;
 
-    // assert num_threads_alive is 5
+    // Expect num_threads_alive is 5
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, RUNTIME_CONFIG_N_THREADS) << "expected " << RUNTIME_CONFIG_N_THREADS << " threads alive";
 
     // remove 3 threads
@@ -272,6 +272,13 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
         }
     };
 
+    // ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_pending_jobs, 0) << "expected " << 0 << " pending jobs";
+    // ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), 0) << "expected " << 0 << " jobs in progress";
+    // Ensure that the first job has done and `num_jobs_in_progres` has already been updated
+    while (redisearch_thpool_num_jobs_in_progress(this->pool)) {
+        usleep(1);
+    }
+
     JobData jobData = { 0, this->pool, n_threads };
     for (int i = 0; i < n_threads; i++) {
         redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, &jobData, THPOOL_PRIORITY_HIGH);
@@ -282,6 +289,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     while (redisearch_thpool_num_jobs_in_progress(this->pool) < n_threads) {
         usleep(1);
     }
+    // ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_pending_jobs, 0) << "expected " << 0 << " pending jobs";
 
     // Remove the rest of the threads
     ASSERT_EQ(redisearch_thpool_remove_threads(this->pool, n_threads), 0) << "expected 0 n_threads";
@@ -291,8 +299,6 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     ASSERT_EQ(stats.total_pending_jobs , 0) << "expected 0 pending jobs";
 
     // test, wait, drain and terminate
-
-
 
 
     // scenario: remove threads in TWE mode
