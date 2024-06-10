@@ -8,6 +8,8 @@ on:
       flow-config:
         type: string
         required: true
+      get-redis:
+        type: string
 
 
 jobs:
