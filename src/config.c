@@ -21,6 +21,9 @@
 
 #include "util/config_macros.h"
 
+#define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
+RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -185,6 +188,8 @@ CONFIG_SETTER(setWorkThreads) {
     return REDISMODULE_ERR;
   }
   config->numWorkerThreads = newNumThreads;
+  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
@@ -199,22 +204,18 @@ CONFIG_SETTER(setMtMode) {
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
-    config->mt_mode = MT_MODE_OFF;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+  if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
     config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
     config->mt_mode = MT_MODE_FULL;
   } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 static inline const char *MTMode_ToString(MTMode mt_mode) {
   switch (mt_mode) {
-    case MT_MODE_OFF:
-      return "MT_MODE_OFF";
     case MT_MODE_ONLY_ON_OPERATIONS:
       return "MT_MODE_ONLY_ON_OPERATIONS";
     case MT_MODE_FULL:
@@ -252,7 +253,7 @@ CONFIG_GETTER(getHighPriorityBiasNum) {
 // PRIVILEGED_THREADS_NUM
 CONFIG_SETTER(setPrivilegedThreadsNum) {
   RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting WORKERS_PRIORITY_BIAS_THRESHOLD instead.");
-  return setHighPriorityBiasNum(config, ac, status);
+  return setHighPriorityBiasNum(config, ac, -1, status);
 }
 #endif // MT_BUILD
 
@@ -273,7 +274,8 @@ CONFIG_SETTER(setOnTimeout) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
-    RETURN_ERROR("Invalid ON_TIMEOUT value");
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
+    return REDISMODULE_ERR;
   }
   config->requestConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
@@ -589,7 +591,10 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    if (curVar->setValue(&RSGlobalConfig, &ac, &status) != REDISMODULE_OK) {
+    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+    // If we don't have a coordinator or this configuration has no trigger, this value
+    // is meaningless and should be ignored
+    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
       *err = rm_strdup(QueryError_GetError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -656,20 +661,20 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Create at most this number of search threads",
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
-         .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
+         .helpText = "If set to MT_MODE_FULL and `WORKER_THREADS` > 0, queries and vector indexing "
+                     "will be performed in background threads by default. If set to MT_MODE_ONLY_ON_OPERATIONS, "
+                     "the workers thread pool will be used only for operational needs.",
          .setValue = setMtMode,
          .getValue = getMtMode,
-        //  .flags = RSCONFIGVAR_F_IMMUTABLE, // TODO: properly make it mutable
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                        " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
-                        " number of vectors waiting in the buffer to be indexed exceeds this limit, "
-                        " we insert new vectors directly into HNSW",
+                    " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
+                    " number of vectors waiting in the buffer to be indexed exceeds this limit,"
+                    " we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
@@ -823,6 +828,16 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
   dst->next = NULL;
 }
 
+void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const char **configs) {
+  static uint32_t numTriggers = 0;
+  RS_LOG_ASSERT(numTriggers < RS_MAX_CONFIG_TRIGGERS, "Too many config triggers");
+  for (const char *config = *configs; config; config = *++configs) {
+    RSConfigVar *var = findConfigVar(&RSGlobalConfigOptions, config);
+    var->triggerId = numTriggers;
+  }
+  RSGlobalConfigTriggers[numTriggers++] = trigger;
+}
+
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
@@ -922,7 +937,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   }
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
-  int rc = var->setValue(config, &ac, status);
+  int rc = var->setValue(config, &ac, var->triggerId, status);
   *offset += ac.offset;
   return rc;
 }

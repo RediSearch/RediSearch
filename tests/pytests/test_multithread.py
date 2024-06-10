@@ -49,35 +49,6 @@ def testSimpleBuffer():
 def testMultipleBlocksBuffer():
     CreateAndSearchSortBy(docs_count = 2500)
 
-# Skipping for cluster as we only test for loading the module to the shard.
-# We test it only for redis versions > 7.2.3 due to a bug in redis - onFLush callback is called even though module loading
-# failed, causing access to an invalid memory that was freed (module context) - see
-# https://github.com/redis/redis/issues/12808.
-# TODO: free allocations in module init in case we return an error, currently this is causing leaks when MODULE LOAD fails.
-@skip(cluster=True, noWorkers=True, asan=True, redis_less_than="7.2.4")
-def test_invalid_mt_config_combinations(env):
-    module_path =  env.envRunner.modulePath[0]  # extract search module path from RLTest default env
-    def check_invalid_values(mt_mode, worker_threads):
-        mode = f"mt_mode: {mt_mode}, worker_threads: {worker_threads}"
-        r = Env(module=[])  # create a new env without any module
-        env.assertEqual(r.cmd('MODULE', 'LIST'), [], message=mode)
-        try:
-            r.cmd('MODULE', 'LOAD', module_path, 'WORKER_THREADS', worker_threads, 'MT_MODE', mt_mode)
-            env.assertFalse(True, message=mode)   # we shouldn't get here
-        except Exception as e:
-            # Expect to see a failure in loading the module due to the invalid configuration combination.
-            env.assertEqual(type(e), redis_exceptions.ModuleError, message=mode)
-            env.assertContains("Error loading the extension.", str(e))
-        finally:
-            r.stop()
-
-    # Check invalid values for MT_MODE with worker_threads=0
-    for mode in ['MT_MODE_FULL', 'MT_MODE_ONLY_ON_OPERATIONS']:
-        check_invalid_values(mode, 0)
-
-    # Check invalid values for worker_threads (too high)
-    check_invalid_values('MT_MODE_FULL', 2 ** 13 + 1)
-
 
 @skip(cluster=True)
 def test_worker_threads_sanity():
@@ -398,7 +369,7 @@ def test_switch_loader_modes():
     _, cursor1 = env.cmd(*query)
 
     # Turn off the multithread mode (1)
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
 
     # Create a cursor while using the off mode
     _, cursor2 = env.cmd(*query)
@@ -406,21 +377,21 @@ def test_switch_loader_modes():
     cursor1 = read_from_cursor(cursor1)
 
     # Turn on the multithread mode (2)
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn off the multithread mode (3)
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn on the multithread mode last time (4)
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
 
     # Read from the second cursor
     cursor2 = read_from_cursor(cursor2)
@@ -435,12 +406,64 @@ def test_switch_loader_modes():
     _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
                          'WITHCURSOR', 'COUNT', cursor_count)
 
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_OFF').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '0').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
-    env.expect('FT.CONFIG', 'SET', 'MT_MODE', 'MT_MODE_FULL').ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKER_THREADS', '1').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
+
+@skip(cluster=False)
+def test_change_num_connections(env: Env):
+
+    # Validate the default values
+    env.expect(config_cmd(), 'GET', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
+    env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
+
+    # The logic of the number of connections is as follows:
+    # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
+    # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKER_THREADS` + 1
+
+    # Helper that will return the expected output structure.
+    # In this test we don't care about the actual values, so we use the ANY matcher.
+    # Example of the expected output (for 3 shards and 2 connections):
+    # ['127.0.0.1:6379', ['Connected', 'Connected'],
+    #  '127.0.0.1:6381', ['Connected', 'Connecting'],
+    #  '127.0.0.1:6383', ['Connected', 'Connected']]
+    def expected(conns):
+        exp = []
+        for _ in range(env.shardsCount):
+            exp.append(ANY) # The shard id (host:port)
+            exp.append([ANY] * conns) # The connections states
+        return exp
+
+    # By default, the number of connections is 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+
+    # Increase the number of worker threads to 6
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '6').ok()
+    # The number of connections should be 7
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(7))
+
+    # Set the number of connections to 4
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
+    # The number of connections should be 4
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+
+    # Decrease the number of worker threads to 5
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '5').ok()
+    # The number of connections should remain 4
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(4))
+
+    # Set the number of connections to 0
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
+    # The number of connections should be 6 (5 worker threads + 1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(6))
+
+    # Set back the number of worker threads to 0
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    # The number of connections should be 1 again
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))

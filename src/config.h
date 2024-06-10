@@ -4,8 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_CONFIG_H_
-#define RS_CONFIG_H_
+#pragma once
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
@@ -78,9 +77,8 @@ typedef struct {
 
 #ifdef MT_BUILD
 typedef enum {
-  MT_MODE_OFF,
+  MT_MODE_FULL,
   MT_MODE_ONLY_ON_OPERATIONS,
-  MT_MODE_FULL
 } MTMode;
 #endif
 
@@ -161,15 +159,15 @@ typedef enum {
   RSCONFIGVAR_F_IMMUTABLE = 0x01,
   RSCONFIGVAR_F_MODIFIED = 0x02,
   RSCONFIGVAR_F_FLAG = 0x04,
-  RSCONFIGVAR_F_SHORTHAND = 0x08
 } RSConfigVarFlags;
 
 typedef struct {
   const char *name;
   const char *helpText;
   uint32_t flags;
+  uint32_t triggerId;
   // Whether this configuration option can be modified after initial loading
-  int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
+  int (*setValue)(RSConfig *, ArgsCursor *, uint32_t, QueryError *);
   sds (*getValue)(const RSConfig *);
 } RSConfigVar;
 
@@ -179,6 +177,8 @@ typedef struct RSConfigOptions {
   struct RSConfigOptions *next;
 } RSConfigOptions;
 
+typedef int (*RSConfigExternalTrigger)(RSConfig *);
+
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
@@ -187,6 +187,16 @@ extern RSConfigOptions RSGlobalConfigOptions;
  * Add new configuration options to the chain of already recognized options
  */
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst);
+
+/**
+ * Register a new external trigger for configuration changes.
+ * This function should be called on the module load time, before we start reading
+ * any configuration.
+ * @param trigger the trigger function
+ * @param configs an array of configuration names that trigger the function.
+ *                The array must be NULL-terminated.
+ */
+void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const char **configs);
 
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
@@ -235,7 +245,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
     .numWorkerThreads = 0,                                                                                            \
-    .mt_mode = MT_MODE_OFF,                                                                                           \
+    .mt_mode = MT_MODE_FULL,                                                                                          \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
 #else
@@ -300,5 +310,4 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
 }
-#endif
 #endif
