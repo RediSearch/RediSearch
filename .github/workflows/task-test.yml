@@ -100,9 +100,9 @@ jobs:
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
-      # - name: Install Boost
-      #   working-directory: .install
-      #   run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
