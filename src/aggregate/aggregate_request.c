@@ -1133,7 +1133,7 @@ static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *
 }
 
 static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
-                                   QueryError *status) {
+                                   QueryError *status, bool forceLoad) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
@@ -1147,7 +1147,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(req, firstLk, loadKeys, array_len(loadKeys));
+    ResultProcessor *rpLoader = RPLoader_New(req, firstLk, loadKeys, array_len(loadKeys), forceLoad);
     array_free(loadKeys);
     RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(req, rpLoader, rpUpstream);
@@ -1182,7 +1182,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
 }
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
-                                     QueryError *status, ResultProcessor *up) {
+                                     QueryError *status, ResultProcessor *up, bool forceLoad) {
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
@@ -1244,7 +1244,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys));
+        ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys), forceLoad);
         up = pushRP(req, rpLoader, up);
       }
       rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
@@ -1345,7 +1345,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
+int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool forceLoad) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
@@ -1367,7 +1367,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
-    rp = RPLoader_New(req, lookup, loadkeys, array_len(loadkeys));
+    rp = RPLoader_New(req, lookup, loadkeys, array_len(loadkeys), forceLoad);
     if (isSpecJson(req->sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
       lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1412,8 +1412,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
-  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
-                       RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+  bool forceLoad = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1424,7 +1424,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     switch (stp->type) {
       case PLN_T_GROUP: {
         // Adds group result processor and loader if needed.
-        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status);
+        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status, forceLoad);
         if (!rpUpstream) {
           goto error;
         }
@@ -1432,7 +1432,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(req, pln, stp, status, rpUpstream);
+        rp = getArrangeRP(req, pln, stp, status, rpUpstream, forceLoad);
         if (!rp) {
           goto error;
         }
@@ -1511,7 +1511,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(req, curLookup, lstp->keys, lstp->nkeys);
+          rp = RPLoader_New(req, curLookup, lstp->keys, lstp->nkeys, forceLoad);
           if (isSpecJson(req->sctx->spec)) {
             // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1536,7 +1536,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
-    rp = getArrangeRP(req, pln, NULL, status, rpUpstream);
+    rp = getArrangeRP(req, pln, NULL, status, rpUpstream, forceLoad);
     if (!rp) {
       goto error;
     }
@@ -1546,7 +1546,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
   if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    if (buildOutputPipeline(req, loadFlags, status) != REDISMODULE_OK) {
+    if (buildOutputPipeline(req, loadFlags, status, forceLoad) != REDISMODULE_OK) {
       goto error;
     }
   }

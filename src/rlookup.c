@@ -599,10 +599,25 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
+static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options)
+{
+  if (!options->forceLoad && kk && !(kk->flags & RLOOKUP_F_FORCE_LOAD)) {
+	if (kk->flags & RLOOKUP_F_VAL_AVAILABLE) {
+      // No need to "write" this key. It's always implicitly loaded!
+      return true;
+    } else if ((kk->flags & (RLOOKUP_F_SVSRC | RLOOKUP_F_ISLOADED)) == (RLOOKUP_F_SVSRC | RLOOKUP_F_ISLOADED)) {
+	  if (RLookup_GetItem(kk, dst) == NULL) {
+         // There is no value in the sorting vector, and we don't need to load it from the document.
+         return true;
+      }
+	}
+  }
+  return false;
+}
+
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
-  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
-    // No need to "write" this key. It's always implicitly loaded!
+  if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
 
@@ -657,8 +672,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     return REDISMODULE_ERR;
   }
 
-  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
-    // No need to "write" this key. It's always implicitly loaded!
+  if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
 
@@ -962,7 +976,6 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
                             .keyPtr = keyptr,
                             .type = rule->type,
                             .status = &status,
-                            .forceLoad = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
   QueryError_ClearError(&status);
