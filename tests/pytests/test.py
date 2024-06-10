@@ -633,6 +633,15 @@ def testExplain(env):
     _testExplain(env, 'idx', ['@bar:[(-1 $n]','PARAMS', '2', 'n', '10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
 
+    _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
+                    "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
+    
+    _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
+                    "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
+    
+    _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
+                    "NUMERIC {-22.000000 < @bar < 50.000000}\n")
+
     # test numeric operators - they are only supported in DIALECT 5
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
     
@@ -1671,6 +1680,29 @@ def testNumericRange(env):
         res = env.cmd(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
+
+        # Test numeric ranges using params
+        MAX_DIALECT = set_max_dialect(env)
+
+        for dialect in range(2, MAX_DIALECT + 1):
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[$min $max]',
+                "nocontent", 'PARAMS', 4, 'min', 0, 'max', 50, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(51, res[0])
+
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[(+$min -$max]',
+                "nocontent", 'PARAMS', 4, 'min', 0, 'max', -50, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(50, res[0])
+
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[-$min (-$max]',
+                "nocontent", 'PARAMS', 4, 'min', 500, 'max', -500, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(100, res[0])
+
 
 def testNotIter(env):
     conn = getConnectionByEnv(env)
