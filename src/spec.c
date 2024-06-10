@@ -949,6 +949,12 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       break;
     }
   }
+  // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
+  // not contribute and thus this doesn't make sense.
+  if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field `%s` cannot be defined with both `NOINDEX` and `INDEXMISSING`'", fs->name);
+    goto error;
+  }
   return 1;
 
 error:
