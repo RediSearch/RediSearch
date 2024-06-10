@@ -659,6 +659,12 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar==+$n', 'PARAMS', 2, 'n', 10],
                  'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
+    
+    _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', 7],
+                 'NUMERIC {-7.000000 <= @bar <= -7.000000}\n')
+    
+    _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', -5],
+                 'NUMERIC {5.000000 <= @bar <= 5.000000}\n')
 
     _testExplain(env, 'idx', ['@bar>=12 @bar<inf'],
                 'INTERSECT {\n  NUMERIC {12.000000 <= @bar <= inf}\n  NUMERIC {-inf <= @bar < inf}\n}\n')
