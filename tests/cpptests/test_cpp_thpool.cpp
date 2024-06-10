@@ -230,10 +230,12 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestVerifyInit) {
 
 }
 TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
-    // schenario 1: remove threads from a running pool
+    // scenario 1: remove threads from a running pool
     // Add a job to trigger thpool initialization
+    size_t total_jobs_pushed = 0;
     size_t time_ms = 1;
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_1_and_set, &time_ms, THPOOL_PRIORITY_HIGH);
+    total_jobs_pushed++;
 
     // assert num_threads_alive is 5
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, RUNTIME_CONFIG_N_THREADS) << "expected " << RUNTIME_CONFIG_N_THREADS << " threads alive";
@@ -246,13 +248,56 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, n_threads) << "expected " << n_threads << " threads alive";
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be initialized";
 
-    // Try remove threads when jobq is paused
+    // Remove rest of the threads while jobs are being executed
+    // The job is:
+        // 1. waiting for all the threads to pull the job
+        // 2. wait for the admin jobs to be pushed to the queue
+    struct JobData {
+        size_t pulled_count;
+        redisearch_threadpool pool;
+        const size_t n_threads;
+    };
 
-    // remove all threads while jbos in the queue
+    auto waitForAdminJobFunc = [](void *p) {
+        JobData *args = (JobData *)p;
+        args->pulled_count++;
+        // wait for all the jobs to be pulled
+        while (args->pulled_count < args->n_threads) {
+            usleep(1);
+        }
+
+        // wait for the admin jobs to be pushed
+        while (!redisearch_thpool_get_stats(args->pool).admin_priority_pending_jobs) {
+            usleep(1);
+        }
+    };
+
+    JobData jobData = { 0, this->pool, n_threads };
+    for (int i = 0; i < n_threads; i++) {
+        redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, &jobData, THPOOL_PRIORITY_HIGH);
+        total_jobs_pushed++;
+    }
+
+    // Wait for the jobs to be pulled.
+    while (redisearch_thpool_num_jobs_in_progress(this->pool) < n_threads) {
+        usleep(1);
+    }
+
+    // Remove the rest of the threads
+    ASSERT_EQ(redisearch_thpool_remove_threads(this->pool, n_threads), 0) << "expected 0 n_threads";
+    thpool_stats stats = redisearch_thpool_get_stats(this->pool);
+    ASSERT_EQ(stats.num_threads_alive, 0) << "expected 0 threads alive";
+    ASSERT_EQ(stats.total_jobs_done, total_jobs_pushed) << "expected " << total_jobs_pushed << " jobs done";
+    ASSERT_EQ(stats.total_pending_jobs , 0) << "expected 0 pending jobs";
+
+    // test, wait, drain and terminate
+
+
+
 
     // scenario: remove threads in TWE mode
     // set threads to terminate when empty
-    // add threads
+    // change number of threads
         // test 1: case 1.a curr_num_threads_alive >= n_threads
         // original number was 10, we want 5, 4 already died, so we have 6 (more than we need).
 
@@ -270,6 +315,8 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     // Set to 0 after decreasing to 1 scenario:
         // set num threads to 1
         // set to terminate when empty
+            // when there are jobs in the
+            // when there are not
         // set to 0
 
     // set to 0 and then add threads scenario:
@@ -278,9 +325,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
         // push job to queue
         // verify it's done
 
-    // remove all threads from the pool, expect a warning message
-
-    //
+    // remove all threads while jobs in the queue TODO: when we have add
 }
 
 /* ========================== NUM_THREADS = 2, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */

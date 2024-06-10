@@ -296,9 +296,10 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return thpool_p->n_threads;
 
-  if (thpool_p->n_threads == 0 && priority_queue_is_empty(&thpool_p->jobqueues)) {
+  size_t jobs_count = priority_queue_len(&thpool_p->jobqueues);
+  if (thpool_p->n_threads == 0 && jobs_count > 0) {
     LOG_IF_EXISTS("warning",  "redisearch_thpool_remove_threads(): "
-                          "Killing all threads while jobqueue is not empty");
+                          "Killing all threads while jobqueue contains %zu jobs", jobs_count);
   }
 
   assert(thpool_p->jobqueues.state == JOBQ_RUNNING && "Can't remove threads while jobq is paused");
