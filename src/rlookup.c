@@ -786,11 +786,10 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
   if (!rlk) {
     // First returned document, create the key.
-    uint32_t flags = pd->options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
-    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, flags);
-    if (!rlk) {
-      return; // Key is sortable, can load it from the sort vector on demand.
-    }
+	// Force load is hard coded due to backward compatibility, to preserve the current functionality
+	// From a logical perspective, we are already inside the keyspace
+	// We need to retrieve all the keys so we might as well load them all
+    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
   } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
              (!pd->options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
             /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
