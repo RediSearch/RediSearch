@@ -56,6 +56,12 @@ def testMissingValidations():
         "'ismissing' requires field 'numeric' to be defined with 'INDEXMISSING'"
     )
 
+    # Tests that we get an error in case of a user tries to use "ismissing(@field)"
+    # when `field` is created with `NOINDEX` and `INDEXMISSING`
+    env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'f1', 'TAG', 'INDEXMISSING', 'NOINDEX').error().contains(
+        'Field `f1` cannot be defined with both `NOINDEX` and `INDEXMISSING`'
+    )
+
 def testMissingInfo():
     """Tests that we get the `INDEXMISSING` keyword in the INFO response for fields
     that index missing values."""
