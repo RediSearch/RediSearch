@@ -123,55 +123,56 @@ def test_delete_index_while_indexing():
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
 
 
-class Test_burst_threads_sanity:
-    def __init__(self):
-        self.env = initEnv(moduleArgs='MIN_OPERATION_WORKERS 2 DEFAULT_DIALECT 2')
-        self.n_vectors = 100 * self.env.shardsCount
-        self.dim = 4
-        self.k = 10
-        self.expected_total_jobs = 0
-    def tearDown(self):
-        self.env.flush()
-    def do_test(self, algo, data_type):
-        additional_params = ['EF_CONSTRUCTION', self.n_vectors, 'EF_RUNTIME', self.n_vectors] if algo == 'HNSW' else []
-        # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
-        # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
-                    'TYPE', data_type, 'DIM', self.dim, 'DISTANCE_METRIC', 'L2', *additional_params).ok()
-        query_vec = load_vectors_to_redis(self.env, self.n_vectors, 0, self.dim, data_type)
-        n_local_vectors = get_vecsim_debug_dict(self.env, 'idx', 'vector')['INDEX_LABEL_COUNT']
+def do_burst_threads_sanity(algo, data_type, test_name):
+    env = initEnv(moduleArgs='MIN_OPERATION_WORKERS 2 DEFAULT_DIALECT 2')
+    # Sanity check that the test parameters match the test name
+    env.assertEqual([algo, data_type], test_name.split('_')[-2:])
+    n_vectors = 100 * env.shardsCount
+    dim = 4
+    k = 10
+    expected_total_jobs = 0
 
-        res_before = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                            '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, self.k,
-                                            'PARAMS', 4, 'K', self.k, 'vec_param', query_vec.tobytes())
-        # Expect that the first result's would be around zero, since the query vector itself exists in the
-        # index (id 0)
-        self.env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
-        waitForRdbSaveToFinish(self.env)
-        for i in self.env.reloadingIterator():
-            debug_info = get_vecsim_debug_dict(self.env, 'idx', 'vector')
-            self.env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
-            if algo == 'HNSW':
-                self.env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
-                                message=f"{'before loading' if i==1 else 'after loading'}")
-                if i==2:  # after reloading in HNSW, we expect to run insert job for each vector
-                    self.expected_total_jobs += n_local_vectors
-            assertInfoField(self.env, 'idx', 'num_docs', self.n_vectors)
-            self.env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_local_vectors)
-            self.env.assertEqual(getWorkersThpoolStats(self.env)['totalPendingJobs'], 0)
-            if algo == 'HNSW':
-                # Expect that 0 jobs was done before reloading, and another n_vector insert jobs during the reloading.
-                self.env.assertEqual(getWorkersThpoolStats(self.env)['totalJobsDone'], self.expected_total_jobs)
-            # Run the same KNN query and see that we are getting the same results after the reload
-            res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
-                                        '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, self.k,
-                                        'PARAMS', 4, 'K', self.k, 'vec_param', query_vec.tobytes())
-            self.env.assertEqual(res, res_before)
+    additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo == 'HNSW' else []
+    # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
+    # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
+                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params).ok()
+    query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+    n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
 
+    res_before = env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                        '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, k,
+                                        'PARAMS', 4, 'K', k, 'vec_param', query_vec.tobytes())
+    # Expect that the first result's would be around zero, since the query vector itself exists in the
+    # index (id 0)
+    env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
+    waitForRdbSaveToFinish(env)
+    for i in env.reloadingIterator():
+        debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
+        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
+        if algo == 'HNSW':
+            env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
+                            message=f"{'before loading' if i==1 else 'after loading'}")
+            if i==2:  # after reloading in HNSW, we expect to run insert job for each vector
+                expected_total_jobs += n_local_vectors
+        assertInfoField(env, 'idx', 'num_docs', n_vectors)
+        env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_local_vectors)
+        env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], 0)
+        if algo == 'HNSW':
+            # Expect that 0 jobs was done before reloading, and another n_vector insert jobs during the reloading.
+            env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], expected_total_jobs)
+        # Run the same KNN query and see that we are getting the same results after the reload
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
+                                    '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, k,
+                                    'PARAMS', 4, 'K', k, 'vec_param', query_vec.tobytes())
+        env.assertEqual(res, res_before)
+
+# Generate test functions for each combination of algorithm and data type
+func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
     for data_type in VECSIM_DATA_TYPES:
-        test_name = f"test_{algo}_{data_type}"
-        setattr(Test_burst_threads_sanity, test_name, lambda self, al=algo, dt=data_type: self.do_test(al, dt))
+        test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
+        globals()[test_name] = func_gen(algo, data_type, test_name)
 
 def test_workers_priority_queue():
     env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2')
