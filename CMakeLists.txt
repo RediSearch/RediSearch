@@ -91,7 +91,6 @@ file(GLOB SOURCES
     "deps/miniz/*.c"
     "deps/base64/*.c"
     "deps/thpool/*.c"
-    "deps/barrier/*.c"
     "deps/triemap/*.c"
     "deps/wildcard/*.c"
     "deps/geohash/*.c")
