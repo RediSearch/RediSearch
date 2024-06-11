@@ -5,6 +5,7 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
 
+[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8*&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
 [![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
 
