@@ -3,9 +3,9 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
 
-[![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?sort=semver&label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
 
-[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?sort=semver&filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6)
+[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
 
 # RediSearch
