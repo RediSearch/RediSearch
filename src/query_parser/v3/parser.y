@@ -572,6 +572,10 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
   }
 }
 
+text_expr(A) ::= empty_string(B) . [LOWEST]  {
+  A = NewTokenNode_WithParams(ctx, &B);
+}
+
 text_expr(A) ::= affix(B) . [PREFIX]  {
 A = B;
 }
@@ -760,6 +764,11 @@ single_tag(A) ::= affix_tag(B) . {
 single_tag(A) ::= verbatim(B) . {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
+}
+
+single_tag(A) ::= empty_string(B) . {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1144,16 +1153,6 @@ param_term(A) ::= ATTRIBUTE(B). {
   A.type = QT_PARAM_TERM;
 }
 
-param_term(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
-  A = B;
-  A.type = QT_TERM_CASE;
-}
-
-param_term_case(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
-  A = B;
-  A.type = QT_TERM_CASE;
-}
-
 param_term_case(A) ::= term(B). {
   A = B;
   A.type = QT_TERM_CASE;
@@ -1225,4 +1224,9 @@ exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
     A.sign = 1;
+}
+
+empty_string(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
+  A = B;
+  A.type = QT_TERM_CASE;
 }

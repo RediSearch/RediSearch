@@ -861,6 +861,120 @@ def testEmptyExplainCli(env):
         ]
         env.assertEqual(res, expected)
 
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" | bar}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  ""',
+                '  bar',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  "" | bar',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo | ""}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  foo',
+                '  ""',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  foo | ""',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" | ""}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  ""',
+                '  ""',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  "" | ""',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo ""}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  INTERSECT {',
+                '    foo',
+                '    ""',
+                '  }',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  foo ""',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" bar}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  INTERSECT {',
+                '    ""',
+                '    bar',
+                '  }',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  "" bar',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" ""}')
+        if dialect < 5:
+            expected = [
+                'TAG:@tag {',
+                '  INTERSECT {',
+                '    ""',
+                '    ""',
+                '  }',
+                '}',
+                ''
+            ]
+        else:
+            expected = [
+                'TAG:@tag {',
+                '  "" ""',
+                '}',
+                ''
+            ]
+        env.assertEqual(res, expected)
+
         # # ------------------------------ TEXT field ----------------------------
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:""')
         expected = [
@@ -944,3 +1058,96 @@ def testEmptyExplainCli(env):
             ''
         ]
         env.assertEqual(res, expected)
+
+        # UNION operator for a single TEXT field
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:(foo | "")')
+        expected = [
+            '@text:UNION {',
+            '  @text:UNION {',
+            '    @text:foo',
+            '    @text:+foo(expanded)',
+            '  }',
+            '  @text:""',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" | bar)')
+        expected = [
+            '@text:UNION {',
+            '  @text:""',
+            '  @text:UNION {',
+            '    @text:bar',
+            '    @text:+bar(expanded)',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" | "")')
+        expected = [
+            '@text:UNION {',
+            '  @text:""',
+            '  @text:""',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # INTERSECTION operator for a single TEXT field
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:(foo "")')
+        expected = [
+            '@text:INTERSECT {',
+            '  @text:UNION {',
+            '    @text:foo',
+            '    @text:+foo(expanded)',
+            '  }',
+            '  @text:""',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" bar)')
+        expected = [
+            '@text:INTERSECT {',
+            '  @text:""',
+            '  @text:UNION {',
+            '    @text:bar',
+            '    @text:+bar(expanded)',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" "")')
+        expected = [
+            '@text:INTERSECT {',
+            '  @text:""',
+            '  @text:""',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+def testInvalidEmptySyntax(env):
+    """Tests that invalid syntax for empty values is rejected by the parser"""
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+
+        # Create an index
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY',
+                   'text', 'TEXT', 'INDEXEMPTY', 'location', 'GEO').ok()
+
+        # Invalid syntax for empty values used in fuzzy term
+        env.expect('FT.SEARCH', 'idx', '@text:(%""%)').error().\
+            contains('Syntax error at offset 8')
+        
+        # Invalid synta for empty values used in geo filter
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 ""]').error().\
+            contains('Syntax error at offset 24')

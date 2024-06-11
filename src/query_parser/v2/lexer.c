@@ -472,8 +472,8 @@ _eof_trans:
 /* #line 137 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
-    tok.s = ts+2;
-    tok.len = te-ts-2;
+    tok.s = "";
+    tok.len = 0;
     RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);  
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
