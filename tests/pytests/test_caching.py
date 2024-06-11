@@ -23,4 +23,5 @@ def testCacheUsingCommandStats(env):
     before = env.cmd('INFO', 'COMMANDSTATS')
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').equal([1, 'foo', ['num', '3']])
     after = env.cmd('INFO', 'COMMANDSTATS')
-    env.assertEqual(after.get('cmdstat_hgetall', {}).get('calls', 0), before.get('cmdstat_hgetall', {}).get('calls', 0))
+    for command in ['hgetall', 'hget']:
+        env.assertEqual(after.get(f'cmdstat_{command}', {}).get('calls', 0), before.get(f'cmdstat_{command}', {}).get('calls', 0))

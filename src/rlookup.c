@@ -604,11 +604,9 @@ static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLooku
     if (kk->flags & RLOOKUP_F_VAL_AVAILABLE) {
       // No need to "write" this key. It's always implicitly loaded!
       return true;
-    } else if ((kk->flags & (RLOOKUP_F_SVSRC | RLOOKUP_F_ISLOADED)) == (RLOOKUP_F_SVSRC | RLOOKUP_F_ISLOADED)) {
-      if (RLookup_GetItem(kk, dst) == NULL) {
-        // There is no value in the sorting vector, and we don't need to load it from the document.
-        return true;
-      }
+    } else if ((kk->flags & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL)) {
+      // There is no value in the sorting vector, and we don't need to load it from the document.
+      return true;
     }
   }
   return false;
