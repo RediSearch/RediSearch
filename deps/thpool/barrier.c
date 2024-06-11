@@ -4,9 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "barrier.h"
 #include <unistd.h>
 
+#include "barrier.h"
 /* ============= General API extension ============= */
 
 int barrier_init(barrier_t *barrier, void *attr, int count) {
