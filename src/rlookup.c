@@ -968,6 +968,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
                             .keyPtr = keyptr,
                             .type = rule->type,
                             .status = &status,
+                            .forceLoad = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
   QueryError_ClearError(&status);
