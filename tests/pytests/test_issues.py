@@ -1081,3 +1081,19 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
+
+
+@skip(cluster=True)
+def test_4732(env):
+  '''
+  Test tokenizing text with an escaped backslash followed by a delimiter
+  (no need to test on cluster since only parser is tested)
+  '''
+  env.expect('FT.CREATE idx SCHEMA txt TEXT').equal('OK')
+  env.cmd('hset', 'doc1', 'txt', 'hello\\\\,world')
+  env.cmd('hset', 'doc2', 'txt', 'hello\\\\ world')
+  env.cmd('hset', 'doc3', 'txt', 'hello,world')
+  env.cmd('hset', 'doc4', 'txt', 'hello world')
+  env.expect('FT.SEARCH', 'idx', '@txt:(hello\\\\)', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
+  env.expect('FT.SEARCH', 'idx', '@txt:(world)', 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+

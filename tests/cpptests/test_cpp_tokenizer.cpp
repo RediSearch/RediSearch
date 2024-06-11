@@ -123,3 +123,22 @@ TEST_F(TokenizerTest, testTrailingEscapes) {
   tk->Free(tk);
   free(txt);
 }
+
+TEST_F(TokenizerTest, testEscapedSeparator) {
+  auto tk = NewSimpleTokenizer(NULL, NULL, 0);
+  char *txt = strdup("hello\\\\ world");
+  const char *expected[] = {"hello\\", "world"}; // note it is normalized
+  tk->Start(tk, txt, strlen(txt), 0);
+
+  Token tok;
+  size_t i = 0;
+  while (tk->Next(tk, &tok)) {
+    ASSERT_EQ(i + 1, tok.pos);
+    ASSERT_EQ(tok.tokLen, strlen(expected[i]));
+    std::string got(tok.tok, tok.tokLen);
+    ASSERT_STREQ(got.c_str(), expected[i]);
+    i++;
+  }
+  free(txt);
+  tk->Free(tk);
+}
