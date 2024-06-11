@@ -19,7 +19,7 @@
 #include <sys/prctl.h>
 #endif
 
-#include "pthread_barrier.h"
+#include "barrier.h"
 #include "rmalloc.h"
 #include "thpool.h"
 
@@ -156,8 +156,8 @@ static bool priority_queue_is_empty_unsafe(priorityJobqueue *jobqueue_p);
 /* ========================== THREADS MANAGER API ============================
  */
 typedef struct {
-  pthread_barrier_t *barrier; /* The calling thread blocks until the required number of
-                                threads have called pthread_barrier_wait() */
+  barrier_t *barrier; /* The calling thread blocks until the required number of
+                                threads have called barrier_wait() */
   ThreadState new_state;
 } SignalThreadCtx;
 static void admin_job_change_state(void *job_arg);
@@ -233,8 +233,8 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     }
 
     /* In both cases we send `curr_num_threads_alive` jobs. */
-    pthread_barrier_t barrier;
-    pthread_barrier_init(&barrier, NULL, curr_num_threads_alive + 1);
+    barrier_t barrier;
+    barrier_init(&barrier, NULL, curr_num_threads_alive);
 
     /* Create jobs and their args */
     redisearch_thpool_work_t jobs[n_threads_to_revive];
@@ -259,9 +259,8 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
     /* Unlock to allow the threads to pull from the jobq */
     redisearch_thpool_unlock(thpool_p);
-    /* Wait on barrier */
-    pthread_barrier_wait(&barrier);
-    pthread_barrier_destroy(&barrier);
+    /* Wait on for the threads to pass the barrier and destroy the barrier*/
+    barrier_wait_for_threads_and_destroy(&barrier);
   } else { // Case 2 - no threads alive
     redisearch_thpool_unlock(thpool_p);
     n_new_threads = n_threads;
@@ -457,8 +456,8 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
     thpool_p->jobqueues.state = JOBQ_RUNNING;
 
     /* Create a barrier. */
-    pthread_barrier_t barrier;
-    pthread_barrier_init(&barrier, NULL, curr_num_threads_alive + 1);
+    barrier_t barrier;
+    barrier_init(&barrier, NULL, curr_num_threads_alive);
 
     /* Create jobs and their args */
     redisearch_thpool_work_t jobs[curr_num_threads_alive];
@@ -476,9 +475,8 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
 
     /* Unlock to allow the threads to pull from the jobq */
     redisearch_thpool_unlock(thpool_p);
-    /* Wait on barrier */
-    pthread_barrier_wait(&barrier);
-    pthread_barrier_destroy(&barrier);
+    /* Wait on for the threads to pass the barrier and destroy the barrier*/
+    barrier_wait_for_threads_and_destroy(&barrier);
 
     while (thpool_p->num_threads_alive) {
       usleep(1);
@@ -949,14 +947,14 @@ static void admin_job_change_state(void *job_arg_) {
   job_arg->thread_ctx->thread_state = new_state;
 
   /* Wait all threads to get the barrier */
-  pthread_barrier_wait(signal_struct->barrier);
+  barrier_wait(signal_struct->barrier);
 }
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
                                                   size_t n_threads,
                                                   ThreadState new_state) {
   /* Create a barrier. */
-  pthread_barrier_t barrier;
-  pthread_barrier_init(&barrier, NULL, n_threads + 1);
+  barrier_t barrier;
+  barrier_init(&barrier, NULL, n_threads);
   /* Create jobs and their args. */
   redisearch_thpool_work_t jobs[n_threads];
   SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = new_state};
@@ -968,7 +966,6 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
 
   redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
 
-  /* Wait on barrier */
-  pthread_barrier_wait(&barrier);
-  pthread_barrier_destroy(&barrier);
+  /* Wait on for the threads to pass the barrier and then destroy the barrier*/
+  barrier_wait_for_threads_and_destroy(&barrier);
 }
