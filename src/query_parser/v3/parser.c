@@ -350,15 +350,15 @@ typedef union {
 static const YYACTIONTYPE yy_action[] = {
  /*     0 */   144,  485,  494,  474,   63,   12,  284,  129,  301,  268,
  /*    10 */    64,  135,  352,  349,   62,   15,  464,   69,   13,   14,
- /*    20 */   441,  130,   99,  442,   68,  494,  145,  485,  494,  127,
- /*    30 */   137,  350,  351,   59,   61,  291,   77,  292,  450,  293,
+ /*    20 */   440,  130,   99,  441,   68,  494,  145,  485,  494,  127,
+ /*    30 */   138,  350,  351,   59,   61,  291,   77,  292,  450,  293,
  /*    40 */   480,   66,  354,   96,  297,   16,  284,  129,  301,  269,
  /*    50 */   418,  485,  352,  349,   62,   15,  369,  357,   13,   14,
  /*    60 */   473,   75,   74,   72,   73,   70,   71,  358,   26,  149,
- /*    70 */   138,  350,  351,  463,   69,  291,  308,  292,  487,  293,
+ /*    70 */   137,  350,  351,  463,   69,  291,  307,  292,  487,  293,
  /*    80 */   373,   66,  354,  467,  297,   12,  284,  129,  301,  472,
  /*    90 */   485,   95,  352,  349,   62,   15,  136,  485,   13,   14,
- /*   100 */   294,  479,  295,  148,  296,  494,  307,  115,  297,  111,
+ /*   100 */   294,  479,  295,  148,  296,  494,  306,  115,  297,  111,
  /*   110 */   435,  350,  351,  134,  133,  291,   38,  292,  119,  293,
  /*   120 */   374,   66,  354,  495,  297,   67,  284,  129,  301,  494,
  /*   130 */   352,  349,  352,  349,   62,    1,  494,  455,   13,   14,
@@ -378,10 +378,10 @@ static const YYACTIONTYPE yy_action[] = {
  /*   270 */   351,  350,  351,  367,  102,  291,   84,  292,  277,  293,
  /*   280 */   354,   66,  354,  339,  297,  468,  284,  129,  301,   85,
  /*   290 */    93,   94,  352,  349,   62,   15,  404,  114,   13,   14,
- /*   300 */   110,  305,  346,  345,   88,   82,   87,   87,   86,  127,
+ /*   300 */   110,  304,  346,  345,   88,   82,   87,   87,   86,  127,
  /*   310 */   101,  350,  351,  132,  102,  291,  343,  292,  344,  293,
  /*   320 */   327,   66,  354,  315,  297,  313,  284,  129,  301,  314,
- /*   330 */   325,  306,  352,  349,   62,   15,  304,   17,   13,   14,
+ /*   330 */   325,  310,  352,  349,   62,   15,  305,   17,   13,   14,
  /*   340 */   300,  140,  141,  299,  143,  298,   80,  280,  279,  149,
  /*   350 */    47,  350,  351,   88,  372,  291,  372,  292,  372,  293,
  /*   360 */   372,   66,  354,  372,  297,   46,  284,  372,  372,  265,
@@ -954,13 +954,13 @@ static const char *const yyRuleName[] = {
  /*  60 */ "modifier ::= MODIFIER",
  /*  61 */ "modifierlist ::= modifier OR term",
  /*  62 */ "modifierlist ::= modifierlist OR term",
- /*  63 */ "expr ::= modifier COLON LB EMPTY_STRING RB",
- /*  64 */ "expr ::= ISMISSING LP modifier RP",
- /*  65 */ "expr ::= modifier COLON LB single_tag RB",
- /*  66 */ "single_tag ::= ATTRIBUTE",
- /*  67 */ "single_tag ::= UNESCAPED_TAG",
- /*  68 */ "single_tag ::= affix_tag",
- /*  69 */ "single_tag ::= verbatim",
+ /*  63 */ "expr ::= ISMISSING LP modifier RP",
+ /*  64 */ "expr ::= modifier COLON LB single_tag RB",
+ /*  65 */ "single_tag ::= ATTRIBUTE",
+ /*  66 */ "single_tag ::= UNESCAPED_TAG",
+ /*  67 */ "single_tag ::= affix_tag",
+ /*  68 */ "single_tag ::= verbatim",
+ /*  69 */ "expr ::= modifier COLON LB EMPTY_STRING RB",
  /*  70 */ "expr ::= modifier COLON numeric_range",
  /*  71 */ "numeric_range ::= LSQB param_num param_num RSQB",
  /*  72 */ "numeric_range ::= LSQB exclusive_param_num param_num RSQB",
@@ -1582,13 +1582,13 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     75,  /* (60) modifier ::= MODIFIER */
     69,  /* (61) modifierlist ::= modifier OR term */
     69,  /* (62) modifierlist ::= modifierlist OR term */
-    47,  /* (63) expr ::= modifier COLON LB EMPTY_STRING RB */
-    47,  /* (64) expr ::= ISMISSING LP modifier RP */
-    47,  /* (65) expr ::= modifier COLON LB single_tag RB */
-    61,  /* (66) single_tag ::= ATTRIBUTE */
-    61,  /* (67) single_tag ::= UNESCAPED_TAG */
-    61,  /* (68) single_tag ::= affix_tag */
-    61,  /* (69) single_tag ::= verbatim */
+    47,  /* (63) expr ::= ISMISSING LP modifier RP */
+    47,  /* (64) expr ::= modifier COLON LB single_tag RB */
+    61,  /* (65) single_tag ::= ATTRIBUTE */
+    61,  /* (66) single_tag ::= UNESCAPED_TAG */
+    61,  /* (67) single_tag ::= affix_tag */
+    61,  /* (68) single_tag ::= verbatim */
+    47,  /* (69) expr ::= modifier COLON LB EMPTY_STRING RB */
     47,  /* (70) expr ::= modifier COLON numeric_range */
     71,  /* (71) numeric_range ::= LSQB param_num param_num RSQB */
     71,  /* (72) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
@@ -1716,13 +1716,13 @@ static const signed char yyRuleInfoNRhs[] = {
    -1,  /* (60) modifier ::= MODIFIER */
    -3,  /* (61) modifierlist ::= modifier OR term */
    -3,  /* (62) modifierlist ::= modifierlist OR term */
-   -5,  /* (63) expr ::= modifier COLON LB EMPTY_STRING RB */
-   -4,  /* (64) expr ::= ISMISSING LP modifier RP */
-   -5,  /* (65) expr ::= modifier COLON LB single_tag RB */
-   -1,  /* (66) single_tag ::= ATTRIBUTE */
-   -1,  /* (67) single_tag ::= UNESCAPED_TAG */
-   -1,  /* (68) single_tag ::= affix_tag */
-   -1,  /* (69) single_tag ::= verbatim */
+   -4,  /* (63) expr ::= ISMISSING LP modifier RP */
+   -5,  /* (64) expr ::= modifier COLON LB single_tag RB */
+   -1,  /* (65) single_tag ::= ATTRIBUTE */
+   -1,  /* (66) single_tag ::= UNESCAPED_TAG */
+   -1,  /* (67) single_tag ::= affix_tag */
+   -1,  /* (68) single_tag ::= verbatim */
+   -5,  /* (69) expr ::= modifier COLON LB EMPTY_STRING RB */
    -3,  /* (70) expr ::= modifier COLON numeric_range */
    -4,  /* (71) numeric_range ::= LSQB param_num param_num RSQB */
    -4,  /* (72) numeric_range ::= LSQB exclusive_param_num param_num RSQB */
@@ -2058,7 +2058,6 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
 {
   char *empty_str = rm_strdup("");
   yymsp[0].minor.yy35 = NewTokenNode(ctx, empty_str, 0);
-  yymsp[0].minor.yy35->tn.nen = NON_EXIST_EMPTY;
   yymsp[0].minor.yy35->opts.fieldMask == RS_FIELDMASK_ALL;
   // Avoid any expansions
   yymsp[0].minor.yy35->opts.flags |= QueryNode_Verbatim;
@@ -2168,39 +2167,14 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
   yymsp[-2].minor.yy162 = yylhsminor.yy162;
         break;
-      case 63: /* expr ::= modifier COLON LB EMPTY_STRING RB */
-{
-  char *s = rm_strndup(yymsp[-4].minor.yy0.s, yymsp[-4].minor.yy0.len);
-  size_t slen = unescapen(s, yymsp[-4].minor.yy0.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    yylhsminor.yy35 = NULL;
-    rm_free(s);
-  } else {
-    switch (fs->types) {
-      case INDEXFLD_T_TAG:
-        yylhsminor.yy35 = NewTagNode(s, slen);
-        yylhsminor.yy35->tag.nen = NON_EXIST_EMPTY;
-        break;
-      default:
-        yylhsminor.yy35 = NULL;
-        rm_free(s);
-        break;
-    }
-  }
-}
-  yymsp[-4].minor.yy35 = yylhsminor.yy35;
-        break;
-      case 64: /* expr ::= ISMISSING LP modifier RP */
+      case 63: /* expr ::= ISMISSING LP modifier RP */
 {
   char *s = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
   size_t slen = unescapen(s, yymsp[-1].minor.yy0.len);
   yymsp[-3].minor.yy35 = NewMissingNode(s, slen);
 }
         break;
-      case 65: /* expr ::= modifier COLON LB single_tag RB */
+      case 64: /* expr ::= modifier COLON LB single_tag RB */
 {
     if (!yymsp[-1].minor.yy35) {
         yylhsminor.yy35 = NULL;
@@ -2219,7 +2193,7 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
   yymsp[-4].minor.yy35 = yylhsminor.yy35;
         break;
-      case 66: /* single_tag ::= ATTRIBUTE */
+      case 65: /* single_tag ::= ATTRIBUTE */
 {
   yylhsminor.yy35 = NewPhraseNode(0);
   yymsp[0].minor.yy0.type = QT_PARAM_TERM_CASE;
@@ -2227,7 +2201,7 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 67: /* single_tag ::= UNESCAPED_TAG */
+      case 66: /* single_tag ::= UNESCAPED_TAG */
 {
   yylhsminor.yy35 = NewPhraseNode(0);
   yymsp[0].minor.yy0.type = QT_TERM_CASE;
@@ -2235,13 +2209,39 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 68: /* single_tag ::= affix_tag */
-      case 69: /* single_tag ::= verbatim */ yytestcase(yyruleno==69);
+      case 67: /* single_tag ::= affix_tag */
+      case 68: /* single_tag ::= verbatim */ yytestcase(yyruleno==68);
 {
   yylhsminor.yy35 = NewPhraseNode(0);
   QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 69: /* expr ::= modifier COLON LB EMPTY_STRING RB */
+{
+  char *s = rm_strndup(yymsp[-4].minor.yy0.s, yymsp[-4].minor.yy0.len);
+  size_t slen = unescapen(s, yymsp[-4].minor.yy0.len);
+
+  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
+  if (!fs) {
+    // Non-existing field
+    yylhsminor.yy35 = NULL;
+    rm_free(s);
+  } else {
+    switch (fs->types) {
+      case INDEXFLD_T_TAG:
+        yylhsminor.yy35 = NewTagNode(s, slen);
+        QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, rm_strdup(""), 0));
+        // yylhsminor.yy35->tag.nen = NON_EXIST_EMPTY;
+        break;
+      default:
+        yylhsminor.yy35 = NULL;
+        rm_free(s);
+        break;
+    }
+  }
+}
+  yymsp[-4].minor.yy35 = yylhsminor.yy35;
         break;
       case 70: /* expr ::= modifier COLON numeric_range */
 {

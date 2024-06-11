@@ -136,6 +136,8 @@ main := |*
 
   empty_string => {
     tok.pos = ts-q->raw;
+    tok.s = ts+2;
+    tok.len = te-ts-2;
     RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);  
     if (!QPCTX_ISOK(q)) {
       fbreak;

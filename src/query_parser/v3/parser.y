@@ -580,15 +580,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= EMPTY_STRING . [EMPTY_STRING] {
-  char *empty_str = rm_strdup("");
-  A = NewTokenNode(ctx, empty_str, 0);
-  A->tn.nen = NON_EXIST_EMPTY;
-  A->opts.fieldMask == RS_FIELDMASK_ALL;
-  // Avoid any expansions
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -769,30 +760,6 @@ single_tag(A) ::= affix_tag(B) . {
 single_tag(A) ::= verbatim(B) . {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
-}
-
-// empty string as single tag
-expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
-  char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen(s, B.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    A = NULL;
-    rm_free(s);
-  } else {
-    switch (fs->types) {
-      case INDEXFLD_T_TAG:
-        A = NewTagNode(s, slen);
-        A->tag.nen = NON_EXIST_EMPTY;
-        break;
-      default:
-        A = NULL;
-        rm_free(s);
-        break;
-    }
-  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1175,6 +1142,16 @@ param_term(A) ::= term(B). {
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
+}
+
+param_term(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
+  A = B;
+  A.type = QT_TERM_CASE;
+}
+
+param_term_case(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
+  A = B;
+  A.type = QT_TERM_CASE;
 }
 
 param_term_case(A) ::= term(B). {

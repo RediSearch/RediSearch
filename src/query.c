@@ -298,7 +298,6 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
-  ret->tag.nen = NON_EXIST_NONE;
   return ret;
 }
 
@@ -460,7 +459,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 
   int expandChildren = 0;
 
-  if (qn->type == QN_TOKEN) {
+  if (qn->type == QN_TOKEN && strcmp(qn->tn.str, "") != 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
   } else if (qn->type == QN_UNION ||
@@ -484,17 +483,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // we can just use the optimized score index
   int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
 
-  // If this is an empty value search, and the field does not index empty values
-  // throw an error
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
-  if (fs && qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(fs))) {
-    QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
-                              IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
-                              SPEC_INDEXEMPTY_STR);
-    return NULL;
-  }
-
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
@@ -1333,41 +1322,12 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret = NULL;
  
   if (!idx) {
-    if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
-      QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
-                              fs->name, SPEC_INDEXEMPTY_STR);
-    }
-    // for dialect [2-4], the tag contains a phrase which contains a leaf tag node
-    else if (!FieldSpec_IndexesEmpty(fs) && QueryNode_NumChildren(qn) == 1) {
-      QueryNode* child = qn->children[0];
-      if (QueryNode_NumChildren(child) == 1 && child->type == QN_PHRASE) {
-        QueryNode* grandChild = child->children[0];
-        if (QueryNode_NumChildren(grandChild) == 0 && grandChild->type == QN_TAG 
-            && grandChild->tag.nen == NON_EXIST_EMPTY) {
-            QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                            "In order to query for empty values the field `%s` is required to be defined with `%s`",
-                            fs->name, SPEC_INDEXEMPTY_STR);
-        }
-      }
-    }
+    // There are no documents to traverse.
     goto done;
   }
-  if (qn->tag.nen == NON_EXIST_EMPTY || 
-      (QueryNode_NumChildren(qn) == 1 && qn->children[0]->type == QN_TAG 
-        && qn->children[0]->tag.nen == NON_EXIST_EMPTY)) {
-    // Tag node searching for empty strings (0 children)
-    // RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
-    ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
-    if (ret) {
-      *array_ensure_tail(&total_its, IndexIterator *) = ret;
-    }
-  } else if (QueryNode_NumChildren(qn) == 1) {
+  if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
-  }
-
-  if (QueryNode_NumChildren(qn) < 2) {
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1794,7 +1754,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
+      s = sdscatprintf(s, "%s%s", strcmp(qs->tn.str, "") ? qs->tn.str : "\"\"", qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }

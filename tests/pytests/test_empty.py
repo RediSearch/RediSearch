@@ -3,71 +3,6 @@ import json
 
 EMPTY_RESULT = [0]
 
-def testEmptyValidations(env):
-    """Validates the edge-cases of the `INDEXEMPTY` field option"""
-
-    MAX_DIALECT = set_max_dialect(env)
-
-    for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        conn = getConnectionByEnv(env)
-
-        # Create an index with a TAG and a TEXT field, both of which don't index
-        # empty values
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT',
-                   'tag2', 'TAG', 'INDEXEMPTY', 'text2', 'TEXT', 'INDEXEMPTY').ok()
-
-        # Test that we get an error in case of a user tries to search for an
-        # empty value when `field` does not index empty values.
-        TagErrorMessage = 'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
-        TxtErrorMessage = 'In order to query for empty values the field `text` is required to be defined with `INDEXEMPTY`'
-        env.expect('FT.SEARCH', 'idx', '@tag:{""}').error().contains(
-            TagErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@text:("")').error().contains(
-            TxtErrorMessage
-        )
-        # Test that we get the same error when using UNION of TAG fields
-        env.expect('FT.SEARCH', 'idx', '@tag:{""} | @tag2:{""}').error().contains(
-            TagErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@tag2:{""} | @tag:{""}').error().contains(
-            TagErrorMessage
-        )
-        # Test that we get the same error when using UNION of TEXT fields
-        env.expect('FT.SEARCH', 'idx', '@text:"" | @text2:""').error().contains(
-            TxtErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@text2:"" | @text:""').error().contains(
-            TxtErrorMessage
-        )
-        # Test that we get the same error when using UNION of TAG/TEXT fields
-        env.expect('FT.SEARCH', 'idx', '@tag:{""} | @text:""').error().contains(
-            TagErrorMessage
-        )
-        # Test that we get the same error when using INTERSECTION
-        env.expect('FT.SEARCH', 'idx', '@tag:{""} @tag2:{""}').error().contains(
-            TagErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@tag2:{""} @tag:{""}').error().contains(
-            TagErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@text:"" @text2:""').error().contains(
-            TxtErrorMessage
-        )
-        env.expect('FT.SEARCH', 'idx', '@text2:"" @text:""').error().contains(
-            TxtErrorMessage
-        )
-
-
-        # Empty search on a non-existing field does not throw an error, just returns no results
-        res = conn.execute_command('FT.SEARCH', 'idx', '@non_existing:""')
-        env.assertEqual(res, EMPTY_RESULT)
-
-        res = conn.execute_command('FT.SEARCH', 'idx', '@non_existing:{""}')
-        env.assertEqual(res, EMPTY_RESULT)
-
-
 def EmptyTagJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TAG field of a
     JSON index"""
@@ -372,141 +307,6 @@ def testEmptyTag(env):
         res = env.cmd('FT.SEARCH', idx, '-@t:{""} @t:{""}')
         env.assertEqual(res, EMPTY_RESULT)
 
-        # res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{""} @t:{""}')
-        # expected = [
-        #     'INTERSECT {',
-        #     '  NOT{',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '  TAG:@t {',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | @t:{foo} @t:{""}')
-        # expected = [
-        #     'UNION {',
-        #     '  TAG:@t {',
-        #     '    bar',
-        #     '  }',
-        #     '  INTERSECT {',
-        #     '    TAG:@t {',
-        #     '      foo',
-        #     '    }',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{bar} | @t:{foo} @t:{""}')
-        # expected = [
-        #     'UNION {',
-        #     '  NOT{',
-        #     '    TAG:@t {',
-        #     '      bar',
-        #     '    }',
-        #     '  }',
-        #     '  INTERSECT {',
-        #     '    TAG:@t {',
-        #     '      foo',
-        #     '    }',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | -@t:{foo} -@t:{""}')
-        # expected = [
-        #     'UNION {',
-        #     '  TAG:@t {',
-        #     '    bar',
-        #     '  }',
-        #     '  INTERSECT {',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '        foo',
-        #     '      }',
-        #     '    }',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '      }',
-        #     '    }',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{""} @t:{""} | @t:{bar}')
-        # expected = [
-        #     'UNION {',
-        #     '  INTERSECT {',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '      }',
-        #     '    }',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '  TAG:@t {',
-        #     '    bar',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '@t:{""} | -@t:{bar} -@t:{""}')
-        # expected = [
-        #     'UNION {',
-        #     '  TAG:@t {',
-        #     '  }',
-        #     '  INTERSECT {',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '        bar',
-        #     '      }',
-        #     '    }',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '      }',
-        #     '    }',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
-        # res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{""} | -@t:{bar} @t:{""}')
-        # expected = [
-        #     'UNION {',
-        #     '  NOT{',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '  INTERSECT {',
-        #     '    NOT{',
-        #     '      TAG:@t {',
-        #     '        bar',
-        #     '      }',
-        #     '    }',
-        #     '    TAG:@t {',
-        #     '    }',
-        #     '  }',
-        #     '}',
-        #     ''
-        # ]
-        # env.assertEqual(res, expected)
-
     for dialect in range(2, MAX_DIALECT + 1):
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
         conn = getConnectionByEnv(env)
@@ -788,13 +588,6 @@ def testEmptyText(env):
         cmd_assert(env, cmd, expected)
         conn.execute_command('DEL', 'h2')
 
-        # --------------------------- EXPLAINCLI -------------------------------
-        # cmd = f'FT.EXPLAINCLI {idx} @t:("")'.split(' ')
-        # expected = [
-        #     '@t:',
-        #     ''
-        # ]
-
         # ----------------------------- Fuzzy search ---------------------------
         # We don't expect to get empty results in a fuzzy search.
         cmd = f'FT.SEARCH {idx} %e%'.split(' ')
@@ -888,3 +681,266 @@ def testEmptyInfo():
     env.assertEqual(tag_info[-1], 'INDEXEMPTY')
     text_info = info['attributes'][1]
     env.assertEqual(text_info[-1], 'INDEXEMPTY')
+
+def testEmptyNotActivated():
+    """Tests that the indexing of empty values is not activated by default, and
+    that no results are returned when searching for empty values in case the
+    feature is not activated."""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+
+    # Create an index with the currently supported field types (TAG, TEXT)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'text', 'TEXT').ok()
+
+    # Populate the db with a document that has an empty value for a TAG field
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'h1', 't', '')
+
+    # Search for the document, it shouldn't be found
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{""}')
+    expected = EMPTY_RESULT
+    env.assertEqual(res, expected)
+
+    # Search for the document, it shouldn't be found
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:""')
+    env.assertEqual(res, expected)
+
+def testEmptyExplainCli(env):
+    """Tests the output of `FT.EXPAINCLI` for queries that include empty values,
+    for both TAG and TEXT fields, for all supporting dialects ({2 ,3, 4, 5})."""
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'INDEXEMPTY', 'text', 'TEXT', 'INDEXEMPTY').ok()
+
+        # ------------------------------ TAG field -----------------------------
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} @tag:{""}')
+        expected = [
+            'INTERSECT {',
+            '  NOT{',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '  TAG:@tag {',
+            '    ""',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{bar} | @tag:{foo} @tag:{""}')
+        expected = [
+            'UNION {',
+            '  TAG:@tag {',
+            '    bar',
+            '  }',
+            '  INTERSECT {',
+            '    TAG:@tag {',
+            '      foo',
+            '    }',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{bar} | @tag:{foo} @tag:{""}')
+        expected = [
+            'UNION {',
+            '  NOT{',
+            '    TAG:@tag {',
+            '      bar',
+            '    }',
+            '  }',
+            '  INTERSECT {',
+            '    TAG:@tag {',
+            '      foo',
+            '    }',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{bar} | -@tag:{foo} -@tag:{""}')
+        expected = [
+            'UNION {',
+            '  TAG:@tag {',
+            '    bar',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        foo',
+            '      }',
+            '    }',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        ""',
+            '      }',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} @tag:{""} | @tag:{bar}')
+        expected = [
+            'UNION {',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        ""',
+            '      }',
+            '    }',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '  TAG:@tag {',
+            '    bar',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{""} | -@tag:{bar} -@tag:{""}')
+        expected = [
+            'UNION {',
+            '  TAG:@tag {',
+            '    ""',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        bar',
+            '      }',
+            '    }',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        ""',
+            '      }',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} | -@tag:{bar} @tag:{""}')
+        expected = [
+            'UNION {',
+            '  NOT{',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '  INTERSECT {',
+            '    NOT{',
+            '      TAG:@tag {',
+            '        bar',
+            '      }',
+            '    }',
+            '    TAG:@tag {',
+            '      ""',
+            '    }',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # # ------------------------------ TEXT field ----------------------------
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:""')
+        expected = [
+            '@text:\"\"',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # Same with wrapping parentheses.
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("")')
+        expected = [
+            '@text:\"\"',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # Intersection
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:"" @text:foo')
+        expected = [
+            'INTERSECT {',
+            '  @text:""',
+            '  @text:UNION {',
+            '    @text:foo',
+            '    @text:+foo(expanded)',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # Intersection with general query
+        res = env.cmd('FT.EXPLAINCLI', 'idx', 'foo @text:""')
+        expected = [
+            ' INTERSECT {',
+            '   UNION {',
+            '     foo',
+            '     +foo(expanded)',
+            '   }',
+            '   @text:""',
+            ' }',
+            ''
+        ]
+
+        # Other way around
+        res = env.cmd('FT.EXPLAINCLI', 'idx', 'foo @text:""')
+        expected = [
+            ' INTERSECT {',
+            '   @text:""',
+            '   UNION {',
+            '     foo',
+            '     +foo(expanded)',
+            '   }',
+            ' }',
+            ''
+        ]
+
+        # Union
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:"" | @text:foo')
+        expected = [
+            'UNION {',
+            '  @text:""',
+            '  @text:UNION {',
+            '    @text:foo',
+            '    @text:+foo(expanded)',
+            '  }',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)
+
+        # Other way around
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:foo | @text:""')
+        expected = [
+            'UNION {',
+            '  @text:UNION {',
+            '    @text:foo',
+            '    @text:+foo(expanded)',
+            '  }',
+            '  @text:""',
+            '}',
+            ''
+        ]
+        env.assertEqual(res, expected)

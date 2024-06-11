@@ -182,9 +182,6 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-%type tag_empty_string { QueryNode *}
-%destructor tag_empty_string { QueryNode_Free($$); }
-
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
@@ -601,15 +598,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= EMPTY_STRING . [EMPTY_STRING] {
-  char *empty_str = rm_strdup("");
-  A = NewTokenNode(ctx, empty_str, 0);
-  A->tn.nen = NON_EXIST_EMPTY;
-  A->opts.fieldMask == RS_FIELDMASK_ALL;
-  // Avoid any expansions
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -754,19 +742,6 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     }
 }
 
-tag_empty_string(A) ::= EMPTY_STRING . [EMPTY_STRING]{
-  A = NewPhraseNode(0);
-  char *empty_str = rm_strdup("");
-  QueryNode* B = NewTagNode(empty_str, 0);
-  B->tag.nen = NON_EXIST_EMPTY;
-  QueryNode_AddChild(A, B);
-}
-
-tag_list(A) ::= tag_empty_string(B) . [TAGLIST] {
-  A = NewPhraseNode(0);
-  QueryNode_AddChild(A, B);
-}
-
 tag_list(A) ::= param_term_case(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -805,11 +780,6 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR tag_empty_string(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1143,6 +1113,16 @@ param_term(A) ::= term(B). {
 param_term(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_TERM;
+}
+
+param_term(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
+  A = B;
+  A.type = QT_TERM_CASE;
+}
+
+param_term_case(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
+  A = B;
+  A.type = QT_TERM_CASE;
 }
 
 param_term_case(A) ::= term(B). {
