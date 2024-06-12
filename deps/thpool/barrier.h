@@ -6,6 +6,13 @@
 
 #pragma once
 
+/** This unit includes:
+ * 1. An implementation of pthread_barrier_t for systems that do not support the POSIX pthread_barrier_t API, such as MacOS.
+ * 2. A wrapper for pthread_barrier_t that extends the API with additional functionality, such as waiting for all the threads
+ *    to pass the barrier before destroying the barrier.
+ *  @note Currently, barrier_t does not provide an API that allows it to be reused. If reuse is required,
+ *  the barrier counter should be reset to 0 before the next use. */
+
 #include <pthread.h>
 #include <stdatomic.h>
 

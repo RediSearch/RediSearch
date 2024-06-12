@@ -4,6 +4,8 @@
 #include <thread>
 #include <stdarg.h>
 #include <string>
+#include <pthread.h>
+#include <atomic>
 
 static void LogCallback(const char *level, const char *fmt, ...) {
     std::string msg(1024, '\0');
@@ -40,8 +42,29 @@ public:
                             CLASS_NAME, \
                             testing::Values(ThpoolParams{NUM_THREADS, NUM_HIGH_PRIORITY_BIAS}));
 
-/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */
-THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
+/* ========================== Callbacks ========================== */
+
+// This job will run until we insert the terminate when empty job
+void waitForAdminJobFunc(void *p) {
+    redisearch_threadpool thpool_p = (redisearch_threadpool)p;
+    printf("%d: waiting for admin job\n", pthread_self());
+
+    // wait for the admin jobs to be pushed
+    while (!redisearch_thpool_get_stats(thpool_p).admin_priority_pending_jobs) {
+        usleep(1);
+    }
+    printf("%d: exit job\n", pthread_self());
+};
+
+void sleep_job_ms(void *p) {
+    size_t *time_ms = (size_t *)p;
+    std::this_thread::sleep_for(std::chrono::milliseconds(*time_ms));
+}
+
+void sleep_job_us(void *p) {
+    size_t *time_us = (size_t *)p;
+    std::this_thread::sleep_for(std::chrono::microseconds(*time_us));
+};
 
 struct test_struct {
     std::chrono::time_point<std::chrono::high_resolution_clock> *arr; // Pointer to the array of timestamps
@@ -56,6 +79,8 @@ void sleep_and_set(test_struct *ts) {
     ts->arr[ts->index] = std::chrono::high_resolution_clock::now();
 }
 
+/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 1 ========================== */
+THPOOL_TEST_SUITE(PriorityThpoolTestBasic, 1, 1)
 
 /* The purpose of the test is to check that tasks with the same priority are handled
  * in FIFO manner. The test adds 10 tasks with low priority and checks that the
@@ -139,7 +164,7 @@ TEST_P(PriorityThpoolTestWithoutBiasThreads, CombinationTest) {
 
     // Pause the thread pool before adding tasks, to validate that jobs won't get executed before
     // all other jobs are inserted into the queue.
-    redisearch_thpool_terminate_pause_threads(this->pool);
+    redisearch_thpool_pause_threads(this->pool);
 
     // Fill the job queue with tasks.
     redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_and_set, (void *)&ts[0], THPOOL_PRIORITY_LOW);  // Prefers HIGH
@@ -158,40 +183,105 @@ TEST_P(PriorityThpoolTestWithoutBiasThreads, CombinationTest) {
     ASSERT_LT(arr[4], arr[3]);
 }
 
-/* ========================== NUM_THREADS = 1, NUM_HIGH_PRIORITY_BIAS = 0 ========================== */
-THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, 1, 0)
-
-void sleep_job_ms(size_t *time_ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(*time_ms));
-}
+/* ========================== NUM_THREADS = 2, NUM_HIGH_PRIORITY_BIAS = 0 ========================== */
+static constexpr size_t TEST_FUNCTIONALITY_N_THREADS = 2;
+THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, TEST_FUNCTIONALITY_N_THREADS, 0)
 
 TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
-    // Pause the thread pool before adding tasks, to validate that jobs won't get executed before
-    // all other jobs are inserted into the queue.
-    redisearch_thpool_terminate_pause_threads(this->pool);
+    // Let the threads wait until we push change state jobs.
+    for (int i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
+        redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, this->pool, THPOOL_PRIORITY_HIGH);
+    }
 
-    // Add a job to the jobq
-    size_t time_ms = 1;
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
-
-    redisearch_thpool_resume_threads(this->pool);
-
-    redisearch_thpool_terminate_when_empty(this->pool);
-    ASSERT_FALSE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be uninitialized";
-
-    // Wait for the job to be done.
-    redisearch_thpool_wait(this->pool);
-
-    // Wait for the threads to terminate.
-    while (redisearch_thpool_get_stats(this->pool).num_threads_alive) {
+    // Wait for the jobs to be pulled.
+    while (redisearch_thpool_num_jobs_in_progress(this->pool) < TEST_FUNCTIONALITY_N_THREADS) {
         usleep(1);
     }
 
+    // Push jobs to the queue to make sure the threads are not quitting after their state is changed.
+    // they will wait to make sure each thread takes one job.
+
+    // This job will keep the thread busy until we tell it to finish.
+    // pause the job queue and let them continue
+    // let them finish the job and resume the jobqueue
+    // one thread will pull the job and the other will be stuck on jobqueue pull since it's empty.
+
+    // Bad scenario: both threads change their state, and there is a job in the queue.
+    // they both re-enter the loop, one of them will pull the job and the other will be stuck on
+    // jobqueue pull.
+    // one thread reaches
+    typedef struct {
+        volatile std::atomic<bool> *waitForSign;
+        volatile std::atomic<size_t> received;
+    } MarkAndWait;
+
+    auto MarkAndWaitForSignFunc = [](void *p) {
+        MarkAndWait *mark_and_wait = (MarkAndWait *)p;
+        ++mark_and_wait->received;
+        while (*mark_and_wait->waitForSign) {
+            usleep(1);
+        }
+    };
+    volatile std::atomic<bool> sign = true;
+    MarkAndWait mark_and_wait = {&sign, 0};
+    for (int i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
+        redisearch_thpool_add_work(this->pool, MarkAndWaitForSignFunc, &mark_and_wait, THPOOL_PRIORITY_HIGH);
+    }
+
+    size_t time_us = 1;
+    // push another dummy job
+    redisearch_thpool_add_work(this->pool, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
+
+    // Change the threads state
+    redisearch_thpool_terminate_when_empty(this->pool);
+    ASSERT_FALSE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be uninitialized";
+    // Threads should still be alive
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, TEST_FUNCTIONALITY_N_THREADS) << "expected " << TEST_FUNCTIONALITY_N_THREADS << " threads alive";
+
+    // wait for the jobs to be pulled
+    while (mark_and_wait.received < TEST_FUNCTIONALITY_N_THREADS) {
+        usleep(1);
+    }
+
+    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(this->pool), TEST_FUNCTIONALITY_N_THREADS) << "expected " << TEST_FUNCTIONALITY_N_THREADS << " working threads";
+
+    // pause thpool (has no affect when the thread is in terminate when empty state)
+    redisearch_thpool_pause_threads_no_wait(this->pool); // TODO: remove!
+
+    // let the threads finish the job
+    sign = false;
+     // wait for them to finish the job
+    while (redisearch_thpool_num_jobs_in_progress(this->pool)) {
+        usleep(1);
+    }
+
+    // resume the thpool (should not have any affect since the pull function for the threads was changed)
+    // BAD SCENARIO: one thread continues to pull the job and the other is stuck on jobqueue pull since it's empty.
+    redisearch_thpool_resume_threads(this->pool);
+    while (redisearch_thpool_num_jobs_in_progress(this->pool)) {
+        usleep(1);
+    }
+
+    // // BAD SCENARIO:
+    // // wait for one thread to die
+    // while (redisearch_thpool_get_stats(this->pool).num_threads_alive != 1) {
+    //     usleep(1);
+    // }
+    // ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, 1) << "expected 1 thread alive";
+    // // be sad
+
+    // BAD SCENARIO: we get stuck
+    // GOOD SCENARIO: both threads finish the job and die
+    while (redisearch_thpool_get_stats(this->pool).num_threads_alive) {
+        usleep(1);
+    }
+    ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, 0) << "expected 0 thread alive";
+
     // Recreate threads
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be initialized";
 
-    while (!redisearch_thpool_get_stats(this->pool).num_threads_alive) {
+    while (redisearch_thpool_get_stats(this->pool).num_threads_alive < TEST_FUNCTIONALITY_N_THREADS) {
         usleep(1);
     }
 
@@ -200,7 +290,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
 TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     // Add job long enough so they won't finish until we call pause.
     size_t time_ms = 1000;
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
 
     // Wait for the job to be pulled.
     while (redisearch_thpool_num_jobs_in_progress(this->pool) != 1) {
@@ -208,7 +298,7 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
     }
 
     // Pause threads.
-    redisearch_thpool_terminate_pause_threads(this->pool);
+    redisearch_thpool_pause_threads(this->pool);
 
     // The job should have finished.
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).total_jobs_done, 1) << "expected 1 job done";
@@ -235,7 +325,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     // Add a job to trigger thpool initialization
     size_t total_jobs_pushed = 0;
     size_t time_ms = 1;
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
     total_jobs_pushed++;
 
     // Expect num_threads_alive is 5
@@ -249,24 +339,12 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     ASSERT_EQ(redisearch_thpool_get_stats(this->pool).num_threads_alive, n_threads) << "expected " << n_threads << " threads alive";
     ASSERT_TRUE(redisearch_thpool_is_initialized(this->pool)) << "expected thread pool to be initialized";
 
-    // Remove rest of the threads while jobs are being executed
-    // The job waits for the admin jobs to be pushed to the queue
-
-
-    auto waitForAdminJobFunc = [](void *p) {
-        redisearch_threadpool thpool_p = (redisearch_threadpool)p;
-
-        // wait for the admin jobs to be pushed
-        while (!redisearch_thpool_get_stats(thpool_p).admin_priority_pending_jobs) {
-            usleep(1);
-        }
-    };
-
     // Ensure that the first job has done and `num_jobs_in_progress` has already been updated
     while (redisearch_thpool_num_jobs_in_progress(this->pool)) {
         usleep(1);
     }
 
+    // Let the thread wait until an admin job is pushed to the queue.
     for (int i = 0; i < n_threads; i++) {
         redisearch_thpool_add_work(this->pool, waitForAdminJobFunc, this->pool, THPOOL_PRIORITY_HIGH);
         total_jobs_pushed++;
@@ -277,7 +355,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
         usleep(1);
     }
 
-    // Remove the rest of the threads
+    // Remove rest of the threads while the threads are waiting for the admin jobs to be pushed to the queue
     ASSERT_EQ(redisearch_thpool_remove_threads(this->pool, n_threads), 0) << "expected 0 n_threads";
     thpool_stats stats = redisearch_thpool_get_stats(this->pool);
     ASSERT_EQ(stats.num_threads_alive, 0) << "expected 0 threads alive";
@@ -285,24 +363,113 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     ASSERT_EQ(stats.total_pending_jobs , 0) << "expected 0 pending jobs";
 }
 
-TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmpty) {
+template <size_t n_threads_to_keep_alive, size_t final_n_threads>
+static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thpool_p) {
+    size_t constexpr n_threads_to_remove = RUNTIME_CONFIG_N_THREADS - final_n_threads;
+    size_t total_jobs_pushed = 0;
 
+    /** The test goes as follows:
+     * 1. Add n_threads jobs to keep the threads busy until while we call terminate when empty,
+     * to allow us push more jobs to the queue without the threads executing them.
+     * (we are not pausing, pushing, continue because the threads might execute the jobs before we change their state)
+     * 2. While the threads are waiting, add another n_threads_to_keep_alive jobs to ensure the jobq is not empty
+     * after they change their state to TERMINATE_WHEN_EMPTY.
+     * 3. call redisearch_thpool_terminate_when_empty().
+     * 4. expect n_threads_to_keep_alive threads alive.
+     * 5. remove `n_threads_to_remove` threads. this will only change thpool->n_threads, but won't affect the current running threads.
+     * 6. Add jobs to the queue to trigger verify init.
+     * 7. Expect final_n_threads threads in the pool */
+
+
+    // Keep all the threads busy until while we call terminate when empty
+    for (int i = 0; i < RUNTIME_CONFIG_N_THREADS; i++) {
+        redisearch_thpool_add_work(thpool_p, waitForAdminJobFunc, thpool_p, THPOOL_PRIORITY_HIGH);
+        ++total_jobs_pushed;
+    }
+
+    // Wait for the jobs to be pulled.
+    while (redisearch_thpool_num_jobs_in_progress(thpool_p) < RUNTIME_CONFIG_N_THREADS) {
+        usleep(1);
+    }
+
+    // Keep `n_threads_to_keep_alive` of the threads working and alive during remove threads + verify init
+    for (int i = 0; i < n_threads_to_keep_alive; i++) {
+        redisearch_thpool_add_work(thpool_p, waitForAdminJobFunc, thpool_p, THPOOL_PRIORITY_HIGH);
+        ++total_jobs_pushed;
+    }
+
+    // The threads are still waiting in the first job.
+    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(thpool_p), RUNTIME_CONFIG_N_THREADS);
+    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_pending_jobs, n_threads_to_keep_alive);
+    printf("calling terminate when empty\n");
+    // The threads will wake up and pull the change state job (terminate when empty).
+    // `n_threads_to_keep_alive` of them will pull another job and wait. The others will see an empty queue and exit.
+    redisearch_thpool_terminate_when_empty(thpool_p);
+    printf("after calling redisearch_thpool_remove_threads\n");
+    // Jobs done should be RUNTIME_CONFIG_N_THREADS from the first waitForAdminJobFunc batch.
+    // `n_threads_to_keep_alive` are still waiting in the second batch of `waitForAdminJobFunc`.
+    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, RUNTIME_CONFIG_N_THREADS) << "expected " << RUNTIME_CONFIG_N_THREADS << " jobs done";
+
+    // we will wait until n_threads_to_remove threads are dead (n_threads_to_keep_alive alive processing a job).
+    while ((redisearch_thpool_get_stats(thpool_p).num_threads_alive != n_threads_to_keep_alive) ||
+            redisearch_thpool_num_jobs_in_progress(thpool_p) != n_threads_to_keep_alive) {
+        usleep(1);
+    }
+    printf("calling redisearch_thpool_remove_threads\n");
+
+    // Now remove threads. This will only change thpool->n_threads, but won't affect the current running threads.
+    ASSERT_EQ(redisearch_thpool_remove_threads(thpool_p, n_threads_to_remove), final_n_threads) << "expected " << final_n_threads << " n_threads";
+    printf("after redisearch_thpool_remove_threads\n");
+
+    // Assert n_threads is as expected
+    ASSERT_EQ(redisearch_thpool_get_n_threads(thpool_p), final_n_threads) << "expected " << final_n_threads << " thpool->n_threads";
+
+    // Assert nothing has changed
+    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).num_threads_alive, n_threads_to_keep_alive);
+    ASSERT_EQ(redisearch_thpool_num_jobs_in_progress(thpool_p), n_threads_to_keep_alive);
+    printf("trigger verify\n");
+
+    // Now we add another job to trigger verify init.
+    size_t time_us = 1;
+    redisearch_thpool_add_work(thpool_p, sleep_job_us, &time_us, THPOOL_PRIORITY_HIGH);
+    ++total_jobs_pushed;
+
+    redisearch_thpool_wait(thpool_p);
+    printf("after trigger verify\n");
+
+
+    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).num_threads_alive, final_n_threads) << "expected " << final_n_threads << " threads alive";
+    ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, total_jobs_pushed) << "expected " << total_jobs_pushed << " jobs done";
+
+}
+
+TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmptyCase1a) {
     // scenario: remove threads in TWE mode
+    // case 1.a curr_num_threads_alive >= n_threads
+    // original number was 5, we want 2, 2 already died, so we have 3 (more than we need).
 
-    // set threads to terminate when empty
-    // change number of threads
-        // test 1: case 1.a curr_num_threads_alive >= n_threads
-        // original number was 5, we want 2, 2 already died, so we have 3 (more than we need).
+    size_t constexpr n_threads_to_keep_alive = 3;
+    size_t constexpr final_n_threads = 2;
+    ReinitializeThreadsWhileTerminateWhenEmpty<n_threads_to_keep_alive, final_n_threads>(this->pool);
 
-    // Add 3 jobs to keep 3 threads busy while we call terminate when empty
-    // Add another 3 jobs to keep them working during remove threads + verify init
-    // check threads names and verify we have 3 of the old ones and 2 new ones
-    size_t time_ms = 1;
-    redisearch_thpool_add_work(this->pool, (void (*)(void *))sleep_job_ms, &time_ms, THPOOL_PRIORITY_HIGH);
+}
 
-        // test 2: case 1.b curr_num_threads_alive < n_threads
-        // original number was 10, we want 5, 6 already died so we have 4 (less than we need).
-        // or original number was 10,  we want 15, some of them are still alive,
+TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmptyCase1b) {
+    // test 2: case 1.b curr_num_threads_alive < n_threads
+    // original number was 5, we want 3, 3 already died so we have 2 (less than we need).
+    size_t constexpr n_threads_to_keep_alive = 2;
+    size_t constexpr final_n_threads = 3;
+    ReinitializeThreadsWhileTerminateWhenEmpty<n_threads_to_keep_alive, final_n_threads>(this->pool);
+}
+
+
+TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmptyCase1b2) {
+
+    // or original number was 5,  we want 6, some of them are still alive,
+    size_t constexpr n_threads_to_keep_alive = 2;
+    size_t constexpr final_n_threads = RUNTIME_CONFIG_N_THREADS + 1;
+    ReinitializeThreadsWhileTerminateWhenEmpty<n_threads_to_keep_alive, final_n_threads>(this->pool);
+
 
     // add jobs
         // case 1.a
@@ -335,7 +502,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestWaitTerminate) {
     redisearch_thpool_work_t jobs[num_jobs];
     for (size_t i = 0; i < num_jobs; i++) {
         jobs[i].arg_p = &time_ms;
-        jobs[i].function_p = (void (*)(void *))sleep_job_ms;
+        jobs[i].function_p = sleep_job_ms;
     }
     redisearch_thpool_add_n_work(this->pool, jobs, num_jobs, THPOOL_PRIORITY_LOW);
 

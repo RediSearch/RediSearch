@@ -212,11 +212,15 @@ void redisearch_thpool_terminate_threads(redisearch_threadpool);
 /**
  * @brief Pause pulling from the jobq. The function returns when no jobs are in progress.
  */
-void redisearch_thpool_terminate_pause_threads(redisearch_threadpool);
+void redisearch_thpool_pause_threads(redisearch_threadpool);
+/**
+ * @brief Pause pulling from the jobq. The function returns immediately.
+ */
+void redisearch_thpool_pause_threads_no_wait(redisearch_threadpool);
 
 /**
  * @brief Resume the working threads after they were paused by
- * redisearch_thpool_terminate_pause_threads.
+ * redisearch_thpool_pause_threads.
  */
 void redisearch_thpool_resume_threads(redisearch_threadpool);
 
@@ -273,6 +277,8 @@ int redisearch_thpool_paused(redisearch_threadpool);
 int redisearch_thpool_is_initialized(redisearch_threadpool);
 
 thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
+
+size_t redisearch_thpool_get_n_threads(redisearch_threadpool);
 
 #ifdef __cplusplus
 }

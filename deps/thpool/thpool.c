@@ -84,7 +84,6 @@ typedef struct {
   job *rear;  /* pointer to rear  of queue */
   int len;    /* number of jobs in queue   */
 } jobqueue;
-
 typedef struct priority_queue {
   jobqueue high_priority_jobqueue;  /* job queue for high priority tasks */
   jobqueue low_priority_jobqueue;   /* job queue for low priority tasks */
@@ -146,6 +145,8 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                                              job *last_newjob, size_t num,
                                              thpool_priority priority);
 static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p);
+static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p);
+static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_queue_p);
 static void priority_queue_destroy(priorityJobqueue *priority_queue_p);
 static size_t priority_queue_len(priorityJobqueue *priority_queue_p);
 static size_t priority_queue_len_unsafe(priorityJobqueue *priority_queue_p);
@@ -153,12 +154,23 @@ static size_t
 priority_queue_num_incomplete_jobs(priorityJobqueue *priority_queue_p);
 static bool priority_queue_is_empty(priorityJobqueue *jobqueue_p);
 static bool priority_queue_is_empty_unsafe(priorityJobqueue *jobqueue_p);
-/* ========================== THREADS MANAGER API ============================
- */
+
+/* ========================== GLOBALS ============================ */
+
+/** Hashtable to hold the two pull functions. Aligned with the 'threadState' enum values
+ * Not very pretty, but allows us to avoid if statements in the thread loop. */
+static priorityJobCtx(*pull_and_execute_ht[2])(priorityJobqueue *) = {
+    // THREAD_RUNNING
+    priority_queue_pull,
+    // THREAD_TERMINATE_WHEN_EMPTY Change to pull mechanism to return immediately id jobq is empty
+    priority_queue_pull_no_wait
+};
+
+/* ========================== THREADS MANAGER API ============================ */
 typedef struct {
   barrier_t *barrier; /* The calling thread blocks until the required number of
                                 threads have called barrier_wait() */
-  ThreadState new_state;
+  const ThreadState new_state;
 } SignalThreadCtx;
 static void admin_job_change_state(void *job_arg);
 static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
@@ -237,25 +249,25 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     barrier_init(&barrier, NULL, curr_num_threads_alive);
 
     /* Create jobs and their args */
-    redisearch_thpool_work_t jobs[n_threads_to_revive];
-    SignalThreadCtx job_arg = {.barrier = &barrier, .new_state = THREAD_RUNNING};
+    redisearch_thpool_work_t jobs[curr_num_threads_alive];
 
     /* Set new state of `n_threads_to_revive` threads state to 'THREAD_RUNNING' */
+    SignalThreadCtx job_arg_revive = {.barrier = &barrier, .new_state = THREAD_RUNNING};
     for (size_t i = 0; i < n_threads_to_revive; i++) {
-      jobs[i].arg_p = &job_arg;
+      jobs[i].arg_p = &job_arg_revive;
       jobs[i].function_p = admin_job_change_state;
     }
 
     /* Set new state of `n_threads_to_kill` threads state to 'THREAD_TERMINATE_ASAP' */
-    for (size_t i = 0; i < n_threads_to_revive; i++) {
-      jobs[i].arg_p = &job_arg;
+    SignalThreadCtx job_arg_kill = {.barrier = &barrier, .new_state = THREAD_TERMINATE_ASAP};
+    for (size_t i = n_threads_to_revive; i < curr_num_threads_alive; i++) {
+      jobs[i].arg_p = &job_arg_kill;
       jobs[i].function_p = admin_job_change_state;
     }
 
-    jobsChain jobs_chain = create_jobs_chain(jobs, n_threads_to_revive);
-    priority_queue_push_chain_unsafe(
-        &thpool_p->jobqueues, jobs_chain.first_job, jobs_chain.last_job,
-        n_threads_to_revive, THPOOL_PRIORITY_ADMIN);
+    jobsChain jobs_chain = create_jobs_chain(jobs, curr_num_threads_alive);
+    priority_queue_push_chain_unsafe(&thpool_p->jobqueues, jobs_chain.first_job, jobs_chain.last_job,
+        curr_num_threads_alive, THPOOL_PRIORITY_ADMIN);
 
     /* Unlock to allow the threads to pull from the jobq */
     redisearch_thpool_unlock(thpool_p);
@@ -521,6 +533,10 @@ size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *thpool_p) {
   return thpool_p->jobqueues.num_jobs_in_progress;
 }
 
+size_t redisearch_thpool_get_n_threads(redisearch_thpool_t *thpool_p) {
+  return thpool_p->n_threads;
+}
+
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
   /* Locking must be done in the following order to prevent deadlocks. */
   redisearch_thpool_lock(thpool_p);
@@ -550,7 +566,7 @@ static void redisearch_thpool_unlock(redisearch_thpool_t *thpool_p) {
 
 /* ============ DEBUG ============ */
 
-void redisearch_thpool_terminate_pause_threads(redisearch_thpool_t *thpool_p) {
+void redisearch_thpool_pause_threads(redisearch_thpool_t *thpool_p) {
   redisearch_thpool_lock(thpool_p);
   thpool_p->jobqueues.state = JOBQ_PAUSED;
   redisearch_thpool_unlock(thpool_p);
@@ -558,6 +574,12 @@ void redisearch_thpool_terminate_pause_threads(redisearch_thpool_t *thpool_p) {
   while (redisearch_thpool_num_jobs_in_progress(thpool_p)) {
     usleep(1);
   }
+}
+
+void redisearch_thpool_pause_threads_no_wait(redisearch_thpool_t *thpool_p) {
+  redisearch_thpool_lock(thpool_p);
+  thpool_p->jobqueues.state = JOBQ_PAUSED;
+  redisearch_thpool_unlock(thpool_p);
 }
 
 int redisearch_thpool_paused(redisearch_thpool_t *thpool_p) {
@@ -628,26 +650,28 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
     LOG_IF_EXISTS("debug", "Thread %s is running iteration", thread_name)
 
     /* Read job from queue and execute it */
-    priorityJobCtx job_ctx = priority_queue_pull(&thpool_p->jobqueues);
-    job *job_p = job_ctx.job;
-    void *arg = job_p->arg;
+    priorityJobCtx job_ctx = pull_and_execute_ht[thread_ctx.thread_state](&thpool_p->jobqueues);
+    if (job_ctx.job) {
+      job *job_p = job_ctx.job;
+      void *arg = job_p->arg;
 
-    adminJobArg admin_job_arg = {0};
-    if (job_ctx.is_admin) {
-      admin_job_arg.arg = arg;
-      admin_job_arg.thread_ctx = &thread_ctx;
-      arg = &admin_job_arg;
+      adminJobArg admin_job_arg = {0};
+      if (job_ctx.is_admin) {
+        admin_job_arg.arg = arg;
+        admin_job_arg.thread_ctx = &thread_ctx;
+        arg = &admin_job_arg;
+      }
+
+      job_p->function(arg);
+      rm_free(job_p);
+
+      /* These variables are atomic, so we can do this without a lock. */
+      if (job_ctx.has_priority_ticket) {
+        thpool_p->jobqueues.high_priority_tickets++;
+      }
+      thpool_p->total_jobs_done += !job_ctx.is_admin;
+      thpool_p->jobqueues.num_jobs_in_progress--;
     }
-
-    job_p->function(arg);
-    rm_free(job_p);
-
-    /* These variables are atomic, so we can do this without a lock. */
-    if (job_ctx.has_priority_ticket) {
-      thpool_p->jobqueues.high_priority_tickets++;
-    }
-    thpool_p->total_jobs_done += !job_ctx.is_admin;
-    thpool_p->jobqueues.num_jobs_in_progress--;
 
     if (thread_ctx.thread_state != THREAD_RUNNING) {
       if (thread_ctx.thread_state == THREAD_TERMINATE_WHEN_EMPTY) {
@@ -839,18 +863,31 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
   }
 }
 
-static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
-  bool is_admin = true, has_priority_ticket = false;
-  job *job_p = NULL;
-
+static priorityJobCtx priority_queue_pull_no_wait(priorityJobqueue *priority_queue_p) {
+  priorityJobCtx job_ctx;
   pthread_mutex_lock(&priority_queue_p->lock);
+  job_ctx = priority_queue_pull_from_queues_unsafe(priority_queue_p);
+  pthread_mutex_unlock(&priority_queue_p->lock);
+  return job_ctx;
 
+}
+static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
+  priorityJobCtx job_ctx;
+  pthread_mutex_lock(&priority_queue_p->lock);
   while (priority_queue_len_unsafe(priority_queue_p) == 0 ||
          (priority_queue_p->state == JOBQ_PAUSED)) {
     pthread_cond_wait(&priority_queue_p->has_jobs, &priority_queue_p->lock);
   }
 
-  /* Pull from the admin queue first */
+  job_ctx = priority_queue_pull_from_queues_unsafe(priority_queue_p);
+  pthread_mutex_unlock(&priority_queue_p->lock);
+  return job_ctx;
+
+}
+static inline priorityJobCtx priority_queue_pull_from_queues_unsafe(priorityJobqueue *priority_queue_p) {
+  bool is_admin = true, has_priority_ticket = false;
+  job *job_p = NULL;
+/* Pull from the admin queue first */
   job_p = jobqueue_pull(&priority_queue_p->admin_priority_jobqueue);
 
   if (!job_p) {
@@ -884,15 +921,14 @@ static priorityJobCtx priority_queue_pull(priorityJobqueue *priority_queue_p) {
           job_p = jobqueue_pull(&priority_queue_p->low_priority_jobqueue);
         }
       }
-      priority_queue_p->alternating_pulls++;
+      if (job_p) priority_queue_p->alternating_pulls++;
     }
   }
 
   /** Increasing the counter should be guarded in the same code block as pulling
    * from the queue since we may want to check the jobq length and
    * num_jobs_in_progress together. */
-  priority_queue_p->num_jobs_in_progress++;
-  pthread_mutex_unlock(&priority_queue_p->lock);
+  if (job_p) priority_queue_p->num_jobs_in_progress++;
   priorityJobCtx job_ctx = {
     .job = job_p,
     .is_admin = is_admin,
