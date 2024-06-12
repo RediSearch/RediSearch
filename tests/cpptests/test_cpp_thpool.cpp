@@ -365,8 +365,15 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
 
 template <size_t n_threads_to_keep_alive, size_t final_n_threads>
 static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thpool_p) {
-    size_t constexpr n_threads_to_remove = RUNTIME_CONFIG_N_THREADS - final_n_threads;
     size_t total_jobs_pushed = 0;
+
+    auto setThpoolThreadsNumber = [thpool_p]() -> size_t {
+        if (final_n_threads < RUNTIME_CONFIG_N_THREADS) {
+            return redisearch_thpool_remove_threads(thpool_p, RUNTIME_CONFIG_N_THREADS - final_n_threads);
+        } else {
+            return redisearch_thpool_add_threads(thpool_p, final_n_threads - RUNTIME_CONFIG_N_THREADS);
+        }
+    };
 
     /** The test goes as follows:
      * 1. Add n_threads jobs to keep the threads busy until while we call terminate when empty,
@@ -376,7 +383,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thp
      * after they change their state to TERMINATE_WHEN_EMPTY.
      * 3. call redisearch_thpool_terminate_when_empty().
      * 4. expect n_threads_to_keep_alive threads alive.
-     * 5. remove `n_threads_to_remove` threads. this will only change thpool->n_threads, but won't affect the current running threads.
+     * 5. Set the thpool->n_threads. This will only change thpool->n_threads, but won't affect the current running threads.
      * 6. Add jobs to the queue to trigger verify init.
      * 7. Expect final_n_threads threads in the pool */
 
@@ -410,7 +417,6 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thp
     // `n_threads_to_keep_alive` are still waiting in the second batch of `waitForAdminJobFunc`.
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, RUNTIME_CONFIG_N_THREADS) << "expected " << RUNTIME_CONFIG_N_THREADS << " jobs done";
 
-    // we will wait until n_threads_to_remove threads are dead (n_threads_to_keep_alive alive processing a job).
     while ((redisearch_thpool_get_stats(thpool_p).num_threads_alive != n_threads_to_keep_alive) ||
             redisearch_thpool_num_jobs_in_progress(thpool_p) != n_threads_to_keep_alive) {
         usleep(1);
@@ -418,7 +424,7 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thp
     printf("calling redisearch_thpool_remove_threads\n");
 
     // Now remove threads. This will only change thpool->n_threads, but won't affect the current running threads.
-    ASSERT_EQ(redisearch_thpool_remove_threads(thpool_p, n_threads_to_remove), final_n_threads) << "expected " << final_n_threads << " n_threads";
+    ASSERT_EQ(setThpoolThreadsNumber(), final_n_threads) << "expected " << final_n_threads << " n_threads";
     printf("after redisearch_thpool_remove_threads\n");
 
     // Assert n_threads is as expected
@@ -440,7 +446,6 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thp
 
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).num_threads_alive, final_n_threads) << "expected " << final_n_threads << " threads alive";
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, total_jobs_pushed) << "expected " << total_jobs_pushed << " jobs done";
-
 }
 
 TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmptyCase1a) {
@@ -462,26 +467,20 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhe
     ReinitializeThreadsWhileTerminateWhenEmpty<n_threads_to_keep_alive, final_n_threads>(this->pool);
 }
 
-
 TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhenEmptyCase1b2) {
 
     // or original number was 5,  we want 6, some of them are still alive,
-    size_t constexpr n_threads_to_keep_alive = 2;
-    size_t constexpr final_n_threads = RUNTIME_CONFIG_N_THREADS + 1;
+    size_t constexpr n_threads_to_keep_alive = 3;
+    size_t constexpr final_n_threads = RUNTIME_CONFIG_N_THREADS + 2;
     ReinitializeThreadsWhileTerminateWhenEmpty<n_threads_to_keep_alive, final_n_threads>(this->pool);
+}
 
-
-    // add jobs
+// add jobs
         // case 1.a
-    // Set to 0 scenario:
-        // set to terminate when empty
-        // remove all threads while there are still threads alive
 
     // Set to 0 after decreasing to 1 scenario:
         // set num threads to 1
         // set to terminate when empty
-            // when there are jobs in the
-            // when there are not
         // set to 0
 
     // set to 0 and then add threads scenario:
@@ -493,7 +492,6 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestReinitializeThreadsWhileTerminateWhe
     // remove all threads while jobs in the queue TODO: when we have add
 
     // scenario: test, wait, drain and terminate
-}
 
 TEST_P(PriorityThpoolTestRuntimeConfig, TestWaitTerminate) {
     size_t num_jobs = 100;

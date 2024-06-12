@@ -143,6 +143,21 @@ int redisearch_thpool_add_n_work(redisearch_threadpool,
 size_t redisearch_thpool_remove_threads(redisearch_threadpool, size_t n_threads_to_remove);
 
 /**
+ * @brief Add threads to a threadpool
+ *
+ * If the threadpool in initialized, the operation will be performed immediately.
+ * Otherwise, the operation will be performed when the threadpool is initialized.
+ * @note calling this function after calling terminate when empty, will have no effect
+ * on the current running threads.
+ *
+ *
+ * @param threadpool     the threadpool to wait for
+ * @param n_threads_to_add     number of theads to add
+ * @return The new number of threads in the threadpool
+ */
+size_t redisearch_thpool_add_threads(redisearch_threadpool, size_t n_threads_to_add);
+
+/**
  * @brief Wait for all queued jobs to finish
  *
  * Will wait for all jobs - both queued and currently running to finish.

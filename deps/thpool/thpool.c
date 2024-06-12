@@ -302,6 +302,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
                                         size_t n_threads_to_remove) {
   /* n_threads is only configured and read by the main thread (protected by the GIL). */
+  assert(thpool_p->n_threads >= n_threads_to_remove && "Number of threads can't be negative");
   thpool_p->n_threads -= n_threads_to_remove;
   size_t n_threads = thpool_p->n_threads;
 
