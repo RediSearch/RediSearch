@@ -459,7 +459,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 
   int expandChildren = 0;
 
-  if (qn->type == QN_TOKEN && strcmp(qn->tn.str, "") != 0) {
+  if (qn->type == QN_TOKEN && qn->tn.len > 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
   } else if (qn->type == QN_UNION ||
@@ -1754,7 +1754,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", strcmp(qs->tn.str, "") ? qs->tn.str : "\"\"", qs->tn.expanded ? "(expanded)" : "");
+      s = sdscatprintf(s, "%s%s", (qs->tn.len > 0) ? qs->tn.str : "\"\"", qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }

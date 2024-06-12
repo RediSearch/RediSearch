@@ -1156,6 +1156,24 @@ def testInvalidUseOfEmptyString(env):
         # Unsupported empty string in fuzzy terms
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%""%)')
         env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%""%%)')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%""%%%)')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%$p%)', 
+                                   'PARAMS', 2, 'p', '""')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%$p%%)', 
+                                   'PARAMS', 2, 'p', '""')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%$p%%%)', 
+                                   'PARAMS', 2, 'p', '""')
+        env.assertEqual(res, EMPTY_RESULT)
         
         # Invalid use of empty string in geo filter
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 ""]').error().\
