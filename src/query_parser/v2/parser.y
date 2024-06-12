@@ -14,7 +14,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING ISMISSING.
+%left ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -582,7 +582,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-text_expr(A) ::= param_term_or_empty(B) . [LOWEST]  {
+text_expr(A) ::= param_term(B) . [LOWEST]  {
   if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
     A = NULL;
   } else {
@@ -598,13 +598,13 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-termlist(A) ::= param_term_or_empty(B) param_term_or_empty(C). [TERMLIST]  {
+termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) param_term_or_empty(C) . [TERMLIST] {
+termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
     A = B;
     if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
        QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
@@ -652,7 +652,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -741,7 +741,7 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     }
 }
 
-tag_list(A) ::= param_term_case_or_empty(B) . [TAGLIST] {
+tag_list(A) ::= param_term_case(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
@@ -761,7 +761,7 @@ tag_list(A) ::= termlist(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= tag_list(B) OR param_term_case_or_empty(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
   QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
 }
@@ -1158,23 +1158,3 @@ exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A.inclusive = 0;
 }
 
-empty_string(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
-  A = B;
-  A.type = QT_TERM_CASE;
-}
-
-param_term_or_empty(A) ::= param_term(B) . {
-  A = B;
-}
-
-param_term_or_empty(A) ::= empty_string(B) . {
-  A = B;
-}
-
-param_term_case_or_empty(A) ::= param_term_case(B) . {
-  A = B;
-}
-
-param_term_case_or_empty(A) ::= empty_string(B) . {
-  A = B;
-}

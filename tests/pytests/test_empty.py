@@ -1133,21 +1133,52 @@ def testEmptyExplainCli(env):
         ]
         env.assertEqual(res, expected)
 
-def testInvalidEmptySyntax(env):
+def testInvalidUseOfEmptyString(env):
     """Tests that invalid syntax for empty values is rejected by the parser"""
 
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        conn = getConnectionByEnv(env)
 
+        dim = 4
         # Create an index
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY',
-                   'text', 'TEXT', 'INDEXEMPTY', 'location', 'GEO').ok()
+        env.expect(
+            'FT.CREATE', 'idx', 'SCHEMA',
+            't', 'TAG', 'INDEXEMPTY',
+            'text', 'TEXT', 'INDEXEMPTY', 'PHONETIC', 'dm:en',
+            'location', 'GEO',
+            'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+            'TYPE', 'FLOAT32',).ok()
+        conn.execute_command('HSET', 'h1', 't', '')
+        conn.execute_command('HSET', 'h2', 't', 'a')
 
-        # Invalid syntax for empty values used in fuzzy term
-        env.expect('FT.SEARCH', 'idx', '@text:(%""%)').error().\
-            contains('Syntax error at offset 8')
+        # Unsupported empty string in fuzzy terms
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%""%)')
+        env.assertEqual(res, EMPTY_RESULT)
         
-        # Invalid synta for empty values used in geo filter
+        # Invalid use of empty string in geo filter
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 ""]').error().\
-            contains('Syntax error at offset 24')
+            contains('Invalid GeoFilter unit')
+
+        # Invalid use of empty string as $weight value
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$weight:""}').error().\
+            contains('Invalid value () for `weight`')
+
+        # Invalid use of empty string as $inorder value
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$inorder:""}').error().\
+            contains('Invalid value () for `inorder`')
+        
+        # Invalid use of empty string as $slop value
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}').error().\
+            contains('Invalid value () for `slop`')
+
+        # Invalid use of empty string as $phonetic value
+        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic: ""} world)')\
+            .error().contains('Invalid value () for `phonetic`')
+        
+        # Invalid use of empty string as $yield_distance_as value
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:""}',
+            'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes()).\
+            error().contains('Invalid value () for `yield_distance_as`')

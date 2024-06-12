@@ -577,7 +577,7 @@ _eof_trans:
     tok.pos = ts-q->raw;
     tok.s = "";
     tok.len = 0;
-    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);  
+    RSQuery_Parse_v3(pParser, TERM, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }
@@ -777,7 +777,7 @@ _eof_trans:
     tok.len = 0;
     tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);
+    RSQuery_Parse_v3(pParser, EMPTY_TAG, tok, q);
     if (!QPCTX_ISOK(q)) {
       {p++; goto _out; }
     }

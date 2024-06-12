@@ -15,7 +15,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING ISMISSING.
+%left EMPTY_TAG ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -572,10 +572,6 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
   }
 }
 
-text_expr(A) ::= empty_string(B) . [LOWEST]  {
-  A = NewTokenNode_WithParams(ctx, &B);
-}
-
 text_expr(A) ::= affix(B) . [PREFIX]  {
 A = B;
 }
@@ -766,9 +762,10 @@ single_tag(A) ::= verbatim(B) . {
   QueryNode_AddChild(A, B);
 }
 
-single_tag(A) ::= empty_string(B) . {
+single_tag(A) ::= EMPTY_TAG(B) . {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  char *s = rm_strndup(B.s, B.len);
+  QueryNode_AddChild(A, NewTokenNode(ctx, s, B.len));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1224,9 +1221,4 @@ exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
     A.sign = 1;
-}
-
-empty_string(A) ::= EMPTY_STRING(B) . [EMPTY_STRING] {
-  A = B;
-  A.type = QT_TERM_CASE;
 }

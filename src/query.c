@@ -1988,6 +1988,12 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
                          (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
   int res = 0;
+
+  if (attr->vallen == 0) {
+    MK_INVALID_VALUE();
+    return res;
+  }
+
   // Apply slop: [-1 ... INF]
   if (STR_EQCASE(attr->name, attr->namelen, SLOP_ATTR)) {
     long long n;
