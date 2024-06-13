@@ -1230,3 +1230,18 @@ def testEmptyParam(env):
         res = env.cmd('FT.SEARCH', 'idx', '@t:{$p} | @t2:{$p}', 'PARAMS', 2, 'p', '')
         expected = [1, 'h1', ['t', '']]
         env.assertEqual(res, expected)
+        env.flush()
+
+        # Create an index - TEXT fields
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text1', 'TEXT', 'INDEXEMPTY',
+                   'text2', 'TEXT').ok()
+
+        # Add a document with an empty value for a TAG field
+        conn.execute_command('HSET', 'h1', 'text1', '')
+        conn.execute_command('HSET', 'h2', 'text2', '')
+
+        # Test that we can use an empty string as a parameter
+        res = env.cmd('FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
+                      'PARAMS', 2, 'p', '')
+        expected = [1, 'h1', ['text1', '']]
+        env.assertEqual(res, expected)
