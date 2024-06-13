@@ -481,3 +481,22 @@ def testMissing(env):
 
         # Test missing fields indexing on JSON documents
         JSONMissingTest(env, conn)
+
+
+def testMissingWithExists():
+    """Tests the missing values indexing feature with the `exists` operator"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'INDEXMISSING').ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'foo', 'hello')
+    conn.execute_command('HSET', 'doc2', 'goo', 'world')
+
+    # Search for the documents with the indexed fields (sanity)
+    ismissing = env.cmd('FT.SEARCH', 'idx', 'ismissing(@foo)')
+    exists = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD',  '2', 'foo', 'goo', 'FILTER', '!EXISTS(@foo)')
+    env.assertEqual(ismissing[2], exists[1])
