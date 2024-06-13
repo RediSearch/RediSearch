@@ -2112,26 +2112,38 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
         break;
       case 59: /* modifier ::= MODIFIER */
 {
-    yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy0 = yymsp[0].minor.yy0;
+    if (yymsp[0].minor.yy0.len == 0) {
+      reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
+    } else {
+      yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+      yylhsminor.yy0 = yymsp[0].minor.yy0;
+    }
  }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 60: /* modifierlist ::= modifier OR term */
 {
     yylhsminor.yy162 = NewVector(char *, 2);
-    char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    Vector_Push(yylhsminor.yy162, s);
-    s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yylhsminor.yy162, s);
+    if (yymsp[0].minor.yy0.len == 0) {
+      reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
+    } else {
+      char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+      Vector_Push(yylhsminor.yy162, s);
+      s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+      Vector_Push(yylhsminor.yy162, s);
+    }
 }
   yymsp[-2].minor.yy162 = yylhsminor.yy162;
         break;
       case 61: /* modifierlist ::= modifierlist OR term */
 {
-    char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy162, s);
-    yylhsminor.yy162 = yymsp[-2].minor.yy162;
+    if (yymsp[0].minor.yy0.len == 0) {
+      reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
+    } else {
+      char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+      Vector_Push(yymsp[-2].minor.yy162, s);
+      yylhsminor.yy162 = yymsp[-2].minor.yy162;
+    }
 }
   yymsp[-2].minor.yy162 = yylhsminor.yy162;
         break;

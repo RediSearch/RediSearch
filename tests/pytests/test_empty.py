@@ -1200,3 +1200,33 @@ def testInvalidUseOfEmptyString(env):
             'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:""}',
             'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes()).\
             error().contains('Invalid value () for `yield_distance_as`')
+        
+        # Invalid use of empty string as a modifier
+        env.expect('FT.SEARCH', 'idx', '@t|"":{abc}').error().\
+            contains('Syntax error')
+        
+        # Invalid use of an empty string in a vector query
+        env.expect('FT.SEARCH', 'idx', '*=>["" 4 @v $blob AS dist]').error().\
+            contains('Expecting Vector Similarity command')
+        env.expect('FT.SEARCH', 'idx', '*=>[KNN "" @v $blob AS dist]').error().\
+            contains('Syntax error')
+
+def testEmptyParam(env):
+    """Tests that we can use an empty string as a parameter in a query"""
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        conn = getConnectionByEnv(env)
+
+        # Create an index
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 't2', 'TAG').ok()
+
+        # Add a document with an empty value for a TAG field
+        conn.execute_command('HSET', 'h1', 't', '')
+        conn.execute_command('HSET', 'h2', 't2', '')
+
+        # Test that we can use an empty string as a parameter
+        res = env.cmd('FT.SEARCH', 'idx', '@t:{$p} | @t2:{$p}', 'PARAMS', 2, 'p', '')
+        expected = [1, 'h1', ['t', '']]
+        env.assertEqual(res, expected)

@@ -695,22 +695,34 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    B.len = unescapen((char*)B.s, B.len);
-    A = B;
+    if (B.len == 0) {
+      reportSyntaxError(ctx->status, &B, "Syntax error");
+    } else {
+      B.len = unescapen((char*)B.s, B.len);
+      A = B;
+    }
  }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
-    char *s = rm_strndup(B.s, B.len);
-    Vector_Push(A, s);
-    s = rm_strndup(C.s, C.len);
-    Vector_Push(A, s);
+    if (C.len == 0) {
+      reportSyntaxError(ctx->status, &C, "Syntax error");
+    } else {
+      char *s = rm_strndup(B.s, B.len);
+      Vector_Push(A, s);
+      s = rm_strndup(C.s, C.len);
+      Vector_Push(A, s);
+    }
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-    char *s = rm_strndup(C.s, C.len);
-    Vector_Push(B, s);
-    A = B;
+    if (C.len == 0) {
+      reportSyntaxError(ctx->status, &C, "Syntax error");
+    } else {
+      char *s = rm_strndup(C.s, C.len);
+      Vector_Push(B, s);
+      A = B;
+    }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
