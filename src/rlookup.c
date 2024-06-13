@@ -599,17 +599,16 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
+// returns trus if the value of the key is already available
+// avoids the need to call to redis api to get the value
+// i.e we can use the sorting vector as a cache
 static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
-  if (!options->forceLoad) {
-    if (kk->flags & RLOOKUP_F_VAL_AVAILABLE) {
-      // No need to "write" this key. It's always implicitly loaded!
-      return true;
-    } else if ((kk->flags & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL)) {
-      // There is no value in the sorting vector, and we don't need to load it from the document.
-      return true;
-    }
-  }
-  return false;
+  return (!options->forceLoad && (
+        // No need to "write" this key. It's always implicitly loaded!
+        (kk->flags & RLOOKUP_F_VAL_AVAILABLE) ||
+        // There is no value in the sorting vector, and we don't need to load it from the document.
+        ((kk->flags & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
+    ));
 }
 
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
