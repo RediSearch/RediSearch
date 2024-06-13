@@ -196,15 +196,15 @@ THPOOL_TEST_SUITE(PriorityThpoolTestFunctionality, TEST_FUNCTIONALITY_N_THREADS,
 */
 TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
     typedef struct {
-        volatile std::atomic<bool> *waitForSign;
-        volatile std::atomic<size_t> received;
+        volatile std::atomic<bool> &waitForSign;
+        volatile std::atomic<size_t> &received;
     } MarkAndWait;
 
     // This job will keep the thread busy until we signal it to finish.
     auto MarkAndWaitForSignFunc = [](void *p) {
         MarkAndWait *mark_and_wait = (MarkAndWait *)p;
         ++mark_and_wait->received;
-        while (*mark_and_wait->waitForSign) {
+        while (mark_and_wait->waitForSign) {
             usleep(1);
         }
     };
@@ -223,8 +223,9 @@ TEST_P(PriorityThpoolTestFunctionality, TestTerminateWhenEmpty) {
 
     // Push jobs to the queue to ensure the threads do not quit after their state is changed.
     // They will wait to make sure each thread takes one job.
-    volatile std::atomic<bool> sign = true;
-    MarkAndWait mark_and_wait = {&sign, 0};
+    volatile std::atomic<bool> sign {true};
+    volatile std::atomic<size_t> received {0};
+    MarkAndWait mark_and_wait = {sign, received};
     for (int i = 0; i < TEST_FUNCTIONALITY_N_THREADS; i++) {
         redisearch_thpool_add_work(this->pool, MarkAndWaitForSignFunc, &mark_and_wait, THPOOL_PRIORITY_HIGH);
     }
