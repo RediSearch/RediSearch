@@ -1,7 +1,4 @@
-from RLTest import Env
-from includes import *
 from common import *
-import json
 
 # we expect loadIndividualKeys to be used
 # we expect getKeyCommonHash to be used
@@ -15,6 +12,7 @@ def testCacheDoubleWillBeReceivedAsInteger(env):
     connection.execute_command('hset', 'foo', 'name', 'john', 'num', '3.0')
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').equal([1, 'foo', ['num', '3']])
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').noEqual([1, 'foo', ['num', '3.0']])
+    connection.execute_command('FLUSHALL')
 
 # TODO
 # Add a test that checks the cache in a more durable way
