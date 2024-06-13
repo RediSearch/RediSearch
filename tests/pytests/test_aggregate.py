@@ -1225,3 +1225,51 @@ def testWithKNN(env):
                                 'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                 'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', dialect)
         env.assertEqual(res[1:], expected_res)
+
+
+def test_aggregate_filter_on_missing_values():
+    """Tests the missing values indexing feature with the `exists` operator"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'foo', 'val')
+    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
+
+    # Search for the documents with the indexed fields (sanity)
+    (env.expect('FT.AGGREGATE', 'idx', '@foo:{val}', 'LOAD', '1', 'goo', 'FILTER', '@goo > 2').error().
+     contains('goo: has no value, consider using EXISTS if applicable'))
+    env.flush()
+
+def test_aggregate_group_by_on_missing_values():
+    """Tests the missing values indexing feature with the `exists` operator"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'foo', 'val')
+    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
+
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', '@foo:{val}', 'GROUPBY', '1', '@goo').equal([2, ['goo', '3'], ['goo', None]])
+    env.flush()
+
+def test_aggregate_apply_on_missing_values():
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'goo', 'NUMERIC', 'foo', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'goo', '4')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'foo', 'goo', 'APPLY', '(@foo+@goo)/2', 'AS', 'avg').error().contains(
+        "foo: has no value, consider using EXISTS if applicable"
+    )
+    env.flush()

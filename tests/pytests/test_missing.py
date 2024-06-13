@@ -500,14 +500,3 @@ def testMissingWithExists():
     ismissing = env.cmd('FT.SEARCH', 'idx', 'ismissing(@foo)')
     exists = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD',  '2', 'foo', 'goo', 'FILTER', '!EXISTS(@foo)')
     env.assertEqual(ismissing[2], exists[1])
-
-def testMissingValueErrorMessage():
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-    conn = getConnectionByEnv(env)
-
-    # Create an index with a TAG field that indexes missing values
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'goo', 'NUMERIC', 'foo', 'NUMERIC', 'INDEXMISSING').ok()
-    conn.execute_command('HSET', 'doc1', 'goo', '4')
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'foo', 'goo', 'APPLY', '(@foo+@goo)/2', 'AS', 'avg').error().contains(
-        "foo: has no value, consider using EXISTS if applicable"
-    )
