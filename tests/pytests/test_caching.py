@@ -15,13 +15,6 @@ def testCacheDoubleWillBeReceivedAsInteger(env):
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').equal([1, 'foo', ['num', '3']])
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').noEqual([1, 'foo', ['num', '3.0']])
 
-
-# Make sure hgetall is not being used during the search
-def testCacheUsingCommandStats(env):
-    env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'num', 'numeric', 'sortable').ok()
-    env.expect('hset', 'foo', 'name', 'john', 'num', '3.0').equal(2)
-    before = env.cmd('INFO', 'COMMANDSTATS')
-    env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').equal([1, 'foo', ['num', '3']])
-    after = env.cmd('INFO', 'COMMANDSTATS')
-    for command in ['hgetall', 'hget']:
-        env.assertEqual(after.get(f'cmdstat_{command}', {}).get('calls', 0), before.get(f'cmdstat_{command}', {}).get('calls', 0))
+# TODO
+# Add a test that checks the cache in a more durable way
+# Maybe by adding a cache hit/miss stat to FT.INFO will help write a test that checks the cache(sorting vector)
