@@ -19,7 +19,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
 
-static redisearch_threadpool gcThreadpool_g = NULL;
+static redisearch_thpool_t *gcThreadpool_g = NULL;
 
 typedef struct GCDebugTask {
   GCContext* gc;

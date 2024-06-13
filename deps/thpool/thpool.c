@@ -394,7 +394,7 @@ int redisearch_thpool_add_work(redisearch_thpool_t *thpool_p,
 }
 
 /* Add n work to the thread pool */
-int redisearch_thpool_add_n_work(redisearch_threadpool thpool_p,
+int redisearch_thpool_add_n_work(redisearch_thpool_t * thpool_p,
                                  redisearch_thpool_work_t *jobs, size_t n_jobs,
                                  thpool_priority priority) {
   if (n_jobs == 0)

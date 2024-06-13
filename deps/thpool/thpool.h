@@ -16,7 +16,7 @@ extern "C" {
 
 /* ======================= API ======================= */
 
-typedef struct redisearch_thpool_t *redisearch_threadpool;
+typedef struct redisearch_thpool_t redisearch_thpool_t;
 typedef struct timespec timespec;
 
 typedef enum {
@@ -49,7 +49,7 @@ typedef void (*LogFunc)(const char *, const char *, ...);
  * <name>-<thread_id>. thread_id is a random number from 0 to 9,999.
  * @return Newly allocated threadpool, or NULL if creation failed.
  */
-redisearch_threadpool redisearch_thpool_create(size_t num_threads,
+redisearch_thpool_t *redisearch_thpool_create(size_t num_threads,
                                                size_t high_priority_bias_threshold,
                                                LogFunc log, const char *name);
 
@@ -83,7 +83,7 @@ redisearch_threadpool redisearch_thpool_create(size_t num_threads,
  * @return 0 on success, -1 otherwise.
  */
 typedef void (*redisearch_thpool_proc)(void *);
-int redisearch_thpool_add_work(redisearch_threadpool,
+int redisearch_thpool_add_work(redisearch_thpool_t *,
                                redisearch_thpool_proc function_p, void *arg_p,
                                thpool_priority priority);
 
@@ -123,7 +123,7 @@ typedef struct thpool_work_t {
   redisearch_thpool_proc function_p;
   void *arg_p;
 } redisearch_thpool_work_t;
-int redisearch_thpool_add_n_work(redisearch_threadpool,
+int redisearch_thpool_add_n_work(redisearch_thpool_t *,
                                  redisearch_thpool_work_t *jobs, size_t n_jobs,
                                  thpool_priority priority);
 
@@ -140,7 +140,7 @@ int redisearch_thpool_add_n_work(redisearch_threadpool,
  * @param n_threads_to_remove     number of theads to remove
  * @return The new number of threads in the threadpool
  */
-size_t redisearch_thpool_remove_threads(redisearch_threadpool, size_t n_threads_to_remove);
+size_t redisearch_thpool_remove_threads(redisearch_thpool_t *, size_t n_threads_to_remove);
 
 /**
  * @brief Add threads to a threadpool
@@ -155,7 +155,7 @@ size_t redisearch_thpool_remove_threads(redisearch_threadpool, size_t n_threads_
  * @param n_threads_to_add     number of theads to add
  * @return The new number of threads in the threadpool
  */
-size_t redisearch_thpool_add_threads(redisearch_threadpool, size_t n_threads_to_add);
+size_t redisearch_thpool_add_threads(redisearch_thpool_t *, size_t n_threads_to_add);
 
 /**
  * @brief Wait for all queued jobs to finish
@@ -178,7 +178,7 @@ size_t redisearch_thpool_add_threads(redisearch_threadpool, size_t n_threads_to_
  * @param threadpool     the threadpool to wait for
  * @return nothing
  */
-void redisearch_thpool_wait(redisearch_threadpool);
+void redisearch_thpool_wait(redisearch_thpool_t *);
 
 // A callback to be called periodically when waiting for the thread pool to finish.
 typedef void (*yieldFunc)(void *);
@@ -215,37 +215,37 @@ typedef void (*yieldFunc)(void *);
  * @return nothing
  */
 
-void redisearch_thpool_drain(redisearch_threadpool, long timeout,
+void redisearch_thpool_drain(redisearch_thpool_t *, long timeout,
                              yieldFunc yieldCB, void *yieldCtx,
                              size_t threshold);
 
 /**
  * @brief Terminate the working threads (without deallocating the threadpool members).
  */
-void redisearch_thpool_terminate_threads(redisearch_threadpool);
+void redisearch_thpool_terminate_threads(redisearch_thpool_t *);
 
 /**
  * @brief Pause pulling from the jobq. The function returns when no jobs are in progress.
  */
-void redisearch_thpool_pause_threads(redisearch_threadpool);
+void redisearch_thpool_pause_threads(redisearch_thpool_t *);
 
 /**
  * @brief Pause pulling from the jobq. The function returns immediately.
  */
-void redisearch_thpool_pause_threads_no_wait(redisearch_threadpool);
+void redisearch_thpool_pause_threads_no_wait(redisearch_thpool_t *);
 
 /**
  * @brief Resume the working threads after they were paused by
  * redisearch_thpool_pause_threads.
  */
-void redisearch_thpool_resume_threads(redisearch_threadpool);
+void redisearch_thpool_resume_threads(redisearch_thpool_t *);
 
 /**
  * @brief Signal all threads to terminate when there are
  * no more pending jobs in the queue.
  * NOTICE: Jobs added to the jobq after this call might not be executed.
  */
-void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
+void redisearch_thpool_terminate_when_empty(redisearch_thpool_t *);
 
 /**
  * @brief Destroy the threadpool
@@ -266,7 +266,7 @@ void redisearch_thpool_terminate_when_empty(redisearch_threadpool thpool_p);
  * @param threadpool     the threadpool to destroy
  * @return nothing
  */
-void redisearch_thpool_destroy(redisearch_threadpool);
+void redisearch_thpool_destroy(redisearch_thpool_t *);
 
 /**
  * @brief Show currently working threads
@@ -286,15 +286,15 @@ void redisearch_thpool_destroy(redisearch_threadpool);
  * @param threadpool     the threadpool of interest
  * @return integer       number of threads working
  */
-size_t redisearch_thpool_num_jobs_in_progress(redisearch_threadpool);
+size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *);
 
-int redisearch_thpool_paused(redisearch_threadpool);
+int redisearch_thpool_paused(redisearch_thpool_t *);
 
-int redisearch_thpool_is_initialized(redisearch_threadpool);
+int redisearch_thpool_is_initialized(redisearch_thpool_t *);
 
-thpool_stats redisearch_thpool_get_stats(redisearch_threadpool);
+thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
-size_t redisearch_thpool_get_n_threads(redisearch_threadpool);
+size_t redisearch_thpool_get_n_threads(redisearch_thpool_t *);
 
 #ifdef __cplusplus
 }

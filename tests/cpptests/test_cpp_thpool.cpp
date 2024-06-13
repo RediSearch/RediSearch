@@ -24,7 +24,7 @@ typedef struct {
 
 class PriorityThpoolTestBase : public testing::TestWithParam<ThpoolParams> {
 public:
-    redisearch_threadpool pool;
+    redisearch_thpool_t *pool;
         virtual void SetUp() {
             ThpoolParams params = GetParam();
             // Thread pool with a single thread which is also high-priority bias that
@@ -46,7 +46,7 @@ public:
 
 // This job will run until we insert the terminate when empty job
 void waitForAdminJobFunc(void *p) {
-    redisearch_threadpool thpool_p = (redisearch_threadpool)p;
+    redisearch_thpool_t *thpool_p = (redisearch_thpool_t *)p;
 
     // wait for the admin jobs to be pushed
     while (!redisearch_thpool_get_stats(thpool_p).admin_priority_pending_jobs) {
@@ -377,7 +377,7 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreads) {
 }
 
 template <size_t n_threads_to_keep_alive, size_t final_n_threads>
-static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_threadpool thpool_p) {
+static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpool_p) {
     size_t total_jobs_pushed = 0;
 
     auto setThpoolThreadsNumber = [thpool_p]() -> size_t {

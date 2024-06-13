@@ -17,7 +17,7 @@
 // Thread pool
 //------------------------------------------------------------------------------
 
-redisearch_threadpool _workers_thpool = NULL;
+redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 
 static void yieldCallback(void *yieldCtx) {
