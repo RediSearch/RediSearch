@@ -11,7 +11,8 @@ import json
 # due to forceString being 1
 def testCacheDoubleWillBeReceivedAsInteger(env):
     env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'num', 'numeric', 'sortable').ok()
-    env.expect('hset', 'foo', 'name', 'john', 'num', '3.0').equal(2)
+    connection = env.getClusterConnectionIfNeeded()
+    connection.execute_command('hset', 'foo', 'name', 'john', 'num', '3.0')
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').equal([1, 'foo', ['num', '3']])
     env.expect('ft.search', 'idx', '@name:john', 'return', '1', 'num').noEqual([1, 'foo', ['num', '3.0']])
 
