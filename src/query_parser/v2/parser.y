@@ -213,12 +213,14 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type modifierlist { Vector* }
 %destructor modifierlist {
+  if ($$) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
     Vector_Free($$);
+  }
 }
 
 %type num { RangeNumber }
@@ -696,34 +698,44 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    if (B.len == 0) {
-      reportSyntaxError(ctx->status, &B, "Syntax error");
-    } else {
-      B.len = unescapen((char*)B.s, B.len);
-      A = B;
-    }
- }
+  if (B.len == 0) {
+    reportSyntaxError(ctx->status, &B, "Syntax error");
+  } else {
+    B.len = unescapen((char*)B.s, B.len);
+    A = B;
+  }
+}
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  if (C.len == 0) {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    A = NULL;
+  } else {
     A = NewVector(char *, 2);
-    if (C.len == 0) {
-      reportSyntaxError(ctx->status, &C, "Syntax error");
-    } else {
-      char *s = rm_strndup(B.s, B.len);
-      Vector_Push(A, s);
-      s = rm_strndup(C.s, C.len);
-      Vector_Push(A, s);
-    }
+    char *s = rm_strndup(B.s, B.len);
+    Vector_Push(A, s);
+    s = rm_strndup(C.s, C.len);
+    Vector_Push(A, s);
+  }
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-    if (C.len == 0) {
-      reportSyntaxError(ctx->status, &C, "Syntax error");
-    } else {
-      char *s = rm_strndup(C.s, C.len);
-      Vector_Push(B, s);
-      A = B;
+  if (C.len == 0) {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    if (B) {
+      for (size_t i = 0; i < Vector_Size(B); i++) {
+        char *s;
+        Vector_Get(B, i, &s);
+        rm_free(s);
+      }
+      Vector_Free(B);
     }
+    A = NULL;
+  } else {
+    char *s = rm_strndup(C.s, C.len);
+    Vector_Push(B, s);
+    A = B;
+  }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {

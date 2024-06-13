@@ -1205,6 +1205,12 @@ def testInvalidUseOfEmptyString(env):
         env.expect('FT.SEARCH', 'idx', '@t|"":{abc}').error().\
             contains('Syntax error')
         
+        env.expect('FT.SEARCH', 'idx', '@""|t:{abc}').error().\
+            contains('Syntax error')
+        
+        env.expect('FT.SEARCH', 'idx', '@t|t|"":{abc}').error().\
+            contains('Syntax error')
+        
         # Invalid use of an empty string in a vector query
         env.expect('FT.SEARCH', 'idx', '*=>["" 4 @v $blob AS dist]').error().\
             contains('Expecting Vector Similarity command')
