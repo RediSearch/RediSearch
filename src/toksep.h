@@ -24,8 +24,9 @@ static const char ToksepMap_g[256] = {
 static inline char *toksep(char **s, size_t *tokLen) {
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
+  int escaped = 0;
   for (; *pos; ++pos) {
-    if (ToksepMap_g[*pos] && ((char *)pos == orig || *(pos - 1) != '\\')) {
+    if (ToksepMap_g[*pos] && !escaped) {
       *s = (char *)++pos;
       *tokLen = ((char *)pos - orig) - 1;
       if (!*pos) {
@@ -33,6 +34,7 @@ static inline char *toksep(char **s, size_t *tokLen) {
       }
       return orig;
     }
+    escaped = !escaped && *pos == '\\';
   }
 
   // Didn't find a terminating token. Use a simpler length calculation
