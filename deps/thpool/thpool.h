@@ -228,6 +228,7 @@ void redisearch_thpool_terminate_threads(redisearch_threadpool);
  * @brief Pause pulling from the jobq. The function returns when no jobs are in progress.
  */
 void redisearch_thpool_pause_threads(redisearch_threadpool);
+
 /**
  * @brief Pause pulling from the jobq. The function returns immediately.
  */

@@ -34,7 +34,7 @@
 typedef enum {
   THPOOL_INITIALIZED = (1 << 0),
   THPOOL_UNINITIALIZED = 0,   /** Can be one of two states:
-                                * 1. There are no threads alive
+                                * 1. thpool->n_threads > 0, and there are no threads alive
                                 * 2. There are threads alive in THREAD_TERMINATE_WHEN_EMPTY state. */
 } ThpoolState;
 
@@ -307,7 +307,7 @@ size_t redisearch_thpool_remove_threads(redisearch_thpool_t *thpool_p,
   size_t n_threads = thpool_p->n_threads;
 
   /** THPOOL_UNINITIALIZED means either:
-   * 1. There are no threads alive
+   * 1. thpool->n_threads > 0, and there are no threads alive
    * 2. There are threads alive in terminate_when_empty state.
    * In both cases only calling `verify_init` will add/remove threads to adjust
    * `num_threads_alive` to `n_threads` */
@@ -345,10 +345,12 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   size_t n_threads = thpool_p->n_threads;
 
   /** THPOOL_UNINITIALIZED means either:
-   * 1. There are no threads alive
+   * 1. thpool->n_threads > 0, and there are no threads alive
    * 2. There are threads alive in terminate_when_empty state.
    * In both cases only calling `verify_init` will add/remove threads to adjust
-   * `num_threads_alive` to `n_threads` */
+   * `num_threads_alive` to `n_threads`
+   * @note if thpool->n_threads was decreased to 0 (thpool_remove_threads), the thpool is in INITIALIZED
+   * state. */
   if (thpool_p->state == THPOOL_UNINITIALIZED)
     return n_threads;
 
