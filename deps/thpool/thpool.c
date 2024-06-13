@@ -35,7 +35,7 @@ typedef enum {
   THPOOL_INITIALIZED = (1 << 0),
   THPOOL_UNINITIALIZED = 0,   /** Can be one of two states:
                                 * 1. thpool->n_threads > 0, and there are no threads alive
-                                * 2. There are threads alive in THREAD_TERMINATE_WHEN_EMPTY state. */
+                                * 2. There might be threads alive in THREAD_TERMINATE_WHEN_EMPTY state. */
 } ThpoolState;
 
 typedef enum {

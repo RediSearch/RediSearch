@@ -307,14 +307,6 @@ TEST_P(PriorityThpoolTestFunctionality, TestPauseResume) {
 static constexpr size_t RUNTIME_CONFIG_N_THREADS = 5;
 THPOOL_TEST_SUITE(PriorityThpoolTestRuntimeConfig, RUNTIME_CONFIG_N_THREADS, 0)
 
-TEST_P(PriorityThpoolTestRuntimeConfig, TestVerifyInit) {
-    // set terminate when empty
-    // while jobs still are running, push a new job to the queue
-    // expect all the threads to be revived
-    // thpool is now initalized
-
-}
-
 TEST_P(PriorityThpoolTestRuntimeConfig, TestRemoveThreads) {
     // Add a job to trigger thpool initialization
     size_t total_jobs_pushed = 0;
