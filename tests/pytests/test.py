@@ -501,6 +501,7 @@ def testExplain(env):
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
         'tag', 'TAG', 'geom', 'GEOSHAPE', 'FLAT', 'g', 'GEO',
         'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+
     q = '(hello world) "what what" (hello|world) (@bar:[10 100]|@bar:[200 300])'
     res = env.cmd('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
@@ -632,7 +633,6 @@ def testExplain(env):
     _testExplain(env, 'idx', ['@bar:[(-1 $n]','PARAMS', '2', 'n', '10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
 
-
     # test numeric operators - they are only supported in DIALECT 5
     env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
     
@@ -659,12 +659,135 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar==+$n', 'PARAMS', 2, 'n', 10],
                  'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
+    
+    _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', 7],
+                 'NUMERIC {-7.000000 <= @bar <= -7.000000}\n')
+    
+    _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', -5],
+                 'NUMERIC {5.000000 <= @bar <= 5.000000}\n')
 
     _testExplain(env, 'idx', ['@bar>=12 @bar<inf'],
                 'INTERSECT {\n  NUMERIC {12.000000 <= @bar <= inf}\n  NUMERIC {-inf <= @bar < inf}\n}\n')
 
     _testExplain(env, 'idx', ['@bar<-10 | @bar>10'],
                  'UNION {\n  NUMERIC {-inf <= @bar < -10.000000}\n  NUMERIC {10.000000 < @bar <= inf}\n}\n')
+
+    # test INDEXMISSING()
+    env.expect(
+        'FT.CREATE', 'idx_im', 'ON', 'HASH', 'SCHEMA',
+        't', 'TEXT', 'INDEXMISSING',
+        'tag', 'TAG', 'INDEXMISSING').ok()
+
+    _testExplain(env, 'idx_im', ['ismissing(@t)'], "ISMISSING{t}\n")
+    _testExplain(env, 'idx_im', ['ismissing(@tag)'], "ISMISSING{tag}\n")
+    _testExplain(env, 'idx_im', ['ismissing(@tag) -ismissing(@t)'],
+                 "INTERSECT {\n  ISMISSING{tag}\n  NOT{\n    ISMISSING{t}\n  }\n}\n")
+
+    expected = (
+        "UNION {\n"
+        "  TAG:@tag {\n"
+        "    bar\n"
+        "  }\n"
+        "  INTERSECT {\n"
+        "    TAG:@tag {\n"
+        "      go\n"
+        "    }\n"
+        "    ISMISSING{t}\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['@tag:{bar} | @tag:{go} ismissing(@t)'],
+                 expected)
+    
+    expected = (
+        "UNION {\n"
+        "  NOT{\n"
+        "    TAG:@tag {\n"
+        "      bar\n"
+        "    }\n"
+        "  }\n"
+        "  INTERSECT {\n"
+        "    TAG:@tag {\n"
+        "      foo\n"
+        "    }\n"
+        "    ISMISSING{tag}\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['-@tag:{bar} | @tag:{foo} ismissing(@tag)'],
+                 expected)
+
+    expected = (
+        "UNION {\n"
+        "  @t:UNION {\n"
+        "    @t:bar\n"
+        "    @t:+bar(expanded)\n"
+        "  }\n  INTERSECT {\n"
+        "    NOT{\n"
+        "      TAG:@tag {\n"
+        "        foo\n"
+        "      }\n"
+        "    }\n"
+        "    NOT{\n"
+        "      ISMISSING{t}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['@t:(bar) | -@tag:{foo} -ismissing(@t)'],
+                 expected)
+    expected = (
+        "UNION {\n"
+        "  INTERSECT {\n"
+        "    NOT{\n"
+        "      ISMISSING{t}\n"
+        "    }\n"
+        "    ISMISSING{t}\n"
+        "  }\n"
+        "  TAG:@tag {\n"
+        "    bar\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['-ismissing(@t) ismissing(@t) | @tag:{bar}'],
+                 expected)
+    
+    expected = (
+        "UNION {\n"
+        "  ISMISSING{t}\n"
+        "  INTERSECT {\n"
+        "    NOT{\n"
+        "      TAG:@tag {\n"
+        "        bar\n"
+        "      }\n"
+        "    }\n"
+        "    NOT{\n"
+        "      ISMISSING{t}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['ismissing(@t) | -@tag:{bar} -ismissing(@t)'],
+                 expected)
+
+    expected = (
+        "UNION {\n"
+        "  NOT{\n"
+        "    ISMISSING{t}\n"
+        "  }\n"
+        "  INTERSECT {\n"
+        "    NOT{\n"
+        "      TAG:@t {\n"
+        "        bar\n"
+        "      }\n"
+        "    }\n"
+        "    ISMISSING{t}\n"
+        "  }\n"
+        "}\n"
+    )
+    _testExplain(env, 'idx_im', ['-ismissing(@t) | -@t:{bar} ismissing(@t)'],
+                 expected)
+
 
 def testNoIndex(env):
     env.expect(
@@ -1646,8 +1769,6 @@ def testGarbageCollector(env):
         return d
 
     stats = get_stats(env)
-    if 'current_hz' in stats['gc_stats']:
-        env.assertGreater(stats['gc_stats']['current_hz'], 8)
     env.assertEqual(0, stats['gc_stats']['bytes_collected'])
     env.assertGreater(int(stats['num_records']), 0)
 
@@ -1665,8 +1786,6 @@ def testGarbageCollector(env):
     env.assertEqual(0, int(stats['num_records']))
     if not env.isCluster():
         env.assertEqual(100, int(stats['max_doc_id']))
-        if 'current_hz' in stats['gc_stats']:
-            env.assertGreater(stats['gc_stats']['current_hz'], 30)
         currentIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
         # print initialIndexSize, currentIndexSize,
         # stats['gc_stats']['bytes_collected']

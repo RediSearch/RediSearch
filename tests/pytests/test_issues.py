@@ -843,7 +843,7 @@ def test_mod5778_add_new_shard_to_cluster_TLS():
 
 def mod5778_add_new_shard_to_cluster(env: Env):
     for i in range(env.shardsCount):
-      verify_shard_init(env, env.getConnection(i))
+      verify_shard_init(env.getConnection(i))
     conn = env.getConnection()
     initial_shards_count = env.shardsCount
     # The first two fields in the cluster info reply are the number of partition in thr cluster.
@@ -854,7 +854,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     # and update the topology change in the new shard (this is where we had a crash in MOD-5778).
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
-    verify_shard_init(env, new_shard_conn)
+    verify_shard_init(new_shard_conn)
     # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
     # considered part of the partition yet as it does not contain any slots.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
@@ -1078,3 +1078,19 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
+
+
+@skip(cluster=True)
+def test_4732(env):
+  '''
+  Test tokenizing text with an escaped backslash followed by a delimiter
+  (no need to test on cluster since only parser is tested)
+  '''
+  env.expect('FT.CREATE idx SCHEMA txt TEXT').equal('OK')
+  env.cmd('hset', 'doc1', 'txt', 'hello\\\\,world')
+  env.cmd('hset', 'doc2', 'txt', 'hello\\\\ world')
+  env.cmd('hset', 'doc3', 'txt', 'hello,world')
+  env.cmd('hset', 'doc4', 'txt', 'hello world')
+  env.expect('FT.SEARCH', 'idx', '@txt:(hello\\\\)', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
+  env.expect('FT.SEARCH', 'idx', '@txt:(world)', 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+

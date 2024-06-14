@@ -64,6 +64,10 @@ static void QueryVectorNode_Free(QueryVectorNode *vn) {
   }
 }
 
+static void QueryMissingNode_Free(QueryMissingNode *missn) {
+  rm_free((char *)missn->fieldName);
+}
+
 void QueryNode_Free(QueryNode *n) {
   if (!n) return;
 
@@ -121,6 +125,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
+      break;
+    case QN_MISSING:
+      QueryMissingNode_Free(&n->miss);
       break;
     case QN_UNION:
     case QN_NOT:
@@ -293,7 +300,6 @@ QueryNode *NewPhraseNode(int exact) {
 }
 
 QueryNode *NewTagNode(const char *field, size_t len) {
-
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
@@ -321,6 +327,13 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewMissingNode(const char *field, size_t len) {
+  QueryNode *ret = NewQueryNode(QN_MISSING);
+  ret->miss.fieldName = field;
+  ret->miss.len = len;
   return ret;
 }
 
@@ -478,9 +491,10 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // If this is an empty value search, and the field does not index empty values
   // throw an error
-  if (qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask)))) {
+  const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
+  if (fs && qn->tn.nen == NON_EXIST_EMPTY && !(FieldSpec_IndexesEmpty(fs))) {
     QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               IndexSpec_GetFieldNameByBit(q->sctx->spec, qn->opts.fieldMask),
                               SPEC_INDEXEMPTY_STR);
     return NULL;
@@ -1322,18 +1336,33 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-
+ 
   if (!idx) {
     if (qn->tag.nen == NON_EXIST_EMPTY && !FieldSpec_IndexesEmpty(fs)) {
       QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
-                              "Field `%s` should enable `%s` in the index SCHEMA in order to support empty values",
+                              "In order to query for empty values the field `%s` is required to be defined with `%s`",
                               fs->name, SPEC_INDEXEMPTY_STR);
+    }
+    // for dialect [2-4], the tag contains a phrase which contains a leaf tag node
+    else if (!FieldSpec_IndexesEmpty(fs) && QueryNode_NumChildren(qn) == 1) {
+      QueryNode* child = qn->children[0];
+      if (QueryNode_NumChildren(child) == 1 && child->type == QN_PHRASE) {
+        QueryNode* grandChild = child->children[0];
+        if (QueryNode_NumChildren(grandChild) == 0 && grandChild->type == QN_TAG 
+            && grandChild->tag.nen == NON_EXIST_EMPTY) {
+            QueryError_SetErrorFmt(q->status, QUERY_ENOINDEX,
+                            "In order to query for empty values the field `%s` is required to be defined with `%s`",
+                            fs->name, SPEC_INDEXEMPTY_STR);
+        }
+      }
     }
     goto done;
   }
-  if (qn->tag.nen == NON_EXIST_EMPTY) {
+  if (qn->tag.nen == NON_EXIST_EMPTY || 
+      (QueryNode_NumChildren(qn) == 1 && qn->children[0]->type == QN_TAG 
+        && qn->children[0]->tag.nen == NON_EXIST_EMPTY)) {
     // Tag node searching for empty strings (0 children)
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
+    // RedisModule_Assert(QueryNode_NumChildren(qn) == 0);
     ret = TagIndex_OpenReader(idx, q->sctx->spec, "", 0, qn->opts.weight);
     if (ret) {
       *array_ensure_tail(&total_its, IndexIterator *) = ret;
@@ -1388,6 +1417,33 @@ done:
   return ret;
 }
 
+static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
+  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  if (!fs) {
+    // Field does not exist
+    return NULL;
+  }
+  if (!FieldSpec_IndexesMissing(fs)) {
+    QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
+                           "'ismissing' requires field '%s' to be defined with '" SPEC_INDEXMISSING_STR "'",
+                           qn->miss.fieldName);
+    return NULL;
+  }
+
+  // Get the InvertedIndex corresponding to the queried field.
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
+
+  if (!missingII) {
+    // There are no missing values for this field.
+    return NULL;
+  }
+
+  // Create a reader for the missing values InvertedIndex.
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+
+  return NewReadIterator(ir);
+}
+
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
@@ -1424,6 +1480,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalGeometryNode(q, n);
     case QN_NULL:
       return NewEmptyIterator();
+    case QN_MISSING:
+      return Query_EvalMissingNode(q, n);
   }
 
   return NULL;
@@ -1568,6 +1626,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
       assert(n->params == NULL);
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
   }
@@ -1602,6 +1661,7 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
       }
       break;
     case QN_NULL:
+    case QN_MISSING:
       withChildren = 0;
       break;
     case QN_UNION:
@@ -1743,11 +1803,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      if (!strcmp(qs->tn.str, "")) {
-        s = sdscatprintf(s, "<%s>%s", SPEC_INDEXEMPTY_STR, qs->tn.expanded ? "(expanded)" : "");
-      } else {
-        s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
-      }
+      s = sdscatprintf(s, "%s%s", qs->tn.str, qs->tn.expanded ? "(expanded)" : "");
       if (qs->opts.weight != 1) {
         s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
       }
@@ -1796,12 +1852,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      if (qs->tag.nen == NON_EXIST_EMPTY) {
-        s = doPad(s, depth + 1);
-        s = sdscat(s, "<ISEMPTY>\n");
-      } else {
-        s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
-      }
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
@@ -1878,6 +1929,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_GEOMETRY:
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      break;
+    case QN_MISSING:
+      s = sdscatprintf(s, "ISMISSING{%.*s}", (int)qs->miss.len, qs->miss.fieldName);
       break;
   }
 
@@ -2007,7 +2061,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
-    if (!ParseDouble(attr->value, &d) || d < 0) {
+    if (!ParseDouble(attr->value, &d, 1) || d < 0) {
       MK_INVALID_VALUE();
       return res;
     }

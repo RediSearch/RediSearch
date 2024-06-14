@@ -114,7 +114,7 @@ typedef struct {
   size_t numWorkerThreads;
   MTMode mt_mode;
   size_t tieredVecSimIndexBufferLimit;
-  size_t privilegedThreadsNum;
+  size_t highPriorityBiasNum;
 #endif
 
   size_t minPhoneticTermLen;
@@ -237,7 +237,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .numWorkerThreads = 0,                                                                                            \
     .mt_mode = MT_MODE_OFF,                                                                                           \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
-    .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
+    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
 #else
 #define MT_BUILD_CONFIG
 #endif
@@ -247,7 +247,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
-    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                                         \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \

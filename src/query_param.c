@@ -177,7 +177,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_TERM:
       if (str_contains_digit(val)) {
         val_contains_number = 1;
-      } else if (ParseDouble(val, (double*)param->target)) {
+      } else if (ParseDouble(val, (double*)param->target, param->sign)) {
         // parsed as double to check +inf, -inf
         val_contains_number = 1;
       }
@@ -198,7 +198,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
-      if (!ParseDouble(val, (double*)param->target)) {
+      if (!ParseDouble(val, (double*)param->target, param->sign)) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
