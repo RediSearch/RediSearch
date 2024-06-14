@@ -231,7 +231,8 @@ void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
  * Returns REDISMODULE_ERR
  * Otherwise, returns REDISMODULE_OK
  */
-int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status);
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node,
+                                QueryError *status, const char* expanderName);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)

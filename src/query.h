@@ -123,7 +123,8 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
                 QueryError *status);
 
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status,
+                          const char* expanderName);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 
