@@ -1223,14 +1223,14 @@ def testInvalidUseOfEmptyString(env):
         expected_error = 'Invalid value () for `slop`'
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}').error().\
             contains(expected_error)
-        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}',
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:$p}',
                    'PARAMS', 2, 'p', '').error().contains(expected_error)
 
         # Invalid use of empty string as $phonetic value
         expected_error = 'Invalid value () for `phonetic`'
-        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic: ""} world)')\
+        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic:""} world)')\
             .error().contains(expected_error)
-        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic: ""} world)',
+        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic:$p} world)',
                    'PARAMS', 2, 'p', '').error().contains(expected_error)
 
         # Invalid use of empty string as $yield_distance_as value
@@ -1240,7 +1240,7 @@ def testInvalidUseOfEmptyString(env):
             'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes()).\
             error().contains(expected_error)
         env.expect(
-            'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:""}',
+            'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:$p}',
             'PARAMS', 4, 'blob', create_np_array_typed([0] * dim).tobytes(),
             'p', '').error().contains(expected_error)
 
