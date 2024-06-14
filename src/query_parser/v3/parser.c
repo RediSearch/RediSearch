@@ -2114,33 +2114,33 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
         break;
       case 59: /* modifier ::= MODIFIER */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
-    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
-  } else {
-    yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy0 = yymsp[0].minor.yy0;
-  }
+  yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 60: /* modifierlist ::= modifier OR term */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
-    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
-    yylhsminor.yy162 = NULL;
-  } else {
+  if (__builtin_expect(yymsp[0].minor.yy0.len > 0, 1)) {
     yylhsminor.yy162 = NewVector(char *, 2);
     char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     Vector_Push(yylhsminor.yy162, s);
     s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yylhsminor.yy162, s);
+  } else {
+    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
+    yylhsminor.yy162 = NULL;
   }
 }
   yymsp[-2].minor.yy162 = yylhsminor.yy162;
         break;
       case 61: /* modifierlist ::= modifierlist OR term */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
+  if (__builtin_expect(yymsp[0].minor.yy0.len > 0, 1)) {
+    char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    Vector_Push(yymsp[-2].minor.yy162, s);
+    yylhsminor.yy162 = yymsp[-2].minor.yy162;
+  } else {
     reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
     if (yymsp[-2].minor.yy162) {
       for (size_t i = 0; i < Vector_Size(yymsp[-2].minor.yy162); i++) {
@@ -2151,10 +2151,6 @@ yylhsminor.yy35 = yymsp[0].minor.yy35;
       Vector_Free(yymsp[-2].minor.yy162);
     }
     yylhsminor.yy162 = NULL;
-  } else {
-    char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy162, s);
-    yylhsminor.yy162 = yymsp[-2].minor.yy162;
   }
 }
   yymsp[-2].minor.yy162 = yylhsminor.yy162;

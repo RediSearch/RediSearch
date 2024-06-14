@@ -697,29 +697,29 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-  if (B.len == 0) {
-    reportSyntaxError(ctx->status, &B, "Syntax error");
-  } else {
-    B.len = unescapen((char*)B.s, B.len);
-    A = B;
-  }
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
-  if (C.len == 0) {
-    reportSyntaxError(ctx->status, &C, "Syntax error");
-    A = NULL;
-  } else {
+  if (__builtin_expect(C.len > 0, 1)) {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    A = NULL;
   }
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-  if (C.len == 0) {
+  if (__builtin_expect(C.len > 0, 1)) {
+    char *s = rm_strndup(C.s, C.len);
+    Vector_Push(B, s);
+    A = B;
+  } else {
     reportSyntaxError(ctx->status, &C, "Syntax error");
     if (B) {
       for (size_t i = 0; i < Vector_Size(B); i++) {
@@ -730,10 +730,6 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
       Vector_Free(B);
     }
     A = NULL;
-  } else {
-    char *s = rm_strndup(C.s, C.len);
-    Vector_Push(B, s);
-    A = B;
   }
 }
 

@@ -1176,32 +1176,84 @@ def testInvalidUseOfEmptyString(env):
         env.assertEqual(res, EMPTY_RESULT)
         
         # Invalid use of empty string in geo filter
+        expected_error = 'Invalid GeoFilter unit'
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 ""]').error().\
-            contains('Invalid GeoFilter unit')
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 $p]',
+                   'PARAMS', 2, 'p', '').error().\
+            contains(expected_error)
+        
+        expected_error = 'Syntax error'
+        env.expect('FT.SEARCH', 'idx', '@location:['' 4.56 10 km]').error().\
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 '' 10 km]').error().\
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 '' km]').error().\
+            contains(expected_error)
+        
+        # Fix this tests after implementing MOD-7025
+        # empty string is PARAM evaluated as 0
+        res = env.execute_command(
+            'FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]',
+            'PARAMS', 2, 'long', '')
+        env.assertEqual(res, EMPTY_RESULT)
+        res = env.execute_command(
+            'FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]',
+            'PARAMS', 2, 'lat', '')
+        env.assertEqual(res, EMPTY_RESULT)
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]',
+            'PARAMS', 2, 'radius', '').error().\
+            contains('Invalid GeoFilter radius')
 
         # Invalid use of empty string as $weight value
+        expected_error = 'Invalid value () for `weight`'
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$weight:""}').error().\
-            contains('Invalid value () for `weight`')
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$weight:$p}',
+                   'PARAMS', 2, 'p', '').error().contains(expected_error)
 
         # Invalid use of empty string as $inorder value
+        expected_error = 'Invalid value () for `inorder`'
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$inorder:""}').error().\
-            contains('Invalid value () for `inorder`')
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$inorder:$p}',
+                   'PARAMS', 2, 'p', '').error().contains(expected_error)
         
         # Invalid use of empty string as $slop value
+        expected_error = 'Invalid value () for `slop`'
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}').error().\
-            contains('Invalid value () for `slop`')
+            contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}',
+                   'PARAMS', 2, 'p', '').error().contains(expected_error)
 
         # Invalid use of empty string as $phonetic value
+        expected_error = 'Invalid value () for `phonetic`'
         env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic: ""} world)')\
-            .error().contains('Invalid value () for `phonetic`')
-        
+            .error().contains(expected_error)
+        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic: ""} world)',
+                   'PARAMS', 2, 'p', '').error().contains(expected_error)
+
         # Invalid use of empty string as $yield_distance_as value
+        expected_error = 'Invalid value () for `yield_distance_as`'
         env.expect(
             'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:""}',
             'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes()).\
-            error().contains('Invalid value () for `yield_distance_as`')
+            error().contains(expected_error)
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*=>[KNN 3 @v $blob]=>{$yield_distance_as:""}',
+            'PARAMS', 4, 'blob', create_np_array_typed([0] * dim).tobytes(),
+            'p', '').error().contains(expected_error)
+
+        # Invalid use of empty string as part of modifier list
+        env.expect('FT.SEARCH', 'idx', '@text|"":(abc)').error().\
+            contains('Syntax error')
         
-        # Invalid use of empty string as a modifier
+        env.expect('FT.SEARCH', 'idx', '@""|text:(abc)').error().\
+            contains('Syntax error')
+        
+        env.expect('FT.SEARCH', 'idx', '@text|text|"":(abc)').error().\
+            contains('Syntax error')
+
         env.expect('FT.SEARCH', 'idx', '@t|"":{abc}').error().\
             contains('Syntax error')
         

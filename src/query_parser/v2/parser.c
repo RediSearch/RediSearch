@@ -1892,33 +1892,33 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
         break;
       case 46: /* modifier ::= MODIFIER */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
-    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
-  } else {
-    yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy0 = yymsp[0].minor.yy0;
-  }
+  yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 47: /* modifierlist ::= modifier OR term */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
-    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
-    yylhsminor.yy27 = NULL;
-  } else {
+  if (__builtin_expect(yymsp[0].minor.yy0.len > 0, 1)) {
     yylhsminor.yy27 = NewVector(char *, 2);
     char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     Vector_Push(yylhsminor.yy27, s);
     s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yylhsminor.yy27, s);
+  } else {
+    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
+    yylhsminor.yy27 = NULL;
   }
 }
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
         break;
       case 48: /* modifierlist ::= modifierlist OR term */
 {
-  if (yymsp[0].minor.yy0.len == 0) {
+  if (__builtin_expect(yymsp[0].minor.yy0.len > 0, 1)) {
+    char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    Vector_Push(yymsp[-2].minor.yy27, s);
+    yylhsminor.yy27 = yymsp[-2].minor.yy27;
+  } else {
     reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, "Syntax error");
     if (yymsp[-2].minor.yy27) {
       for (size_t i = 0; i < Vector_Size(yymsp[-2].minor.yy27); i++) {
@@ -1929,10 +1929,6 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       Vector_Free(yymsp[-2].minor.yy27);
     }
     yylhsminor.yy27 = NULL;
-  } else {
-    char *s = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    Vector_Push(yymsp[-2].minor.yy27, s);
-    yylhsminor.yy27 = yymsp[-2].minor.yy27;
   }
 }
   yymsp[-2].minor.yy27 = yylhsminor.yy27;

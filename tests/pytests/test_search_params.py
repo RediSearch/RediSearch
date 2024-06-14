@@ -81,6 +81,8 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@foo:(%$param%)').error().contains('No such parameter `param`')
     env.expect('FT.SEARCH', 'idx', '@bar:{$param}').error().contains('No such parameter `param`')
     env.expect('FT.SEARCH', 'idx', '@num:[$min $max]').error().contains('No such parameter `min`')
+    env.expect('FT.SEARCH', 'idx', '@g:[$long 34.95126 10 100]').error().contains('No such parameter `long`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 100]').error().contains('No such parameter `lat`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').error().contains('No such parameter `radius`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').error().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').error().equal('No such parameter `rapido`')
