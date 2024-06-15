@@ -204,9 +204,6 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
     const RSValue *array = xarr[xpos];
     for (size_t i = 0; i < RSValue_ArrayLen(v); i++) {
       const RSValue *elem = RSValue_ArrayItem(v, i);
-      if (elem == NULL) { // TODO: is this possible?
-        elem = RS_NullVal();
-      }
       // hash the element, even if it's an array
       uint64_t hh = RSValue_Hash(elem, hval);
       xarr[xpos] = elem;
