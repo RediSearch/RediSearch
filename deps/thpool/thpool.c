@@ -290,9 +290,6 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   } else { // Case 2 - no threads alive
     redisearch_thpool_unlock(thpool_p);
     n_new_threads = n_threads;
-    // Only add new threads.
-    n_threads_to_revive = 0;
-    n_threads_to_kill = 0;
   }
 
   /* Add new threads if needed */
