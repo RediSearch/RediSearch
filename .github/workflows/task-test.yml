@@ -102,10 +102,10 @@ jobs:
           done
           echo "supported=true" >> $GITHUB_OUTPUT
 
-      - name: Build Standalone
+      - name: Build Standalone CPP_TESTS_LOGGING=1
         if: ${{ inputs.standalone }}
         run: make SAN=${{ inputs.san }}
-      - name: Build Coordinator
+      - name: Build Coordinator CPP_TESTS_LOGGING=1
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }}
 
