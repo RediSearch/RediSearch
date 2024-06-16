@@ -66,6 +66,7 @@ make pytest        # run python tests (tests/pytests)
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c-tests       # run C tests (from tests/ctests)
+	CPP_TESTS_LOGGING=1 # enable logging in cpp tests
 make cpp-tests     # run C++ tests (from tests/cpptests)
 make vecsim-bench  # run VecSim micro-benchmark
 
@@ -464,6 +465,10 @@ endif
 
 c-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+ifeq ($(CPP_TESTS_LOGGING),1)
+CC_FLAGS.common += -DCPP_TESTS_LOGGING
+endif
 
 cpp-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
