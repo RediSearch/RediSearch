@@ -433,8 +433,8 @@ static void ReinitializeThreadsWhileTerminateWhenEmpty(redisearch_thpool_t *thpo
     // `n_threads_to_keep_alive` are still waiting in the second batch of `waitForAdminJobFunc`.
     ASSERT_EQ(redisearch_thpool_get_stats(thpool_p).total_jobs_done, RUNTIME_CONFIG_N_THREADS);
 
-    while ((redisearch_thpool_get_stats(thpool_p).num_threads_alive != n_threads_to_keep_alive) ||
-            redisearch_thpool_num_jobs_in_progress(thpool_p) != n_threads_to_keep_alive) {
+    while (!((redisearch_thpool_get_stats(thpool_p).num_threads_alive == n_threads_to_keep_alive) &&
+             redisearch_thpool_num_jobs_in_progress(thpool_p) == n_threads_to_keep_alive)) {
         usleep(1);
     }
 
