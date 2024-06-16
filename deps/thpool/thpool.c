@@ -238,9 +238,10 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   redisearch_thpool_lock(thpool_p);
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   size_t n_threads = thpool_p->n_threads;
-  size_t n_new_threads, n_threads_to_revive, n_threads_to_kill;
+  size_t n_new_threads;
   if (curr_num_threads_alive) { // Case 1 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
+    size_t n_threads_to_revive, n_threads_to_kill;
     if (curr_num_threads_alive >= n_threads) { // Case 1.a
       // Revive n_threads
       n_threads_to_revive = n_threads;
@@ -668,7 +669,9 @@ static void *thread_do(redisearch_thpool_t *thpool_p) {
   while (true) {
     LOG_IF_EXISTS("debug", "Thread %s is running iteration", thread_name)
 
-    /* Read job from queue and execute it */
+    /** Read job from queue and execute it.
+     * @note At this point the thread state can be either RUNNING or TERMINATE_WHEN_EMPTY which
+     * are the only valid indices of pull_and_execute_ht. */
     priorityJobCtx job_ctx = pull_and_execute_ht[thread_ctx.thread_state](&thpool_p->jobqueues);
     if (job_ctx.job) {
       job *job_p = job_ctx.job;
