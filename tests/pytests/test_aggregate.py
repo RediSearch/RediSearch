@@ -626,6 +626,26 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertIn(var, res)
 
+def test_groupby_array(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', 'split(@t1, ",")', 'AS', 't1',
+                'APPLY', 'split(@t2, ",")', 'AS', 't2',
+                'GROUPBY', '2', '@t1', '@t2')
+
+  exp = [4, ['t1', 'foo', 't2', 'baz'],
+            ['t1', 'foo', 't2', 'qux'],
+            ['t1', 'bar', 't2', 'baz'],
+            ['t1', 'bar', 't2', 'qux']]
+
+  # Check that the result is as expected (res elements contained in exp, and same size)
+  for row in res:
+    env.assertContains(row, exp)
+  env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
+
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
