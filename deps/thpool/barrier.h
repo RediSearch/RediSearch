@@ -51,9 +51,7 @@ int barrier_init(barrier_t *barrier, void *attr, int count);
 
 int barrier_wait(barrier_t *barrier);
 
-int barrier_destroy(barrier_t *barrier);
-
 /** The results are undefined if pthread_barrier_destroy() is called when any thread is blocked
  * on the barrier (that is, has not returned from the pthread_barrier_wait() call).
  * This function guarantees safe destruction of the barrier */
-int barrier_wait_for_threads_and_destroy(barrier_t *barrier);
+int barrier_wait_and_destroy(barrier_t *barrier);

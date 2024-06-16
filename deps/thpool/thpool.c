@@ -158,15 +158,21 @@ static bool priority_queue_is_empty_unsafe(priorityJobqueue *jobqueue_p);
 
 /* ========================== GLOBALS ============================ */
 
-/** Hashtable to hold the two pull functions. Aligned with the 'threadState'
- * enum values Not very pretty, but allows us to avoid if statements in the
- * thread loop. */
+/** Hashtable to map 'threadState' enum values to corresponding pull functions.
+ * The indices of the hashtable align with the 'threadState' enum values.
+ * The hashtable includes implementations for states where the thread might pull from the queue.
+ * When the thread state is changed to TERMINATE_ASAP, the thread won't go into another loop.
+ * Not very pretty, but allows us to avoid if statements in the thread loop.
+ *
+ * Hashtable mapping:
+ * THREAD_RUNNING -> Standard pull function.
+ * THREAD_TERMINATE_WHEN_EMPTY -> Modified pull function that returns immediately if the job queue is empty.
+ */
 static priorityJobCtx (*pull_and_execute_ht[2])(priorityJobqueue *) = {
-    // THREAD_RUNNING
-    priority_queue_pull,
-    // THREAD_TERMINATE_WHEN_EMPTY Change to pull mechanism to return
-    // immediately id jobq is empty
-    priority_queue_pull_no_wait};
+    priority_queue_pull, // THREAD_RUNNING
+    priority_queue_pull_no_wait // THREAD_TERMINATE_WHEN_EMPTY
+
+};
 
 /* ========================== THREADS MANAGER API ============================
  */
@@ -232,21 +238,23 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   redisearch_thpool_lock(thpool_p);
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   size_t n_threads = thpool_p->n_threads;
-  size_t n_new_threads = 0;
+  size_t n_new_threads, n_threads_to_revive, n_threads_to_kill;
   if (curr_num_threads_alive) { // Case 1 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
-    size_t n_threads_to_revive = 0;
-    size_t n_threads_to_kill = 0;
     if (curr_num_threads_alive >= n_threads) { // Case 1.a
       // Revive n_threads
       n_threads_to_revive = n_threads;
       // Kill extra threads
       n_threads_to_kill = curr_num_threads_alive - n_threads;
+      // No new threads
+      n_new_threads = 0;
     } else {                                  // Case 1.b
       // Revive all threads
       n_threads_to_revive = curr_num_threads_alive;
       // Add missing threads
       n_new_threads = n_threads - curr_num_threads_alive;
+      // No threads to kill
+      n_threads_to_kill = 0;
     }
 
     /* In both cases we send `curr_num_threads_alive` jobs. */
@@ -276,11 +284,14 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
     /* Unlock to allow the threads to pull from the jobq */
     redisearch_thpool_unlock(thpool_p);
-    /* Wait on for the threads to pass the barrier and destroy the barrier*/
-    barrier_wait_for_threads_and_destroy(&barrier);
+    /* Wait on for the threads to pass the barrier and destroy the barrier */
+    barrier_wait_and_destroy(&barrier);
   } else { // Case 2 - no threads alive
     redisearch_thpool_unlock(thpool_p);
     n_new_threads = n_threads;
+    // Only add new threads.
+    n_threads_to_revive = 0;
+    n_threads_to_kill = 0;
   }
 
   /* Add new threads if needed */
@@ -498,7 +509,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
     /* Unlock to allow the threads to pull from the jobq */
     redisearch_thpool_unlock(thpool_p);
     /* Wait on for the threads to pass the barrier and destroy the barrier*/
-    barrier_wait_for_threads_and_destroy(&barrier);
+    barrier_wait_and_destroy(&barrier);
 
     while (thpool_p->num_threads_alive) {
       usleep(1);
@@ -543,7 +554,7 @@ size_t redisearch_thpool_num_jobs_in_progress(redisearch_thpool_t *thpool_p) {
   return thpool_p->jobqueues.num_jobs_in_progress;
 }
 
-size_t redisearch_thpool_get_n_threads(redisearch_thpool_t *thpool_p) {
+size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *thpool_p) {
   return thpool_p->n_threads;
 }
 
@@ -577,9 +588,7 @@ static void redisearch_thpool_unlock(redisearch_thpool_t *thpool_p) {
 /* ============ DEBUG ============ */
 
 void redisearch_thpool_pause_threads(redisearch_thpool_t *thpool_p) {
-  redisearch_thpool_lock(thpool_p);
-  thpool_p->jobqueues.state = JOBQ_PAUSED;
-  redisearch_thpool_unlock(thpool_p);
+  redisearch_thpool_pause_threads_no_wait(thpool_p);
 
   while (redisearch_thpool_num_jobs_in_progress(thpool_p)) {
     usleep(1);
@@ -1012,5 +1021,5 @@ static void redisearch_thpool_broadcast_new_state(redisearch_thpool_t *thpool,
   redisearch_thpool_add_n_work(thpool, jobs, n_threads, THPOOL_PRIORITY_ADMIN);
 
   /* Wait on for the threads to pass the barrier and then destroy the barrier*/
-  barrier_wait_for_threads_and_destroy(&barrier);
+  barrier_wait_and_destroy(&barrier);
 }

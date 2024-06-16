@@ -294,7 +294,7 @@ int redisearch_thpool_is_initialized(redisearch_thpool_t *);
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *);
 
-size_t redisearch_thpool_get_n_threads(redisearch_thpool_t *);
+size_t redisearch_thpool_get_num_threads(redisearch_thpool_t *);
 
 #ifdef __cplusplus
 }

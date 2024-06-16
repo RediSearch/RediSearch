@@ -22,11 +22,7 @@ int barrier_wait(barrier_t *barrier) {
     return ret;
 }
 
-int barrier_destroy(barrier_t *barrier) {
-  return pthread_barrier_destroy(&barrier->barrier);
-}
-
-int barrier_wait_for_threads_and_destroy(barrier_t *barrier) {
+int barrier_wait_and_destroy(barrier_t *barrier) {
     // Wait for the threads to exit the barrier_wait to safely destroy the barrier.
     while (barrier->received < barrier->count) {
       usleep(1);
