@@ -88,13 +88,7 @@ typedef struct RSValue {
     // array value
     struct {
       struct RSValue **vals;
-      uint32_t len : 31;
-
-      /**
-       * Whether the storage space of the array itself
-       * should be freed
-       */
-      uint8_t staticarray : 1;
+      uint32_t len;
     } arrval;
 
     // map value
@@ -366,21 +360,6 @@ RSValue *RS_NumVal(double n);
 
 RSValue *RS_Int64Val(int64_t ii);
 
-/* Don't increment the refcount of the children */
-#define RSVAL_ARRAY_NOINCREF 0x01
-/* Alloc the underlying array. Absence means the previous array is used */
-#define RSVAL_ARRAY_ALLOC 0x02
-/* Don't free the underlying list when the array is freed */
-#define RSVAL_ARRAY_STATIC 0x04
-
-/**
- * Create a new array
- * @param vals the values to use for the array. If NULL, the array is allocated
- * as empty, but with enough *capacity* for these values
- * @param options RSVAL_ARRAY_*
- */
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
-
 /**
  * Create a new array from existing values
  * Take ownership of the values (values would be freed when array is freed)
@@ -388,6 +367,13 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options);
  * @param len number of values
  */
 RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
+
+/**
+ * Helper function to allocate memory before passing it to RSValue_NewArray
+ */
+static inline RSValue **RSValue_AllocateArray(uint32_t len) {
+  return (RSValue **)rm_malloc(len * sizeof(RSValue *));
+}
 
 /**
  * Create a new map from existing pairs
