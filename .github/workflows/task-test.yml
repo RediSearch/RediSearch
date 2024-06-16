@@ -104,7 +104,7 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
+        run: make SAN=${{ inputs.san }} CPP_TESTS_LOGGING=1
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         run: make COORD=1 SAN=${{ inputs.san }} CPP_TESTS_LOGGING=1
