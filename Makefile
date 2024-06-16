@@ -34,6 +34,8 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
+  CPP_TESTS_LOGGING=1 # enable logging in cpp tests
+
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -66,7 +68,6 @@ make pytest        # run python tests (tests/pytests)
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c-tests       # run C tests (from tests/ctests)
-	CPP_TESTS_LOGGING=1 # enable logging in cpp tests
 make cpp-tests     # run C++ tests (from tests/cpptests)
 make vecsim-bench  # run VecSim micro-benchmark
 
@@ -202,6 +203,12 @@ CC_C_STD=gnu11
 CC_STATIC_LIBSTDCXX ?= 1
 
 CC_COMMON_H=src/common.h
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(CPP_TESTS_LOGGING),1)
+CC_FLAGS.common += -DCPP_TESTS_LOGGING
+endif
 
 #----------------------------------------------------------------------------------------------
 
@@ -465,10 +472,6 @@ endif
 
 c-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
-
-ifeq ($(CPP_TESTS_LOGGING),1)
-CC_FLAGS.common += -DCPP_TESTS_LOGGING
-endif
 
 cpp-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
