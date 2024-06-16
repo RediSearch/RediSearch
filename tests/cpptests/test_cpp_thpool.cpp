@@ -7,7 +7,7 @@
 #include <pthread.h>
 #include <atomic>
 
-#ifdef CPP_TESTS_LOGGING
+#ifdef VERBOSE_UTESTS
 static void LogCallback(const char *level, const char *fmt, ...) {
     std::string msg(1024, '\0');
 

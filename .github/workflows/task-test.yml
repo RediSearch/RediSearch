@@ -31,6 +31,7 @@ on:
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  VERBOSE_UTESTS: 1
 
 jobs:
   common-flow:
@@ -104,10 +105,10 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }} CPP_TESTS_LOGGING=1
+        run: make SAN=${{ inputs.san }}
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
-        run: make COORD=1 SAN=${{ inputs.san }} CPP_TESTS_LOGGING=1
+        run: make COORD=1 SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
         id: test1
