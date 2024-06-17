@@ -28,9 +28,9 @@ static void *minmaxNewInstance(Reducer *rbase) {
   m->srckey = r->base.srckey;
   m->numMatches = 0;
   if (m->mode == Minmax_Min) {
-    m->val = DBL_MAX;
+    m->val = INFINITY;
   } else if (m->mode == Minmax_Max) {
-    m->val = DBL_MIN;
+    m->val = -INFINITY;
   } else {
     m->val = 0;
   }
