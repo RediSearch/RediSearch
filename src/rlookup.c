@@ -99,7 +99,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
     key->flags |= RLOOKUP_F_SVSRC;
     key->svidx = fs->sortIdx;
 
-    if (FieldSpec_IsUnf(fs)) {
+    if (FieldSpec_IsUnf(fs) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
       // If the field is sortable and not normalized (UNF), the available data in the
       // sorting vector is the same as the data in the document.
       key->flags |= RLOOKUP_F_VAL_AVAILABLE;
@@ -599,7 +599,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
-// returns trus if the value of the key is already available
+// returns true if the value of the key is already available
 // avoids the need to call to redis api to get the value
 // i.e we can use the sorting vector as a cache
 static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
@@ -613,7 +613,8 @@ static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLooku
 
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
-  if (isValueAvailable(kk, dst, options)) {
+  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
+    // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
@@ -668,7 +669,8 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     return REDISMODULE_ERR;
   }
 
-  if (isValueAvailable(kk, dst, options)) {
+  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
+    // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
@@ -782,11 +784,13 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
   if (!rlk) {
     // First returned document, create the key.
-	// Force load is hard coded due to backward compatibility, to preserve the current functionality
-	// From a logical perspective, we are already inside the keyspace
-	// We need to retrieve all the keys so we might as well load them all
-    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-  } else if (rlk->flags & RLOOKUP_F_QUERYSRC
+    uint32_t flags = pd->options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, flags);
+    if (!rlk) {
+      return; // Key is sortable, can load it from the sort vector on demand.
+    }
+  } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
+             (!pd->options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
             /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
     return; // Key name is already taken by a query key, or it's already loaded.
   }
@@ -832,8 +836,13 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
       if (!rlk) {
         // First returned document, create the key.
-        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-      } else if (rlk->flags & RLOOKUP_F_QUERYSRC
+        uint32_t flags = options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
+        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, flags);
+        if (!rlk) {
+          continue; // Key is sortable, can load it from the sort vector on demand.
+        }
+      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
+                 (!options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
                  /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
         continue; // Key name is already taken by a query key, or it's already loaded.
       }
