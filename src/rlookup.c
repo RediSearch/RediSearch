@@ -602,7 +602,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
 // returns true if the value of the key is already available
 // avoids the need to call to redis api to get the value
 // i.e we can use the sorting vector as a cache
-static bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
+static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
   return (!options->forceLoad && (
         // No need to "write" this key. It's always implicitly loaded!
         (kk->flags & RLOOKUP_F_VAL_AVAILABLE) ||
