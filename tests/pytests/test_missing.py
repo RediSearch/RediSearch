@@ -489,7 +489,7 @@ def testMissingWithExists():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
-    # Create an index with a TAG field that indexes missing values
+    # Create an index with a TEXT field that indexes missing values
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'INDEXMISSING').ok()
 
     # Add some documents, with\without the indexed fields.
