@@ -195,35 +195,35 @@ def testEmptyTag(env):
         # We shouldn't get the document when searching for a prefix of "__empty"
         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected, dialect)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # ------------------------------- Suffix -------------------------------
         # We shouldn't get the document when searching for a suffix of "__empty"
         cmd = f'FT.SEARCH {idx} @t:{{__em*}}'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected, dialect)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # Add a document that will be found by the suffix search
         conn.execute_command('HSET', 'h2', 't', 'empty')
         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
         expected = [1, 'h2', ['t', 'empty']]
-        cmd_assert(env, cmd, expected, dialect)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
         conn.execute_command('DEL', 'h2')
 
         # -------------------- Combination with other fields -------------------
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{""}']
         expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, [1, 'h1', ['t', '']], dialect)
+        cmd_assert(env, cmd, [1, 'h1', ['t', '']], f'Dialect {dialect}')
 
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, EMPTY_RESULT, dialect)
+        cmd_assert(env, cmd, EMPTY_RESULT, f'Dialect {dialect}')
 
         # Non-empty intersection with another field
         conn.execute_command('HSET', 'h1', 'text', 'hello')
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
         expected = [1, 'h1', ['t', '', 'text', 'hello']]
-        cmd_assert(env, cmd, expected, dialect)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # Non-empty union with another field
         conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
@@ -255,7 +255,7 @@ def testEmptyTag(env):
                 ['t', '', 'text', 'hello'], \
                 ['t', 'movie', 'text', 'love you']
             ]
-            cmd_assert(env, cmd, expected, dialect)
+            cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
             # Reverse order
             cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
@@ -264,7 +264,7 @@ def testEmptyTag(env):
                 ['t', 'movie', 'text', 'love you'], \
                 ['t', '', 'text', 'hello']
             ]
-            cmd_assert(env, cmd, expected, dialect)
+            cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # ------------------------------ GROUPBY -------------------------------
         conn.execute_command('HSET', 'h3', 't', 'movie')
@@ -275,7 +275,7 @@ def testEmptyTag(env):
             ['t', '', 'count', '2'], \
             ['t', 'movie', 'count', '2']
         ]
-        cmd_assert(env, cmd, expected, dialect)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # --------------------------- SEPARATOR --------------------------------
         # Remove added documents
@@ -391,7 +391,7 @@ def testEmptyTag(env):
         env.expect('JSON.SET', 'j', '$', js).equal('OK')
         cmd = f'FT.SEARCH jidx @t:("")'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # Make sure we experienced an indexing failure, via `FT.INFO`
         info = index_info(env, 'jidx')
@@ -577,25 +577,25 @@ def testEmptyText(env):
         # ------------------------------- Prefix -------------------------------
         cmd = f'FT.SEARCH {idx} @t:*pty'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # ------------------------------- Suffix -------------------------------
         cmd = f'FT.SEARCH {idx} @t:__em*'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # Add a document that will be found by the suffix search
         conn.execute_command('HSET', 'h2', 't', 'empty')
         cmd = f'FT.SEARCH {idx} @t:*pty'.split(' ')
         expected = [1, 'h2', ['t', 'empty']]
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
         conn.execute_command('DEL', 'h2')
 
         # ----------------------------- Fuzzy search ---------------------------
         # We don't expect to get empty results in a fuzzy search.
         cmd = f'FT.SEARCH {idx} %e%'.split(' ')
         expected = [0]
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, f'Dialect {dialect}')
 
         # ------------------------------- Summarization ------------------------
         # When searching for such a query, we expect to get an empty value, and

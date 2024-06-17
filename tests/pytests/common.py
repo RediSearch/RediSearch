@@ -639,9 +639,6 @@ def verify_shard_init(shard):
                 if 'no such index' in str(e):
                     break
 
-def cmd_assert(env, cmd, res, dialect=None):
+def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
-    if dialect:
-        env.assertEqual(db_res, res, message=f'Dialect {dialect}')
-    else:
-        env.assertEqual(db_res, res)
+    env.assertEqual(db_res, res, message=message)
