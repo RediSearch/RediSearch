@@ -7,20 +7,17 @@ on:
     branches:
       - master
       - '[0-9]+.[0-9]+'
-    paths: # Only run on changes to these paths (code, deps, and benchmarks related changes)
-      - 'src/**'
-      - 'coord/src/**'
-      - 'deps/**'
-      - 'tests/benchmarks/**'
-      - '.github/workflows/benchmark-*.yml'
-      - '**/CMakeLists.txt'
-      - '**/Makefile'
 
 jobs:
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
+
   deploy-snapshot:
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
 
   benchmark:
+    needs: [docs-only]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit

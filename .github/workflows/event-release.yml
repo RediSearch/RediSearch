@@ -85,6 +85,8 @@ jobs:
           VERSION: ${{ needs.update-version.outputs.cur_version }}
           VER_BRANCH: ${{ github.event.release.target_commitish }}
           ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
+          SHA: ${{ github.sha }}
+        shell: python
         run: |
           for DIR in {$ENT_DIR,$OSS_DIR}; do
             ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
