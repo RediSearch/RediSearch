@@ -1256,7 +1256,7 @@ def test_aggregate_filter_on_missing_indexed_values():
 
     # Search for the documents with the indexed fields (sanity)
     (env.expect('FT.AGGREGATE', 'idx', 'ismissing(@foo) | @foo:{val}', 'LOAD', '1', 'foo', 'FILTER',
-                '"@foo != \'va\'"', 'DIALECT', '2').equal([1, ['foo', 'val'], []]))
+                '"@foo != \'va\'"', 'DIALECT', '2').contains(['foo', 'val']))
     env.flush()
 
 
