@@ -15,7 +15,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING ISMISSING.
+%left EMPTY_TAG ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -261,12 +261,14 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type modifierlist { Vector* }
 %destructor modifierlist {
+  if ($$) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
     Vector_Free($$);
+  }
 }
 
 %type num { RangeNumber }
@@ -580,15 +582,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= EMPTY_STRING . [EMPTY_STRING] {
-  char *empty_str = rm_strdup("");
-  A = NewTokenNode(ctx, empty_str, 0);
-  A->tn.nen = NON_EXIST_EMPTY;
-  A->opts.fieldMask == RS_FIELDMASK_ALL;
-  // Avoid any expansions
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -704,22 +697,40 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    B.len = unescapen((char*)B.s, B.len);
-    A = B;
- }
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    A = NULL;
+  }
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    if (B) {
+      for (size_t i = 0; i < Vector_Size(B); i++) {
+        char *s;
+        Vector_Get(B, i, &s);
+        rm_free(s);
+      }
+      Vector_Free(B);
+    }
+    A = NULL;
+  }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
@@ -771,28 +782,10 @@ single_tag(A) ::= verbatim(B) . {
   QueryNode_AddChild(A, B);
 }
 
-// empty string as single tag
-expr(A) ::= modifier(B) COLON LB EMPTY_STRING RB . {
+single_tag(A) ::= EMPTY_TAG(B) . {
+  A = NewPhraseNode(0);
   char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen(s, B.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    A = NULL;
-    rm_free(s);
-  } else {
-    switch (fs->types) {
-      case INDEXFLD_T_TAG:
-        A = NewTagNode(s, slen);
-        A->tag.nen = NON_EXIST_EMPTY;
-        break;
-      default:
-        A = NULL;
-        rm_free(s);
-        break;
-    }
-  }
+  QueryNode_AddChild(A, NewTokenNode(ctx, s, B.len));
 }
 
 /////////////////////////////////////////////////////////////////
