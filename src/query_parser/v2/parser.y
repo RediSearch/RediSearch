@@ -19,6 +19,7 @@
 
 %left RP RB RSQB.
 
+%left EXACT.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.

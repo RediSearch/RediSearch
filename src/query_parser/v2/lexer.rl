@@ -52,12 +52,16 @@ escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
+exact = quote . ( (any - quote) | (escape.quote))+ . quote;
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
+contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
+prefix_exact = (exact.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
+suffix_exact = (star.exact) $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
@@ -173,14 +177,16 @@ main := |*
       fbreak;
     }
   };
-  lb => { 
+  lb => {
+    // printf("LB\n");
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  rb => { 
+  rb => {
+    // printf("RB\n");
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -258,8 +264,21 @@ main := |*
     }
   };
   term => {
+    // printf("term\n");
     tok.len = te-ts;
     tok.s = ts;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, TERM, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  exact => {
+    // printf("exact\n");
+    tok.len = te - (ts + 2);
+    tok.s = ts + 1;
     tok.numval = 0;
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, TERM, tok, q);
@@ -275,6 +294,7 @@ main := |*
     tok.s = ts + is_attr;
     tok.numval = 0;
     tok.pos = ts-q->raw;
+    // printf("prefix: %.*s\n", (int)tok.len, tok.s);
 
     RSQuery_Parse_v2(pParser, PREFIX, tok, q);
     
@@ -282,6 +302,22 @@ main := |*
       fbreak;
     }
   };
+
+  prefix_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 3); // remove the quotes and the star at the end
+    tok.s = ts + 1; // skip the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    // printf("prefix_exact: %.*s\n", (int)tok.len, tok.s);
+
+    RSQuery_Parse_v2(pParser, PREFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   suffix => {
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -296,6 +332,22 @@ main := |*
       fbreak;
     }
   };
+
+  suffix_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 3); // remove the quotes and the star at the end
+    tok.s = ts + 2; // skip the star and the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    // printf("suffix_exact: %.*s\n", (int)tok.len, tok.s);
+
+    RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   contains => {
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -306,6 +358,21 @@ main := |*
 
     RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
     
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  contains_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 4); // remove the quotes and the stars
+    tok.s = ts + 2; // skip the star and the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    // printf("suffix_exact: %.*s\n", (int)tok.len, tok.s);
+
+    RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
