@@ -173,7 +173,9 @@ main := |*
 
   empty_string => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);  
+    tok.s = "";
+    tok.len = 0;
+    RSQuery_Parse_v3(pParser, TERM, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -438,7 +440,7 @@ main := |*
     tok.len = 0;
     tok.s = ts + 1;
     tok.pos = tok.s - q->raw;
-    RSQuery_Parse_v3(pParser, EMPTY_STRING, tok, q);
+    RSQuery_Parse_v3(pParser, EMPTY_TAG, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
