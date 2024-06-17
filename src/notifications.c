@@ -113,6 +113,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(hexpired)
     else CHECK_AND_CACHE_EVENT(expired)
     else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)

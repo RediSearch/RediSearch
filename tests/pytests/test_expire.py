@@ -233,6 +233,16 @@ def createTextualSchema(field_to_additional_schema_keywords):
     return schema
 
 
+def sort_document_names(document_list):
+    if len(document_list) == 0:
+        return {}
+
+    num_docs = document_list[0]
+    names = document_list[1:]
+    names.sort()
+    return [num_docs, *names]
+
+
 def transform_document_list_to_dict(document_list):
     if len(document_list) == 0:
         return {}
@@ -289,7 +299,7 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
             expected_inverted_index[field_value].append(document_name)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
-         .equal([len(expected_docs), *expected_docs], message=field_name_and_value))
+         .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))
     conn.execute_command('FLUSHALL')
 
 
