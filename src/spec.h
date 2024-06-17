@@ -162,7 +162,8 @@ typedef enum {
   Index_HasUndefinedOrder = 0x20000,
 
   Index_HasGeometry = 0x40000,
-
+  // If at least one TEXT/TAG field has not the Index_Empty flag set
+  Index_NotAllFieldsIndexEmpty = 0x80000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

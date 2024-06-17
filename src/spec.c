@@ -174,8 +174,16 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 // Get the field spec by the field mask.
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
+    if (FIELD_BIT(&sp->fields[i]) == id) {
+      printf("Field bit: %ud\n", FIELD_BIT(&sp->fields[i]));
+    }
+    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_TAG) &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
+      printf("Field name: %s is TAG\n", sp->fields[i].name);
+    }
+    if (FIELD_BIT(&sp->fields[i]) == id && 
+        (FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) || FIELD_IS(&sp->fields[i], INDEXFLD_T_TAG)) &&
+        (FieldSpec_IsIndexable(&sp->fields[i]) || FieldSpec_IndexesEmpty(&sp->fields[i]))) {
       return &sp->fields[i];
     }
   }
@@ -1047,6 +1055,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
+    }
+
+    if((FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || FIELD_IS(fs, INDEXFLD_T_TAG))
+        && !FieldSpec_IndexesEmpty(fs)) {
+      // Mark IndexSpec
+      sp->flags |= Index_NotAllFieldsIndexEmpty;
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {

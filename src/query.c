@@ -1598,12 +1598,15 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   if (!q || !q->root || !isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder)) {
-    return REDISMODULE_OK;
+    if (!(spec->flags & Index_NotAllFieldsIndexEmpty)) {
+      return REDISMODULE_OK;
+    }
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status);
+  
+  return QueryNode_CheckIsValid(q->root, spec, opts, status, NULL);
 }
 
-int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status, QAST_ValidationCtx *vctx) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
@@ -1619,8 +1622,56 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_MISSING:
       withChildren = 0;
       break;
-    case QN_UNION:
     case QN_TOKEN:
+      if(n->tn.len == 0) {
+        if(vctx) {
+          // token from tag fields
+          if(vctx->node.type == QN_TAG) {
+            QueryTagNode *tn = &vctx->node.tag;
+            const FieldSpec *fs = IndexSpec_GetField(spec, tn->fieldName, tn->len);
+            if((fs) && !(FieldSpec_IndexesEmpty(fs))) {
+              QueryError_SetErrorFmt(status, QUERY_ENOINDEX,
+                                      "In order to query for empty values the field `%s` is required to be defined with `%s`",
+                                      tn->fieldName,
+                                      SPEC_INDEXEMPTY_STR);
+              return REDISMODULE_ERR;
+            }
+          }
+        } else {
+          // token from text fields
+          unsigned int count = __builtin_popcount(n->opts.fieldMask);
+          if(count > 0) {
+            char currentField = 1;
+
+            // Iterate over all set bits
+            while(count > 0) {
+
+              // Check if the field is indexed
+              if(n->opts.fieldMask & currentField) {
+                const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, currentField);
+
+                if((fs) && !(FieldSpec_IndexesEmpty(fs))) {
+                    QueryError_SetErrorFmt(status, QUERY_ENOINDEX,
+                                            "In order to query for empty values the field `%s` is required to be defined with `%s`",
+                                            IndexSpec_GetFieldNameByBit(spec, currentField),
+                                            SPEC_INDEXEMPTY_STR);
+                    return REDISMODULE_ERR;
+                }
+                count--;
+              }
+              currentField = currentField << 1;
+            }
+          }
+        }
+      }
+      break;
+    case QN_TAG:
+      withChildren = 0; ///WIP: Don't check children for now
+      vctx = malloc(sizeof(QAST_ValidationCtx));
+      vctx->node.tag = n->tag;
+      vctx->node.type = n->type;
+      break;
+    case QN_UNION:
     case QN_NUMERIC:
     case QN_NOT:
     case QN_OPTIONAL:
@@ -1629,7 +1680,6 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_IDS:
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
-    case QN_TAG:
     case QN_FUZZY:
     case QN_LEXRANGE:
     case QN_VECTOR:
@@ -1639,11 +1689,16 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status);
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, vctx);
       if (res == REDISMODULE_ERR)
         break;
     }
   }
+
+  if(vctx) {
+    free(vctx);
+  }
+
   return res;
 }
 

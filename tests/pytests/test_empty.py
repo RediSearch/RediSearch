@@ -1303,7 +1303,38 @@ def testEmptyParam():
         env.assertEqual(res, expected)
 
         # Test that we can use an empty string as a parameter
-        res = env.cmd('FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
+        res = env.cmd('FT.SEARCH', 'idx', '@text1:($p)',
                       'PARAMS', 2, 'p', '')
         expected = [1, 'h3', ['text1', '']]
         env.assertEqual(res, expected)
+
+def testIndexEmptyValidation(env):
+    """Tests error message in case of query for an empty string in a field that
+    doesn't index empty values"""
+
+    conn = getConnectionByEnv(env)
+
+    # Test that we get an error if try to search an empty value in a TAG field
+    # that doesn't index empty values
+    # env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    # conn.execute_command('HSET', 'h1', 'tag', '')
+    # expected_error = 'In order to query for empty values the field `tag` is required to be defined with `INDEXEMPTY`'
+    # env.expect('FT.SEARCH', 'idx', '@tag:{""}', 'DIALECT', 2).error().\
+    #     contains(expected_error)
+    # env.expect('FT.SEARCH', 'idx', '@tag:""', 'DIALECT', 2).error().\
+    #     contains(expected_error)
+    # env.flush()
+
+    # Test that we get an error if try to search an empty value in a TEXT field
+    # that doesn't index empty values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT', 'INDEXEMPTY', ).ok()
+    conn.execute_command('HSET', 'h1', 'text', '', 'DIALECT', 2)
+    expected_error = 'In order to query for empty values the field `t1` is required to be defined with `INDEXEMPTY`'
+    env.expect('FT.SEARCH', 'idx', '@t1:""', 'DIALECT', 2).error().\
+        contains(expected_error)
+    env.expect('FT.SEARCH', 'idx', '@t1:("")', 'DIALECT', 2).error().\
+        contains(expected_error)
+    env.expect('FT.SEARCH', 'idx', '@t1|t2:("")', 'DIALECT', 2).error().\
+        contains(expected_error)
+    env.expect('FT.SEARCH', 'idx', '@t1:("") | @t2:(abc)', 'DIALECT', 2).error().\
+        contains(expected_error)

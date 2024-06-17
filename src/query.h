@@ -92,6 +92,10 @@ typedef struct {
   size_t nids;
 } QAST_GlobalFilterOptions;
 
+typedef struct {
+   struct RSQueryNode node;
+} QAST_ValidationCtx;
+
 /** Set global filters on the AST */
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
 
@@ -129,7 +133,7 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
 
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
-int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
+int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status, QAST_ValidationCtx *ctx);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
