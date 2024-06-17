@@ -21,7 +21,7 @@ def EmptyTagJSONTest(env, idx, dialect):
     if dialect >= 3:
         empty_js = json.dumps([empty_j], separators=(',', ':'))
     expected = [1, 'j', ['$', empty_js]]
-    env.assertEqual(res, expected)
+    env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
     # Multi-value (automatically dereferenced).
     # add a document with an empty value
@@ -40,7 +40,7 @@ def EmptyTagJSONTest(env, idx, dialect):
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
     expected = [1, 'j', ['$', js]]
-    env.assertEqual(res, expected)
+    env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
 def EmptyTextJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TEXT field of a
@@ -60,7 +60,7 @@ def EmptyTextJSONTest(env, idx, dialect):
     if dialect >= 3:
         empty_js = json.dumps([empty_j], separators=(',', ':'))
     expected = [1, 'j', ['$', empty_js]]
-    env.assertEqual(res, expected)
+    env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
     # Multi-value (automatically dereferenced).
     # add a document with an empty value
@@ -80,14 +80,14 @@ def EmptyTextJSONTest(env, idx, dialect):
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
     expected = [1, 'j', ['$', js]]
-    env.assertEqual(res, expected)
+    env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
 def testEmptyTag(env):
     """Tests that empty values are indexed properly"""
 
     MAX_DIALECT = set_max_dialect(env)
 
-    def testEmptyTagHash(env, conn, idx):
+    def testEmptyTagHash(env, conn, idx, dialect):
         """Tests the indexing and querying of empty values for a TAG field of a
         hash index"""
 
@@ -98,53 +98,53 @@ def testEmptyTag(env):
         # Search for a single document, via its indexed empty value
         res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, "@t:{''}")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Make sure the document is NOT returned when searching for a non-empty
         # value
         res = conn.execute_command('FT.SEARCH', idx, '@t:foo')
         expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # ------------------------------ Negation ------------------------------
         # Search for a negation of an empty value, make sure the document is NOT
         # returned
         res = conn.execute_command('FT.SEARCH', idx, '-@t:{""}')
         expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, "-@t:{''}")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search for a negation of a non-empty value, make sure the document is
         # returned
         res = conn.execute_command('FT.SEARCH', idx, '-@t:{foo}')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # --------------------- Optional Operator ------------------------------
         res = conn.execute_command('FT.SEARCH', idx, '~@t:{""}')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         conn.execute_command('HSET', 'h2', 't', 'bar')
         res = conn.execute_command(
             'FT.SEARCH', idx, '~@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
         conn.execute_command('DEL', 'h2')
 
         # ------------------------------- Union --------------------------------
         # Union of empty and non-empty values
         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} | @t:{foo}')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, "@t:{''} | @t:{foo}")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # adding documents with two tags, one of which is empty
         conn.execute_command('HSET', 'h2', 't', 'bar,')
@@ -153,7 +153,7 @@ def testEmptyTag(env):
             'FT.SEARCH', idx, '@t:{""} | @t:{foo}',
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar,']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         conn.execute_command('DEL', 'h2')
 
@@ -163,17 +163,17 @@ def testEmptyTag(env):
             'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}', 
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}', 
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}', 
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         conn.execute_command('DEL', 'h2')
 
@@ -181,13 +181,13 @@ def testEmptyTag(env):
         # Intersection of empty and non-empty values
         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{foo}')
         expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # adding documents with two tags, one of which is empty
         conn.execute_command('HSET', 'h2', 't', 'bar,')
         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{bar}')
         expected = [1, 'h2', ['t', 'bar,']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         conn.execute_command('DEL', 'h2')
 
@@ -195,35 +195,35 @@ def testEmptyTag(env):
         # We shouldn't get the document when searching for a prefix of "__empty"
         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, dialect)
 
         # ------------------------------- Suffix -------------------------------
         # We shouldn't get the document when searching for a suffix of "__empty"
         cmd = f'FT.SEARCH {idx} @t:{{__em*}}'.split(' ')
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, dialect)
 
         # Add a document that will be found by the suffix search
         conn.execute_command('HSET', 'h2', 't', 'empty')
         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
         expected = [1, 'h2', ['t', 'empty']]
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, dialect)
         conn.execute_command('DEL', 'h2')
 
         # -------------------- Combination with other fields -------------------
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{""}']
         expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, [1, 'h1', ['t', '']])
+        cmd_assert(env, cmd, [1, 'h1', ['t', '']], dialect)
 
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
         expected = EMPTY_RESULT
-        cmd_assert(env, cmd, EMPTY_RESULT)
+        cmd_assert(env, cmd, EMPTY_RESULT, dialect)
 
         # Non-empty intersection with another field
         conn.execute_command('HSET', 'h1', 'text', 'hello')
         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
         expected = [1, 'h1', ['t', '', 'text', 'hello']]
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, dialect)
 
         # Non-empty union with another field
         conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
@@ -246,7 +246,7 @@ def testEmptyTag(env):
                 ['t', '', 'upper_t', ''], \
                 ['t', 'movie', 'upper_t', 'MOVIE']
             ]
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
             # ------------------------------ SORTBY --------------------------------
             cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
@@ -255,7 +255,7 @@ def testEmptyTag(env):
                 ['t', '', 'text', 'hello'], \
                 ['t', 'movie', 'text', 'love you']
             ]
-            cmd_assert(env, cmd, expected)
+            cmd_assert(env, cmd, expected, dialect)
 
             # Reverse order
             cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
@@ -264,7 +264,7 @@ def testEmptyTag(env):
                 ['t', 'movie', 'text', 'love you'], \
                 ['t', '', 'text', 'hello']
             ]
-            cmd_assert(env, cmd, expected)
+            cmd_assert(env, cmd, expected, dialect)
 
         # ------------------------------ GROUPBY -------------------------------
         conn.execute_command('HSET', 'h3', 't', 'movie')
@@ -275,7 +275,7 @@ def testEmptyTag(env):
             ['t', '', 'count', '2'], \
             ['t', 'movie', 'count', '2']
         ]
-        cmd_assert(env, cmd, expected)
+        cmd_assert(env, cmd, expected, dialect)
 
         # --------------------------- SEPARATOR --------------------------------
         # Remove added documents
@@ -298,36 +298,39 @@ def testEmptyTag(env):
             'h6', ['t', 'bat, '],
             'h8', ['t', 'bat, , bat2']
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # ------------------------ Priority vs. Intersection -----------------------
         res = env.cmd('FT.SEARCH', idx, '@t:{""} -@t:{""}')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.SEARCH', idx, '-@t:{""} @t:{""}')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        env.assertEqual(
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect),
+            ['OK']*env.shardsCount
+        )
         conn = getConnectionByEnv(env)
 
         # Create an index with a TAG field, that also indexes empty strings, another
         # TAG field that doesn't index empty values, and a TEXT field
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx')
+        testEmptyTagHash(env, conn, 'idx', dialect)
         env.flush()
 
         # ----------------------------- SORTABLE case ------------------------------
         # Create an index with a SORTABLE TAG field, that also indexes empty strings
         env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx_sortable')
+        testEmptyTagHash(env, conn, 'idx_sortable', dialect)
         env.flush()
 
         # --------------------------- WITHSUFFIXTRIE case --------------------------
         # Create an index with a TAG field, that also indexes empty strings, while
         # using a suffix trie
         env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx_suffixtrie')
+        testEmptyTagHash(env, conn, 'idx_suffixtrie', dialect)
         env.flush()
 
         # ---------------------------------- JSON ----------------------------------
@@ -429,80 +432,80 @@ def testEmptyText(env):
         # Search for a single document, via its indexed empty value
         res = conn.execute_command('FT.SEARCH', idx, "@t:''")
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search without the field name
         res = conn.execute_command('FT.SEARCH', idx, '""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search using double quotes
         res = conn.execute_command('FT.SEARCH', idx, '@t:""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search using double quotes and parentheses
         res = conn.execute_command('FT.SEARCH', idx, '@t:("")')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search using single quotes and parentheses
         res = conn.execute_command('FT.SEARCH', idx, "@t:('')")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # ------------------------------ Negation ------------------------------
         # Search for a negation of an empty value, make sure the document is NOT
         # returned
         res = conn.execute_command('FT.SEARCH', idx, '-@t:("")')
         expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, '-""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, '-@t:""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, '-@t:("")')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, "-@t:('')")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Search for a negation of a non-empty value, make sure the document is
         # returned
         res = conn.execute_command('FT.SEARCH', idx, '-@t:foo')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', idx, '-foo')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # --------------------- Optional Operator ------------------------------
         res = conn.execute_command('FT.SEARCH', idx, '~@t:""')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         conn.execute_command('HSET', 'h2', 't', 'bar')
         res = conn.execute_command(
             'FT.SEARCH', idx, '~@t:("")', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
         conn.execute_command('DEL', 'h2')
 
         # ------------------------------- Union --------------------------------
         # Union of empty and non-empty values
         res = conn.execute_command('FT.SEARCH', idx, '@t:("") | @t:foo')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Same in opposite order
         res = conn.execute_command('FT.SEARCH', idx, '@t:foo | @t:("")')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         if dialect < 5:
             res = conn.execute_command('FT.SEARCH', idx, '@t:(foo | "")')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
             res = conn.execute_command('FT.SEARCH', idx, '@t:("" | foo)')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # adding another document with an non-empty value
         conn.execute_command('HSET', 'h2', 't', 'bar')
@@ -510,66 +513,66 @@ def testEmptyText(env):
         res = conn.execute_command(
             'FT.SEARCH', idx, '@t:"" | @t:foo | @t:bar', 'SORTBY', 't', 'ASC')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', idx, '@t:foo | @t:"" | @t:bar', 'SORTBY', 't', 'ASC')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', idx, '@t:foo | @t:bar | @t:""', 'SORTBY', 't', 'ASC')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', idx, "@t:foo | @t:bar | @t:''", 'SORTBY', 't', 'ASC')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         if dialect < 5:
             res = conn.execute_command(
                 'FT.SEARCH', idx, '@t:(foo | "" | bar)', 'SORTBY', 't', 'ASC')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
             res = conn.execute_command(
                 'FT.SEARCH', idx, '@t:("" | foo | bar)', 'SORTBY', 't', 'ASC')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
             res = conn.execute_command(
                 'FT.SEARCH', idx, '@t:(foo | bar | "")', 'SORTBY', 't', 'ASC')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
             res = conn.execute_command(
                 'FT.SEARCH', idx, "@t:(foo | bar | '')", 'SORTBY', 't', 'ASC')
-            env.assertEqual(res, expected)
+            env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # ---------------------------- Intersection ----------------------------
         # Empty intersection
         res = conn.execute_command('FT.SEARCH',idx, '@t:("") @t:foo')
         expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH',idx, '@t:"" @t:foo')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH',idx, "@t:'' @t:foo")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH',idx, "'' foo")
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Non-empty intersection
         res = conn.execute_command('FT.SEARCH',idx, '@t:"" -@t:foo')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH',idx, '"" -foo')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Same in opposite order
         res = conn.execute_command('FT.SEARCH',idx, '-@t:foo @t:""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH',idx, '-foo ""')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # ------------------------------- Prefix -------------------------------
         cmd = f'FT.SEARCH {idx} @t:*pty'.split(' ')
@@ -626,7 +629,10 @@ def testEmptyText(env):
         env.assertEqual(res, expected)
 
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
+        env.assertEqual(
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect),
+            ['OK']*env.shardsCount
+        )
 
         # Create an index with a TAG field, that also indexes empty strings, another
         # TAG field that doesn't index empty values, and a TEXT field
@@ -709,10 +715,14 @@ def testEmptyExplainCli(env):
     """Tests the output of `FT.EXPAINCLI` for queries that include empty values,
     for both TAG and TEXT fields, for all supporting dialects ({2 ,3, 4, 5})."""
 
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'INDEXEMPTY', 'text', 'TEXT', 'INDEXEMPTY').ok()
+
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'INDEXEMPTY', 'text', 'TEXT', 'INDEXEMPTY').ok()
+        env.assertEqual(
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect),
+            ['OK']*env.shardsCount
+        )
 
         # ------------------------------ TAG field -----------------------------
         res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} @tag:{""}')
@@ -729,7 +739,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{bar} | @tag:{foo} @tag:{""}')
         expected = [
@@ -748,7 +758,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{bar} | @tag:{foo} @tag:{""}')
         expected = [
@@ -769,7 +779,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{bar} | -@tag:{foo} -@tag:{""}')
         expected = [
@@ -792,7 +802,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} @tag:{""} | @tag:{bar}')
         expected = [
@@ -813,7 +823,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{""} | -@tag:{bar} -@tag:{""}')
         expected = [
@@ -836,7 +846,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '-@tag:{""} | -@tag:{bar} @tag:{""}')
         expected = [
@@ -859,7 +869,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" | bar}')
         if dialect < 5:
@@ -877,7 +887,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo | ""}')
         if dialect < 5:
@@ -895,7 +905,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" | ""}')
         if dialect < 5:
@@ -913,7 +923,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo ""}')
         if dialect < 5:
@@ -933,7 +943,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" bar}')
         if dialect < 5:
@@ -953,7 +963,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" ""}')
         if dialect < 5:
@@ -973,7 +983,7 @@ def testEmptyExplainCli(env):
                 '}',
                 ''
             ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # # ------------------------------ TEXT field ----------------------------
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:""')
@@ -981,7 +991,7 @@ def testEmptyExplainCli(env):
             '@text:\"\"',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Same with wrapping parentheses.
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("")')
@@ -989,7 +999,7 @@ def testEmptyExplainCli(env):
             '@text:\"\"',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Intersection
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:"" @text:foo')
@@ -1003,33 +1013,35 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Intersection with general query
         res = env.cmd('FT.EXPLAINCLI', 'idx', 'foo @text:""')
         expected = [
-            ' INTERSECT {',
-            '   UNION {',
-            '     foo',
-            '     +foo(expanded)',
-            '   }',
-            '   @text:""',
-            ' }',
+            'INTERSECT {',
+            '  UNION {',
+            '    foo',
+            '    +foo(expanded)',
+            '  }',
+            '  @text:""',
+            '}',
             ''
         ]
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Other way around
-        res = env.cmd('FT.EXPLAINCLI', 'idx', 'foo @text:""')
+        res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:"" foo')
         expected = [
-            ' INTERSECT {',
-            '   @text:""',
-            '   UNION {',
-            '     foo',
-            '     +foo(expanded)',
-            '   }',
-            ' }',
+            'INTERSECT {',
+            '  @text:""',
+            '  UNION {',
+            '    foo',
+            '    +foo(expanded)',
+            '  }',
+            '}',
             ''
         ]
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Union
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:"" | @text:foo')
@@ -1043,7 +1055,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Other way around
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:foo | @text:""')
@@ -1057,7 +1069,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # UNION operator for a single TEXT field
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:(foo | "")')
@@ -1071,7 +1083,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" | bar)')
         expected = [
@@ -1084,7 +1096,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" | "")')
         expected = [
@@ -1094,7 +1106,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # INTERSECTION operator for a single TEXT field
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:(foo "")')
@@ -1108,7 +1120,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" bar)')
         expected = [
@@ -1121,7 +1133,7 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@text:("" "")')
         expected = [
@@ -1131,49 +1143,53 @@ def testEmptyExplainCli(env):
             '}',
             ''
         ]
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
 def testInvalidUseOfEmptyString(env):
     """Tests that invalid syntax for empty values is rejected by the parser"""
 
+    conn = getConnectionByEnv(env)
+
+    dim = 4
+    # Create an index
+    env.expect(
+        'FT.CREATE', 'idx', 'SCHEMA',
+        't', 'TAG', 'INDEXEMPTY',
+        'text', 'TEXT', 'INDEXEMPTY', 'PHONETIC', 'dm:en',
+        'location', 'GEO',
+        'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+        'TYPE', 'FLOAT32',).ok()
+    conn.execute_command('HSET', 'h1', 't', '')
+    conn.execute_command('HSET', 'h2', 't', 'a')
+
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        conn = getConnectionByEnv(env)
-
-        dim = 4
-        # Create an index
-        env.expect(
-            'FT.CREATE', 'idx', 'SCHEMA',
-            't', 'TAG', 'INDEXEMPTY',
-            'text', 'TEXT', 'INDEXEMPTY', 'PHONETIC', 'dm:en',
-            'location', 'GEO',
-            'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-            'TYPE', 'FLOAT32',).ok()
-        conn.execute_command('HSET', 'h1', 't', '')
-        conn.execute_command('HSET', 'h2', 't', 'a')
+        env.assertEqual(
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect),
+            ['OK']*env.shardsCount
+        )
 
         # Unsupported empty string in fuzzy terms
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%""%)')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%""%%)')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%""%%%)')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%$p%)', 
                                    'PARAMS', 2, 'p', '""')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%$p%%)', 
                                    'PARAMS', 2, 'p', '""')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%$p%%%)', 
                                    'PARAMS', 2, 'p', '""')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
         
         # Invalid use of empty string in geo filter
         expected_error = 'Invalid GeoFilter unit'
@@ -1196,11 +1212,11 @@ def testInvalidUseOfEmptyString(env):
         res = env.execute_command(
             'FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]',
             'PARAMS', 2, 'long', '')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
         res = env.execute_command(
             'FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]',
             'PARAMS', 2, 'lat', '')
-        env.assertEqual(res, EMPTY_RESULT)
+        env.assertEqual(res, EMPTY_RESULT, message=f'Dialect {dialect}')
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]',
             'PARAMS', 2, 'radius', '').error().\
             contains('Invalid GeoFilter radius')
@@ -1272,34 +1288,32 @@ def testInvalidUseOfEmptyString(env):
 def testEmptyParam(env):
     """Tests that we can use an empty string as a parameter in a query"""
 
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 't2',
+               'TAG', 'text1', 'TEXT', 'INDEXEMPTY', 'text2', 'TEXT').ok()
+
+    # Add a document with an empty value for a TAG field
+    conn.execute_command('HSET', 'h1', 't', '')
+    conn.execute_command('HSET', 'h2', 't2', '')
+    conn.execute_command('HSET', 'h3', 'text1', '')
+    conn.execute_command('HSET', 'h4', 'text2', '')
+
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        conn = getConnectionByEnv(env)
-
-        # Create an index
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 't2', 'TAG').ok()
-
-        # Add a document with an empty value for a TAG field
-        conn.execute_command('HSET', 'h1', 't', '')
-        conn.execute_command('HSET', 'h2', 't2', '')
+        env.assertEqual(
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect),
+            ['OK']*env.shardsCount
+        )
 
         # Test that we can use an empty string as a parameter
         res = env.cmd('FT.SEARCH', 'idx', '@t:{$p} | @t2:{$p}', 'PARAMS', 2, 'p', '')
         expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
-        env.flush()
-
-        # Create an index - TEXT fields
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text1', 'TEXT', 'INDEXEMPTY',
-                   'text2', 'TEXT').ok()
-
-        # Add a document with an empty value for a TAG field
-        conn.execute_command('HSET', 'h1', 'text1', '')
-        conn.execute_command('HSET', 'h2', 'text2', '')
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
 
         # Test that we can use an empty string as a parameter
         res = env.cmd('FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
                       'PARAMS', 2, 'p', '')
-        expected = [1, 'h1', ['text1', '']]
-        env.assertEqual(res, expected)
+        expected = [1, 'h3', ['text1', '']]
+        env.assertEqual(res, expected, message=f'Dialect {dialect}')
