@@ -448,17 +448,6 @@ void RSValue_Print(const RSValue *v);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
-#ifdef __cplusplus
-#define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
-#else
-#define RSVALUE_STATICALLOC_INIT(T) \
-  { .t = T }
-#endif
-
-/** Static value pointers. These don't ever get decremented */
-static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
-static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
-
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range
  * can benefit by having 'static' values assigned to them, eliminating the need

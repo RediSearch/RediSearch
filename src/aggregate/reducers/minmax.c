@@ -7,52 +7,40 @@
 #include <aggregate/reducer.h>
 #include <float.h>
 
-typedef enum { Minmax_Min = 1, Minmax_Max = 2 } MinmaxMode;
-
 typedef struct {
   const RLookupKey *srckey;
   double val;
-  MinmaxMode mode;
   size_t numMatches;
 } minmaxCtx;
 
-typedef struct {
-  Reducer base;
-  MinmaxMode mode;
-} MinmaxReducer;
-
-static void *minmaxNewInstance(Reducer *rbase) {
-  MinmaxReducer *r = (MinmaxReducer *)rbase;
-  minmaxCtx *m = BlkAlloc_Alloc(&rbase->alloc, sizeof(*m), 1024);
-  m->mode = r->mode;
-  m->srckey = r->base.srckey;
-  m->numMatches = 0;
-  if (m->mode == Minmax_Min) {
-    m->val = INFINITY;
-  } else if (m->mode == Minmax_Max) {
-    m->val = -INFINITY;
-  } else {
-    m->val = 0;
-  }
-  return m;
-}
-
-static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
   RSValue *v = RLookup_GetItem(m->srckey, srcrow);
-  if (!RSValue_ToNumber(v, &val)) {
-    return 1;
+  if (RSValue_ToNumber(v, &val)) {
+    m->val = MIN(m->val, val);
+    m->numMatches++;
   }
-
-  if (m->mode == Minmax_Max && val > m->val) {
-    m->val = val;
-  } else if (m->mode == Minmax_Min && val < m->val) {
-    m->val = val;
-  }
-
-  m->numMatches++;
   return 1;
+}
+
+static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  minmaxCtx *m = ctx;
+  double val;
+  RSValue *v = RLookup_GetItem(m->srckey, srcrow);
+  if (RSValue_ToNumber(v, &val)) {
+    m->val = MAX(m->val, val);
+    m->numMatches++;
+  }
+  return 1;
+}
+
+static void *minmaxNewInstance(Reducer *r) {
+  minmaxCtx *m = BlkAlloc_Alloc(&r->alloc, sizeof(*m), 1024);
+  m->srckey = r->srckey;
+  m->numMatches = 0;
+  m->val = r->Add == maxAdd ? -INFINITY : INFINITY;
+  return m;
 }
 
 static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
@@ -60,24 +48,26 @@ static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
   return RS_NumVal(ctx->numMatches ? ctx->val : 0);
 }
 
-static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
-  MinmaxReducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->base.srckey)) {
+typedef int (*ReducerAddFunc)(Reducer *, void *, const RLookupRow *);
+
+static Reducer *newMinMax(const ReducerOptions *options, ReducerAddFunc modeAdd) {
+  Reducer *r = rm_calloc(1, sizeof(*r));
+  if (!ReducerOpts_GetKey(options, &r->srckey)) {
     rm_free(r);
     return NULL;
   }
-  r->base.NewInstance = minmaxNewInstance;
-  r->base.Add = minmaxAdd;
-  r->base.Finalize = minmaxFinalize;
-  r->base.Free = Reducer_GenericFree;
-  r->mode = mode;
-  return &r->base;
+  r->NewInstance = minmaxNewInstance;
+  r->Add = modeAdd;
+  r->Finalize = minmaxFinalize;
+  r->Free = Reducer_GenericFree;
+  r->reducerId = modeAdd == minAdd ? REDUCER_T_MIN : REDUCER_T_MAX;
+  return r;
 }
 
 Reducer *RDCRMin_New(const ReducerOptions *options) {
-  return newMinMax(options, Minmax_Min);
+  return newMinMax(options, minAdd);
 }
 
 Reducer *RDCRMax_New(const ReducerOptions *options) {
-  return newMinMax(options, Minmax_Max);
+  return newMinMax(options, maxAdd);
 }

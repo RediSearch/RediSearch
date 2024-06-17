@@ -49,8 +49,6 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  size_t len = MIN(r->len, sc->seen);
   RSValue *ret = sc->samplesArray;
   sc->samplesArray = NULL;
   return ret;

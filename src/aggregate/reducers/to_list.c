@@ -6,14 +6,37 @@
 
 #include <aggregate/reducer.h>
 
+static uint64_t hashFunction_RSValue(const void *key) {
+  return RSValue_Hash(key, 0);
+}
+static void *dup_RSValue(void *p, const void *key) {
+  return RSValue_IncrRef(RSValue_MakePersistent((RSValue *)key));
+}
+static int compare_RSValue(void *privdata, const void *key1, const void *key2) {
+  return RSValue_Equal(key1, key2, NULL);
+}
+static void destructor_RSValue(void *privdata, void *val) {
+  RSValue *v = val;
+  RSValue_Decref(v);
+}
+
+static dictType RSValueSet = {
+  .hashFunction = hashFunction_RSValue,
+  .keyDup = dup_RSValue,
+  .valDup = NULL,
+  .keyCompare = compare_RSValue,
+  .keyDestructor = destructor_RSValue,
+  .valDestructor = NULL,
+};
+
 typedef struct {
-  TrieMap *values;
+  dict *values;
   const RLookupKey *srckey;
 } tolistCtx;
 
 static void *tolistNewInstance(Reducer *rbase) {
   tolistCtx *ctx = Reducer_BlkAlloc(rbase, sizeof(*ctx), 100 * sizeof(*ctx));
-  ctx->values = NewTrieMap();
+  ctx->values = dictCreate(&RSValueSet, NULL);
   ctx->srckey = rbase->srckey;
   return ctx;
 }
@@ -27,22 +50,11 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
   // for non array values we simply add the value to the list */
   if (v->t != RSValue_Array) {
-    uint64_t hval = RSValue_Hash(v, 0);
-    if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-
-      TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                  RSValue_IncrRef(RSValue_MakePersistent(v)), NULL);
-    }
+    dictAdd(tlc->values, v, NULL);
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < len; i++) {
-      RSValue *av = RSValue_ArrayItem(v, i);
-      uint64_t hval = RSValue_Hash(av, 0);
-      if (TrieMap_Find(tlc->values, (char *)&hval, sizeof(hval)) == TRIEMAP_NOTFOUND) {
-
-        TrieMap_Add(tlc->values, (char *)&hval, sizeof(hval),
-                    RSValue_IncrRef(RSValue_MakePersistent(av)), NULL);
-      }
+      dictAdd(tlc->values, RSValue_ArrayItem(v, i), NULL);
     }
   }
   return 1;
@@ -50,31 +62,21 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   tolistCtx *tlc = ctx;
-  TrieMapIterator *it = TrieMap_Iterate(tlc->values, "", 0);
-  char *c;
-  tm_len_t l;
-  RSValue *val;
-  RSValue **arr = RSValue_AllocateArray(tlc->values->cardinality);
-  size_t i = 0;
-  while (TrieMapIterator_Next(it, &c, &l, (void **)&val)) {
-    if (val) {
-      arr[i++] = RSValue_IncrRef(val);
-    }
+  size_t len = dictSize(tlc->values);
+  dictIterator *it = dictGetIterator(tlc->values);
+  RSValue **arr = RSValue_AllocateArray(len);
+  for (size_t i = 0; i < len; i++) {
+    dictEntry *de = dictNext(it);
+    arr[i] = RSValue_IncrRef(dictGetKey(de));
   }
-  memset(arr + i, 0, sizeof(*arr) * (tlc->values->cardinality - i)); // TODO: can i != cardinality?
-
-  RSValue *ret = RSValue_NewArray(arr, i);
-  TrieMapIterator_Free(it);
+  dictReleaseIterator(it);
+  RSValue *ret = RSValue_NewArray(arr, len);
   return ret;
-}
-
-static void freeValues(void *ptr) {
-  RSValue_Decref((RSValue *)ptr);
 }
 
 static void tolistFreeInstance(Reducer *parent, void *p) {
   tolistCtx *tlc = p;
-  TrieMap_Free(tlc->values, freeValues);
+  dictRelease(tlc->values);
 }
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
