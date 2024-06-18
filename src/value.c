@@ -66,7 +66,6 @@ void RSValue_Clear(RSValue *v) {
           sdsfree(v->strval.str);
           break;
         case RSString_Const:
-        case RSString_Volatile:
           break;
       }
       break;

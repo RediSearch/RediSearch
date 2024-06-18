@@ -10,7 +10,7 @@ static uint64_t hashFunction_RSValue(const void *key) {
   return RSValue_Hash(key, 0);
 }
 static void *dup_RSValue(void *p, const void *key) {
-  return RSValue_IncrRef(RSValue_MakePersistent((RSValue *)key));
+  return RSValue_IncrRef((RSValue *)key);
 }
 static int compare_RSValue(void *privdata, const void *key1, const void *key2) {
   return RSValue_Equal(key1, key2, NULL);
