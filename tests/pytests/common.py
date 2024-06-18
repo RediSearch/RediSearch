@@ -21,7 +21,7 @@ from pprint import pprint as pp
 import inspect
 from unittest import SkipTest
 
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
+BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 
 class TimeLimit(object):
