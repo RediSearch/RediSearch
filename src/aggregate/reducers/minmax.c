@@ -8,7 +8,6 @@
 #include <float.h>
 
 typedef struct {
-  const RLookupKey *srckey;
   double val;
   size_t numMatches;
 } minmaxCtx;
@@ -16,7 +15,7 @@ typedef struct {
 static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
-  RSValue *v = RLookup_GetItem(m->srckey, srcrow);
+  RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MIN(m->val, val);
     m->numMatches++;
@@ -27,7 +26,7 @@ static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
-  RSValue *v = RLookup_GetItem(m->srckey, srcrow);
+  RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MAX(m->val, val);
     m->numMatches++;
@@ -37,7 +36,6 @@ static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static void *minmaxNewInstance(Reducer *r) {
   minmaxCtx *m = BlkAlloc_Alloc(&r->alloc, sizeof(*m), 1024);
-  m->srckey = r->srckey;
   m->numMatches = 0;
   m->val = r->Add == maxAdd ? -INFINITY : INFINITY;
   return m;

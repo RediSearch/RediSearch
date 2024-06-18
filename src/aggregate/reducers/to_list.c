@@ -29,41 +29,34 @@ static dictType RSValueSet = {
   .valDestructor = NULL,
 };
 
-typedef struct {
-  dict *values;
-  const RLookupKey *srckey;
-} tolistCtx;
-
 static void *tolistNewInstance(Reducer *rbase) {
-  tolistCtx *ctx = Reducer_BlkAlloc(rbase, sizeof(*ctx), 100 * sizeof(*ctx));
-  ctx->values = dictCreate(&RSValueSet, NULL);
-  ctx->srckey = rbase->srckey;
-  return ctx;
+  dict *values = dictCreate(&RSValueSet, NULL);
+  return values;
 }
 
 static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
-  tolistCtx *tlc = ctx;
-  RSValue *v = RLookup_GetItem(tlc->srckey, srcrow);
+  dict *values = ctx;
+  RSValue *v = RLookup_GetItem(rbase->srckey, srcrow);
   if (!v) {
     return 1;
   }
 
   // for non array values we simply add the value to the list */
   if (v->t != RSValue_Array) {
-    dictAdd(tlc->values, v, NULL);
+    dictAdd(values, v, NULL);
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < len; i++) {
-      dictAdd(tlc->values, RSValue_ArrayItem(v, i), NULL);
+      dictAdd(values, RSValue_ArrayItem(v, i), NULL);
     }
   }
   return 1;
 }
 
 static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
-  tolistCtx *tlc = ctx;
-  size_t len = dictSize(tlc->values);
-  dictIterator *it = dictGetIterator(tlc->values);
+  dict *values = ctx;
+  size_t len = dictSize(values);
+  dictIterator *it = dictGetIterator(values);
   RSValue **arr = RSValue_AllocateArray(len);
   for (size_t i = 0; i < len; i++) {
     dictEntry *de = dictNext(it);
@@ -75,8 +68,8 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
 }
 
 static void tolistFreeInstance(Reducer *parent, void *p) {
-  tolistCtx *tlc = p;
-  dictRelease(tlc->values);
+  dict *values = p;
+  dictRelease(values);
 }
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
