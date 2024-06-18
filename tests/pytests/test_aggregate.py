@@ -1227,62 +1227,65 @@ def testWithKNN(env):
         env.assertEqual(res[1:], expected_res)
 
 
-def test_aggregate_filter_on_missing_values():
+def setup_missing_values_index(index_missing):
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
+    schema = ['tag', 'TAG', 'INDEXMISSING' if index_missing else None, 'num1', 'NUMERIC', 'num2', 'NUMERIC']
+    schema = [part for part in schema if part is not None]
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
 
     # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'foo', 'val')
-    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
+    conn.execute_command('HSET', 'doc1', 'tag', 'val', 'num2', '5.5')
+    conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
+    if index_missing:
+        conn.execute_command('HSET', 'doc3', 'num1', '3', 'num2', '2.7')
+    return env
 
+def test_aggregate_filter_on_missing_values():
+    env = setup_missing_values_index(False)
     # Search for the documents with the indexed fields (sanity)
-    (env.expect('FT.AGGREGATE', 'idx', '@foo:{val}', 'LOAD', '1', 'goo', 'FILTER', '@goo > 2').error().
-     contains('goo: has no value, consider using EXISTS if applicable'))
+    # document doc1 has no value for num1, so we expect to receive the mentioned error
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
+     contains('num1: has no value, consider using EXISTS if applicable'))
     env.flush()
 
 
 def test_aggregate_filter_on_missing_indexed_values():
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-    conn = getConnectionByEnv(env)
-
-    # Create an index with a TAG field that indexes missing values
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'INDEXMISSING', 'goo', 'NUMERIC').ok()
-
-    # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'foo', 'val')
-    conn.execute_command('HSET', 'doc2', 'goo', '3')
-
+    env = setup_missing_values_index(True)
     # Search for the documents with the indexed fields (sanity)
-    (env.expect('FT.AGGREGATE', 'idx', 'ismissing(@foo) | @foo:{val}', 'LOAD', '1', 'foo', 'FILTER',
-                '"@foo != \'va\'"', 'DIALECT', '2').contains(['foo', 'val']))
+    # doc3 doesn't have a value for tag but we expect the pipeline to avoid using the not equal operator on it
+    (env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'FILTER',
+                '"@tag != \'va\'"', 'DIALECT', '2').contains(['tag', 'val']))
     env.flush()
 
 
 def test_aggregate_group_by_on_missing_values():
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-    conn = getConnectionByEnv(env)
-
-    # Create an index with a TAG and NUMERIC fields
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
-
-    # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'foo', 'val')
-    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
-
+    env = setup_missing_values_index(False)
     # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.AGGREGATE', 'idx', '@foo:{val}', 'GROUPBY', '1', '@goo').equal([2, ['goo', '3'], ['goo', None]])
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
     env.flush()
 
-def test_aggregate_apply_on_missing_values():
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-    conn = getConnectionByEnv(env)
 
-    # Create an index with NUNERIC fields
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'goo', 'NUMERIC', 'foo', 'NUMERIC').ok()
-    conn.execute_command('HSET', 'doc1', 'goo', '4')
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'foo', 'goo', 'APPLY', '(@foo+@goo)/2', 'AS', 'avg').error().contains(
-        "foo: has no value, consider using EXISTS if applicable"
+def test_aggregate_group_by_on_missing_indexed_values():
+    def group_by_result_to_dict(lst):
+        if lst is None or len(lst) == 0:
+            return lst
+        return {element_list[1]: element_list[0] for element_list in lst[1:]}
+    env = setup_missing_values_index(True)
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'GROUPBY', '1', '@tag').apply(group_by_result_to_dict).equal({None: 'tag', 'val': 'tag'})
+    env.flush()
+
+
+def test_aggregate_apply_on_missing_values():
+    env = setup_missing_values_index(False)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
+        "num1: has no value, consider using EXISTS if applicable"
     )
+    env.flush()
+
+def test_aggregate_apply_on_missing_indexed_values():
+    env = setup_missing_values_index(True)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
+               'upper(@tag)', 'AS', 'T').equal([1, ['tag', 'val', 'T', 'VAL'], ['tag', 'val', 'T', 'VAL']])
     env.flush()
