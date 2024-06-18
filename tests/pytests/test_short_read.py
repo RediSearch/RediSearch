@@ -71,7 +71,8 @@ def downloadFiles(target_dir, rdbs_start_idx, rdbs_end_idx):
                 shutil.copyfile(local_path, path)
                 unzip(path, path_dir)
         if not os.path.exists(path):
-            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+            dpath = os.path.abspath(path)
             _, ext = os.path.splitext(dpath)
             if ext == '.zip':
                 if not unzip(path, path_dir):
