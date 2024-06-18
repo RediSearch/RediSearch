@@ -5,7 +5,7 @@ email: meir@redislabs.com
 description: High performance search index on top of Redis (with clustering)
 homepage: 'http://redisearch.io'
 license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
-command_line_args: PARTITIONS AUTO
+command_line_args: PARTITIONS AUTO MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 4
 min_redis_version: '7.1'
 min_redis_pack_version: '7.2.0'
 config_command: "_FT.CONFIG SET"
