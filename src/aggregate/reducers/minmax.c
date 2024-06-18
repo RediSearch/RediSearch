@@ -9,7 +9,6 @@
 
 typedef struct {
   double val;
-  size_t numMatches;
 } minmaxCtx;
 
 static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
@@ -18,7 +17,6 @@ static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MIN(m->val, val);
-    m->numMatches++;
   }
   return 1;
 }
@@ -29,21 +27,19 @@ static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MAX(m->val, val);
-    m->numMatches++;
   }
   return 1;
 }
 
 static void *minmaxNewInstance(Reducer *r) {
   minmaxCtx *m = BlkAlloc_Alloc(&r->alloc, sizeof(*m), 1024);
-  m->numMatches = 0;
   m->val = r->Add == maxAdd ? -INFINITY : INFINITY;
   return m;
 }
 
 static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
   minmaxCtx *ctx = instance;
-  return RS_NumVal(ctx->numMatches ? ctx->val : 0);
+  return RS_NumVal(isinf(ctx->val) ? 0 : ctx->val);
 }
 
 typedef int (*ReducerAddFunc)(Reducer *, void *, const RLookupRow *);
