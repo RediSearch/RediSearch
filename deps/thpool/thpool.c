@@ -168,7 +168,7 @@ static bool priority_queue_is_empty_unsafe(priorityJobqueue *jobqueue_p);
  * THREAD_RUNNING -> Standard pull function.
  * THREAD_TERMINATE_WHEN_EMPTY -> Modified pull function that returns immediately if the job queue is empty.
  */
-static priorityJobCtx (*pull_and_execute_ht[2])(priorityJobqueue *) = {
+static priorityJobCtx (*const pull_and_execute_ht[2])(priorityJobqueue *) = {
     priority_queue_pull, // THREAD_RUNNING
     priority_queue_pull_no_wait // THREAD_TERMINATE_WHEN_EMPTY
 
@@ -227,11 +227,11 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
    * case 2: There are threads alive in terminate_when_empty state.
    * In this case, we need to add the missing threads to adjust
    * `num_threads_alive` to n_threads
-   *    case 1.a: num_threads_alive >= n_threads (we have set the thpool to
+   *    case 2.a: num_threads_alive >= n_threads (we have set the thpool to
    *              terminate when empty and then decreased n_threads)
    *              - n_threads_to_revive = n_threads
    *              - n_threads_to_kill = n_threads_alive - n_threads
-   *    case 1.b: num_threads_alive < n_threads ( we have set the thpool to
+   *    case 2.b: num_threads_alive < n_threads ( we have set the thpool to
    *              terminate when empty and *might also* increased n_threads)
    *              - n_threads_to_revive = num_threads_alive
    *              - n_new_threads = n_threads - num_threads_alive new threads */
@@ -239,17 +239,17 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   size_t n_threads = thpool_p->n_threads;
   size_t n_new_threads;
-  if (curr_num_threads_alive) { // Case 1 - some or all threads are alive in
+  if (curr_num_threads_alive) { // Case 2 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
     size_t n_threads_to_revive, n_threads_to_kill;
-    if (curr_num_threads_alive >= n_threads) { // Case 1.a
+    if (curr_num_threads_alive >= n_threads) { // Case 2.a
       // Revive n_threads
       n_threads_to_revive = n_threads;
       // Kill extra threads
       n_threads_to_kill = curr_num_threads_alive - n_threads;
       // No new threads
       n_new_threads = 0;
-    } else {                                  // Case 1.b
+    } else {                                  // Case 2.b
       // Revive all threads
       n_threads_to_revive = curr_num_threads_alive;
       // Add missing threads
@@ -287,7 +287,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     redisearch_thpool_unlock(thpool_p);
     /* Wait on for the threads to pass the barrier and destroy the barrier */
     barrier_wait_and_destroy(&barrier);
-  } else { // Case 2 - no threads alive
+  } else { // Case 1 - no threads alive
     redisearch_thpool_unlock(thpool_p);
     n_new_threads = n_threads;
   }
