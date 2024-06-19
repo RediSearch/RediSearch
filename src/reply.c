@@ -198,6 +198,13 @@ int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, si
   return REDISMODULE_OK;
 }
 
+int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val) {
+  RedisModule_ReplyWithCString(reply->ctx, val);
+  json_add(reply, false, "\"%s\"", val);
+  _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
@@ -489,5 +496,31 @@ void print_reply(RedisModule_Reply *reply) {
 }
 
 #endif // REDISMODULE_REPLY_DEBUG
+
+//---------------------------------------------------------------------------------------------
+
+char *escapeSimpleString(const char *str) {
+  size_t len = strlen(str);
+  // This is a short lived string, so we can afford to allocate twice the size
+  char *escaped = rm_malloc(len * 2 + 1);
+  char *p = escaped;
+  for (size_t i = 0; i < len; i++) {
+    char c = str[i];
+    switch (c) {
+    case '\n':
+      *p++ = '\\';
+      *p++ = 'n';
+      break;
+    case '\r':
+      *p++ = '\\';
+      *p++ = 'r';
+      break;
+    default:
+      *p++ = c;
+    }
+  }
+  *p = '\0';
+  return escaped;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -47,6 +47,7 @@ int RedisModule_EndReply(RedisModule_Reply *reply);
 int RedisModule_Reply_LongLong(RedisModule_Reply *reply, long long val);
 int RedisModule_Reply_Double(RedisModule_Reply *reply, double val);
 int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val);
+int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, size_t len);
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val);
@@ -73,5 +74,10 @@ int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
 
 void print_reply(RedisModule_Reply *reply);
+
+static inline bool isUnsafeForSimpleString(const char *str) {
+  return strpbrk(str, "\r\n") != NULL;
+}
+char *escapeSimpleString(const char *str);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
