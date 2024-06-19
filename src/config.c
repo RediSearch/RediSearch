@@ -189,24 +189,14 @@ CONFIG_SETTER(setWorkThreads) {
     return REDISMODULE_ERR;
   }
 
-  int ret = REDISMODULE_OK;
   size_t res = workersThreadPool_SetNumWorkers(newNumThreads);
-  if (res != newNumThreads) {
-  #ifdef RS_COORDINATOR
-      RedisModule_Log(RSDummyContext, "warning", "Attempt to change the workers thpool size to %lu "
-                                                  "resulted unexpectedly in %lu threads. Updating number of "
-                                                  "connection per shard according to %lu workers.", newNumThreads, res, res);
-  #else
-      RedisModule_Log(RSDummyContext, "warning", "Attempt to change the workers thpool size to %lu "
+  RS_LOG_ASSERT_FMT(res == newNumThreads,  "Attempt to change the workers thpool size to %lu "
                                                   "resulted unexpectedly in %lu threads.", newNumThreads, res);
-  #endif
-    ret = REDISMODULE_ERR;
-  }
 
   config->numWorkerThreads = newNumThreads;
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
-  return ret;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getWorkThreads) {

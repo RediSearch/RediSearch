@@ -29,6 +29,9 @@ size_t workersThreadPool_SetNumWorkers(size_t worker_count);
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
 
+// return n_threads value.
+size_t workersThreadPool_NumThreads(void);
+
 // adds a task
 int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
 

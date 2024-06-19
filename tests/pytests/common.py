@@ -248,6 +248,9 @@ def numeric_tree_summary(env, idx, numeric_field):
 def getWorkersThpoolStats(env):
     return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
 
+def getWorkersThpoolNumThreads(env):
+    return env.cmd(debug_cmd(), "worker_threads", "n_threads")
+
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))

@@ -1175,7 +1175,7 @@ DEBUG_COMMAND(dumpHNSWData) {
 
 #ifdef MT_BUILD
 /**
- * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS]
+ * FT.DEBUG WORKER_THREADS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
   if (argc != 3) {
@@ -1210,6 +1210,8 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     REPLY_WITH_LONG_LONG("numThreadsAlive", stats.num_threads_alive, ARRAY_LEN_VAR(num_stats_fields));
     END_POSTPONED_LEN_ARRAY(num_stats_fields);
     return REDISMODULE_OK;
+  }  else if (!strcasecmp(op, "n_threads")) {
+    RedisModule_ReplyWithLongLong(ctx, workersThreadPool_NumThreads());
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKER_THREADS' subcommand");
   }

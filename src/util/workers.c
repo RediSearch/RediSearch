@@ -66,6 +66,12 @@ size_t workersThreadPool_WorkingThreadCount(void) {
   return redisearch_thpool_num_jobs_in_progress(_workers_thpool);
 }
 
+// return n_threads value.
+size_t workersThreadPool_NumThreads(void) {
+  assert(_workers_thpool);
+  return redisearch_thpool_get_num_threads(_workers_thpool);
+}
+
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {

@@ -256,6 +256,12 @@ class TestDebugCommands(object):
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
                                      'numThreadsAlive': self.workers_count})
+
+        def testWorkersNumThreads(self):
+            if not MT_BUILD:
+                self.env.skip()
+            # test stats and drain
+            self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'n_threads').equal(self.workers_count)
 @skip(cluster=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
