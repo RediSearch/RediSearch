@@ -500,6 +500,10 @@ def test_change_workers_number():
     # Trigger thpool initialization.
     env.expect('ft.search', 'idx', '*').equal([0])
     check_threads(1, 1)
+    # wait for the job to finish
+    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+
     # Query should be executed by the threadpool
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
 
