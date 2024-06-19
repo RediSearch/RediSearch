@@ -2123,7 +2123,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     // Get max memory in bytes
     unsigned long long redis_max_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "maxmemory", NULL);
     // if used memory is more than 80% of max memory, cancel the scan
-    if (redis_used_memory > 0.8 * redis_max_memory) {
+    if (redis_max_memory && redis_used_memory > 0.8 * redis_max_memory) {
       error = "Used memory is more than 80%% of max memory, cancelling the scan";
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
