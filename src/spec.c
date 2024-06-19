@@ -2106,6 +2106,28 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
+
+  RedisModuleServerInfoData *memory_data = RedisModule_GetServerInfo(ctx, "memory");
+  if (memory_data) {
+
+    // Get used memory in bytes
+     unsigned long long redis_used_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "used_memory", NULL);
+    // Get max memory in bytes
+    unsigned long long redis_max_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "maxmemory", NULL);
+    // if used memory is more than 80% of max memory, cancel the scan
+    if (redis_used_memory > 0.8 * redis_max_memory) {
+      RedisModule_Log(ctx, "warning", "Used memory is more than 80%% of max memory, cancelling the scan");
+      scanner->cancelled = true;
+      return;
+    }
+    RedisModule_FreeServerInfo(ctx, memory_data);
+    
+  } else {
+    RedisModule_Log(ctx, "warning", "Failed to get memory info");
+    scanner->cancelled = true;
+    return;
+  }
+
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {

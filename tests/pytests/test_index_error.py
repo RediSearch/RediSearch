@@ -275,3 +275,20 @@ def test_vector_indexing_with_json(env):
     expected_error_dict[last_indexing_error_str] = 'Invalid vector length. Expected 2, got 3'
 
     env.assertEqual(error_dict, expected_error_dict)
+
+@skip(cluster=True)
+# No need to run this test on cluster
+def test_fail_background_index_when_low_mem(env):
+    con = getConnectionByEnv(env)
+    # Create a document with a text field.
+    con.hset('doc1', 't', 'hello')
+    # Set the maxmemory to a value that will cause the background indexing to fail.
+    used_memory = con.info('memory')['used_memory']
+    con.config_set('maxmemory',  int(used_memory * 1.1))
+    # Create an index with a text field. The background indexing should fail.
+    env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+    # Check that the index has no documents.
+    info = index_info(env)
+    env.assertEqual(info['num_docs'], 0)
+    
+    
