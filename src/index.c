@@ -1593,7 +1593,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   } else {
     const char *qstr = ui->qstr;
     if (isUnsafeForSimpleString(qstr)) qstr = escapeSimpleString(qstr);
-    RedisModule_Reply_Stringf(reply, "%s - %s", unionTypeStr, qstr);
+    RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
     if (qstr != ui->qstr) rm_free((char*)qstr);
   }
 
@@ -1617,7 +1617,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
       }
     RedisModule_Reply_ArrayEnd(reply);
   } else {
-    RedisModule_Reply_Stringf(reply, "The number of iterators in the union is %d", ui->norig);
+    RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %d", ui->norig);
   }
 
   RedisModule_Reply_MapEnd(reply);

@@ -22,7 +22,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_Stringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
@@ -30,7 +30,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
       double nw[2];
       decodeGeo(ir->decoderCtx.rangeMin, se);
       decodeGeo(ir->decoderCtx.rangeMax, nw);
-      RedisModule_Reply_Stringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
+      RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
     printProfileType("TEXT");

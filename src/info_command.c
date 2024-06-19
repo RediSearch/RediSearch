@@ -54,7 +54,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR("filter", rule->filter_exp_str);
+    REPLY_KVSTR_SAFE("filter", rule->filter_exp_str);
   }
 
   if (rule->lang_default) {
@@ -62,7 +62,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   }
 
   if (rule->lang_field) {
-    REPLY_KVSTR("language_field", rule->lang_field);
+    REPLY_KVSTR_SAFE("language_field", rule->lang_field);
   }
 
   if (rule->score_default) {
@@ -70,11 +70,11 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   }
 
   if (rule->score_field) {
-    REPLY_KVSTR("score_field", rule->score_field);
+    REPLY_KVSTR_SAFE("score_field", rule->score_field);
   }
 
   if (rule->payload_field) {
-    REPLY_KVSTR("payload_field", rule->payload_field);
+    REPLY_KVSTR_SAFE("payload_field", rule->payload_field);
   }
 
   RedisModule_Reply_MapEnd(reply); // index_definition
@@ -97,7 +97,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  REPLY_KVSTR("index_name", sp->name);
+  REPLY_KVSTR_SAFE("index_name", sp->name);
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);
@@ -108,8 +108,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR("identifier", sp->fields[i].path);
-    REPLY_KVSTR("attribute", sp->fields[i].name);
+    REPLY_KVSTR_SAFE("identifier", sp->fields[i].path);
+    REPLY_KVSTR_SAFE("attribute", sp->fields[i].name);
 
     const FieldSpec *fs = &sp->fields[i];
 
@@ -137,7 +137,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2] = {fs->tagOpts.tagSep, 0}; // Convert the separator to a C string
-      REPLY_KVSTR(SPEC_TAG_SEPARATOR_STR, buf);
+      REPLY_KVSTR_SAFE(SPEC_TAG_SEPARATOR_STR, buf);
 
       if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
         reply_SPEC_TAG_CASE_SENSITIVE_STR = true;

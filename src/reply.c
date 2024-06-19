@@ -205,13 +205,26 @@ int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val) {
   return REDISMODULE_OK;
 }
 
-int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
+int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   char *p;
   rm_vasprintf(&p, fmt, args);
   RedisModule_ReplyWithSimpleString(reply->ctx, p);
   json_add(reply, false, "\"%s\"", p);
+  rm_free(p);
+  _RedisModule_Reply_Next(reply);
+  va_end(args);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  char *p;
+  size_t len = rm_vasprintf(&p, fmt, args);
+  RedisModule_ReplyWithStringBuffer(reply->ctx, p, len);
+  json_add(reply, false, "\"%.*s\"", len, p);
   rm_free(p);
   _RedisModule_Reply_Next(reply);
   va_end(args);
@@ -404,7 +417,7 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
   return REDISMODULE_OK;
 }
 
-int RedisModule_ReplyKV_Stringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
+int RedisModule_ReplyKV_SimpleStringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
   RedisModule_Reply_SimpleString(reply, key);
   va_list args;
   va_start(args, fmt);
