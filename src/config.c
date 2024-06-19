@@ -18,6 +18,7 @@
 #include "spec.h"
 #include "util/dict.h"
 #include "resp3.h"
+#include "util/workers.h"
 
 #include "util/config_macros.h"
 
@@ -187,10 +188,25 @@ CONFIG_SETTER(setWorkThreads) {
     QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
+
+  int ret = REDISMODULE_OK;
+  size_t res = workersThreadPool_SetNumWorkers(newNumThreads);
+  if (res != newNumThreads) {
+  #ifdef RS_COORDINATOR
+      RedisModule_Log(RSDummyContext, "warning", "Attempt to change the workers thpool size to %lu "
+                                                  "resulted unexpectedly in %lu threads. Updating number of "
+                                                  "connection per shard according to %lu workers.", newNumThreads, res, res);
+  #else
+      RedisModule_Log(RSDummyContext, "warning", "Attempt to change the workers thpool size to %lu "
+                                                  "resulted unexpectedly in %lu threads.", newNumThreads, res);
+  #endif
+    ret = REDISMODULE_ERR;
+  }
+
   config->numWorkerThreads = newNumThreads;
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
-  return REDISMODULE_OK;
+  return ret;
 }
 
 CONFIG_GETTER(getWorkThreads) {

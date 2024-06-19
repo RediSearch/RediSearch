@@ -19,6 +19,13 @@
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
 
+/** Set the number of workers.
+ * If @param worker_count is 0, the current living workers will continue to execute pending jobs and then terminate.
+ * No new jobs should be added after setting the number of workers to 0.
+ * @returns the number of workers ready to accept new jobs after the change.
+*/
+size_t workersThreadPool_SetNumWorkers(size_t worker_count);
+
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
 

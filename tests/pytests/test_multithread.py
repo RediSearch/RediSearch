@@ -467,3 +467,62 @@ def test_change_num_connections(env: Env):
     env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
     # The number of connections should be 1 again
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
+
+def test_change_workers_number():
+    # On start up the threadpool is not initialized. We can change the value of requested threads
+    # without actually creating the threads.
+    env = initEnv(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+    # Increase number of threads
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '2').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+    # Decrease number of threads
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+    # Set it to 0
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+
+    # Query should not be executed by the threadpool
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+    env.expect('ft.search', 'idx', '*').equal([0])
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0)
+
+    # Enable threadpool number of threads
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+
+    # Trigger thpool initialization.
+    env.expect('ft.search', 'idx', '*').equal([0])
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
+    # Query should be executed by the threadpool
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+
+    # Add threads to a running pool
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '2').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 2)
+    # Remove threads from a running pool
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
+
+    # Terminate all threads
+    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+
+    # Query should not be executed by the threadpool
+    env.expect('ft.search', 'idx', '*').equal([0])
+    env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
+
+
+
+# # test add threads
+#     # change when unintialized
+#     # check connections
+#     # change when initialized
+
+# # test removing threads
+#     #check connections
+# # test setting to 0 while jobs in queue
+#     #check ocnnestion
