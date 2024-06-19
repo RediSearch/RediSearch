@@ -268,34 +268,45 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
 
-    values = {field_name: field_name for field_name in fields}
-    documents = {document_name: copy.deepcopy(values) for document_name in document_name_to_expire.keys()}
-    for document_name, fields in documents.items():
-        values = list(chain.from_iterable(fields.items()))
-        conn.execute_command('HSET', document_name, *values)
+    def create_documents():
+        field_and_value_dict = {field_name: field_name for field_name in fields}
+        field_and_value_list = list(chain.from_iterable(field_and_value_dict.items()))
+        documents = {}
+        for document_name in document_name_to_expire.keys():
+            documents[document_name] = copy.deepcopy(field_and_value_dict)
+            conn.execute_command('HSET', document_name, *field_and_value_list)
+        return documents
 
-    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(documents)
-    expected_results = documents
-    for doc_name, should_expire in document_name_to_expire.items():
-        if not should_expire:
-            continue
-        for expiration_interval, field_list in expiration_interval_to_fields.items():
-            conn.execute_command('HPEXPIRE', doc_name, str(expiration_interval), 'FIELDS', str(len(field_list)), *field_list)
-            for field in field_list:
-                del expected_results[doc_name][field]
-            if len(expected_results[doc_name]) == 0:
-                del expected_results[doc_name]
+    def setup_field_expiration(current_documents):
+        for doc_name, should_expire in document_name_to_expire.items():
+            if not should_expire:
+                continue
+            for expiration_interval, field_list in expiration_interval_to_fields.items():
+                conn.execute_command('HPEXPIRE', doc_name, str(expiration_interval), 'FIELDS', str(len(field_list)),
+                                     *field_list)
+                for field in field_list:
+                    del current_documents[doc_name][field]
+                if len(current_documents[doc_name]) == 0:
+                    del current_documents[doc_name]
+        return current_documents
 
+    def build_inverted_index_dict_for_documents(current_documents):
+        inverted_index = {}
+        for document_name, fields in current_documents.items():
+            for field_name, field_value in fields.items():
+                if field_value not in inverted_index:
+                    inverted_index[field_value] = []
+                inverted_index[field_value].append(document_name)
+        return inverted_index
+
+    expected_results = create_documents()
+    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
+    expected_results = setup_field_expiration(expected_results)
+    expected_inverted_index = build_inverted_index_dict_for_documents(expected_results)
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
     time.sleep(0.5)
     env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
-    expected_inverted_index = {}
-    for document_name, fields in expected_results.items():
-        for field_name, field_value in fields.items():
-            if field_value not in expected_inverted_index:
-                expected_inverted_index[field_value] = []
-            expected_inverted_index[field_value].append(document_name)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))
@@ -351,18 +362,18 @@ def testFieldWithExpirationAndSortableField(env):
 
 # Aims to test that two fields with different expiration times will eventually cause the key itself to expire
 @skip(redis_less_than='7.4')
-def testExpireTwoFields(env):
-    field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
+def testExpireMultipleFields(env):
+    field_to_additional_schema_keywords = {'x': [], 'y': [], 'z': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
-                          expiration_interval_to_fields={1: ['x'], 3: ['y']},
+                          expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
 
 # Aims to test that the expectation that for 2 fields with the same expiration time we will get a single notification
 @skip(redis_less_than='7.4')
-def testExpireMultipleFields(env):
-    field_to_additional_schema_keywords = {'x': [], 'y': [], 'z': []}
+def testExpireMultipleFieldsWhereOneIsSortable(env):
+    field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': [], 'z': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
