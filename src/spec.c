@@ -61,7 +61,7 @@ bool isTrimming = false;
 size_t memoryLimit = -1;
 size_t used_memory = 0;
 
-static redisearch_threadpool cleanPool = NULL;
+static redisearch_thpool_t *cleanPool = NULL;
 
 //---------------------------------------------------------------------------------------------
 
@@ -884,7 +884,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
-  
+
     if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
@@ -948,6 +948,12 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     } else {
       break;
     }
+  }
+  // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
+  // not contribute and thus this doesn't make sense.
+  if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field `%s` cannot be defined with both `NOINDEX` and `INDEXMISSING`'", fs->name);
+    goto error;
   }
   return 1;
 
@@ -2002,7 +2008,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static redisearch_threadpool reindexPool = NULL;
+static redisearch_thpool_t *reindexPool = NULL;
 
 static IndexesScanner *IndexesScanner_NewGlobal() {
   if (global_spec_scanner) {
@@ -2919,7 +2925,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
-  } 
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {

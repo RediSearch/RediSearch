@@ -661,9 +661,9 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
+  self->loadopts.forceLoad = forceLoad;
   self->loadopts.status = &self->status;
   self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
@@ -680,10 +680,10 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -901,10 +901,10 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -920,14 +920,14 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 /*********************************************************************************/
 
-ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   r->stateflags |= QEXEC_S_HAS_LOAD;
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(r->sctx, lk, keys, nkeys);
+    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(r->sctx, lk, keys, nkeys);
+    return RPPlainLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
   }
 }
 

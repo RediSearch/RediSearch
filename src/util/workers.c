@@ -17,7 +17,7 @@
 // Thread pool
 //------------------------------------------------------------------------------
 
-redisearch_threadpool _workers_thpool = NULL;
+redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
 
 static void yieldCallback(void *yieldCtx) {
@@ -131,7 +131,7 @@ int workersThreadPool_pause() {
   if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0 || workerThreadPool_isPaused()) {
     return REDISMODULE_ERR;
   }
-  redisearch_thpool_terminate_pause_threads(_workers_thpool);
+  redisearch_thpool_pause_threads(_workers_thpool);
   return REDISMODULE_OK;
 }
 
