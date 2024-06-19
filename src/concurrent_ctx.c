@@ -11,11 +11,11 @@
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
 
-static arrayof(redisearch_threadpool) threadpools_g = NULL;
+static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
 int ConcurrentSearch_CreatePool(int numThreads) {
   if (!threadpools_g) {
-    threadpools_g = array_new(redisearch_threadpool, 1); // Only used by the coordinator, so 1 is enough
+    threadpools_g = array_new(redisearch_thpool_t *, 1); // Only used by the coordinator, so 1 is enough
   }
   int poolId = array_len(threadpools_g);
   threadpools_g = array_append(threadpools_g, redisearch_thpool_create(numThreads, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
@@ -47,7 +47,7 @@ typedef struct ConcurrentCmdCtx {
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
-  redisearch_threadpool p = threadpools_g[type];
+  redisearch_thpool_t *p = threadpools_g[type];
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
