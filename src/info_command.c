@@ -45,7 +45,10 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      RedisModule_Reply_SimpleString(reply, rule->prefixes[i]);
+      char *prefix = rule->prefixes[i];
+      if (isUnsafeForSimpleString(prefix)) prefix = escapeSimpleString(prefix);
+      RedisModule_Reply_SimpleString(reply, prefix);
+      if (prefix != rule->prefixes[i]) rm_free(prefix);
     }
     RedisModule_Reply_ArrayEnd(reply);
   }

@@ -236,7 +236,13 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     char *explain = explainRoot;
     char *curLine = NULL;
     while ((curLine = strsep(&explain, "\n")) != NULL) {
-      RedisModule_ReplyWithSimpleString(ctx, curLine);
+      if (isUnsafeForSimpleString(curLine)) {
+        curLine = escapeSimpleString(curLine);
+        RedisModule_ReplyWithSimpleString(ctx, curLine);
+        rm_free(curLine);
+      } else {
+        RedisModule_ReplyWithSimpleString(ctx, curLine);
+      }
       numElems++;
     }
     RedisModule_ReplySetArrayLength(ctx, numElems);
@@ -838,7 +844,13 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      RedisModule_Reply_SimpleString(reply, sp->name);
+      if (isUnsafeForSimpleString(sp->name)) {
+        char *escaped = escapeSimpleString(sp->name);
+        RedisModule_Reply_SimpleString(reply, escaped);
+        rm_free(escaped);
+      } else {
+        RedisModule_Reply_SimpleString(reply, sp->name);
+      }
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

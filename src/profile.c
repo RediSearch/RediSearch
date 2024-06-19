@@ -13,8 +13,10 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
-    RedisModule_ReplyKV_SimpleString(reply, "Term", ir->record->term.term->str);
-
+    char *term = ir->record->term.term->str;
+    if (isUnsafeForSimpleString(term)) term = escapeSimpleString(term);
+    RedisModule_ReplyKV_SimpleString(reply, "Term", term);
+    if (term != ir->record->term.term->str) rm_free(term);
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
@@ -32,7 +34,10 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     }
   } else {
     printProfileType("TEXT");
-    RedisModule_ReplyKV_SimpleString(reply, "Term", ir->record->term.term->str);
+    char *term = ir->record->term.term->str;
+    if (isUnsafeForSimpleString(term)) term = escapeSimpleString(term);
+    RedisModule_ReplyKV_SimpleString(reply, "Term", term);
+    if (term != ir->record->term.term->str) rm_free(term);
   }
 
   // print counter and clock
