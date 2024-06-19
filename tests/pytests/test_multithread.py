@@ -514,15 +514,3 @@ def test_change_workers_number():
     env.expect('ft.search', 'idx', '*').equal([0])
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 0)
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
-
-
-
-# # test add threads
-#     # change when unintialized
-#     # check connections
-#     # change when initialized
-
-# # test removing threads
-#     #check connections
-# # test setting to 0 while jobs in queue
-#     #check ocnnestion
