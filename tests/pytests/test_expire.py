@@ -250,8 +250,7 @@ def transform_document_list_to_dict(document_list):
     result = {}
     num_docs = document_list[0]
     for i in range(1, num_docs * 2, 2):
-        result[document_list[i]] = {}
-        values_dict = result[document_list[i]]
+        values_dict = result[document_list[i]] = {}
         field_and_value_pairs = document_list[i+1]
         for j in range(0, len(field_and_value_pairs), 2):
             values_dict[field_and_value_pairs[j]] = field_and_value_pairs[j+1]
