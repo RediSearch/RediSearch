@@ -1228,7 +1228,7 @@ def testWithKNN(env):
 
 
 def setup_missing_values_index(index_missing):
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
     conn = getConnectionByEnv(env)
     schema = ['tag', 'TAG', 'INDEXMISSING' if index_missing else None, 'num1', 'NUMERIC', 'num2', 'NUMERIC']
     schema = [part for part in schema if part is not None]
@@ -1287,5 +1287,5 @@ def test_aggregate_apply_on_missing_values():
 def test_aggregate_apply_on_missing_indexed_values():
     env = setup_missing_values_index(True)
     env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
-               'upper(@tag)', 'AS', 'T').equal([1, ['tag', 'val', 'T', 'VAL'], ['tag', 'val', 'T', 'VAL']])
+               'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
     env.flush()
