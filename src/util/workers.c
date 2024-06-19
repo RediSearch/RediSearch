@@ -40,6 +40,25 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
+size_t workersThreadPool_SetNumWorkers(size_t worker_count) {
+  if(_workers_thpool == NULL) return worker_count;
+
+  size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
+  size_t new_num_threads = worker_count;
+
+  if(worker_count == 0) {
+    RedisModule_Log(RSDummyContext, "notice", "Terminating workers threadpool. Executing pending jobs and terminating threads");
+    redisearch_thpool_terminate_when_empty(_workers_thpool);
+    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
+  } else if (worker_count > curr_workers) {
+    new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+  } else if (worker_count < curr_workers) {
+    new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
+  }
+
+  return new_num_threads;
+}
+
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
   assert(_workers_thpool != NULL);
@@ -145,7 +164,7 @@ int workersThreadPool_resume() {
 
 thpool_stats workersThreadPool_getStats() {
   thpool_stats stats = {0};
-  if (!_workers_thpool || RSGlobalConfig.numWorkerThreads == 0) {
+  if (!_workers_thpool) {
     return stats;
   }
   return redisearch_thpool_get_stats(_workers_thpool);

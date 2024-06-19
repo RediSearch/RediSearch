@@ -3,7 +3,8 @@ from common import *
 class TestDebugCommands(object):
 
     def __init__(self):
-        module_args = 'MT_MODE MT_MODE_FULL WORKER_THREADS 2' if MT_BUILD else ''
+        self.workers_count = 2
+        module_args = f'MT_MODE MT_MODE_FULL WORKER_THREADS {self.workers_count}' if MT_BUILD else ''
         self.env = Env(testName="testing debug commands", moduleArgs=module_args)
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
@@ -242,7 +243,8 @@ class TestDebugCommands(object):
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone'],
                                      'totalPendingJobs': orig_stats['totalPendingJobs']+1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
-                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1})
+                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1,
+                                     'numThreadsAlive': self.workers_count})
 
         # After resuming, expect that the job is done.
         orig_stats = stats
@@ -252,7 +254,8 @@ class TestDebugCommands(object):
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone']+1,
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
-                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1})
+                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
+                                     'numThreadsAlive': self.workers_count})
 @skip(cluster=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
