@@ -12,6 +12,9 @@ index_errors_str = 'Index Errors'
 def get_field_stats_dict(info_command_output, index = 0):
   return to_dict(info_command_output['field statistics'][index])
 
+def get_global_index_errors_dict(info_command_output):
+  return to_dict(info_command_output[index_errors_str])
+
 def test_vector_index_failures(env):
   con = getConnectionByEnv(env)
   # Create a vector index.
@@ -290,5 +293,13 @@ def test_fail_background_index_when_low_mem(env):
     # Check that the index has no documents.
     info = index_info(env)
     env.assertEqual(info['num_docs'], 0)
+    
+    global_index_errors = get_global_index_errors_dict(info)
+    expected_error_dict = {
+      indexing_failures_str: 1,
+      last_indexing_error_key_str: 'doc1',
+      last_indexing_error_str: 'Used memory is more than 80%% of max memory, cancelling the scan'
+    }
+    env.assertEqual(global_index_errors, expected_error_dict)
     
     

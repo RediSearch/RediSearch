@@ -377,6 +377,13 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
+
+void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, RedisModuleString *key) {
+  RedisModule_Assert(sp);
+  RedisModule_Assert(error);
+  IndexError_AddError(&sp->stats.indexError, error, key);
+}
+
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
@@ -2108,6 +2115,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
 
   RedisModuleServerInfoData *memory_data = RedisModule_GetServerInfo(ctx, "memory");
+  const char *error = NULL;
   if (memory_data) {
 
     // Get used memory in bytes
@@ -2116,15 +2124,35 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     unsigned long long redis_max_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "maxmemory", NULL);
     // if used memory is more than 80% of max memory, cancel the scan
     if (redis_used_memory > 0.8 * redis_max_memory) {
-      RedisModule_Log(ctx, "warning", "Used memory is more than 80%% of max memory, cancelling the scan");
+      error = "Used memory is more than 80%% of max memory, cancelling the scan";
+      RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
-      return;
     }
     RedisModule_FreeServerInfo(ctx, memory_data);
     
   } else {
-    RedisModule_Log(ctx, "warning", "Failed to get memory info");
+    error = "Failed to get memory info";
+    RedisModule_Log(ctx, "warning", error);
     scanner->cancelled = true;
+  }
+
+  if(scanner->cancelled) {
+    // We need to report the error message besides the log, so we can show it in FT.INFO
+    if(scanner->global) {
+      // Dvirdu: Do we really get here?
+    } else {
+      StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+      IndexSpec *sp = StrongRef_Get(curr_run_ref);
+      if (sp) {
+        IndexSpec_SetIndexErrorMessage(sp, error, keyname);
+        StrongRef_Release(curr_run_ref);
+      } else {
+        // spec was deleted
+      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+                      scanner->spec_name);
+      }
+    }
+
     return;
   }
 
@@ -2159,6 +2187,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
+      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+                      scanner->spec_name);
       scanner->cancelled = true;
     }
   }
@@ -2833,7 +2863,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes) {
-      Indexes_ScanAndReindex();
+      Indexes_ScanAndReindex(); // Dvirdu: Is this still relevant?
     }
     workersThreadPool_OnEventEnd(true);
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
@@ -3201,5 +3231,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
+}
+
+void Indexes_SetErrorMessage(const char *error, RedisModuleString *key) {
+
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
