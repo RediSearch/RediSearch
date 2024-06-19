@@ -34,6 +34,8 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
+  VERBOSE_UTESTS=1    # enable logging in cpp tests
+
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -201,6 +203,12 @@ CC_C_STD=gnu11
 CC_STATIC_LIBSTDCXX ?= 1
 
 CC_COMMON_H=src/common.h
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(VERBOSE_UTESTS),1)
+CC_FLAGS.common += -DVERBOSE_UTESTS
+endif
 
 #----------------------------------------------------------------------------------------------
 
