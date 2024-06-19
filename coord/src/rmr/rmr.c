@@ -7,6 +7,7 @@
 #define RMR_C__
 #include "rmr.h"
 #include "reply.h"
+#include "reply_macros.h"
 #include "redismodule.h"
 #include "cluster.h"
 #include "chan.h"
@@ -329,12 +330,12 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Map(reply); // >>>>(node)
 
-          RedisModule_ReplyKV_SimpleString(reply, "id", node->id);
-          RedisModule_ReplyKV_SimpleString(reply, "host", node->endpoint.host);
+          REPLY_KVSTR_SAFE("id", node->id);
+          REPLY_KVSTR_SAFE("host", node->endpoint.host);
           RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
-          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",
-                                      node->flags & MRNode_Master ? "master " : "slave ",
-                                      node->flags & MRNode_Self ? "self" : "");
+          RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",                        // TODO: move the space to "self"
+                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
+                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
 
           RedisModule_Reply_MapEnd(reply); // >>>>(node)
         }
@@ -374,12 +375,12 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Array(reply); // >>node
-            RedisModule_Reply_SimpleString(reply, node->id);
-            RedisModule_Reply_SimpleString(reply, node->endpoint.host);
+            REPLY_SIMPLE_SAFE(node->id);
+            REPLY_SIMPLE_SAFE(node->endpoint.host);
             RedisModule_Reply_LongLong(reply, node->endpoint.port);
-            RedisModule_Reply_SimpleStringf(reply, "%s%s",
-                                      node->flags & MRNode_Master ? "master " : "slave ",
-                                      node->flags & MRNode_Self ? "self" : "");
+            RedisModule_Reply_SimpleStringf(reply, "%s%s",                                // TODO: move the space to "self"
+                                      node->flags & MRNode_Master ? "master " : "slave ", // "master" : "slave",
+                                      node->flags & MRNode_Self ? "self" : "");           // " self" : ""
           RedisModule_Reply_ArrayEnd(reply); // >>node
         }
 
