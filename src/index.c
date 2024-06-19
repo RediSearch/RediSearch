@@ -641,31 +641,27 @@ static void II_Rewind(void *ctx) {
 }
 
 typedef int (*CompareFunc)(const void *a, const void *b);
-static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
+static double estimationFactor(const IndexIterator *it) {
+  switch (it->type) {
+    // on INTERSECT iterator, we divide the estimate by the number of children
+    // since we skip as soon as a number is not in all iterators
+    case INTERSECT_ITERATOR:
+      return 1.0 / MAX(1, ((IntersectIterator *)it)->num);
+    case UNION_ITERATOR: 
+      if (RSGlobalConfig.prioritizeIntersectUnionChildren) {
+        return ((UnionIterator *)it)->num;
+      }
+    default:
+      return 1.0;
+  }
+}
+static int cmpIter(const IndexIterator *const *it1, const IndexIterator *const *it2) {
   if (!*it1 && !*it2) return 0;
   if (!*it1) return -1;
   if (!*it2) return 1;
 
-  double factor1 = 1;
-  double factor2 = 1;
-  enum iteratorType it_1_type = (*it1)->type;
-  enum iteratorType it_2_type = (*it2)->type;
-
-  /*
-   * on INTERSECT iterator, we divide the estimate by the number of children
-   * since we skip as soon as a number is not in all iterators */
-  if (it_1_type == INTERSECT_ITERATOR) {
-    factor1 = 1 / MAX(1, ((IntersectIterator *)*it1)->num);
-  } else if (it_1_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
-    factor1 = ((UnionIterator *)*it1)->num;
-  }
-  if (it_2_type == INTERSECT_ITERATOR) {
-    factor2 = 1 / MAX(1, ((IntersectIterator *)*it2)->num);
-  } else if (it_2_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
-    factor2 = ((UnionIterator *)*it2)->num;
-  }
-
-  return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
+  return (int)((*it1)->NumEstimated((*it1)->ctx) * estimationFactor(*it1) - 
+               (*it2)->NumEstimated((*it2)->ctx) * estimationFactor(*it2));
 }
 
 static void II_SortChildren(IntersectIterator *ctx) {
