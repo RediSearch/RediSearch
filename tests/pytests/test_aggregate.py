@@ -1226,7 +1226,6 @@ def testWithKNN(env):
                                 'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', dialect)
         env.assertEqual(res[1:], expected_res)
 
-
 def setup_missing_values_index(index_missing):
     env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
     conn = getConnectionByEnv(env)
@@ -1249,7 +1248,6 @@ def test_aggregate_filter_on_missing_values():
      contains('num1: has no value, consider using EXISTS if applicable'))
     env.flush()
 
-
 def test_aggregate_filter_on_missing_indexed_values():
     env = setup_missing_values_index(True)
     # Search for the documents with the indexed fields (sanity)
@@ -1258,13 +1256,11 @@ def test_aggregate_filter_on_missing_indexed_values():
                 '"@tag != \'va\'"', 'DIALECT', '2').contains(['tag', 'val']))
     env.flush()
 
-
 def test_aggregate_group_by_on_missing_values():
     env = setup_missing_values_index(False)
     # Search for the documents with the indexed fields (sanity)
     env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
     env.flush()
-
 
 def test_aggregate_group_by_on_missing_indexed_values():
     def group_by_result_to_dict(lst):
@@ -1275,7 +1271,6 @@ def test_aggregate_group_by_on_missing_indexed_values():
     # Search for the documents with the indexed fields (sanity)
     env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'GROUPBY', '1', '@tag').apply(group_by_result_to_dict).equal({None: 'tag', 'val': 'tag'})
     env.flush()
-
 
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index(False)
