@@ -15,9 +15,8 @@ static void *dup_RSValue(void *p, const void *key) {
 static int compare_RSValue(void *privdata, const void *key1, const void *key2) {
   return RSValue_Equal(key1, key2, NULL);
 }
-static void destructor_RSValue(void *privdata, void *val) {
-  RSValue *v = val;
-  RSValue_Decref(v);
+static void destructor_RSValue(void *privdata, void *key) {
+  RSValue_Decref((RSValue *)key);
 }
 
 static dictType RSValueSet = {

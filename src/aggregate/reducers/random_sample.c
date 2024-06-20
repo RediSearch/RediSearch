@@ -49,12 +49,12 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
-  return RSValue_IncrRef(sc->samplesArray);
+  return RSValue_IncrRef(sc->samplesArray); // return a reference to the array
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
-  RSValue_Decref(sc->samplesArray);
+  RSValue_Decref(sc->samplesArray); // release own reference to the array
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {

@@ -410,7 +410,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-/* Create a new NULL RSValue */
+/* Returns a pointer to the NULL RSValue */
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
