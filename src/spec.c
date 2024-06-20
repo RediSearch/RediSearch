@@ -2114,26 +2114,13 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     return;
   }
 
-  RedisModuleServerInfoData *memory_data = RedisModule_GetServerInfo(ctx, "memory");
-  const char *error = NULL;
-  if (memory_data) {
-
-    // Get used memory in bytes
-     unsigned long long redis_used_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "used_memory", NULL);
-    // Get max memory in bytes
-    unsigned long long redis_max_memory = RedisModule_ServerInfoGetFieldUnsigned(memory_data, "maxmemory", NULL);
-    // if used memory is more than 80% of max memory, cancel the scan
-    if (redis_max_memory && redis_used_memory > 0.8 * redis_max_memory) {
+  const char* error;
+  // Get the memory limit and memory usage
+  setMemoryInfo(ctx);
+  if(used_memory > 0.8 * memoryLimit) {
       error = "Used memory is more than 80%% of max memory, cancelling the scan";
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
-    }
-    RedisModule_FreeServerInfo(ctx, memory_data);
-    
-  } else {
-    error = "Failed to get memory info";
-    RedisModule_Log(ctx, "warning", error);
-    scanner->cancelled = true;
   }
 
   if(scanner->cancelled) {
