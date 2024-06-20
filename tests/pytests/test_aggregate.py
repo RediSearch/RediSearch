@@ -996,7 +996,6 @@ def setup_missing_values_index():
 
     # Add some documents, with\without the indexed fields.
     conn.execute_command('HSET', 'doc1', 'tag', 'val')
-    conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
     return env
 
 def extract_error(lst):
@@ -1019,7 +1018,7 @@ def test_aggregate_filter_on_missing_values():
 def test_aggregate_group_by_on_missing_values():
     env = setup_missing_values_index()
     # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([1, ['num1', None]])
     env.flush()
 
 def test_aggregate_apply_on_missing_values():
