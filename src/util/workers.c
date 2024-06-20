@@ -105,44 +105,36 @@ void workersThreadPool_Destroy(void) {
   redisearch_thpool_destroy(_workers_thpool);
 }
 
-void workersThreadPool_Activate() {
-  if (USE_BURST_THREADS()) { /* Configure here anything that needs to know it can use the thread pool */
+void workersThreadPool_OnEventStart() {
+  if (RSGlobalConfig.minOperationWorkers > RSGlobalConfig.numWorkerThreads) {
+    workersThreadPool_SetNumWorkers(RSGlobalConfig.minOperationWorkers);
+  }
+  /* Configure here anything that needs to know it can use the thread pool */
+  if (!RSGlobalConfig.numWorkerThreads && RSGlobalConfig.minOperationWorkers) {
     // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
     VecSim_SetWriteMode(VecSim_WriteAsync);
 
     // Finally, log that we've enabled the thread pool.
     RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu",
-                    RSGlobalConfig.numWorkerThreads);
+                    RSGlobalConfig.minOperationWorkers);
   }
 }
 
-void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx) {
+void workersThreadPool_OnEventEnd(bool wait) {
+  if (RSGlobalConfig.minOperationWorkers > RSGlobalConfig.numWorkerThreads) {
+    workersThreadPool_SetNumWorkers(RSGlobalConfig.numWorkerThreads);
+  }
+  if (wait) {
     // Wait until all the threads are finished the jobs currently in the queue. Note that we call
     // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
-    if (RSGlobalConfig.numWorkerThreads == 0) return;
+    // no-op if numWorkerThreads == minOperationWorkers == 0
     redisearch_thpool_wait(_workers_thpool);
-    RedisModule_Log(RSDummyContext, "notice",
-                    "Done running pending background workers jobs");
-    if (USE_BURST_THREADS()) {
-      VecSim_SetWriteMode(VecSim_WriteInPlace);
-      workersThreadPool_Terminate();
-      RedisModule_Log(RSDummyContext, "notice",
-                      "Terminated workers threadpool of size %lu",
-                      RSGlobalConfig.numWorkerThreads);
   }
-}
-
-void workersThreadPool_SetTerminationWhenEmpty() {
-  if (RSGlobalConfig.numWorkerThreads == 0) return;
-
-  if (USE_BURST_THREADS()) {
-    // Set the library back to in place mode, and let all the async jobs that are still pending run,
-    // but after the last job is executed, terminate the running threads.
+  /* Configure here anything that needs to know it cannot use the thread pool anymore */
+  if (!RSGlobalConfig.numWorkerThreads && RSGlobalConfig.minOperationWorkers) {
     VecSim_SetWriteMode(VecSim_WriteInPlace);
-    redisearch_thpool_terminate_when_empty(_workers_thpool);
-    RedisModule_Log(RSDummyContext, "notice", "Termination of workers threadpool of size %lu is set to occur when all"
-                    " pending jobs are done",
-                    RSGlobalConfig.numWorkerThreads);
+    RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu",
+                    RSGlobalConfig.minOperationWorkers);
   }
 }
 

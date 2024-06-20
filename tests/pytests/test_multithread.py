@@ -474,16 +474,16 @@ def test_change_workers_number():
         env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads)
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
-    env = initEnv(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = initEnv(moduleArgs='WORKERS 1')
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
     # Increase number of threads
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '2').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=2)
     # Decrease number of threads
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
     # Set it to 0
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=0)
 
     # Query should not be executed by the threadpool
@@ -493,27 +493,27 @@ def test_change_workers_number():
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0)
 
     # Enable threadpool
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     check_threads(expected_num_threads_alive=0, expected_n_threads=1)
 
     # Trigger thpool initialization.
     env.expect('ft.search', 'idx', '*').equal([0])
     check_threads(expected_num_threads_alive=1, expected_n_threads=1)
     # wait for the job to finish
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
     # Query should be executed by the threadpool
     env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 1)
 
     # Add threads to a running pool
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '2').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '2').ok()
     check_threads(expected_num_threads_alive=2, expected_n_threads=2)
     # Remove threads from a running pool
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
     check_threads(expected_num_threads_alive=1, expected_n_threads=1)
 
     # Terminate all threads
-    env.expect(config_cmd(), 'SET', 'WORKER_THREADS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
 
     # Query should not be executed by the threadpool

@@ -195,8 +195,8 @@ CONFIG_SETTER(setWorkThreads) {
   }
 
   size_t res = workersThreadPool_SetNumWorkers(newNumThreads);
-  RS_LOG_ASSERT_FMT(res == newNumThreads,  "Attempt to change the workers thpool size to %lu "
-                                                  "resulted unexpectedly in %lu threads.", newNumThreads, res);
+  RS_LOG_ASSERT_FMT(res == newNumThreads, "Attempt to change the workers thpool size to %lu "
+                                          "resulted unexpectedly in %lu threads.", newNumThreads, res);
 
   config->numWorkerThreads = newNumThreads;
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)

@@ -44,14 +44,12 @@ void workersThreadPool_Terminate(void);
 // Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
 
-// Initialize the worker thread pool based on the model configuration.
-void workersThreadPool_Activate(void);
+// Configure the thread pool for operation start according to module configuration.
+void workersThreadPool_OnEventStart(void);
 
-// Actively wait and terminates the running workers pool after all pending jobs are done.
-void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
-
-// Set a signal for the running threads to terminate once all pending jobs are done.
-void workersThreadPool_SetTerminationWhenEmpty();
+/** Configure the thread pool for operation end according to module configuration.
+ * @param wait - if true, the function will wait for all pending jobs to finish. */
+void workersThreadPool_OnEventEnd(bool wait);
 
 /********************************************* for debugging **********************************/
 
