@@ -1,7 +1,7 @@
 from common import *
 
+@skip(cluster=False)
 def testInfo(env):
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     for i in range (100):
