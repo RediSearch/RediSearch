@@ -236,13 +236,9 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     char *explain = explainRoot;
     char *curLine = NULL;
     while ((curLine = strsep(&explain, "\n")) != NULL) {
-      if (isUnsafeForSimpleString(curLine)) {
-        curLine = escapeSimpleString(curLine);
-        RedisModule_ReplyWithSimpleString(ctx, curLine);
-        rm_free(curLine);
-      } else {
-        RedisModule_ReplyWithSimpleString(ctx, curLine);
-      }
+      char *line = isUnsafeForSimpleString(curLine) ? escapeSimpleString(curLine): curLine;
+      RedisModule_ReplyWithSimpleString(ctx, line);
+      if (line != curLine) rm_free(line);
       numElems++;
     }
     RedisModule_ReplySetArrayLength(ctx, numElems);

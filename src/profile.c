@@ -5,6 +5,7 @@
  */
 
 #include "profile.h"
+#include "reply_macros.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
@@ -13,10 +14,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
-    char *term = ir->record->term.term->str;
-    if (isUnsafeForSimpleString(term)) term = escapeSimpleString(term);
-    RedisModule_ReplyKV_SimpleString(reply, "Term", term);
-    if (term != ir->record->term.term->str) rm_free(term);
+    REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
@@ -34,10 +32,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     }
   } else {
     printProfileType("TEXT");
-    char *term = ir->record->term.term->str;
-    if (isUnsafeForSimpleString(term)) term = escapeSimpleString(term);
-    RedisModule_ReplyKV_SimpleString(reply, "Term", term);
-    if (term != ir->record->term.term->str) rm_free(term);
+    REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   }
 
   // print counter and clock

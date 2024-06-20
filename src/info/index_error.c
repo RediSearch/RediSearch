@@ -66,7 +66,7 @@ void IndexError_Clear(IndexError error) {
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error)); // FIXME: errors should be safe strings
+    REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
     REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
     if (with_timestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
