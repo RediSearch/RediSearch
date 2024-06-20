@@ -618,10 +618,10 @@ def doTest(env: Env, test_name, rdb_name, expected_index):
 # Dynamically create a test function for each rdb file
 @skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64')
 def register_tests():
+    test_func = lambda test, rdb, idx: lambda env: doTest(env, test, rdb, idx)
     for rdb_name, expected_index in RDBS.items():
         test_name = 'test_' + rdb_name.replace('/', '_').replace('.', '_')
-        test_func = lambda env, test=test_name, rdb=rdb_name, idx=expected_index: doTest(env, test, rdb, idx)
-        globals()[test_name] = test_func
+        globals()[test_name] = test_func(test_name, rdb_name, expected_index)
 try:
     register_tests()
 except SkipTest:
