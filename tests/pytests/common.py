@@ -250,7 +250,7 @@ def getWorkersThpoolStats(env):
     return to_dict(env.cmd(debug_cmd(), "WORKERS", "stats"))
 
 def getWorkersThpoolNumThreads(env):
-    return env.cmd(debug_cmd(), "worker_threads", "n_threads")
+    return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
 
 def getWorkersThpoolStatsFromShard(shard_conn):
