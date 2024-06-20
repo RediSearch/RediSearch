@@ -132,6 +132,41 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+//! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
+static const char ToksepParserMap_g[256] = {
+    [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
+    ['}'] = 1, ['['] = 1,  [']'] = 1,  [':'] = 1, [';'] = 1, ['~'] = 1, ['!'] = 1, ['@'] = 1,
+    ['#'] = 1,             ['%'] = 1,  ['^'] = 1, ['&'] = 1, ['*'] = 1, ['-'] = 1, ['='] = 1,
+    ['+'] = 1, ['|'] = 1,  ['\''] = 1, ['`'] = 1, ['"'] = 1, ['<'] = 1, ['>'] = 1, ['?'] = 1,
+};
+
+/**
+ * Copy of toksep.h function to use a different map
+ * Function reads string pointed to by `s` and indicates the length of the next
+ * token in `tokLen`. `s` is set to NULL if this is the last token.
+ */
+static inline char *toksep2(char **s, size_t *tokLen) {
+  uint8_t *pos = (uint8_t *)*s;
+  char *orig = *s;
+  int escaped = 0;
+  for (; *pos; ++pos) {
+    if (ToksepParserMap_g[*pos] && !escaped) {
+      *s = (char *)++pos;
+      *tokLen = ((char *)pos - orig) - 1;
+      if (!*pos) {
+        *s = NULL;
+      }
+      return orig;
+    }
+    escaped = !escaped && *pos == '\\';
+  }
+
+  // Didn't find a terminating token. Use a simpler length calculation
+  *s = NULL;
+  *tokLen = (char *)pos - orig;
+  return orig;
+};
+
 } // END %include
 
 %extra_argument { QueryParseCtx *ctx }
@@ -563,19 +598,30 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-text_expr(A) ::= QUOTE EXACT(B) QUOTE. [TERMLIST] {
+text_expr(A) ::= EXACT(B) . [TERMLIST] {
   printf("EXACT: %.*s\n", B.len, B.s);
   char *word;
   char *str = strndup(B.s, B.len);
 
   A = NewPhraseNode(0);
-  word = strtok(str, " \t,./(){}[];:~!@#%^&*-=+|\\`\"<>?");
-  while (word != NULL) {
-    size_t len = strlen(word);
-    QueryNode *C = NewTokenNode(ctx, rm_strdupcase(word, len), len);
-    QueryNode_AddChild(A, C);
-    printf("WORD: %s\n", word);
-    word = strtok(NULL, " ");
+  // word = strtok(str, " \t,./(){}[];:~!@#%^&*-=+|\\`\"<>?");
+  // while (word != NULL) {
+  //   size_t len = strlen(word);
+  //   QueryNode *C = NewTokenNode(ctx, rm_strdupcase(word, len), len);
+  //   QueryNode_AddChild(A, C);
+  //   printf("WORD: %s\n", word);
+  //   word = strtok(NULL, " ");
+  // }
+
+  while (str != NULL) {
+    // get the next token
+    size_t tokLen;
+    char *tok = toksep2(&str, &tokLen);
+    printf("WORD: %s len=%ld\n", tok, tokLen);
+    if(tokLen > 0) {
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+      QueryNode_AddChild(A, C);
+    }
   }
 
   free(str);
