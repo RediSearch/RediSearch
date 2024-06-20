@@ -224,21 +224,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  if (RSGlobalConfig.numWorkerThreads > 0) {
-    // If the module configuration states that worker threads should always be active,
-    // we log about the threadpool creation.
-    DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-    DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
-                      "when possible", RSGlobalConfig.highPriorityBiasNum);
-  } else
-    // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
-    // VSS lib is async by default.
+  DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
+                    "when possible", RSGlobalConfig.highPriorityBiasNum);
+#else
+  // If we don't have a thread pool,
+  // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+  VecSim_SetWriteMode(VecSim_WriteInPlace);
 #endif
-  {
-    // If we don't have a thread pool,
-    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
-    VecSim_SetWriteMode(VecSim_WriteInPlace);
-  }
 
   IndexAlias_InitGlobal();
 

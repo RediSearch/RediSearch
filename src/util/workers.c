@@ -19,6 +19,7 @@
 
 redisearch_thpool_t *_workers_thpool = NULL;
 size_t yield_counter = 0;
+bool in_event = false;
 
 static void yieldCallback(void *yieldCtx) {
   yield_counter++;
@@ -30,28 +31,47 @@ static void yieldCallback(void *yieldCtx) {
   RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
 }
 
+/* Configure here anything that needs to know it can use the thread pool */
+static void workersThreadPool_OnTurnOn(size_t new_num) {
+  // Log that we've enabled the thread pool.
+  RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu", new_num);
+  // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
+  VecSim_SetWriteMode(VecSim_WriteAsync);
+}
+
+/* Configure here anything that needs to know it cannot use the thread pool anymore */
+static void workersThreadPool_OnTurnOff(size_t old_num) {
+  RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu", old_num);
+  VecSim_SetWriteMode(VecSim_WriteInPlace);
+}
+
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
   assert(_workers_thpool == NULL);
 
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
-
+  if (worker_count > 0) {
+    workersThreadPool_OnTurnOn(worker_count);
+  } else {
+    workersThreadPool_OnTurnOff(worker_count);
+  }
   return REDISMODULE_OK;
 }
 
 size_t workersThreadPool_SetNumWorkers(size_t worker_count) {
-  if(_workers_thpool == NULL) return worker_count;
+  if (_workers_thpool == NULL || in_event) return worker_count;
 
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
   size_t new_num_threads = worker_count;
 
-  if(worker_count == 0) {
-    RedisModule_Log(RSDummyContext, "notice", "Terminating workers threadpool. Executing pending jobs and terminating threads");
+  if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
+    workersThreadPool_OnTurnOff(curr_workers);
   } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
+    if (!curr_workers) workersThreadPool_OnTurnOn(worker_count);
   } else if (worker_count < curr_workers) {
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
   }
@@ -109,32 +129,17 @@ void workersThreadPool_OnEventStart() {
   if (RSGlobalConfig.minOperationWorkers > RSGlobalConfig.numWorkerThreads) {
     workersThreadPool_SetNumWorkers(RSGlobalConfig.minOperationWorkers);
   }
-  /* Configure here anything that needs to know it can use the thread pool */
-  if (!RSGlobalConfig.numWorkerThreads && RSGlobalConfig.minOperationWorkers) {
-    // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
-    VecSim_SetWriteMode(VecSim_WriteAsync);
-
-    // Finally, log that we've enabled the thread pool.
-    RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu",
-                    RSGlobalConfig.minOperationWorkers);
-  }
+  in_event = true; // Don't allow changing the number of threads while in event
 }
 
 void workersThreadPool_OnEventEnd(bool wait) {
-  if (RSGlobalConfig.minOperationWorkers > RSGlobalConfig.numWorkerThreads) {
-    workersThreadPool_SetNumWorkers(RSGlobalConfig.numWorkerThreads);
-  }
+  in_event = false; // Event ended. Setting the number of workers according to the configuration
+  workersThreadPool_SetNumWorkers(RSGlobalConfig.numWorkerThreads);
+  // Wait until all the threads are finished the jobs currently in the queue. Note that we call
+  // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
+  // no-op if numWorkerThreads == minOperationWorkers == 0
   if (wait) {
-    // Wait until all the threads are finished the jobs currently in the queue. Note that we call
-    // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
-    // no-op if numWorkerThreads == minOperationWorkers == 0
     redisearch_thpool_wait(_workers_thpool);
-  }
-  /* Configure here anything that needs to know it cannot use the thread pool anymore */
-  if (!RSGlobalConfig.numWorkerThreads && RSGlobalConfig.minOperationWorkers) {
-    VecSim_SetWriteMode(VecSim_WriteInPlace);
-    RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu",
-                    RSGlobalConfig.minOperationWorkers);
   }
 }
 
