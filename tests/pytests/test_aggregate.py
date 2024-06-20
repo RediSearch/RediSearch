@@ -1011,7 +1011,7 @@ def test_aggregate_filter_on_missing_values():
     env = setup_missing_values_index()
     # Search for the documents with the indexed fields (sanity)
     # document doc1 has no value for num1, so we expect to receive the mentioned error
-    e = (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2')
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2')
          .apply(extract_error).apply(extract_error_text)
          .contains('num1: has no value, consider using EXISTS if applicable'))
     env.flush()
@@ -1024,7 +1024,7 @@ def test_aggregate_group_by_on_missing_values():
 
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index()
-    e = (env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', 'num1', 'APPLY', '@num1/2')
+    (env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', 'num1', 'APPLY', '@num1/2')
          .apply(extract_error).apply(extract_error_text)
          .contains('num1: has no value, consider using EXISTS if applicable'))
     env.flush()
