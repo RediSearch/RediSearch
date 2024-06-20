@@ -44,7 +44,7 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T ISMISSING.
+%fallback TERM EXACT AS_T ISMISSING.
 
 %token_type {QueryToken}
 
@@ -164,6 +164,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type verbatim { QueryNode * }
 %destructor verbatim { QueryNode_Free($$); }
+
+%type exact { QueryNode * }
+%destructor exact { QueryNode_Free($$); }
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
@@ -560,17 +563,23 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-text_expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
-  // TODO: Quoted/verbatim string in termlist should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  B->pn.exact = 1;
-  B->opts.flags |= QueryNode_Verbatim;
+text_expr(A) ::= QUOTE EXACT(B) QUOTE. [TERMLIST] {
+  printf("EXACT: %.*s\n", B.len, B.s);
+  char *word;
+  char *str = strndup(B.s, B.len);
 
-  A = B;
-}
+  A = NewPhraseNode(0);
+  word = strtok(str, " \t,./(){}[];:~!@#%^&*-=+|\\`\"<>?");
+  while (word != NULL) {
+    size_t len = strlen(word);
+    QueryNode *C = NewTokenNode(ctx, rm_strdupcase(word, len), len);
+    QueryNode_AddChild(A, C);
+    printf("WORD: %s\n", word);
+    word = strtok(NULL, " ");
+  }
 
-text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  free(str);
+  A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -780,6 +789,12 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 tag_list(A) ::= termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
+}
+
+tag_list(A) ::= QUOTE EXACT(B) QUOTE . [TAGLIST] {
+  printf("EXACT: %.*s\n", B.len, B.s);
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {

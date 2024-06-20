@@ -51,8 +51,8 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
 exact = quote . ( (any - quote) | (escape.quote))+ . quote;
+term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
@@ -276,12 +276,29 @@ main := |*
   };
 
   exact => {
-    // printf("exact\n");
+    tok.numval = 0;
+    tok.len = 1;
+    tok.s = ts;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, QUOTE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    printf("lexer exact %.*s\n", (int)(te - ts), ts);
     tok.len = te - (ts + 2);
     tok.s = ts + 1;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, TERM, tok, q);
+    RSQuery_Parse_v2(pParser, EXACT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+
+    tok.len = 1;
+    tok.s = te - 1;
+    tok.pos = tok.s - q->raw;
+    RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
