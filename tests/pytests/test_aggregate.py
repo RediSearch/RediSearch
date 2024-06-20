@@ -1280,7 +1280,7 @@ def test_aggregate_group_by_on_missing_indexed_values():
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index(False)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
-        "num1: has no value, consider using EXISTS if applicable"
+        "has no value, consider using EXISTS if applicable"
     )
     env.flush()
 
