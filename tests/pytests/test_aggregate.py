@@ -869,7 +869,7 @@ def testLoadPosition(env):
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
                   'APPLY', '@t2', 'AS', 'load_error',
                   'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    env.assertContains('t2: has no value, consider using EXISTS if applicable', str(res[1]))
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
@@ -995,7 +995,7 @@ def setup_missing_values_index():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
 
     # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'tag', 'val', 'num2', '5.5')
+    conn.execute_command('HSET', 'doc1', 'tag', 'val')
     conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
     return env
 
@@ -1003,8 +1003,12 @@ def test_aggregate_filter_on_missing_values():
     env = setup_missing_values_index()
     # Search for the documents with the indexed fields (sanity)
     # document doc1 has no value for num1, so we expect to receive the mentioned error
-    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
-     contains('num1: has no value, consider using EXISTS if applicable'))
+    e = env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2')
+    error = ['num1: has no value, consider using EXISTS if applicable', None]
+    if env.isCluster():
+        e.contains(error)
+    else:
+        e.error().contains(error)
     env.flush()
 
 def test_aggregate_group_by_on_missing_values():
@@ -1015,7 +1019,10 @@ def test_aggregate_group_by_on_missing_values():
 
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index()
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
-        "has no value, consider using EXISTS if applicable"
-    )
+    e = env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', 'num1', 'APPLY', '@num1/2')
+    error = ['num1: has no value, consider using EXISTS if applicable', None]
+    if env.isCluster():
+        e.contains(error)
+    else:
+        e.error().contains(error)
     env.flush()
