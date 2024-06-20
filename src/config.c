@@ -193,12 +193,9 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
-
-  size_t res = workersThreadPool_SetNumWorkers(newNumThreads);
-  RS_LOG_ASSERT_FMT(res == newNumThreads, "Attempt to change the workers thpool size to %lu "
-                                          "resulted unexpectedly in %lu threads.", newNumThreads, res);
-
   config->numWorkerThreads = newNumThreads;
+
+  workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
@@ -218,6 +215,9 @@ CONFIG_SETTER(setMinOperationWorkers) {
     return errorTooManyThreads(status);
   }
   config->minOperationWorkers = newNumThreads;
+  // Will only change the number of workers if we are in an event,
+  // and `numWorkerThreads` is less than `minOperationWorkers`.
+  workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
 

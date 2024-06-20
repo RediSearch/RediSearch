@@ -59,9 +59,13 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
-size_t workersThreadPool_SetNumWorkers(size_t worker_count) {
-  if (_workers_thpool == NULL || in_event) return worker_count;
+void workersThreadPool_SetNumWorkers() {
+  if (_workers_thpool == NULL) return;
 
+  size_t worker_count = RSGlobalConfig.numWorkerThreads;
+  if (in_event && RSGlobalConfig.minOperationWorkers > worker_count) {
+    worker_count = RSGlobalConfig.minOperationWorkers;
+  }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
   size_t new_num_threads = worker_count;
 
@@ -76,7 +80,9 @@ size_t workersThreadPool_SetNumWorkers(size_t worker_count) {
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
   }
 
-  return new_num_threads;
+  RS_LOG_ASSERT_FMT(new_num_threads == worker_count,
+    "Attempt to change the workers thpool size to %lu "
+    "resulted unexpectedly in %lu threads.", worker_count, new_num_threads);
 }
 
 // return number of currently working threads
@@ -126,15 +132,13 @@ void workersThreadPool_Destroy(void) {
 }
 
 void workersThreadPool_OnEventStart() {
-  if (RSGlobalConfig.minOperationWorkers > RSGlobalConfig.numWorkerThreads) {
-    workersThreadPool_SetNumWorkers(RSGlobalConfig.minOperationWorkers);
-  }
-  in_event = true; // Don't allow changing the number of threads while in event
+  in_event = true;
+  workersThreadPool_SetNumWorkers();
 }
 
 void workersThreadPool_OnEventEnd(bool wait) {
-  in_event = false; // Event ended. Setting the number of workers according to the configuration
-  workersThreadPool_SetNumWorkers(RSGlobalConfig.numWorkerThreads);
+  in_event = false;
+  workersThreadPool_SetNumWorkers();
   // Wait until all the threads are finished the jobs currently in the queue. Note that we call
   // block main thread while we wait, so we have to make sure that number of jobs isn't too large.
   // no-op if numWorkerThreads == minOperationWorkers == 0
