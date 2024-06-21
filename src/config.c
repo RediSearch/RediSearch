@@ -22,6 +22,9 @@
 
 #include "util/config_macros.h"
 
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
@@ -667,12 +670,17 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getTimeout},
 #ifdef MT_BUILD
         {.name = "WORKERS",
-         .helpText = "", // TODO: add help text
+         .helpText = "Number of worker threads to use for query processing ang background tasks. Default is 0."
+         #ifdef RS_COORDINATOR
+                     " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
+         #endif
+         ,
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
         },
         {.name = "MIN_OPERATION_WORKERS",
-         .helpText = "", // TODO: add help text
+         .helpText = "Number of worker threads to use for background tasks when the server is in an operation event. "
+                     "Default is " STRINGIFY(MIN_OPERATION_WORKERS),
          .setValue = setMinOperationWorkers,
          .getValue = getMinOperationWorkers,
         },
