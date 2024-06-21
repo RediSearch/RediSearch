@@ -670,7 +670,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getTimeout},
 #ifdef MT_BUILD
         {.name = "WORKERS",
-         .helpText = "Number of worker threads to use for query processing ang background tasks. Default is 0."
+         .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
          #ifdef RS_COORDINATOR
                      " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
          #endif

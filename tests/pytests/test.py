@@ -4198,15 +4198,13 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(asan=True)
+@skip(asan=True, cluster=False)
 def test_timeoutCoordSearch_NonStrict(env):
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path"""
 
     if VALGRIND:
         unittest.SkipTest()
-
-    SkipOnNonCluster(env)
 
     # Create and populate an index
     n_docs_pershard = 1100
@@ -4224,7 +4222,7 @@ def test_timeoutCoordSearch_NonStrict(env):
     res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
     env.assertLessEqual(res[0], n_docs)
 
-@skip(asan=True)
+@skip(asan=True, cluster=False)
 def test_timeoutCoordSearch_Strict():
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path, when the timeout policy is strict"""
@@ -4233,8 +4231,6 @@ def test_timeoutCoordSearch_Strict():
         unittest.SkipTest()
 
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
-
-    SkipOnNonCluster(env)
 
     # Create and populate an index
     n_docs_pershard = 50000

@@ -38,12 +38,10 @@ def check_info_commandstats(env, cmd):
     res = env.cmd('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
+@skip(cluster=False, redis_less_than="6.2.0")
 def testCommandStatsOnRedis(env):
     # This test checks the total time spent on the Coordinator is greater then
     # on a single shard
-    SkipOnNonCluster(env)
-    if not server_version_at_least(env, "6.2.0"):
-        env.skip()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
@@ -69,9 +67,9 @@ def test_curly_brackets(env):
     env.expect('ft.search', 'idx', 'hello').equal([1, 'foo{bar}', ['t', 'Hello world!']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])
 
+@skip(cluster=False)
 def test_MOD_3540(env):
     # check server does not crash when MAX argument for SORTBY is greater than 10
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -80,6 +78,7 @@ def test_MOD_3540(env):
 
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'MAX', '20')
 
+@skip(cluster=False)
 def test_error_propagation_from_shards(env):
     """Tests that errors from the shards are propagated properly to the
     coordinator, for both `FT.SEARCH` and `FT.AGGREGATE` commands.
@@ -89,8 +88,6 @@ def test_error_propagation_from_shards(env):
 
     * Timeouts are handled and tested separately.
     """
-
-    SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
     env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
@@ -107,6 +104,7 @@ def test_error_propagation_from_shards(env):
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
 
+@skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
     We check that the coordinator returns a timeout error when the timeout is
@@ -114,7 +112,6 @@ def test_timeout():
     """
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1')
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     # Create the index
