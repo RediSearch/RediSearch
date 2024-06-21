@@ -93,9 +93,6 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
     RLookup_WriteKey(dstkey, &group->rowdata, (RSValue *)groupvals[ii]);
-    // printf("Write: %s => ", dstkey->name);
-    // RSValue_Print(groupvals[ii]);
-    // printf("\n");
   }
   return group;
 }
@@ -120,23 +117,11 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     }
 
     Group *gr = kh_value(g->groups, g->iter);
-    // no reducers; just a terminal GROUPBY...
-
-    if (!GROUPER_NREDUCERS(g)) {
-      writeGroupValues(g, gr, r);
-    }
-    // else...
+    writeGroupValues(g, gr, r);
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
-      if (v) {
-        RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
-        writeGroupValues(g, gr, r);
-      } else {
-        // FIXME!
-        // Error! Couldn't get value? Handle me here!
-        // printf("Finalize() returned bad value!\n");
-      }
+      RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
     }
     ++g->iter;
     return RS_RESULT_OK;
@@ -294,12 +279,12 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
-  g->srckeys = rm_calloc(nkeys, sizeof(*g->srckeys));
-  g->dstkeys = rm_calloc(nkeys, sizeof(*g->dstkeys));
   g->nkeys = nkeys;
-  for (size_t ii = 0; ii < nkeys; ++ii) {
-    g->srckeys[ii] = srckeys[ii];
-    g->dstkeys[ii] = dstkeys[ii];
+  if (nkeys) {
+    g->srckeys = rm_malloc(nkeys * sizeof(*g->srckeys));
+    g->dstkeys = rm_malloc(nkeys * sizeof(*g->dstkeys));
+    memcpy(g->srckeys, srckeys, nkeys * sizeof(*g->srckeys));
+    memcpy(g->dstkeys, dstkeys, nkeys * sizeof(*g->dstkeys));
   }
 
   g->base.type = RP_GROUP;
