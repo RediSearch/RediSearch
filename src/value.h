@@ -60,8 +60,6 @@ typedef enum {
   RSString_Malloc = 0x01,
   RSString_RMAlloc = 0x02,
   RSString_SDS = 0x03,
-  // Volatile strings are strings that need to be copied when retained
-  RSString_Volatile = 0x04,
 } RSStringType;
 
 #define RSVALUE_STATIC \
@@ -267,22 +265,6 @@ static inline int RSValue_IsNull(const RSValue *value) {
   return 0;
 }
 
-/* Make sure a value can be long lived. If the underlying value is a volatile string that might go
- * away in the next iteration, we copy it at that stage. This doesn't change the ref count.
- * A volatile string usually comes from a block allocator and is not freed in RSVAlue_Free, so just
- * discarding the pointer here is "safe" */
-static inline RSValue *RSValue_MakePersistent(RSValue *v) {
-  if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
-    v->strval.str = rm_strndup(v->strval.str, v->strval.len);
-    v->strval.stype = RSString_Malloc;
-  } else if (v->t == RSValue_Array) {
-    for (size_t i = 0; i < v->arrval.len; i++) {
-      RSValue_MakePersistent(v->arrval.vals[i]);
-    }
-  }
-  return v;
-}
-
 /**
  * Copies a string using the default mechanism. Returns the copied value.
  */
@@ -447,17 +429,6 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
 void RSValue_Print(const RSValue *v);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
-
-#ifdef __cplusplus
-#define RSVALUE_STATICALLOC_INIT(T) RSValue(T)
-#else
-#define RSVALUE_STATICALLOC_INIT(T) \
-  { .t = T }
-#endif
-
-/** Static value pointers. These don't ever get decremented */
-static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
-static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
 
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range
