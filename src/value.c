@@ -66,7 +66,6 @@ void RSValue_Clear(RSValue *v) {
           sdsfree(v->strval.str);
           break;
         case RSString_Const:
-        case RSString_Volatile:
           break;
       }
       break;
@@ -411,7 +410,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-/* Create a new NULL RSValue */
+/* Returns a pointer to the NULL RSValue */
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
