@@ -415,7 +415,7 @@ def test_switch_loader_modes():
 
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
 
-@skip(cluster=False)
+@skip(cluster=False, noWorkers=True)
 def test_change_num_connections(env: Env):
 
     # Validate the default values
@@ -433,11 +433,10 @@ def test_change_num_connections(env: Env):
     #  '127.0.0.1:6381', ['Connected', 'Connecting'],
     #  '127.0.0.1:6383', ['Connected', 'Connected']]
     def expected(conns):
-        exp = []
-        for _ in range(env.shardsCount):
-            exp.append(ANY) # The shard id (host:port)
-            exp.append([ANY] * conns) # The connections states
-        return exp
+        return [
+            ANY,          # The shard id (host:port)
+            [ANY] * conns # The connections states
+        ] * env.shardsCount
 
     # By default, the number of connections is 1
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(1))
