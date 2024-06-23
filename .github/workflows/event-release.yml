@@ -127,9 +127,9 @@ jobs:
           def get_target_name(name):
               return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
 
-          def group_print(title, args):
-              print("::group::" + title)
-              print(*args, sep="\n")
+          def group_print(title, files):
+              print(f"::group::{title} ({len(files)} files)")
+              print(*files, sep="\n")
               print("::endgroup::")
 
           ############################### Main Script ###############################
