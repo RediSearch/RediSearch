@@ -7,18 +7,14 @@ on:
     branches:
       - master
       - '[0-9]+.[0-9]+'
-      - guyav-release_flow_improvement # TEMP: for testing
 
 jobs:
   deploy-snapshots:
     concurrency:
       group: snapshot-${{ github.ref_name }} # Snapshot guard for each branch
       cancel-in-progress: true # Cancel previous snapshot builds. Only the latest snapshot build will be kept.
-    # secrets: inherit
-    # uses: ./.github/workflows/flow-build-artifacts.yml
-    runs-on: ubuntu-latest
-    steps:
-      - run: exit 1
+    secrets: inherit
+    uses: ./.github/workflows/flow-build-artifacts.yml
 
   notify-failure:
     needs: deploy-snapshots
