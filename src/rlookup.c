@@ -599,10 +599,21 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
+// returns true if the value of the key is already available
+// avoids the need to call to redis api to get the value
+// i.e we can use the sorting vector as a cache
+static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
+  return (!options->forceLoad && (
+        // No need to "write" this key. It's always implicitly loaded!
+        (kk->flags & RLOOKUP_F_VAL_AVAILABLE) ||
+        // There is no value in the sorting vector, and we don't need to load it from the document.
+        ((kk->flags & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
+    ));
+}
+
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
-  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
-    // No need to "write" this key. It's always implicitly loaded!
+  if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
 
@@ -657,8 +668,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     return REDISMODULE_ERR;
   }
 
-  if (!options->forceLoad && (kk->flags & RLOOKUP_F_VAL_AVAILABLE)) {
-    // No need to "write" this key. It's always implicitly loaded!
+  if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
 
@@ -772,13 +782,8 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookupKey *rlk = RLookup_FindKey(pd->it, fieldCStr, fieldCStrLen);
   if (!rlk) {
     // First returned document, create the key.
-    uint32_t flags = pd->options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
-    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, flags);
-    if (!rlk) {
-      return; // Key is sortable, can load it from the sort vector on demand.
-    }
-  } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
-             (!pd->options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
+    rlk = RLookup_GetKey_LoadEx(pd->it, fieldCStr, fieldCStrLen, fieldCStr, RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC);
+  } else if ((rlk->flags & RLOOKUP_F_QUERYSRC)
             /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
     return; // Key name is already taken by a query key, or it's already loaded.
   }
@@ -824,13 +829,8 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookupKey *rlk = RLookup_FindKey(it, kstr, klen);
       if (!rlk) {
         // First returned document, create the key.
-        uint32_t flags = options->forceLoad ? RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NAMEALLOC;
-        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, flags);
-        if (!rlk) {
-          continue; // Key is sortable, can load it from the sort vector on demand.
-        }
-      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC) ||
-                 (!options->forceLoad && rlk->flags & RLOOKUP_F_VAL_AVAILABLE && !(rlk->flags & RLOOKUP_F_ISLOADED))
+        rlk = RLookup_GetKey_LoadEx(it, kstr, klen, kstr, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
+      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC)
                  /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
         continue; // Key name is already taken by a query key, or it's already loaded.
       }

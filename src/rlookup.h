@@ -360,7 +360,7 @@ typedef struct {
    * Don't use sortables when loading documents. This will enforce the loader to load
    * the fields from the document itself, even if they are sortables and un-normalized.
    */
-  int forceLoad;
+  bool forceLoad;
 
   /**
    * Force string return; don't coerce to native type
