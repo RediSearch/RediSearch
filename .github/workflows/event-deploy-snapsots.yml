@@ -8,11 +8,27 @@ on:
       - master
       - '[0-9]+.[0-9]+'
 
-concurrency:
-  group: snapshot-${{ github.ref_name }} # Snapshot guard for each branch
-  cancel-in-progress: true # Cancel previous snapshot builds. Only the latest snapshot build will be kept.
-
 jobs:
   deploy-snapshots:
+    concurrency:
+      group: snapshot-${{ github.ref_name }} # Snapshot guard for each branch
+      cancel-in-progress: true # Cancel previous snapshot builds. Only the latest snapshot build will be kept.
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
+
+  notify-failure:
+    needs: deploy-snapshots
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "branch": "${{ github.ref_name }}",
+              "workflow_page": "${{ github.server_url }}/${{ github.repository }}/actions/workflows/event-deploy-snapsots.yml/?query=branch%3A${{ github.ref_name }}",
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_AI_SEARCH }}
