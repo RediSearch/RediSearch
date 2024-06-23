@@ -635,6 +635,8 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
+    // The result contains an expired document.
+    r->flags |= Result_ExpiredDoc;
     QueryError_ClearError(&self->status);
   }
 }

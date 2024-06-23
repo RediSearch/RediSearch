@@ -199,49 +199,53 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    // Get the number of fields in the reply.
-    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-    SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
-    int excludeFlags = RLOOKUP_F_HIDDEN;
-    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+    if (r->flags & Result_ExpiredDoc) {
+      RedisModule_Reply_Null(reply);
+    } else {
+      // Get the number of fields in the reply.
+      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
+      SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
+      int excludeFlags = RLOOKUP_F_HIDDEN;
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
-    RedisModule_Reply_Map(reply);
-      int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
-          continue;
-        }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-        SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-        flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-        unsigned int apiVersion = req->sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
-          // Which value to use for duo value
-          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-            // STRING
-            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-              // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
-            } else {
-              // Single
-              v = RS_DUOVAL_VAL(*v);
-            }
-          } else {
-            // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
+      RedisModule_Reply_Map(reply);
+        int i = 0;
+        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+          if (!kk->name || !skipFieldIndex[i++]) {
+            continue;
           }
+          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+          RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+
+          SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+          flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+          unsigned int apiVersion = req->sctx->apiVersion;
+          if (v && v->t == RSValue_Duo) {
+            // Which value to use for duo value
+            if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+              // STRING
+              if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+                // Multi
+                v = RS_DUOVAL_OTHERVAL(*v);
+              } else {
+                // Single
+                v = RS_DUOVAL_VAL(*v);
+              }
+            } else {
+              // EXPAND
+              v = RS_DUOVAL_OTHER2VAL(*v);
+            }
+          }
+          RSValue_SendReply(reply, v, flags);
         }
-        RSValue_SendReply(reply, v, flags);
-      }
-    RedisModule_Reply_MapEnd(reply);
+      RedisModule_Reply_MapEnd(reply);
+    }
   }
 
 _out:
