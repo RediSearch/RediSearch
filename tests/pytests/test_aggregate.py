@@ -1215,3 +1215,36 @@ def testWithKNN(env):
                                'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
     env.assertEqual(res[1:], expected_res)
+
+def setup_missing_values_index():
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
+    conn = getConnectionByEnv(env)
+    schema = ['tag', 'TAG', 'num1', 'NUMERIC', 'num2', 'NUMERIC']
+    schema = [part for part in schema if part is not None]
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'tag', 'val', 'num2', '5.5')
+    conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
+    return env
+
+def test_aggregate_filter_on_missing_values():
+    env = setup_missing_values_index()
+    # Search for the documents with the indexed fields (sanity)
+    # document doc1 has no value for num1, so we expect to receive the mentioned error
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
+     contains('num1: has no value, consider using EXISTS if applicable'))
+    env.flush()
+
+def test_aggregate_group_by_on_missing_values():
+    env = setup_missing_values_index()
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    env.flush()
+
+def test_aggregate_apply_on_missing_values():
+    env = setup_missing_values_index()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
+        "has no value, consider using EXISTS if applicable"
+    )
+    env.flush()

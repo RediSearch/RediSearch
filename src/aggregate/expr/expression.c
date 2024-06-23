@@ -219,7 +219,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+      QueryError_SetErrorFmt(eval->err, QUERY_ENOPROPVAL, "%s: has no value, consider using EXISTS if applicable", e->lookupObj->name);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
