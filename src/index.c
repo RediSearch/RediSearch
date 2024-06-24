@@ -148,7 +148,7 @@ static void UI_Rewind(void *ctx) {
   }
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
                                 double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
