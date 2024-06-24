@@ -611,14 +611,6 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
   char *str = strndup(B.s, B.len);
 
   A = NewPhraseNode(0);
-  // word = strtok(str, " \t,./(){}[];:~!@#%^&*-=+|\\`\"<>?");
-  // while (word != NULL) {
-  //   size_t len = strlen(word);
-  //   QueryNode *C = NewTokenNode(ctx, rm_strdupcase(word, len), len);
-  //   QueryNode_AddChild(A, C);
-  //   printf("WORD: %s\n", word);
-  //   word = strtok(NULL, " ");
-  // }
 
   while (str != NULL) {
     // get the next token
