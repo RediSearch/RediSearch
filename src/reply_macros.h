@@ -17,3 +17,23 @@
 
 #define REPLY_MAP_END     RedisModule_Reply_MapEnd(reply)
 #define REPLY_ARRAY_END   RedisModule_Reply_ArrayEnd(reply)
+
+#define REPLY_KVSTR_SAFE(k, v)         \
+  do {                                 \
+    char *v_ = (char *)(v);            \
+    if (isUnsafeForSimpleString(v_)) { \
+      v_ = escapeSimpleString(v_);     \
+    }                                  \
+    REPLY_KVSTR(k, v_);                \
+    if (v_ != (v)) rm_free(v_);        \
+  } while (0)
+
+#define REPLY_SIMPLE_SAFE(v)                   \
+  do {                                         \
+    char *v_ = (char *)(v);                    \
+    if (isUnsafeForSimpleString(v_)) {         \
+      v_ = escapeSimpleString(v_);             \
+    }                                          \
+    RedisModule_Reply_SimpleString(reply, v_); \
+    if (v_ != (v)) rm_free(v_);                \
+  } while (0)
