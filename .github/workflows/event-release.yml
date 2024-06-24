@@ -120,16 +120,17 @@ jobs:
               with ZipFile(zip_name, "r") as z:
                   with z.open("module.json") as f:
                       obj = json.load(f)
-                      return str(obj["git_sha"]).strip("\"'b")
+                      sha = str(obj["git_sha"]) # handle bytes, str, and bytes string representation
+                      return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
           # new location is outside snapshots/ directory.
           # Only called on files we know end with `suffix`
           def get_target_name(name):
               return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
 
-          def group_print(title, files):
-              print(f"::group::{title} ({len(files)} files)")
-              print(*files, sep="\n")
+          def group_print(title, args):
+              print(f"::group::{title} ({len(args)})")
+              print(*args, sep="\n")
               print("::endgroup::")
 
           ############################### Main Script ###############################
@@ -158,6 +159,7 @@ jobs:
           group_print("New Files", dest_files)
 
           if len(exclude_list) > 0:
+              group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
                     "expected git sha. These files will not be included in the release artifacts. Look for the "
                     "`Excluded files` section above for more details.")
