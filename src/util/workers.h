@@ -17,7 +17,7 @@
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
 
-// Set the number of workers according to the configuration.
+// Set the number of workers according to the configuration and server state
 void workersThreadPool_SetNumWorkers(void);
 
 // return number of currently working threads

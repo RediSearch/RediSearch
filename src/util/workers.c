@@ -59,6 +59,17 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   return REDISMODULE_OK;
 }
 
+/**
+ * Set the number of workers according to the configuration.
+ * Global input:
+ * @param numWorkerThreads (from RSGlobalConfig),
+ * @param minOperationWorkers (from RSGlobalConfig).
+ * @param in_event (global flag in this file).
+ * New workers number should be `in_event ? MAX(numWorkerThreads, minOperationWorkers) : numWorkerThreads`.
+ * This function also handles the cases where the thread pool is turned on/off.
+ * If new worker count is 0, the current living workers will continue to execute pending jobs and then terminate.
+ * No new jobs should be added after setting the number of workers to 0.
+ */
 void workersThreadPool_SetNumWorkers() {
   if (_workers_thpool == NULL) return;
 
