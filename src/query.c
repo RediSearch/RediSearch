@@ -514,7 +514,6 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
-  rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
     return;
@@ -549,11 +548,12 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
          (itsSz < q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
+    rm_free(target_str);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    addTerm(rm_strdup(""), 0, q, opts, &its, &itsSz, &itsCap);
+    addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
   }
 
   TrieIterator_Free(it);
