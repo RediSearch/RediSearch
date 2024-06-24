@@ -547,6 +547,33 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     }
   }
 
+  // Add an iterator over the inverted index of the empty string if it is
+  // `maxDist` away from the query string (for dialect >= 2)
+  if (q->sctx->apiVersion >= 2 && strlen(str) <= maxDist) {
+    // Create a token for the reader
+    RSToken tok = (RSToken){
+        .expanded = 0,
+        .flags = 0,
+        .len = 0,
+        .str = "",
+    };
+    if (q->sctx && q->sctx->redisCtx) {
+      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: \"\" %f", score);
+    }
+    RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+    IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                       q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+    if (ir) {
+      its[itsSz++] = NewReadIterator(ir);
+      if (itsSz == itsCap) {
+        itsCap *= 2;
+        its = rm_realloc(its, itsCap * sizeof(*its));
+      }
+    } else {
+      Term_Free(term);
+    }
+  }
+
   TrieIterator_Free(it);
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
@@ -554,7 +581,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str, q->config);
+  return NewUnionIterator(its, itsSz, 1, opts->weight, type, str, q->config);
 }
 
 typedef struct {
@@ -631,7 +658,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   //   // In case of a single iterator, we can just return it
   //   return ctx.its[0];
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
+    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
   }
 }
@@ -695,7 +722,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight,
+    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
   }
 }
@@ -802,7 +829,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
+    return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
 
@@ -1022,7 +1049,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL, q->config);
+  IndexIterator *ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
 
@@ -1050,7 +1077,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
+    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
 
@@ -1144,7 +1171,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
+  return NewUnionIterator(its, itsSz, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
@@ -1231,7 +1258,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
+  return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
@@ -1363,7 +1390,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL, q->config);
+  ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
   if (k) {

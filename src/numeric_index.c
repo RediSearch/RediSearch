@@ -586,7 +586,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   Vector_Free(v);
 
   QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, type, NULL, config);
+  IndexIterator *it = NewUnionIterator(its, n, 1, 1, type, NULL, config);
 
   return it;
 }
