@@ -81,7 +81,7 @@ if [[ $OS == macos ]]; then
 	if [[ $ARCH == x86_64 ]]; then
 		OSNICK=catalina  # to be aligned with the rest of the modules in redis stack
 	else
-		[[ $OSNICK == ventura ]] && OSNICK=monterey
+		OSNICK=monterey
 	fi
 fi
 
