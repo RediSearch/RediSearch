@@ -517,8 +517,9 @@ void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr, 
+      RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr,
                   RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf)));
+      break;
     case RSExpr_Property:
       RedisModule_ReplyWithPrintf(ctx, "%s - Property %s", typeStr, expr->property.key);
       break;

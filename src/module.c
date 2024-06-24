@@ -38,6 +38,7 @@
 #include "rwlock.h"
 #include "info_command.h"
 #include "rejson_api.h"
+#include "reply_macros.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -237,7 +238,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     char *explain = explainRoot;
     char *curLine = NULL;
     while ((curLine = strsep(&explain, "\n")) != NULL) {
-      RedisModule_ReplyWithSimpleString(ctx, curLine);
+      REPLY_SIMPLE_SAFE(ctx, curLine);
       numElems++;
     }
     RedisModule_ReplySetArrayLength(ctx, numElems);
