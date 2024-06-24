@@ -74,15 +74,6 @@ typedef struct {
   long long minUnionIterHeap;
 } IteratorsConfig;
 
-
-#ifdef MT_BUILD
-typedef enum {
-  MT_MODE_FULL,
-  MT_MODE_ONLY_ON_OPERATIONS,
-} MTMode;
-#endif
-
-
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
 typedef struct {
@@ -110,7 +101,7 @@ typedef struct {
 
 #ifdef MT_BUILD
   size_t numWorkerThreads;
-  MTMode mt_mode;
+  size_t minOperationWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
 #endif
@@ -241,11 +232,12 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
+#define MIN_OPERATION_WORKERS 4
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
     .numWorkerThreads = 0,                                                                                            \
-    .mt_mode = MT_MODE_FULL,                                                                                          \
+    .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
 #else

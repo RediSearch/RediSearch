@@ -20,7 +20,7 @@ def testConfigErrors(env):
     env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1_000_000).error()\
+        env.expect('ft.config', 'set', 'WORKERS', 1_000_000).error()\
             .contains('Number of worker threads cannot exceed')
 
 @skip(cluster=True)
@@ -37,6 +37,8 @@ def testGetConfigOptions(env):
     check_config('MAXPREFIXEXPANSIONS')
     check_config('TIMEOUT')
     if MT_BUILD:
+        check_config('WORKERS')
+        check_config('MIN_OPERATION_WORKERS')
         check_config('WORKER_THREADS')
         check_config('MT_MODE')
         check_config('TIERED_HNSW_BUFFER_LIMIT')
@@ -77,7 +79,10 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('OK')
+        env.expect('ft.config', 'set', 'WORKERS', 1).equal('OK')
+        env.expect('ft.config', 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
+        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('OK') # deprecated
+        env.expect('ft.config', 'set', 'MT_MODE', 1).equal('OK') # deprecated
     env.expect('ft.config', 'set', 'FRISOINI', 1).equal(not_modifiable)
     env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
     env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
@@ -95,7 +100,8 @@ def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKER_THREADS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+        env.expect('ft.config', 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+        env.expect('ft.config', 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
 
 
 @skip(cluster=True)
@@ -117,8 +123,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     if MT_BUILD:
-        env.assertEqual(res_dict['WORKER_THREADS'][0], '0')
-        env.assertEqual(res_dict['MT_MODE'][0], 'MT_MODE_FULL')
+        env.assertEqual(res_dict['WORKERS'][0], '0')
+        env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
         env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
         env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
@@ -160,7 +166,8 @@ def testInitConfig():
     test_arg_num('MAXEXPANSIONS', 5)
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
     if MT_BUILD:
-        test_arg_num('WORKER_THREADS', 3)
+        test_arg_num('WORKERS', 3)
+        test_arg_num('MIN_OPERATION_WORKERS', 3)
         test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
         test_arg_num('PRIVILEGED_THREADS_NUM', 4)
         test_arg_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
@@ -214,8 +221,6 @@ def testInitConfig():
     test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
-    if MT_BUILD:
-        test_arg_str('MT_MODE', 'MT_MODE_FULL')
 
 @skip(cluster=True)
 def testImmutable(env):
@@ -224,7 +229,6 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'NOGC').error().contains(not_modifiable)
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'MT_MODE').error().contains(not_modifiable)
         env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
         env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable) # deprecated
         env.expect('ft.config', 'set', 'WORKERS_PRIORITY_BIAS_THRESHOLD').error().contains(not_modifiable)
@@ -269,6 +273,7 @@ def testInitConfigCoord():
         env.stop()
 
     test_arg_num('SEARCH_THREADS', 3)
+    test_arg_num('CONN_PER_SHARD', 3)
 
 @skip(cluster=False)
 def testImmutableCoord(env):

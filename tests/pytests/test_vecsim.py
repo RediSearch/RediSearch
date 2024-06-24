@@ -580,7 +580,7 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1073,10 +1073,9 @@ def test_hybrid_query_non_vector_score():
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
-
+@skip(cluster=False)
 def test_single_entry():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    SkipOnNonCluster(env)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1094,7 +1093,7 @@ def test_single_entry():
 
 
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1772,7 +1771,7 @@ def test_create_multi_value_json():
 
 
 def test_index_multi_value_json():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 4
     n = 100
@@ -2336,8 +2335,7 @@ def test_score_name_case_sensitivity():
 @skip(cluster=True, noWorkers=True)
 def test_tiered_index_gc():
     N = 100
-    env = Env(moduleArgs=f'WORKER_THREADS 2 MT_MODE MT_MODE_FULL FORK_GC_RUN_INTERVAL 1000000000000'
-                         f' FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2376,7 +2374,7 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], N)
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
-    env.expect(debug_cmd(), 'WORKER_THREADS', 'DRAIN').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
 
     debug_info = get_debug_info()
