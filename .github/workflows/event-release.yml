@@ -151,6 +151,7 @@ jobs:
           # Log files
           group_print("Excluded files", exclude_list)
           group_print("Included files", include_list)
+          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
 
           # Copy included files to another bucket
           for src, dst in zip(include_list, dest_files):
@@ -159,7 +160,6 @@ jobs:
           group_print("New Files", dest_files)
 
           if len(exclude_list) > 0:
-              group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
                     "expected git sha. These files will not be included in the release artifacts. Look for the "
                     "`Excluded files` section above for more details.")
