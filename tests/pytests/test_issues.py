@@ -1119,3 +1119,45 @@ def test_mod_7252(env: Env):
 
   # Find the maximum negative value. The expected result is -1 (from [-10..-1])
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '0', 'REDUCE', 'MAX', '1', '@neg', 'AS', 'max').equal([1, ['max', '-1']])
+
+def test_unsafe_simpleString_values():
+  env = Env(protocol=3) # Some cases only occur in RESP3
+  unsafe_index = 'unsafe\r\nindex'
+  unsafe_field = 'unsafe\r\nfield'
+  unsafe_value = 'unsafe\r\nvalue'
+  escape = lambda s: s.replace('\r', '\\r').replace('\n', '\\n')
+
+  # Test creating an index with unsafe name
+  env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  info = index_info(env, unsafe_index)
+  env.assertEqual(info['index_name'], escape(unsafe_index))
+  env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])
+
+  # Test creating a field with unsafe name (and a tag field with unsafe separator)
+  env.expect('FT.ALTER', unsafe_index, 'SCHEMA', 'ADD', unsafe_field, 'TAG', 'SEPARATOR', '\n').ok()
+  tag_info = index_info(env, unsafe_index)['attributes'][-1]
+  expected = {'identifier': escape(unsafe_field), 'attribute': escape(unsafe_field), 'SEPARATOR': '\\n'}
+  [env.assertEqual(tag_info[k], v, message=k) for k, v in expected.items()]
+
+  # Test indexing failure report
+  env.expect('FT.ALTER', unsafe_index, 'SCHEMA', 'ADD', 'numval', 'NUMERIC').ok()
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', unsafe_value, 'numval', unsafe_value)
+
+  error_info = index_info(env, unsafe_index)['Index Errors']
+  env.assertEqual(error_info['indexing failures'], 1)
+  env.assertContains(escape(unsafe_value), error_info['last indexing error'])
+  env.assertEqual(error_info['last indexing error key'], unsafe_value) # key is not escaped
+
+  # Test search with unsafe value
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', unsafe_value, 't', 'hello', 'numval', 0, unsafe_field, 'tag\r1\ntag\r2')
+
+  get_results = lambda resp3_reply: resp3_reply['results']
+
+  expected = [{'id': unsafe_value, 'extra_attributes': {unsafe_field: 'tag\r1\ntag\r2'}, 'values': []}]
+  env.expect('FT.SEARCH', unsafe_index, '*', 'SORTBY', unsafe_field, 'RETURN', 1, unsafe_field).apply(get_results).equal(expected)
+
+  expected = [{'id': unsafe_value, 'values': []}]
+  env.expect('FT.SEARCH', unsafe_index, '*', 'SORTBY', unsafe_field, 'RETURN', 0).apply(get_results).equal(expected)

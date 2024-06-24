@@ -37,6 +37,9 @@ do {                                            \
   RedisModule_AutoMemory(ctx);                  \
 } while (0)
 
+#define RedisModule_ReplyWithLiteral(ctx, literal) \
+  RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
+
 #ifdef __cplusplus
 }
 #endif

@@ -514,9 +514,9 @@ DEBUG_COMMAND(DumpSuffix) {
     float score;
 
     while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL)) {
-      size_t slen = 0;
+      size_t slen;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_ReplyWithSimpleString(ctx, s);
+      RedisModule_ReplyWithStringBuffer(ctx, s, slen);
       rm_free(s);
       ++resultSize;
     }
@@ -550,7 +550,7 @@ DEBUG_COMMAND(DumpSuffix) {
     void *value;
     while (TrieMapIterator_Next(it, &str, &len, &value)) {
       str[len] = '\0';
-      RedisModule_ReplyWithSimpleString(ctx, str);
+      RedisModule_ReplyWithStringBuffer(ctx, str, len);
       ++resultSize;
     }
 
@@ -900,7 +900,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  RedisModule_ReplyWithSimpleString(ctx, "num_values");
+  RedisModule_ReplyWithLiteral(ctx, "num_values");
   RedisModule_ReplyWithLongLong(ctx, idx->values->cardinality);
   nelem += 2;
 
@@ -919,7 +919,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   InvertedIndex *iv;
 
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "values");
+  RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   seekTagIterator(iter, options.offset);
@@ -931,17 +931,17 @@ DEBUG_COMMAND(InfoTagIndex) {
     }
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    RedisModule_ReplyWithSimpleString(ctx, "value");
+    RedisModule_ReplyWithLiteral(ctx, "value");
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
-    RedisModule_ReplyWithSimpleString(ctx, "num_entries");
+    RedisModule_ReplyWithLiteral(ctx, "num_entries");
     RedisModule_ReplyWithLongLong(ctx, iv->numDocs);
 
-    RedisModule_ReplyWithSimpleString(ctx, "num_blocks");
+    RedisModule_ReplyWithLiteral(ctx, "num_blocks");
     RedisModule_ReplyWithLongLong(ctx, iv->size);
 
     if (options.dumpIdEntries) {
-      RedisModule_ReplyWithSimpleString(ctx, "entries");
+      RedisModule_ReplyWithLiteral(ctx, "entries");
       IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
@@ -977,7 +977,8 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
   if (dmd->flags & Document_HasOffsetVector) {
     strcat(buf, "HasOffsetVector,");
   }
-  RedisModule_ReplyKV_SimpleString(reply, name, buf);
+  RedisModule_Reply_CString(reply, name);
+  RedisModule_Reply_CString(reply, buf);
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
@@ -991,11 +992,11 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
     RedisModule_Reply_Array(reply);
       RedisModule_ReplyKV_LongLong(reply, "index", ii);
 
-      RedisModule_Reply_SimpleString(reply, "field");
+      RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
       RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
 
-      RedisModule_Reply_SimpleString(reply, "value");
+      RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
@@ -1042,10 +1043,10 @@ static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
   while(VecSimInfoIterator_HasNextField(infoIter)) {
     VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
-    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
+    RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
+      RedisModule_ReplyWithCString(ctx, infoField->fieldValue.stringValue);
       break;
     case INFOFIELD_FLOAT64:
       RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);
