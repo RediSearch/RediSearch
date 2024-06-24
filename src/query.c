@@ -498,6 +498,35 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewReadIterator(ir);
 }
 
+static void addTerm(char *str, size_t tok_len, QueryEvalCtx *q, IndexIterator ***its, size_t *itsSz, size_t *itsCap, QueryNodeOptions *opts) {
+  // Create a token for the reader
+  RSToken tok = (RSToken){
+      .expanded = 0,
+      .flags = 0,
+      .len = tok_len,
+      .str = str
+  };
+
+  RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+
+  // Open an index reader
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                     q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+
+  rm_free(tok.str);
+  if (!ir) {
+    Term_Free(term);
+    return;
+  }
+
+  // Add the reader to the iterator array
+  (*its)[(*itsSz)++] = NewReadIterator(ir);
+  if (*itsSz == *itsCap) {
+    *itsCap *= 2;
+    *its = rm_realloc(*its, (*itsCap) * sizeof(*its));
+  }
+}
+
 static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
                                            size_t len, int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
@@ -508,6 +537,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   rune *rstr = NULL;
+  size_t tok_len = 0;
   t_len slen = 0;
   float score = 0;
   int dist = 0;
@@ -515,62 +545,12 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
          (itsSz < q->config->maxPrefixExpansions)) {
-
-    // Create a token for the reader
-    RSToken tok = (RSToken){
-        .expanded = 0,
-        .flags = 0,
-        .len = 0,
-    };
-    tok.str = runesToStr(rstr, slen, &tok.len);
-    if (q->sctx && q->sctx->redisCtx) {
-      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
-    }
-
-    RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-
-    // Open an index reader
-    IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->opts->fieldmask & opts->fieldMask, q->conc, 1);
-
-    rm_free(tok.str);
-    if (!ir) {
-      Term_Free(term);
-      continue;
-    }
-
-    // Add the reader to the iterator array
-    its[itsSz++] = NewReadIterator(ir);
-    if (itsSz == itsCap) {
-      itsCap *= 2;
-      its = rm_realloc(its, itsCap * sizeof(*its));
-    }
+    addTerm(runesToStr(rstr, slen, &tok_len), tok_len, q, &its, &itsSz, &itsCap, opts);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    // Create a token for the reader
-    RSToken tok = (RSToken){
-        .expanded = 0,
-        .flags = 0,
-        .len = 0,
-        .str = "",
-    };
-    if (q->sctx && q->sctx->redisCtx) {
-      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: \"\" %f", score);
-    }
-    RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-    IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->opts->fieldmask & opts->fieldMask, q->conc, 1);
-    if (ir) {
-      its[itsSz++] = NewReadIterator(ir);
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    } else {
-      Term_Free(term);
-    }
+    addTerm(rm_strdup(""), 0, q, &its, &itsSz, &itsCap, opts);
   }
 
   TrieIterator_Free(it);
