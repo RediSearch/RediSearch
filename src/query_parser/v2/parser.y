@@ -16,6 +16,7 @@
 
 %left ISMISSING.
 %left MODIFIER.
+%left MODIFIER_EQUAL.
 
 %left RP RB RSQB.
 
@@ -505,6 +506,12 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
     }
 }
 
+expr(A) ::= modifier_equal(B) param_num(C) . {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+    qp->nf->fieldName = rm_strndup(B.s, B.len);
+    A = NewNumericNode(qp);
+}
+
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
 
     if (C == NULL) {
@@ -771,6 +778,11 @@ modifierlist(A) ::= modifier(B) OR term(C). {
   }
 }
 
+modifier_equal(A) ::= MODIFIER_EQUAL(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
 modifierlist(A) ::= modifierlist(B) OR term(C). {
   if (__builtin_expect(C.len > 0, 1)) {
     char *s = rm_strndup(C.s, C.len);
@@ -877,7 +889,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER] {
   if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
   }

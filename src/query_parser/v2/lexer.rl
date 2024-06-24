@@ -56,6 +56,7 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
+mod_equal = '@'.term.(space*)'='.'=' $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
@@ -105,6 +106,15 @@ main := |*
     tok.len = te - (ts + 1);
     tok.s = ts+1;
     RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  mod_equal => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 2;
+    tok.s = ts+1;
+    RSQuery_Parse_v2(pParser, MODIFIER_EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -264,7 +274,6 @@ main := |*
     }
   };
   term => {
-    // printf("term\n");
     tok.len = te-ts;
     tok.s = ts;
     tok.numval = 0;
@@ -276,7 +285,7 @@ main := |*
   };
 
   exact => {
-    printf("lexer exact %.*s\n", (int)(te - ts), ts);
+    // printf("lexer exact %.*s\n", (int)(te - ts), ts);
     tok.len = te - (ts + 2);
     tok.s = ts + 1;
     tok.numval = 0;
