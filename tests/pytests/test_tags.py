@@ -646,8 +646,8 @@ def testDialect2TagExact():
     # Test tags with leading and trailing spaces
     expected_result = [1, '{doc}:15', ['tag', '  with: space  ', 'id', '15']]
 
-    # res = env.cmd('FT.SEARCH', 'idx', '@tag:{"  with: space  "}')
-    # env.assertEqual(res, expected_result)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{  "with: space"  }')
+    env.assertEqual(res, expected_result)
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"with: space"*}')
     env.assertEqual(res, expected_result)
@@ -794,10 +794,11 @@ def testDialect5InvalidSyntax(env):
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.EXPLAIN", "idx", "@t1:{this\\ single_escape}")
 
-def testDialect2PunctChars():
+def testDialect2SpecialChars():
     """Test search with punct characters with dialect 2."""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
@@ -811,11 +812,12 @@ def testDialect2PunctChars():
 
     # Create docs with a text containing the punct characters
     for c in punct:
-        env.cmd("HSET", f"doc{ord(chr(c))}", "text", f"single\\{chr(c)}term")
+        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text", 
+                             f"single\\{chr(c)}term")
 
     # Create docs without special characters
-    env.cmd("HSET", "doc0", "text", "hanoi")
-    env.cmd("HSET", "doc999", "text", "two words")
+    conn.execute_command("HSET", "doc0", "text", "hanoi")
+    conn.execute_command("HSET", "doc999", "text", "two words")
 
     # Query for a single term, where the punct character is escaped
     for c in punct:
@@ -823,7 +825,7 @@ def testDialect2PunctChars():
 
         # Test exact match
         cmd = f"FT.SEARCH idx @text:(single\\{chr(c)}term) NOCONTENT"
-        res = env.cmd(cmd)
+        res = env.execute_command(cmd)
         env.assertEqual(res, expected)
 
         # Test prefix
@@ -832,30 +834,31 @@ def testDialect2PunctChars():
         else:
             # TODO: why do I need to use the 't' after the backslash?
             cmd = f"FT.SEARCH idx @text:(single\\\\t*) NOCONTENT"
-        res = env.cmd(cmd)
+        res = env.execute_command(cmd)
         env.assertEqual(res, expected)
 
         # Test suffix
         cmd = f"FT.SEARCH idx @text:(*\\{chr(c)}term) NOCONTENT"
-        res = env.cmd(cmd)
+        res = env.execute_command(cmd)
         env.assertEqual(res, expected)
 
         # Test infix
         cmd = f"FT.SEARCH idx @text:(*le\\{chr(c)}te*) NOCONTENT"
-        res = env.cmd(cmd)
+        res = env.execute_command(cmd)
         env.assertEqual(res, expected)
 
         # Test INTERSECTION operator
-        res = env.cmd("FT.SEARCH", "idx",
+        res = env.execute_command("FT.SEARCH", "idx",
                       f"@text:(single\\{chr(c)}term single* *term)", "NOCONTENT")
         env.assertEqual(res, expected)
 
         # Test UNION operator
-        res = env.cmd("FT.SEARCH", "idx",
-                      f"@text:(single\\{chr(c)}term | hanoi)", "NOCONTENT")
-        env.assertEqual(res, [2, f"doc{ord(chr(c))}", "doc0"])
+        res = conn.execute_command("FT.SEARCH", "idx",
+                      f"@text:(single\\{chr(c)}term | hanoi)", "NOCONTENT",
+                      "SORTBY", "text", "ASC")
+        env.assertEqual(res, [2, "doc0", f"doc{ord(chr(c))}"])
 
-    # Query for a single term, where the punct character is NOT escaped
+    # Test queries where the punct character is NOT escaped
     expected = [1, 'doc999', ['text', 'two words']]
     expected_explain = [
         '@text:INTERSECT {',
@@ -878,11 +881,22 @@ def testDialect2PunctChars():
                     '_', '{', '}', '~', '|', '*'}:
             continue
 
-        # Test exact match
-        res = env.cmd("FT.SEARCH", "idx", f"@text:(two{char}words)")
+        res = env.execute_command(
+            "FT.SEARCH", "idx", f"@text:(two{char}words)")
         env.assertEqual(res, expected)
 
-        res = env.cmd("FT.explaincli", "idx", f"@text:(two{char}words)")
+        res = env.execute_command(
+            "FT.EXPLAINCLI", "idx", f"@text:(two{char}words)")
+        env.assertEqual(res, expected_explain)
+
+    # Test control characters
+    for cntrl in range(1,32):
+        res = env.execute_command(
+            "FT.SEARCH", "idx", f"@text:(two{chr(cntrl)}words)")
+        env.assertEqual(res, expected)
+
+        res = env.execute_command(
+            "FT.EXPLAINCLI", "idx", f"@text:(two{chr(cntrl)}words)")
         env.assertEqual(res, expected_explain)
 
 def testTagUNF():
