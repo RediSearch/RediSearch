@@ -8,6 +8,7 @@ on:
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  VERBOSE_UTESTS: 1
 
 jobs:
   coverage:

@@ -184,7 +184,6 @@ RSValue *MRReply_ToValue(MRReply *r) {
       size_t l;
       const char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
-      // v = RS_StringValT(s, l, RSString_Volatile);
       break;
     }
     case MR_REPLY_ERROR: {
