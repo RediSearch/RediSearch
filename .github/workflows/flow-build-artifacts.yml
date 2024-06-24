@@ -128,6 +128,7 @@ jobs:
     needs: [decide-macos, setup]
     if: contains(fromJson('["macos", "all"]'), inputs.platform)
     strategy:
+      fail-fast: false
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
     uses: ./.github/workflows/task-build-artifacts.yml
