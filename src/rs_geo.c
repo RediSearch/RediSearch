@@ -155,7 +155,7 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double wei
     }
   }
   iters = rm_realloc(iters, iterCount * sizeof(*iters));
-  IndexIterator *it = NewUnionIterator(iters, iterCount, NULL, 1, 1);
+  IndexIterator *it = NewUnionIterator(iters, iterCount, 1, 1);
   return it;
 }*/
 

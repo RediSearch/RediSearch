@@ -590,12 +590,6 @@ def testEmptyText():
         cmd_assert(env, cmd, expected)
         conn.execute_command('DEL', 'h2')
 
-        # ----------------------------- Fuzzy search ---------------------------
-        # We don't expect to get empty results in a fuzzy search.
-        cmd = f'FT.SEARCH {idx} %e%'.split(' ')
-        expected = [0]
-        cmd_assert(env, cmd, expected)
-
         # ------------------------------- Summarization ------------------------
         # When searching for such a query, we expect to get an empty value, and
         # thus an "empty summary".
@@ -1306,4 +1300,63 @@ def testEmptyParam():
         res = env.cmd('FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
                       'PARAMS', 2, 'p', '')
         expected = [1, 'h3', ['text1', '']]
+        env.assertEqual(res, expected)
+
+def testemptyfuzzy():
+    """Tests that the fuzzy search is compatible with the empty string, when
+    indexed (relevant for TEXT fields only)."""
+
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TEXT field, that also indexes empty strings
+    env.expect(
+        'FT.CREATE', 'idx', 'SCHEMA',
+        't', 'TEXT', 'INDEXEMPTY',
+        't2', 'TEXT'
+    ).ok()
+
+    # Add a document with an empty value for a TEXT field
+    conn.execute_command('HSET', 'h1', 't', '')
+    conn.execute_command('HSET', 'h2', 't', 'sr')
+
+    queries = ['%s%', '%%s%%', '%%%s%%%', '%%sr%%', '%%%srs%%%']
+    field_queries = [f'@t:{s}' for s in queries]
+    wrong_field_queries = [f'@t2:{s}' for s in queries]
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
+
+        # Search for the document, it should be found (the second is for sanity) for
+        # all supported distances ({1, 2, 3})
+        for s in queries:
+            res = env.cmd('FT.SEARCH', 'idx', s)
+            expected = [2, 'h1', ['t', ''], 'h2', ['t', 'sr']]
+            env.assertEqual(res, expected)
+
+        # The results should not be returned for a field that does not have
+        # matching values
+        for s in wrong_field_queries:
+            res = env.cmd('FT.SEARCH', 'idx', s)
+            expected = EMPTY_RESULT
+            env.assertEqual(res, expected)
+
+        # On the other hand, they should be found for the correct field
+        for s in field_queries:
+            res = env.cmd('FT.SEARCH', 'idx', s)
+            expected = [2, 'h1', ['t', ''], 'h2', ['t', 'sr']]
+            env.assertEqual(res, expected)
+
+        # We should be able to search for strings that are in some distance from the
+        # empty string as well
+        res = env.cmd('FT.SEARCH', 'idx', "%%''%%")
+        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'sr']]
+        env.assertEqual(res, expected)
+
+    # We shouldn't return results for DIALECT 1
+    env.set_dialect(1)
+    for s in queries + field_queries:
+        res = env.cmd('FT.SEARCH', 'idx', s)
+        expected = [1, 'h2', ['t', 'sr']]
         env.assertEqual(res, expected)
