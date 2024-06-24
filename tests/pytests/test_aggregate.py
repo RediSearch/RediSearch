@@ -869,7 +869,7 @@ def testLoadPosition(env):
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
                   'APPLY', '@t2', 'AS', 'load_error',
                   'LOAD', '1', 't2')
-    env.assertContains('Value was not found in result', str(res[1]))
+    env.assertContains('t2: has no value, consider using EXISTS if applicable', str(res[1]))
 
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
@@ -985,3 +985,44 @@ def testGroupProperties(env):
     # Verify that we fail and not returning results from `t`
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'tt').error().contains('Bad arguments for GROUPBY: Unknown property `tt`. Did you mean `@tt`?')
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tt').equal([1, ['tt', 'foo']])
+
+
+def setup_missing_values_index():
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
+    conn = getConnectionByEnv(env)
+    schema = ['tag', 'TAG', 'num1', 'NUMERIC', 'num2', 'NUMERIC']
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'tag', 'val')
+    return env
+
+def extract_error(lst):
+    if lst is None or len(lst) < 2:
+        return lst
+    return lst[1]
+
+def extract_error_text(error):
+    return repr(error)
+
+def test_aggregate_filter_on_missing_values():
+    env = setup_missing_values_index()
+    # Search for the documents with the indexed fields (sanity)
+    # document doc1 has no value for num1, so we expect to receive the mentioned error
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2')
+         .apply(extract_error).apply(extract_error_text)
+         .contains('num1: has no value, consider using EXISTS if applicable'))
+    env.flush()
+
+def test_aggregate_group_by_on_missing_values():
+    env = setup_missing_values_index()
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([1, ['num1', None]])
+    env.flush()
+
+def test_aggregate_apply_on_missing_values():
+    env = setup_missing_values_index()
+    (env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', 'num1', 'APPLY', '@num1/2')
+         .apply(extract_error).apply(extract_error_text)
+         .contains('num1: has no value, consider using EXISTS if applicable'))
+    env.flush()
