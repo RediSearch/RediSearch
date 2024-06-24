@@ -123,8 +123,8 @@ jobs:
                       sha = str(obj["git_sha"]) # handle bytes, str, and bytes string representation
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
 
-          # new location is outside snapshots/ directory.
-          # Only called on files we know end with `suffix`
+          # new location is outside snapshots/ directory and with the new suffix
+          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
           def get_target_name(name):
               return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
 
