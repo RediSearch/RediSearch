@@ -547,9 +547,8 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     }
   }
 
-  // Add an iterator over the inverted index of the empty string if it is
-  // `maxDist` away from the query string (for dialect >= 2)
-  if (q->sctx->apiVersion >= 2 && strlen(str) <= maxDist) {
+  // Add an iterator over the inverted index of the empty string for fuzzy search
+  if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
     // Create a token for the reader
     RSToken tok = (RSToken){
         .expanded = 0,
