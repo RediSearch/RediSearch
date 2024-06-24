@@ -10,7 +10,8 @@
 
 #include "redismodule.h"
 #include "thpool/thpool.h"
-#include "config.h"
+#include <stdbool.h>
+#include <stddef.h>
 #include <assert.h>
 
 // create workers thread pool

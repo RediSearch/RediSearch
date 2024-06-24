@@ -32,7 +32,7 @@ static void yieldCallback(void *yieldCtx) {
 }
 
 /* Configure here anything that needs to know it can use the thread pool */
-static void workersThreadPool_OnTurnOn(size_t new_num) {
+static void workersThreadPool_OnActivation(size_t new_num) {
   // Log that we've enabled the thread pool.
   RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu", new_num);
   // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
@@ -40,7 +40,7 @@ static void workersThreadPool_OnTurnOn(size_t new_num) {
 }
 
 /* Configure here anything that needs to know it cannot use the thread pool anymore */
-static void workersThreadPool_OnTurnOff(size_t old_num) {
+static void workersThreadPool_OnDeactivation(size_t old_num) {
   RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu", old_num);
   VecSim_SetWriteMode(VecSim_WriteInPlace);
 }
@@ -52,9 +52,9 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.highPriorityBiasNum, LogCallback, "workers");
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
   if (worker_count > 0) {
-    workersThreadPool_OnTurnOn(worker_count);
+    workersThreadPool_OnActivation(worker_count);
   } else {
-    workersThreadPool_OnTurnOff(worker_count);
+    workersThreadPool_OnDeactivation(worker_count);
   }
   return REDISMODULE_OK;
 }
@@ -83,10 +83,10 @@ void workersThreadPool_SetNumWorkers() {
   if (worker_count == 0 && curr_workers > 0) {
     redisearch_thpool_terminate_when_empty(_workers_thpool);
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers);
-    workersThreadPool_OnTurnOff(curr_workers);
+    workersThreadPool_OnDeactivation(curr_workers);
   } else if (worker_count > curr_workers) {
     new_num_threads = redisearch_thpool_add_threads(_workers_thpool, worker_count - curr_workers);
-    if (!curr_workers) workersThreadPool_OnTurnOn(worker_count);
+    if (!curr_workers) workersThreadPool_OnActivation(worker_count);
   } else if (worker_count < curr_workers) {
     new_num_threads = redisearch_thpool_remove_threads(_workers_thpool, curr_workers - worker_count);
   }
