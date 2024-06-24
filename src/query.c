@@ -498,7 +498,8 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewReadIterator(ir);
 }
 
-static void addTerm(char *str, size_t tok_len, QueryEvalCtx *q, IndexIterator ***its, size_t *itsSz, size_t *itsCap, QueryNodeOptions *opts) {
+static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
+  QueryNodeOptions *opts, IndexIterator ***its, size_t *itsSz, size_t *itsCap) {
   // Create a token for the reader
   RSToken tok = (RSToken){
       .expanded = 0,
@@ -537,6 +538,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   rune *rstr = NULL;
+  char *target_str = NULL;
   size_t tok_len = 0;
   t_len slen = 0;
   float score = 0;
@@ -545,12 +547,13 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
          (itsSz < q->config->maxPrefixExpansions)) {
-    addTerm(runesToStr(rstr, slen, &tok_len), tok_len, q, &its, &itsSz, &itsCap, opts);
+    target_str = runesToStr(rstr, slen, &tok_len);
+    addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
   }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    addTerm(rm_strdup(""), 0, q, &its, &itsSz, &itsCap, opts);
+    addTerm(rm_strdup(""), 0, q, opts, &its, &itsSz, &itsCap);
   }
 
   TrieIterator_Free(it);
