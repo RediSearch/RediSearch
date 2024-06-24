@@ -991,7 +991,6 @@ def setup_missing_values_index():
     env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
     conn = getConnectionByEnv(env)
     schema = ['tag', 'TAG', 'num1', 'NUMERIC', 'num2', 'NUMERIC']
-    schema = [part for part in schema if part is not None]
     env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
 
     # Add some documents, with\without the indexed fields.
