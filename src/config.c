@@ -230,14 +230,14 @@ CONFIG_GETTER(getMinOperationWorkers) {
 }
 
 // MT_MODE, WORKER_THREADS
-CONFIG_SETTER(setMtModeAndWorkerThreads) {
+CONFIG_SETTER(trySetDeprecatedWorkersConfig) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   int acrc = AC_Advance(ac); // Consume the value argument
   RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getMtModeAndWorkerThreads) {
-  return sdsempty();
+CONFIG_GETTER(getDeprecatedWorkersConfig) {
+  return sdsnew("Deprecated, see WORKERS and MIN_OPERATION_WORKERS");
 }
 
 // TIERED_HNSW_BUFFER_LIMIT
@@ -686,13 +686,13 @@ RSConfigOptions RSGlobalConfigOptions = {
         },
         {.name = "WORKER_THREADS",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
-         .setValue = setMtModeAndWorkerThreads,
-         .getValue = getMtModeAndWorkerThreads,
+         .setValue = trySetDeprecatedWorkersConfig,
+         .getValue = getDeprecatedWorkersConfig,
         },
         {.name = "MT_MODE",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
-         .setValue = setMtModeAndWorkerThreads,
-         .getValue = getMtModeAndWorkerThreads,
+         .setValue = trySetDeprecatedWorkersConfig,
+         .getValue = getDeprecatedWorkersConfig,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
