@@ -26,7 +26,6 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 #include "resp3.h"
-#include "dist_profile.h"
 #include "debug_commands.h"
 
 #include "libuv/include/uv.h"
