@@ -56,7 +56,12 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
-mod_equal = '@'.term.(space*)'='.'=' $ 1;
+mod_not_equal = '@'.term.(space*).'!=' $ 1;
+mod_equal = '@'.term.(space*).'==' $ 1;
+mod_gt = '@'.term.(space*).'>' $ 1;
+mod_ge = '@'.term.(space*).'>=' $ 1;
+mod_lt = '@'.term.(space*).'<' $ 1;
+mod_le = '@'.term.(space*).'<=' $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
@@ -110,15 +115,111 @@ main := |*
       fbreak;
     }
   };
-  mod_equal => {
+
+  mod_not_equal => {
+    printf("mod_not_equal\n");
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1) - 2;
     tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1]) 
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
+    RSQuery_Parse_v2(pParser, MODIFIER_NOT_EQUAL, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  mod_equal => {
+    printf("mod_equal\n");
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 2;
+    tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
     RSQuery_Parse_v2(pParser, MODIFIER_EQUAL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
+
+  mod_gt => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 1;
+    tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
+    RSQuery_Parse_v2(pParser, MODIFIER_GT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  mod_ge => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 2;
+    tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
+    RSQuery_Parse_v2(pParser, MODIFIER_GE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  mod_lt => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 1;
+    tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
+    RSQuery_Parse_v2(pParser, MODIFIER_LT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  mod_le => {
+    tok.pos = ts-q->raw;
+    tok.len = te - (ts + 1) - 2;
+    tok.s = ts+1;
+
+    // remove unescaped trailing spaces
+    while(tok.len > 1 && isspace(tok.s[tok.len - 1])
+            && tok.s[tok.len - 2] != '\\') {
+      tok.len--;
+    }
+
+    RSQuery_Parse_v2(pParser, MODIFIER_LE, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   arrow => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;

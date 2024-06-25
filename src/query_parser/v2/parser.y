@@ -16,7 +16,8 @@
 
 %left ISMISSING.
 %left MODIFIER.
-%left MODIFIER_EQUAL.
+%left MODIFIER_NOT_EQUAL MODIFIER_EQUAL.
+%left MODIFIER_GE MODIFIER_GT MODIFIER_LE MODIFIER_LT.
 
 %left RP RB RSQB.
 
@@ -506,10 +507,41 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
     }
 }
 
+expr(A) ::= modifier_not_equal(B) param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(qp);
+  A = NewNotNode(E);
+}
+
 expr(A) ::= modifier_equal(B) param_num(C) . {
-    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    qp->nf->fieldName = rm_strndup(B.s, B.len);
-    A = NewNumericNode(qp);
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier_gt(B) param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier_ge(B) param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier_lt(B) param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier_le(B) param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
 }
 
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
@@ -770,7 +802,32 @@ modifierlist(A) ::= modifier(B) OR term(C). {
   }
 }
 
+modifier_not_equal(A) ::= MODIFIER_NOT_EQUAL(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
 modifier_equal(A) ::= MODIFIER_EQUAL(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
+modifier_gt(A) ::= MODIFIER_GT(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
+modifier_ge(A) ::= MODIFIER_GE(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
+modifier_lt(A) ::= MODIFIER_LT(B) . {
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
+
+modifier_le(A) ::= MODIFIER_LE(B) . {
   B.len = unescapen((char*)B.s, B.len);
   A = B;
 }
