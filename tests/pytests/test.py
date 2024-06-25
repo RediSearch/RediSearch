@@ -620,11 +620,14 @@ def testExplain(env):
     # test numeric ranges
     _testExplain(env, 'idx', ['@bar:[10 100]'],
                  "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
+    
+    _testExplain(env, 'idx', ['@bar:[-.1e0 1.e+2]'],
+                 "NUMERIC {-0.100000 <= @bar <= 100.000000}\n")
 
-    _testExplain(env, 'idx', ['@bar:[-inf 100]'],
+    _testExplain(env, 'idx', ['@bar:[-INF 100]'],
                  "NUMERIC {-inf <= @bar <= 100.000000}\n")
 
-    _testExplain(env, 'idx', ['@bar:[10 inf]'],
+    _testExplain(env, 'idx', ['@bar:[10 Inf]'],
                  "NUMERIC {10.000000 <= @bar <= inf}\n")
 
     _testExplain(env, 'idx', ['@bar:[-inf (inf]'],
