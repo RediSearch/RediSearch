@@ -14,7 +14,7 @@
 %left ORX.
 %left OR.
 
-%left EMPTY_STRING ISMISSING.
+%left ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -182,9 +182,6 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-%type tag_empty_string { QueryNode *}
-%destructor tag_empty_string { QueryNode_Free($$); }
-
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
@@ -216,12 +213,14 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type modifierlist { Vector* }
 %destructor modifierlist {
+  if ($$) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
     Vector_Free($$);
+  }
 }
 
 %type num { RangeNumber }
@@ -601,15 +600,6 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 A = B;
 }
 
-text_expr(A) ::= EMPTY_STRING . [EMPTY_STRING] {
-  char *empty_str = rm_strdup("");
-  A = NewTokenNode(ctx, empty_str, 0);
-  A->tn.nen = NON_EXIST_EMPTY;
-  A->opts.fieldMask == RS_FIELDMASK_ALL;
-  // Avoid any expansions
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
@@ -622,7 +612,6 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
        QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
     }
 }
-
 
 /////////////////////////////////////////////////////////////////
 // Negative Clause
@@ -665,7 +654,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -709,22 +698,40 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    B.len = unescapen((char*)B.s, B.len);
-    A = B;
- }
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    A = NULL;
+  }
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    if (B) {
+      for (size_t i = 0; i < Vector_Size(B); i++) {
+        char *s;
+        Vector_Get(B, i, &s);
+        rm_free(s);
+      }
+      Vector_Free(B);
+    }
+    A = NULL;
+  }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
@@ -752,19 +759,6 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
         QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
     }
-}
-
-tag_empty_string(A) ::= EMPTY_STRING . [EMPTY_STRING]{
-  A = NewPhraseNode(0);
-  char *empty_str = rm_strdup("");
-  QueryNode* B = NewTagNode(empty_str, 0);
-  B->tag.nen = NON_EXIST_EMPTY;
-  QueryNode_AddChild(A, B);
-}
-
-tag_list(A) ::= tag_empty_string(B) . [TAGLIST] {
-  A = NewPhraseNode(0);
-  QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= param_term_case(B) . [TAGLIST] {
@@ -803,11 +797,6 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
-
-tag_list(A) ::= tag_list(B) OR tag_empty_string(C) . [TAGLIST] {
   QueryNode_AddChild(B, C);
   A = B;
 }
@@ -897,7 +886,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 }
 
 /////////////////////////////////////////////////////////////////
-// Geomtriy Queries
+// Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   if (C) {

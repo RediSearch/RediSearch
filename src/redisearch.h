@@ -123,12 +123,6 @@ typedef struct RSDocumentMetadata_s {
 
 } RSDocumentMetadata;
 
-// Denotes that a node is searching for an empty, missing or NULL value.
-typedef enum NonExistNode {
-  NON_EXIST_NONE = 0,
-  NON_EXIST_EMPTY = 1,
-} NonExistNode;
-
 /* Forward declaration of the opaque query object */
 struct QueryParseCtx;
 
@@ -151,8 +145,6 @@ typedef struct {
 
   /* Extension set token flags - up to 31 bits */
   RSTokenFlags flags : 31;
-
-  NonExistNode nen;
 } RSToken;
 
 struct QueryAST;

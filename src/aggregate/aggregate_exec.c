@@ -171,7 +171,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     }
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-      RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
+      const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
       if (v && v->t == RSValue_Duo) {
         // For duo value, we use the value here (not the other value)
         v = RS_DUOVAL_VAL(*v);
@@ -184,7 +184,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = &rsv;
       }
       if (need_map) {
-        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]); // key name
+        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
       }
       reeval_key(reply, v);
     }

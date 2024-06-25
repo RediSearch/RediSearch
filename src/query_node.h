@@ -88,7 +88,6 @@ typedef struct {
 typedef struct {
   const char *fieldName;
   size_t len;
-  NonExistNode nen;
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a

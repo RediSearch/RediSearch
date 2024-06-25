@@ -93,9 +93,6 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
     RLookup_WriteKey(dstkey, &group->rowdata, (RSValue *)groupvals[ii]);
-    // printf("Write: %s => ", dstkey->name);
-    // RSValue_Print(groupvals[ii]);
-    // printf("\n");
   }
   return group;
 }
@@ -120,23 +117,11 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     }
 
     Group *gr = kh_value(g->groups, g->iter);
-    // no reducers; just a terminal GROUPBY...
-
-    if (!GROUPER_NREDUCERS(g)) {
-      writeGroupValues(g, gr, r);
-    }
-    // else...
+    writeGroupValues(g, gr, r);
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
-      if (v) {
-        RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
-        writeGroupValues(g, gr, r);
-      } else {
-        // FIXME!
-        // Error! Couldn't get value? Handle me here!
-        // printf("Finalize() returned bad value!\n");
-      }
+      RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
     }
     ++g->iter;
     return RS_RESULT_OK;
@@ -162,14 +147,11 @@ static void invokeReducers(Grouper *g, Group *gr, RLookupRow *srcrow) {
  *  the `GROUPER_NSRCKEYS(g)` macro
  * @param xpos the current position in xarr
  * @param xlen cached value of GROUPER_NSRCKEYS
- * @param ypos if xarr[xpos] is an array, this is the current position within
- *  the array
  * @param hval current X-wise hash value. Note that members of the same Y array
  *  are not hashed together.
  * @param res the row is passed to each reducer
  */
-static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,
-                          uint64_t hval, RLookupRow *res) {
+static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t xlen, uint64_t hval, RLookupRow *res) {
   // end of the line - create/add to group
   if (xpos == xlen) {
     Group *group = NULL;
@@ -193,31 +175,26 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   // regular value - just move one step -- increment XPOS
   if (v->t != RSValue_Array) {
     hval = RSValue_Hash(v, hval);
-    extractGroups(g, xarr, xpos + 1, xlen, 0, hval, res);
-  } else {
-    // Array value. Replace current XPOS with child temporarily
+    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
+  } else if (RSValue_ArrayLen(v) == 0) {
+    // Empty array - hash as null
+    hval = RSValue_Hash(RS_NullVal(), hval);
     const RSValue *array = xarr[xpos];
-    const RSValue *elem;
-
-    if (arridx >= RSValue_ArrayLen(v)) {
-      elem = NULL;
-    } else {
-      elem = RSValue_ArrayItem(v, arridx);
-    }
-
-    if (elem == NULL) {
-      elem = RS_NullVal();
-    }
-    uint64_t hh = RSValue_Hash(elem, hval);
-
-    xarr[xpos] = elem;
-    extractGroups(g, xarr, xpos, xlen, arridx, hh, res);
+    xarr[xpos] = RS_NullVal();
+    extractGroups(g, xarr, xpos + 1, xlen, hval, res);
     xarr[xpos] = array;
-
-    // Replace the value back, and proceed to the next value of the array
-    if (++arridx < RSValue_ArrayLen(v)) {
-      extractGroups(g, xarr, xpos, xlen, arridx, hval, res);
+  } else {
+    // Array value. Replace current XPOS with child temporarily.
+    // Each value in the array will be a separate group
+    const RSValue *array = xarr[xpos];
+    for (size_t i = 0; i < RSValue_ArrayLen(v); i++) {
+      const RSValue *elem = RSValue_ArrayItem(v, i);
+      // hash the element, even if it's an array
+      uint64_t hh = RSValue_Hash(elem, hval);
+      xarr[xpos] = elem;
+      extractGroups(g, xarr, xpos + 1, xlen, hh, res);
     }
+    xarr[xpos] = array;
   }
 }
 
@@ -234,7 +211,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     }
     groupvals[ii] = v;
   }
-  extractGroups(g, groupvals, 0, nkeys, 0, 0, srcrow);
+  extractGroups(g, groupvals, 0, nkeys, 0, srcrow);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
@@ -302,12 +279,12 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
-  g->srckeys = rm_calloc(nkeys, sizeof(*g->srckeys));
-  g->dstkeys = rm_calloc(nkeys, sizeof(*g->dstkeys));
   g->nkeys = nkeys;
-  for (size_t ii = 0; ii < nkeys; ++ii) {
-    g->srckeys[ii] = srckeys[ii];
-    g->dstkeys[ii] = dstkeys[ii];
+  if (nkeys) {
+    g->srckeys = rm_malloc(nkeys * sizeof(*g->srckeys));
+    g->dstkeys = rm_malloc(nkeys * sizeof(*g->dstkeys));
+    memcpy(g->srckeys, srckeys, nkeys * sizeof(*g->srckeys));
+    memcpy(g->dstkeys, dstkeys, nkeys * sizeof(*g->dstkeys));
   }
 
   g->base.type = RP_GROUP;
