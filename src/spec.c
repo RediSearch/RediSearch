@@ -2780,7 +2780,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef MT_BUILD
-    workersThreadPool_Activate();
+    workersThreadPool_OnEventStart();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -2796,14 +2796,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       Indexes_ScanAndReindex();
     }
 #ifdef MT_BUILD
-    workersThreadPool_waitAndTerminate(ctx);
+    workersThreadPool_OnEventEnd(true);
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 #ifdef MT_BUILD
   else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
-    workersThreadPool_waitAndTerminate(ctx);
+    workersThreadPool_OnEventEnd(true);
   }
 #endif
 }

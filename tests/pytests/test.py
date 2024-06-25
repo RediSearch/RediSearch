@@ -494,7 +494,7 @@ def testOptional(env):
     # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
-def testExplain(env):
+def testExplain(env: Env):
 
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
@@ -512,8 +512,7 @@ def testExplain(env):
 
 
     # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
-    if env.isCluster():
-        env.skip()
+
     res = env.cmd('ft.explainCli', 'idx', q)
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
@@ -555,7 +554,8 @@ def testExplain(env):
         env.assertEqual(expected, res)
 
     # retest when index is not empty
-    env.expect('hset', '1', 'v', 'abababab', 't', "hello").equal(2)
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('hset', '1', 'v', 'abababab', 't', "hello")
     res = env.cmd('ft.explain', 'idx', *q)
     env.assertEqual(expected, res)
 
@@ -568,7 +568,7 @@ def testExplain(env):
             res = env.cmd('FT.EXPLAINCLI', idx, *query)
             env.assertEqual(res, expected.split('\n'))
 
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
+    env.assertEqual(run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', 2), ['OK'] * env.shardsCount)
 
     # test empty query
     _testExplain(env, 'idx', [""], "<empty>\n")
@@ -616,7 +616,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
                     "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
-    
+
     # test numeric ranges
     _testExplain(env, 'idx', ['@bar:[10 100]'],
                  "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
@@ -634,8 +634,8 @@ def testExplain(env):
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
 
     # test numeric operators - they are only supported in DIALECT 5
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 5").ok()
-    
+    env.assertEqual(run_command_on_all_shards(env, config_cmd(), 'SET', 'DEFAULT_DIALECT', 5), ['OK'] * env.shardsCount)
+
     _testExplain(env, 'idx', ['@bar>1'],
                  'NUMERIC {1.000000 < @bar <= inf}\n')
 
@@ -659,10 +659,10 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar==+$n', 'PARAMS', 2, 'n', 10],
                  'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
-    
+
     _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', 7],
                  'NUMERIC {-7.000000 <= @bar <= -7.000000}\n')
-    
+
     _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', -5],
                  'NUMERIC {5.000000 <= @bar <= 5.000000}\n')
 
@@ -698,7 +698,7 @@ def testExplain(env):
     )
     _testExplain(env, 'idx_im', ['@tag:{bar} | @tag:{go} ismissing(@t)'],
                  expected)
-    
+
     expected = (
         "UNION {\n"
         "  NOT{\n"
@@ -751,7 +751,7 @@ def testExplain(env):
     )
     _testExplain(env, 'idx_im', ['-ismissing(@t) ismissing(@t) | @tag:{bar}'],
                  expected)
-    
+
     expected = (
         "UNION {\n"
         "  ISMISSING{t}\n"
@@ -1284,7 +1284,7 @@ def testExact(env):
             'body', 'lorem ist ipsum lorem lorem')
 
     MAX_DIALECT = set_max_dialect(env)
-    
+
     for dialect in range(1, MAX_DIALECT + 1):
         res = env.cmd('ft.search', 'idx', '"hello world"', 'verbatim',
                       'DIALECT', dialect)
@@ -3342,7 +3342,7 @@ def testIssue1184(env):
 
         for i in range(num_docs):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
-        
+
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
         env.assertEqual(res[0], num_docs)
 
@@ -4198,15 +4198,13 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(asan=True)
+@skip(asan=True, cluster=False)
 def test_timeoutCoordSearch_NonStrict(env):
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path"""
 
     if VALGRIND:
         unittest.SkipTest()
-
-    SkipOnNonCluster(env)
 
     # Create and populate an index
     n_docs_pershard = 1100
@@ -4224,7 +4222,7 @@ def test_timeoutCoordSearch_NonStrict(env):
     res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '1')
     env.assertLessEqual(res[0], n_docs)
 
-@skip(asan=True)
+@skip(asan=True, cluster=False)
 def test_timeoutCoordSearch_Strict():
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
     `FT.SEARCH` path, when the timeout policy is strict"""
@@ -4233,8 +4231,6 @@ def test_timeoutCoordSearch_Strict():
         unittest.SkipTest()
 
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
-
-    SkipOnNonCluster(env)
 
     # Create and populate an index
     n_docs_pershard = 50000
