@@ -14,6 +14,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "reply_macros.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -481,9 +482,9 @@ DEBUG_COMMAND(DumpSuffix) {
     float score;
 
     while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL)) {
-      size_t slen = 0;
+      size_t slen;
       char *s = runesToStr(rstr, len, &slen);
-      RedisModule_ReplyWithSimpleString(ctx, s);
+      RedisModule_ReplyWithStringBuffer(ctx, s, slen);
       rm_free(s);
       ++resultSize;
     }
@@ -517,7 +518,7 @@ DEBUG_COMMAND(DumpSuffix) {
     void *value;
     while (TrieMapIterator_Next(it, &str, &len, &value)) {
       str[len] = '\0';
-      RedisModule_ReplyWithSimpleString(ctx, str);
+      RedisModule_ReplyWithStringBuffer(ctx, str, len);
       ++resultSize;
     }
 
@@ -828,7 +829,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  RedisModule_ReplyWithSimpleString(ctx, "num_values");
+  RedisModule_ReplyWithLiteral(ctx, "num_values");
   RedisModule_ReplyWithLongLong(ctx, idx->values->cardinality);
   nelem += 2;
 
@@ -847,7 +848,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   InvertedIndex *iv;
 
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "values");
+  RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   seekTagIterator(iter, options.offset);
@@ -859,17 +860,17 @@ DEBUG_COMMAND(InfoTagIndex) {
     }
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    RedisModule_ReplyWithSimpleString(ctx, "value");
+    RedisModule_ReplyWithLiteral(ctx, "value");
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
-    RedisModule_ReplyWithSimpleString(ctx, "num_entries");
+    RedisModule_ReplyWithLiteral(ctx, "num_entries");
     RedisModule_ReplyWithLongLong(ctx, iv->numDocs);
 
-    RedisModule_ReplyWithSimpleString(ctx, "num_blocks");
+    RedisModule_ReplyWithLiteral(ctx, "num_blocks");
     RedisModule_ReplyWithLongLong(ctx, iv->size);
 
     if (options.dumpIdEntries) {
-      RedisModule_ReplyWithSimpleString(ctx, "entries");
+      RedisModule_ReplyWithLiteral(ctx, "entries");
       IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
@@ -905,7 +906,7 @@ static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
   if (dmd->flags & Document_HasOffsetVector) {
     strcat(buf, "HasOffsetVector,");
   }
-  RedisModule_ReplyWithSimpleString(ctx, buf);
+  RedisModule_ReplyWithCString(ctx, buf);
 }
 
 static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
@@ -917,12 +918,12 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
       continue;
     }
     RedisModule_ReplyWithArray(sctx->redisCtx, 6);
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "index");
+    RedisModule_ReplyWithLiteral(sctx->redisCtx, "index");
     RedisModule_ReplyWithLongLong(sctx->redisCtx, ii);
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "field");
+    RedisModule_ReplyWithLiteral(sctx->redisCtx, "field");
     const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
     RedisModule_ReplyWithPrintf(sctx->redisCtx, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
+    RedisModule_ReplyWithLiteral(sctx->redisCtx, "value");
     RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
     nelem++;
   }
@@ -946,26 +947,26 @@ DEBUG_COMMAND(DocInfo) {
 
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  RedisModule_ReplyWithSimpleString(ctx, "internal_id");
+  RedisModule_ReplyWithLiteral(ctx, "internal_id");
   RedisModule_ReplyWithLongLong(ctx, dmd->id);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "flags");
+  RedisModule_ReplyWithLiteral(ctx, "flags");
   replyDocFlags(dmd, ctx);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "score");
+  RedisModule_ReplyWithLiteral(ctx, "score");
   RedisModule_ReplyWithDouble(ctx, dmd->score);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "num_tokens");
+  RedisModule_ReplyWithLiteral(ctx, "num_tokens");
   RedisModule_ReplyWithLongLong(ctx, dmd->len);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "max_freq");
+  RedisModule_ReplyWithLiteral(ctx, "max_freq");
   RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
   nelem += 2;
-  RedisModule_ReplyWithSimpleString(ctx, "refcount");
+  RedisModule_ReplyWithLiteral(ctx, "refcount");
   RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
   nelem += 2;
   if (dmd->sortVector) {
-    RedisModule_ReplyWithSimpleString(ctx, "sortables");
+    RedisModule_ReplyWithLiteral(ctx, "sortables");
     replySortVector(dmd, sctx);
     nelem += 2;
   }
@@ -992,11 +993,10 @@ DEBUG_COMMAND(VecsimInfo) {
   RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
   while(VecSimInfoIterator_HasNextField(infoIter)) {
     VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
-    RedisModule_ReplyWithSimpleString(ctx, infoField->fieldName);
-    switch (infoField->fieldType)
-    {
+    RedisModule_ReplyWithCString(ctx, infoField->fieldName);
+    switch (infoField->fieldType) {
     case INFOFIELD_STRING:
-      RedisModule_ReplyWithSimpleString(ctx, infoField->fieldValue.stringValue);
+      RedisModule_ReplyWithCString(ctx, infoField->fieldValue.stringValue);
       break;
     case INFOFIELD_FLOAT64:
       RedisModule_ReplyWithDouble(ctx, infoField->fieldValue.floatingPointValue);

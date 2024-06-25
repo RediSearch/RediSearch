@@ -5,6 +5,7 @@
  */
 
 #include "profile.h"
+#include "reply_macros.h"
 
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime) {
   IndexReader *ir = root->ctx;
@@ -15,7 +16,7 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
     RedisModule_ReplyWithSimpleString(ctx, "Term");
-    RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
+    REPLY_SIMPLE_SAFE(ctx, ir->record->term.term->str);
 
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
@@ -36,7 +37,7 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   } else {
     printProfileType("TEXT");
     RedisModule_ReplyWithSimpleString(ctx, "Term");
-    RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
+    REPLY_SIMPLE_SAFE(ctx, ir->record->term.term->str);
   }
   // We have added both Type and Term fields
   nlen += 4;

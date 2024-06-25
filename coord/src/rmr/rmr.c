@@ -27,6 +27,7 @@
 #include "rq.h"
 #include "rmutil/rm_assert.h"
 #include "coord/src/config.h"
+#include "reply_macros.h"
 
 extern int redisMajorVesion;
 
@@ -506,8 +507,8 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
       for (int j = 0; j < sh->numNodes; j++) {
         MRClusterNode *node = &sh->nodes[j];
         RedisModule_ReplyWithArray(ctx, 4);
-        RedisModule_ReplyWithSimpleString(ctx, node->id);
-        RedisModule_ReplyWithSimpleString(ctx, node->endpoint.host);
+        REPLY_SIMPLE_SAFE(ctx, node->id);
+        REPLY_SIMPLE_SAFE(ctx, node->endpoint.host);
         RedisModule_ReplyWithLongLong(ctx, node->endpoint.port);
         RedisModule_ReplyWithString(
             ctx, RedisModule_CreateStringPrintf(ctx, "%s%s",

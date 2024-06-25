@@ -9,6 +9,7 @@
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
+#include "reply_macros.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
@@ -28,6 +29,13 @@
   do {                                           \
     RedisModule_ReplyWithSimpleString(ctx, (k)); \
     RedisModule_ReplyWithSimpleString(ctx, (v)); \
+    n += 2;                                      \
+  } while (0)
+
+#define REPLY_KVSTR_SAFE(n, k, v)                \
+  do {                                           \
+    RedisModule_ReplyWithSimpleString(ctx, (k)); \
+    REPLY_SIMPLE_SAFE(ctx, (v));                 \
     n += 2;                                      \
   } while (0)
 
@@ -69,13 +77,13 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
     RedisModule_ReplyWithSimpleString(ctx, "prefixes");
     RedisModule_ReplyWithArray(ctx, num_prefixes);
     for (int i = 0; i < num_prefixes; ++i) {
-      RedisModule_ReplyWithSimpleString(ctx, rule->prefixes[i]);
+      REPLY_SIMPLE_SAFE(ctx, rule->prefixes[i]);
     }
     n += 2;
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR(n, "filter", rule->filter_exp_str);
+    REPLY_KVSTR_SAFE(n, "filter", rule->filter_exp_str);
   }
 
   if (rule->lang_default) {
@@ -83,7 +91,7 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   }
 
   if (rule->lang_field) {
-    REPLY_KVSTR(n, "language_field", rule->lang_field);
+    REPLY_KVSTR_SAFE(n, "language_field", rule->lang_field);
   }
 
   if (rule->score_default) {
@@ -91,11 +99,11 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   }
 
   if (rule->score_field) {
-    REPLY_KVSTR(n, "score_field", rule->score_field);
+    REPLY_KVSTR_SAFE(n, "score_field", rule->score_field);
   }
 
   if (rule->payload_field) {
-    REPLY_KVSTR(n, "payload_field", rule->payload_field);
+    REPLY_KVSTR_SAFE(n, "payload_field", rule->payload_field);
   }
 
   RedisModule_ReplySetArrayLength(ctx, n);
@@ -116,7 +124,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   int n = 0;
 
-  REPLY_KVSTR(n, "index_name", sp->name);
+  REPLY_KVSTR_SAFE(n, "index_name", sp->name);
 
   n += renderIndexOptions(ctx, sp);
 
@@ -127,9 +135,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, "identifier");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
+    REPLY_SIMPLE_SAFE(ctx, sp->fields[i].path);
     RedisModule_ReplyWithSimpleString(ctx, "attribute");
-    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
+    REPLY_SIMPLE_SAFE(ctx, sp->fields[i].name);
     int nn = 4;
     const FieldSpec *fs = sp->fields + i;
 
@@ -157,9 +165,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-      char buf[2];
-      sprintf(buf, "%c", fs->tagOpts.tagSep);
-      REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+      char buf[2] = {fs->tagOpts.tagSep, 0}; // Convert the separator to a C string
+      REPLY_KVSTR_SAFE(nn, SPEC_TAG_SEPARATOR_STR, buf);
+
       if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
         RedisModule_ReplyWithSimpleString(ctx, SPEC_TAG_CASE_SENSITIVE_STR);
         ++nn;

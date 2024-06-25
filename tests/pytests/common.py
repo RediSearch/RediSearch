@@ -176,8 +176,7 @@ def server_version_is_less_than(ver):
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
-    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return res
+    return to_dict(res)
 
 
 def dump_numeric_index_tree(env, idx, numeric_field):
