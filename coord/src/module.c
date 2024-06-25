@@ -13,8 +13,6 @@
 #include "rmr/reply.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
-#include "crc16_tags.h"
-#include "crc12_tags.h"
 #include "rmr/redis_cluster.h"
 #include "rmr/redise.h"
 #include "config.h"
@@ -28,6 +26,7 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 #include "resp3.h"
+#include "debug_commands.h"
 
 #include "libuv/include/uv.h"
 
@@ -2041,6 +2040,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Chain the config into RediSearch's global config and set the default values
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
+  ClusterConfig_RegisterTriggers();
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
@@ -2074,6 +2074,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1));
   }
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1));
+  // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
+  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
   if (RSBuildType_g == RSBuildType_OSS) {
     RedisModule_Log(ctx, "notice", "Register write commands");

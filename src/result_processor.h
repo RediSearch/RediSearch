@@ -232,6 +232,9 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
 struct AREQ;
 ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
 
+void SetLoadersForBG(struct AREQ *r);
+void SetLoadersForMainThread(struct AREQ *r);
+
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);

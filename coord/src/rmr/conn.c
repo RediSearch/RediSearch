@@ -121,6 +121,24 @@ void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
 }
 
+void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
+  RedisModule_ReplyWithMap(ctx, dictSize(mgr->map));
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "%s:%d", pool->conns[0]->ep.host,
+                                                                          pool->conns[0]->ep.port);
+    RedisModule_ReplyWithString(ctx, key);
+    RedisModule_FreeString(ctx, key);
+    RedisModule_ReplyWithArray(ctx, pool->num);
+    for (size_t i = 0; i < pool->num; i++) {
+      RedisModule_ReplyWithCString(ctx, MRConnState_Str(pool->conns[i]->state));
+    }
+  }
+  dictReleaseIterator(it);
+}
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
@@ -207,7 +225,6 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    if (!pool) continue;
     for (size_t i = 0; i < pool->num; i++) {
       if (MRConn_StartNewConnection(pool->conns[i]) == REDIS_OK) {
         n++;
@@ -224,6 +241,48 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
     return REDIS_OK;
   }
   return REDIS_ERR;
+}
+
+// Shrink the connection pool to the given number of connections
+// Assumes that the number of connections is less than the current number of connections,
+// and that the new number of connections is greater than 0
+void MRConnManager_Shrink(MRConnManager *m, size_t num) {
+  dictIterator *it = dictGetIterator(m->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+
+    for (size_t i = num; i < pool->num; i++) {
+      MRConn_Stop(pool->conns[i]);
+    }
+    pool->num = num;
+    pool->rr %= num; // set the round robin counter to the new pool size bound
+    pool->conns = rm_realloc(pool->conns, num * sizeof(MRConn *));
+  }
+  m->nodeConns = num;
+  dictReleaseIterator(it);
+}
+
+// Expand the connection pool to the given number of connections
+// Assumes that the number of connections is greater than the current number of connections
+void MRConnManager_Expand(MRConnManager *m, size_t num) {
+  dictIterator *it = dictGetIterator(m->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+
+    pool->conns = rm_realloc(pool->conns, num * sizeof(MRConn *));
+    // Use the first connection's endpoint to create new connections
+    // There should always be at least one connection in the pool
+    MREndpoint *ep = &pool->conns[0]->ep;
+    for (size_t i = pool->num; i < num; i++) {
+      pool->conns[i] = MR_NewConn(ep);
+      MRConn_StartNewConnection(pool->conns[i]);
+    }
+    pool->num = num;
+  }
+  m->nodeConns = num;
+  dictReleaseIterator(it);
 }
 
 static void MRConn_Stop(MRConn *conn) {

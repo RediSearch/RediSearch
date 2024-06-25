@@ -88,6 +88,9 @@ int MRCluster_ConnectAll(MRCluster *cl);
 /* Create a new cluster using a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size);
 
+/* Update the number of connections per shard */
+void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size);
+
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);

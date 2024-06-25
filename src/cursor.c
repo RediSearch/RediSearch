@@ -69,7 +69,7 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->execState) {
-    Cursor_FreeExecState(cur->execState);
+    AREQ_Free(cur->execState);
     cur->execState = NULL;
   }
   // if There's a spec associated with the cursor
