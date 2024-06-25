@@ -133,7 +133,7 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, key);
     RedisModule_ReplyWithArray(ctx, pool->num);
     for (size_t i = 0; i < pool->num; i++) {
-      RedisModule_ReplyWithSimpleString(ctx, MRConnState_Str(pool->conns[i]->state));
+      RedisModule_ReplyWithCString(ctx, MRConnState_Str(pool->conns[i]->state));
     }
   }
   dictReleaseIterator(it);
