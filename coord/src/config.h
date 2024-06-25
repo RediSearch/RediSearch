@@ -49,3 +49,4 @@ extern SearchClusterConfig clusterConfig;
 MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);
+void ClusterConfig_RegisterTriggers(void);

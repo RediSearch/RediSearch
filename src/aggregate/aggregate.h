@@ -91,18 +91,21 @@ typedef enum {
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
 #ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
+#define RunInThread() (RSGlobalConfig.numWorkerThreads)
 #endif
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
 
 typedef enum {
+  /* Pipeline has a loader */
+  QEXEC_S_HAS_LOAD = 0x01,
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;

@@ -1,14 +1,12 @@
-from RLTest import Env
-from includes import *
-from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit, index_info, skip
-
+from common import *
 
 class TestDebugCommands(object):
 
     def __init__(self):
-        module_args = 'MT_MODE MT_MODE_FULL WORKER_THREADS 2' if MT_BUILD else ''
+        skipTest(cluster=True)
+        self.workers_count = 2
+        module_args = f'WORKERS {self.workers_count}' if MT_BUILD else ''
         self.env = Env(testName="testing debug commands", moduleArgs=module_args)
-        self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
@@ -22,9 +20,6 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_invidx').error().contains('wrong number of arguments')
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
-    def testDebugUnknownSubcommand(self):
-        self.env.expect('FT.DEBUG', 'unknown').error().equal('subcommand was not found')
-
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
@@ -33,7 +28,7 @@ class TestDebugCommands(object):
                      'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
-            help_list.append('WORKER_THREADS')
+            help_list.append('WORKERS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
@@ -221,15 +216,15 @@ class TestDebugCommands(object):
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS').error().contains("wrong number of arguments for"
-                                                                              " 'FT.DEBUG' command")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'invalid').error().contains(
-            "Invalid argument for 'WORKER_THREADS' subcommand")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').error()\
+        self.env.expect('FT.DEBUG', 'WORKERS').error().contains(
+            "wrong number of arguments for 'FT.DEBUG|WORKERS' command")
+        self.env.expect('FT.DEBUG', 'WORKERS', 'invalid').error().contains(
+            "Invalid argument for 'WORKERS' subcommand")
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is not running")
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').error()\
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
     def testWorkersPoolDrain(self):
@@ -237,8 +232,8 @@ class TestDebugCommands(object):
             self.env.skip()
         # test stats and drain
         orig_stats = getWorkersThpoolStats(self.env)
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').error() \
+        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').error() \
             .contains("Operation failed: workers thread pool is not running")
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test',
                         'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
@@ -248,17 +243,27 @@ class TestDebugCommands(object):
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone'],
                                      'totalPendingJobs': orig_stats['totalPendingJobs']+1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
-                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1})
+                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1,
+                                     'numThreadsAlive': self.workers_count})
 
         # After resuming, expect that the job is done.
         orig_stats = stats
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKER_THREADS', 'drain').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
+        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
         stats = getWorkersThpoolStats(self.env)
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone']+1,
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
-                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1})
+                                     'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
+                                     'numThreadsAlive': self.workers_count})
+
+    def testWorkersNumThreads(self):
+        if not MT_BUILD:
+            self.env.skip()
+        # test stats and drain
+        self.env.expect('FT.DEBUG', 'WORKERS', 'n_threads').equal(self.workers_count)
+
+
 @skip(cluster=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
@@ -276,7 +281,7 @@ def testDumpHNSW(env):
 
     # Test error handling
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
-        .contains("wrong number of arguments for 'FT.DEBUG' command")
+        .contains("wrong number of arguments for 'FT.DEBUG|DUMP_HNSW' command")
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'bad_idx', 'v').error() \
         .contains("Can not create a search ctx")
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \
@@ -295,3 +300,13 @@ def testDumpHNSW(env):
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
         equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
                "Doc id 3 doesn't contain the given field"])
+
+@skip(cluster=False)
+def testCoordDebug(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    # Sanity check - regular debug command
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
+    # Test Coordinator only debug command
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').noError()
+    # Look for the coordinator only command in the help command
+    env.expect(debug_cmd(), 'HELP').contains('SHARD_CONNECTION_STATES')

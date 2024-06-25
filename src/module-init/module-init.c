@@ -221,34 +221,16 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
 #ifdef MT_BUILD
   // Init threadpool.
-  // Threadpool size can only be set on load.
-  if ((RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS || RSGlobalConfig.mt_mode == MT_MODE_FULL)  && RSGlobalConfig.numWorkerThreads == 0) {
-    DO_LOG("warning", "Invalid configuration - cannot run in MT_MODE (FULL/ONLY_ON_OPERATIONS) while WORKERS_THREADS"
-           " number is set to zero");
+  if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  if(RSGlobalConfig.numWorkerThreads) {
-    if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-    if (RSGlobalConfig.mt_mode == MT_MODE_FULL) {
-      // If the module configuration states that worker threads should always be active,
-      // we log about the threadpool creation.
-      DO_LOG("notice", "Created workers threadpool of size %lu", RSGlobalConfig.numWorkerThreads);
-      DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries"
-             " when possible", RSGlobalConfig.highPriorityBiasNum);
-    } else {
-      // Otherwise, threads shouldn't always be used, and we're performing inplace writes.
-      // VSS lib is async by default.
-      VecSim_SetWriteMode(VecSim_WriteInPlace);
-    }
-  } else
+  DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
+                    "when possible", RSGlobalConfig.highPriorityBiasNum);
+#else
+  // If we don't have a thread pool,
+  // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
+  VecSim_SetWriteMode(VecSim_WriteInPlace);
 #endif
-  {
-    // If we don't have a thread pool,
-    // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
-    VecSim_SetWriteMode(VecSim_WriteInPlace);
-  }
 
   IndexAlias_InitGlobal();
 

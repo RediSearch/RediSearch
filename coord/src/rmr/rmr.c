@@ -269,6 +269,33 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   RQ_Push_Topology(uvUpdateTopologyRequest, newTopo);
 }
 
+/* Modifying the connection pools cannot be done from the main thread */
+static void uvUpdateConnPerShard(void *p) {
+  size_t connPerShard = (uintptr_t)p;
+  MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+}
+
+void MR_UpdateConnPerShard(size_t connPerShard) {
+  if (!rq_g) return; // not initialized yet, we have nothing to update yet.
+  void *p = (void *)(uintptr_t)connPerShard;
+  RQ_Push(rq_g, uvUpdateConnPerShard, p);
+}
+
+static void uvGetConnectionPoolState(void *p) {
+  RedisModuleBlockedClient *bc = p;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+}
+
+void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RQ_Push(rq_g, uvGetConnectionPoolState, bc);
+}
+
 static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);

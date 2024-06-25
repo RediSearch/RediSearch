@@ -1,11 +1,4 @@
-import unittest
-import random
-import time
-import numpy as np
-from RLTest import Env
-
-from includes import *
-from common import getConnectionByEnv, waitForIndex, create_np_array_typed
+from common import *
 
 def testCreateIndex(env):
     conn = getConnectionByEnv(env)
@@ -65,11 +58,9 @@ def test_mod4745(env):
     # fail to send cluster PING on time before we reach cluster-node-timeout.
     waitForIndex(r, 'idx')
 
-
+@skip(noWorkers=True)
 def test_eval_node_errors_async():
-    if not MT_BUILD:
-        raise unittest.SkipTest("Skipping since worker threads are not enabled")
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKER_THREADS 1 MT_MODE MT_MODE_FULL ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000
 

@@ -356,7 +356,7 @@ typedef struct {
   /**
    * Force string return; don't coerce to native type
    */
-  int forceString;
+  bool forceString;
 
   struct QueryError *status;
 } RLookupLoadOptions;
