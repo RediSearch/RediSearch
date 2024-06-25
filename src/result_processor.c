@@ -624,8 +624,10 @@ typedef struct {
 } RPLoader;
 
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
-  // If the document was modified or deleted, we don't load it
+  // If the document was modified or deleted, we don't load it, and we need to mark
+  // the result as expired.
   if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
+    r->flags |= Result_ExpiredDoc;
     return;
   }
 
