@@ -2027,7 +2027,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
-    if (!ParseDouble(attr->value, &d) || d < 0) {
+    if (!ParseDouble(attr->value, &d, 1) || d < 0) {
       MK_INVALID_VALUE();
       return res;
     }
