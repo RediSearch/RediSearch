@@ -1669,11 +1669,14 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
                                                RSExecDistAggregate, ctx, argv, argc);
 }
 
-static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorCommand(ctx, argv, argc);
+static void CursorReadCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorReadCommand(ctx, argv, argc);
+}
+static void CursorDelCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorDelCommand(ctx, argv, argc);
 }
 
-static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1681,13 +1684,30 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return RSCursorCommand(ctx, argv, argc);
+    return RSCursorReadCommand(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               CursorReadCommandInternal, ctx, argv, argc);
+}
+
+static int CursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSCursorDelCommand(ctx, argv, argc);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
+                                               CursorDelCommandInternal, ctx, argv, argc);
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2096,11 +2116,25 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1));
+
+  int cursorFirst, cursorLast, cursorStep;
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3));
+    cursorFirst = 3;
+    cursorLast = 1;
+    cursorStep = -3;
   } else {
-    RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1));
+    cursorFirst = 0;
+    cursorLast = 0;
+    cursorStep = -1;
   }
+  RM_TRY(RedisModule_CreateCommand(ctx, "FT.CURSOR", NULL, "readonly", cursorFirst, cursorLast, cursorStep));
+  RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
+  // Register "READ" and "DEL" subcommands to run from the coordinator thread pool
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  // Register "GC" subcommand as the local handler (exactly like its `_FT` variants)
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(RSCursorGCCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1));
 
   if (RSBuildType_g == RSBuildType_OSS) {

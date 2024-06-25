@@ -317,7 +317,9 @@ void AREQ_Free(AREQ *req);
  */
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args

@@ -13,8 +13,8 @@ def testConfig(env):
 @skip(cluster=True)
 def testConfigErrors(env):
     env.expect('ft.config', 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
-    env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
-    env.expect('ft.config', 'idx').error().contains('wrong number of arguments')
+    env.expect('ft.config', 'no_such_command', 'idx').error().contains('unknown subcommand')
+    env.expect('ft.config', 'idx').error().contains('unknown subcommand')
     env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
         .equal('Max depth for range cannot be higher than max depth for balance')
     env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\

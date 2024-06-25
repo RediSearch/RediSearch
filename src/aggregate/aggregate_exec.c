@@ -1128,76 +1128,103 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
- * FT.CURSOR DEL {index} {CID}
- * FT.CURSOR GC {index}
  */
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
-  long long cid = 0;
   // argv[0] - FT.CURSOR
-  // argv[1] - subcommand
+  // argv[1] - READ
   // argv[2] - index
   // argv[3] - cursor ID
 
+  long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
+
+  long long count = 0;
+  if (argc > 5) {
+    // e.g. 'COUNT <timeout>'
+    // Verify that the 4'th argument is `COUNT`.
+    const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+    if (strcasecmp(count_str, "count") != 0) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+    }
+
+    if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+    }
+  }
+#ifdef MT_BUILD
+  // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+  if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+    CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+    cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    cr_ctx->cid = cid;
+    cr_ctx->count = count;
+    RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
+    workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+  } else
+#endif
+  {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    cursorRead(reply, cid, count);
+    RedisModule_EndReply(reply);
+  }
+
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.CURSOR DEL {index} {CID}
+ */
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // argv[0] - FT.CURSOR
+  // argv[1] - DEL
+  // argv[2] - index
+  // argv[3] - cursor ID
+
+  long long cid;
+  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+  }
+
+  int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  if (rc != REDISMODULE_OK) {
+    RedisModule_Reply_Error(reply, "Cursor does not exist");
+  } else {
+    RedisModule_Reply_SimpleString(reply, "OK");
+  }
+  return RedisModule_EndReply(reply);
+}
+
+/**
+ * FT.CURSOR GC {index}
+ */
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2 && argc != 3) { // TODO: drop the index argument?
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // argv[0] - FT.CURSOR
+  // argv[1] - GC
+  // argv[2] - index
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  if (strcasecmp(cmd, "READ") == 0) {
-    long long count = 0;
-    if (argc > 5) {
-      // e.g. 'COUNT <timeout>'
-      // Verify that the 4'th argument is `COUNT`.
-      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
-      if (strcasecmp(count_str, "count") != 0) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
-      }
+  int rc = Cursors_CollectIdle(&g_CursorsList);
+  rc += Cursors_CollectIdle(&g_CursorsListCoord);
+  RedisModule_Reply_LongLong(reply, rc);
 
-      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
-      }
-    }
-#ifdef MT_BUILD
-    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
-    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
-      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-      cr_ctx->cid = cid;
-      cr_ctx->count = count;
-      RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
-      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
-    } else
-#endif
-    {
-      cursorRead(reply, cid, count);
-    }
-  } else if (strcasecmp(cmd, "DEL") == 0) {
-    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
-    if (rc != REDISMODULE_OK) {
-      RedisModule_Reply_Error(reply, "Cursor does not exist");
-    } else {
-      RedisModule_Reply_SimpleString(reply, "OK");
-    }
-  } else if (strcasecmp(cmd, "GC") == 0) {
-    int rc = Cursors_CollectIdle(&g_CursorsList);
-    rc += Cursors_CollectIdle(&g_CursorsListCoord);
-    RedisModule_Reply_LongLong(reply, rc);
-  } else {
-    RedisModule_Reply_Error(reply, "Unknown subcommand");
-  }
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
+  return RedisModule_EndReply(reply);
 }
 
 void Cursor_FreeExecState(void *p) {
