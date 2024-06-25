@@ -415,6 +415,9 @@ def testDialect2TagExact():
     env.cmd('HSET', '{doc}:21', 'tag', "w''", 'id', '21')
     # tag matching wildcard format
     env.cmd('HSET', '{doc}:22', 'tag', "w'?*1'", 'id', '22')
+    # tag without special characters
+    env.cmd('HSET', '{doc}:23', 'tag', "hello world", 'id', '23')
+    env.cmd('HSET', '{doc}:24', 'tag', "hello", 'id', '24')
 
     # Test exact match
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"}', 'NOCONTENT',
@@ -471,9 +474,40 @@ def testDialect2TagExact():
     env.assertEqual(res, [1, '{doc}:1'])
 
     # OR Operator (UNION queries)
+    expected = [2, '{doc}:4', '{doc}:5']
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"} | @tag:{"joe@mail.com"}',
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
-    env.assertEqual(res, [2, '{doc}:4', '{doc}:5'])
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"|"joe@mail.com"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2" | "joe@mail.com"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+
+    expected = [3, '{doc}:2', '{doc}:3', '{doc}:23']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello world | "xyz:2"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+
+    expected = [3, '{doc}:2', '{doc}:3', '{doc}:24']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello | "xyz:2"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+
+    expected = [4, '{doc}:2', '{doc}:3', '{doc}:23', '{doc}:24']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello | "xyz:2" | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
 
     # Optional Queries (using tiled "~")
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"} ~@tag:{"xyz:2"}',

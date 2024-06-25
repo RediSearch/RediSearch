@@ -386,7 +386,6 @@ main := |*
   };
 
   exact => {
-    // printf("lexer exact %.*s\n", (int)(te - ts), ts);
     tok.len = te - (ts + 2);
     tok.s = ts + 1;
     tok.numval = 0;
@@ -404,7 +403,6 @@ main := |*
     tok.s = ts + is_attr;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    // printf("prefix: %.*s\n", (int)tok.len, tok.s);
 
     RSQuery_Parse_v2(pParser, PREFIX, tok, q);
     
@@ -419,7 +417,6 @@ main := |*
     tok.s = ts + 1; // skip the quote
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    // printf("prefix_exact: %.*s\n", (int)tok.len, tok.s);
 
     RSQuery_Parse_v2(pParser, PREFIX, tok, q);
     
@@ -449,7 +446,6 @@ main := |*
     tok.s = ts + 2; // skip the star and the quote
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    // printf("suffix_exact: %.*s\n", (int)tok.len, tok.s);
 
     RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
     

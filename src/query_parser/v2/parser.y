@@ -638,7 +638,6 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 /////////////////////////////////////////////////////////////////
 
 text_expr(A) ::= EXACT(B) . [TERMLIST] {
-  printf("EXACT: %.*s\n", B.len, B.s);
   char *word;
   char *str = strndup(B.s, B.len);
 
@@ -879,6 +878,7 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
 }
 
 tag_list(A) ::= param_term_case(B) . [TAGLIST] {
+  printf("tag_list:==param_term_case()\n");
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
@@ -894,14 +894,9 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
+    printf("tag_list termlist\n");
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
-}
-
-tag_list(A) ::= QUOTE EXACT(B) QUOTE . [TAGLIST] {
-  printf("EXACT: %.*s\n", B.len, B.s);
-  A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
