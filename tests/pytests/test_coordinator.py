@@ -2,8 +2,8 @@ from common import *
 from redis import ResponseError
 from time import sleep
 
+@skip(cluster=False)
 def testInfo(env):
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
     for i in range (100):
@@ -40,12 +40,10 @@ def check_info_commandstats(env, cmd):
     res = env.cmd('INFO', 'COMMANDSTATS')
     env.assertGreater(res['cmdstat_' + cmd]['usec'], res['cmdstat__' + cmd]['usec'])
 
+@skip(cluster=False, redis_less_than="6.2.0")
 def testCommandStatsOnRedis(env):
     # This test checks the total time spent on the Coordinator is greater then
     # on a single shard
-    SkipOnNonCluster(env)
-    if not server_version_at_least(env, "6.2.0"):
-        env.skip()
 
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
@@ -71,9 +69,9 @@ def test_curly_brackets(env):
     env.expect('ft.search', 'idx', 'hello').equal([1, 'foo{bar}', ['t', 'Hello world!']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', 1, '__key').equal([1, ['__key', 'foo{bar}']])
 
+@skip(cluster=False)
 def test_MOD_3540(env):
     # check server does not crash when MAX argument for SORTBY is greater than 10
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
@@ -109,6 +107,7 @@ def test_error_propagation_from_shards(env):
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
 
+@skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
     We check that the coordinator returns a timeout error when the timeout is
@@ -116,7 +115,6 @@ def test_timeout():
     """
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1')
-    SkipOnNonCluster(env)
     conn = getConnectionByEnv(env)
 
     # Create the index
