@@ -139,24 +139,11 @@ def test_v1_vs_v2_vs_v5(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
     expected = [
-      'INTERSECT {',
-      '  UNION {',
-      '    1.2',
-      '    +1.2(expanded)',
-      '  }',
-      '  INTERSECT {',
-      '    UNION {',
-      '      e',
-      '      +e(expanded)',
-      '    }',
-      '    UNION {',
-      '      +3',
-      '      ++3(expanded)',
-      '    }',
-      '  }',
+      'UNION {',
+      '  1.2e+3',
+      '  +1.2e+3(expanded)',
       '}',
-      ''
-    ]
+      '']
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 5)
     expected = [

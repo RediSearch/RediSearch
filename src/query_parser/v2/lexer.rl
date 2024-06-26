@@ -90,9 +90,9 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
 
 machine query;
 
-inf = ['+\-']? 'inf' $ 4;
+inf = [+\-]? 'inf'i $ 4;
 size = digit+ $ 2;
-number = ('+'|'-')? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
+number = [+\-]? digit+('.' digit+)? (('E'|'e') ['+\-]? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -513,7 +513,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* ts = q->raw;          // query start
   const char* te = q->raw + q->len; // query end
   %% write init;
-  QueryToken tok = {.len = 0, .pos = 0, .s = 0};
+  QueryToken tok = {.len = 0, .pos = 0, .s = 0, .sign = 1};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;
