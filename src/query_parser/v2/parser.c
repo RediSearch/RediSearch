@@ -2350,7 +2350,6 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       case 98: /* param_num ::= ATTRIBUTE */
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0;
-    yylhsminor.yy0.sign = 1; // default
     yylhsminor.yy0.type = QT_PARAM_NUMERIC;
     yylhsminor.yy0.inclusive = 1;
 }
@@ -2382,7 +2381,6 @@ yylhsminor.yy19 = yymsp[0].minor.yy19;
       case 102: /* exclusive_param_num ::= LP ATTRIBUTE */
 {
     yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
-    yymsp[-1].minor.yy0.sign = 1;
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
     yymsp[-1].minor.yy0.inclusive = 0;
 }
