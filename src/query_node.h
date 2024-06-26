@@ -183,7 +183,6 @@ typedef struct {
   double weight;
   int phonetic;
   char *distField;
-  // OPTIONAL PLACE TO ADD THE TOP-LEVEL MODIFIER(S)
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;

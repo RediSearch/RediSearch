@@ -1627,12 +1627,12 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
   // Check if there is a field from the field mask that indexes empty. If not,
   // we throw an error.
   arrayof(FieldSpec *) fields = IndexSpec_GetFieldsByMask(spec, n->opts.fieldMask);
-  for (size_t i = 0; i < array_len(fields) && !empty_text; i++) {
-    if (FieldSpec_IndexesEmpty(fields[i])) {
+  array_foreach(fields, fs, {
+    if (FieldSpec_IndexesEmpty(fs)) {
       empty_text = true;
       break;
     }
-  }
+  });
   array_free(fields);
   return empty_text;
 }
