@@ -71,7 +71,7 @@ def testRDBCompatibility(env):
 
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
