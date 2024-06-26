@@ -480,16 +480,16 @@ def testNumericOperators():
     # Test >= and <=
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>= + 12 @n<=+  14', 'NOCONTENT',
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>= +12 @n<=+14', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<=$max', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= + $max', 'NOCONTENT',
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= +$max', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= - $max', 'NOCONTENT',
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= -$max', 'NOCONTENT',
     #                'WITHCOUNT', 'PARAMS', '4', 'min', '-12', 'max', '-14')
     # env.assertEqual(res2, res1)
 
@@ -515,7 +515,7 @@ def testNumericOperators():
     # Test >= and <
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<14', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res1, [2, 'key2', 'key3'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< + 14', 'NOCONTENT',
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< +14', 'NOCONTENT',
                    'WITHCOUNT')
     env.assertEqual(res2, res1)
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<$max', 'NOCONTENT',
@@ -670,6 +670,9 @@ def testNumericOperators():
     env.assertEqual(res2, res1)
     res1 = env.cmd('FT.SEARCH', 'idx', '@n==+$n', 'NOCONTENT', 'PARAMS', 2,
                    'n', '15')
+    env.assertEqual(res2, res1)
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==+$n   @n==15', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '15')
     env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@n==-15', 'NOCONTENT')

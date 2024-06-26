@@ -16,8 +16,6 @@
 
 %left ISMISSING.
 %left MODIFIER.
-%left MODIFIER_NOT_EQUAL MODIFIER_EQUAL.
-%left MODIFIER_GE MODIFIER_GT MODIFIER_LE MODIFIER_LT.
 
 %left RP RB RSQB.
 
@@ -31,6 +29,8 @@
 
 %left ARROW.
 %left COLON.
+%left NOT_EQUAL EQUALS.
+%left GE GT LE LT.
 
 %left NUMBER.
 %left SIZE.
@@ -507,38 +507,38 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
     }
 }
 
-expr(A) ::= modifier_not_equal(B) param_num(C) . {
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   QueryNode* E = NewNumericNode(qp);
   A = NewNotNode(E);
 }
 
-expr(A) ::= modifier_equal(B) param_num(C) . {
+expr(A) ::= modifier(B) EQUALS param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   A = NewNumericNode(qp);
 }
 
-expr(A) ::= modifier_gt(B) param_num(C) . {
+expr(A) ::= modifier(B) GT param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   A = NewNumericNode(qp);
 }
 
-expr(A) ::= modifier_ge(B) param_num(C) . {
+expr(A) ::= modifier(B) GE param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   A = NewNumericNode(qp);
 }
 
-expr(A) ::= modifier_lt(B) param_num(C) . {
+expr(A) ::= modifier(B) LT param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   A = NewNumericNode(qp);
 }
 
-expr(A) ::= modifier_le(B) param_num(C) . {
+expr(A) ::= modifier(B) LE param_num(C) . {
   QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
   qp->nf->fieldName = rm_strndup(B.s, B.len);
   A = NewNumericNode(qp);
@@ -647,7 +647,6 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     // get the next token
     size_t tokLen;
     char *tok = toksep2(&str, &tokLen);
-    printf("WORD: %s len=%ld\n", tok, tokLen);
     if(tokLen > 0) {
       QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
       QueryNode_AddChild(A, C);
@@ -801,35 +800,6 @@ modifierlist(A) ::= modifier(B) OR term(C). {
   }
 }
 
-modifier_not_equal(A) ::= MODIFIER_NOT_EQUAL(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
-
-modifier_equal(A) ::= MODIFIER_EQUAL(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
-
-modifier_gt(A) ::= MODIFIER_GT(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
-
-modifier_ge(A) ::= MODIFIER_GE(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
-
-modifier_lt(A) ::= MODIFIER_LT(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
-
-modifier_le(A) ::= MODIFIER_LE(B) . {
-  B.len = unescapen((char*)B.s, B.len);
-  A = B;
-}
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
   if (__builtin_expect(C.len > 0, 1)) {
@@ -878,7 +848,6 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
 }
 
 tag_list(A) ::= param_term_case(B) . [TAGLIST] {
-  printf("tag_list:==param_term_case()\n");
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
@@ -894,7 +863,6 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
-    printf("tag_list termlist\n");
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
