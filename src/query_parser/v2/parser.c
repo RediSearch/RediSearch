@@ -1894,6 +1894,7 @@ static YYACTIONTYPE yy_reduce(
       case 33: /* text_expr ::= EXACT */
 {
   char *str = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+  char *s = str;
 
   yylhsminor.yy47 = NewPhraseNode(0);
 
@@ -1907,7 +1908,7 @@ static YYACTIONTYPE yy_reduce(
     }
   }
 
-  rm_free(str);
+  rm_free(s);
   yylhsminor.yy47->pn.exact = 1;
   yylhsminor.yy47->opts.flags |= QueryNode_Verbatim;
 }

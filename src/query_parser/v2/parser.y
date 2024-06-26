@@ -636,6 +636,7 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 
 text_expr(A) ::= EXACT(B) . [TERMLIST] {
   char *str = rm_strndup(B.s, B.len);
+  char *s = str;
 
   A = NewPhraseNode(0);
 
@@ -649,7 +650,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     }
   }
 
-  rm_free(str);
+  rm_free(s);
   A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
