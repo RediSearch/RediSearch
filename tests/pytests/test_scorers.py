@@ -291,3 +291,35 @@ def testScoreError(env):
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
+
+@skip(cluster=True) # TODO: generalize the scores for coordinator
+def testLoadScore(env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', 'doc1', 'title', 'hello')
+        conn.execute_command('HSET', 'doc2', 'title', 'world')
+
+    expected = [2, 'doc1', ['__score', '2'], 'doc2', ['__score', '0']]
+    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 1, '__score').equal(expected)
+    expected = [1, ['__score', '2'], ['__score', '0']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 1, '__score').equal(expected)
+
+    expected = [2, 'doc1', ['s', '2'], 'doc2', ['s', '0']]
+    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 3, '__score', 'AS', 's').equal(expected)
+    expected = [1, ['s', '2'], ['s', '0']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 3, '__score', 'AS', 's').equal(expected)
+
+    # Set a __score entry for the documents
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', 'doc1', '__score', 'A+')
+        conn.execute_command('HSET', 'doc2', '__score', 'B-')
+
+    expected = [2, 'doc1', ['__score', 'A+'], 'doc2', ['__score', 'B-']]
+    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 1, '__score').equal(expected)
+    expected = [1, ['__score', 'A+'], ['__score', 'B-']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 1, '__score').equal(expected)
+
+    expected = [2, 'doc1', ['s', 'A+'], 'doc2', ['s', 'B-']]
+    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 3, '__score', 'AS', 's').equal(expected)
+    expected = [1, ['s', 'A+'], ['s', 'B-']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 3, '__score', 'AS', 's').equal(expected)
