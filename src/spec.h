@@ -400,6 +400,11 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 */
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
 
+/**
+ * Get the field specs in the field mask `mask`.
+ */
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask);
+
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);

@@ -3,6 +3,31 @@ import json
 
 EMPTY_RESULT = [0]
 
+def TestEmptyNonIndexed():
+    """Tests that we throw and error in case of a query with an empty string
+    for a field that doesn't index empty values."""
+
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT').ok()
+    conn.execute_command('HSET', 'h2', 'tag', '', 'text', '')
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
+
+        # A query with no field mask should return an empty result, not throwing
+        # an error
+        res = conn.execute_command('FT.SEARCH', 'idx', '')
+        env.assertEqual(res, EMPTY_RESULT)
+
+        # Any query containing "@tag:{''}" or "@text:''" should throw an error
+        for query in ['@tag:{""}', '@text:""']:
+            env.expect(
+                'FT.SEARCH', 'idx', query
+            ).error().contains('Empty value for field that does not index empty values')
+
 def EmptyTagJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TAG field of a
     JSON index"""
@@ -387,7 +412,7 @@ def testEmptyTag():
         js = json.dumps(j)
         env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
         env.expect('JSON.SET', 'j', '$', js).equal('OK')
-        cmd = f'FT.SEARCH jidx @t:("")'.split(' ')
+        cmd = f'FT.SEARCH jidx @t:{{""}}'.split(' ')
         expected = EMPTY_RESULT
         cmd_assert(env, cmd, expected)
 
@@ -677,29 +702,6 @@ def testEmptyInfo():
     env.assertEqual(tag_info[-1], 'INDEXEMPTY')
     text_info = info['attributes'][1]
     env.assertEqual(text_info[-1], 'INDEXEMPTY')
-
-def testEmptyNotActivated():
-    """Tests that the indexing of empty values is not activated by default, and
-    that no results are returned when searching for empty values in case the
-    feature is not activated."""
-
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-
-    # Create an index with the currently supported field types (TAG, TEXT)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'text', 'TEXT').ok()
-
-    # Populate the db with a document that has an empty value for a TAG field
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'h1', 't', '')
-
-    # Search for the document, it shouldn't be found
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{""}')
-    expected = EMPTY_RESULT
-    env.assertEqual(res, expected)
-
-    # Search for the document, it shouldn't be found
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:""')
-    env.assertEqual(res, expected)
 
 def testEmptyExplainCli():
     """Tests the output of `FT.EXPAINCLI` for queries that include empty values,
@@ -1297,7 +1299,13 @@ def testEmptyParam():
         env.assertEqual(res, expected)
 
         # Test that we can use an empty string as a parameter
-        res = env.cmd('FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
+        res = env.expect(
+            'FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
+                      'PARAMS', 2, 'p', ''
+        ).error().contains('Empty value for field that does not index empty values')
+
+        # Same with result
+        res = env.cmd('FT.SEARCH', 'idx', '@text1:($p)',
                       'PARAMS', 2, 'p', '')
         expected = [1, 'h3', ['text1', '']]
         env.assertEqual(res, expected)

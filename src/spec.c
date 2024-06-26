@@ -182,6 +182,17 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   return NULL;
 }
 
+// Get the field specs that match a field mask.
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
+  arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
+  for (int i = 0; i < sp->numFields; i++) {
+    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+      res = array_append(res, sp->fields + i);
+    }
+  }
+  return res;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /*
