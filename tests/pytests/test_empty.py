@@ -21,9 +21,13 @@ def TestEmptyNonIndexed():
         # an error
         res = conn.execute_command('FT.SEARCH', 'idx', '')
         env.assertEqual(res, EMPTY_RESULT)
+        res = conn.execute_command('FT.SEARCH', 'idx', '""')
+        env.assertEqual(res, EMPTY_RESULT)
+        res = conn.execute_command('FT.SEARCH', 'idx', "''")
+        env.assertEqual(res, EMPTY_RESULT)
 
         # Any query containing "@tag:{''}" or "@text:''" should throw an error
-        for query in ['@tag:{""}', '@text:""']:
+        for query in ['@tag:{""}', "@tag:{''}", '@text:""', "@text:''"]:
             env.expect(
                 'FT.SEARCH', 'idx', query
             ).error().contains('Empty value for field that does not index empty values')
@@ -46,6 +50,9 @@ def TestEmptyNonIndexed():
 
         # A result should be returned in case at least on of the fields indexes
         # empty values
+        env.expect(
+            'FT.SEARCH', 'idx2', '@text1|text2:""'
+        ).equal(EMPTY_RESULT)
         env.cmd('HSET', 'h1', 'text1', '', 'text2', '')
         env.expect(
             'FT.SEARCH', 'idx2', '@text1|text2:""'

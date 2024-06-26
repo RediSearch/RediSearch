@@ -1633,6 +1633,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
       break;
     }
   }
+  array_free(fields);
   return empty_text;
 }
 
@@ -1652,9 +1653,11 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
   switch(n->type) {
     case QN_PHRASE:
       {
-        bool atTopLevel = opts->slop >=0 || (opts->flags & Search_InOrder);
-        if (!QueryNode_CheckAllowSlopAndInorder(n, spec, atTopLevel, status)) {
-          res = REDISMODULE_ERR;
+        if (isSpecJson(spec) && (spec->flags & Index_HasUndefinedOrder)){
+          bool atTopLevel = opts->slop >=0 || (opts->flags & Search_InOrder);
+          if (!QueryNode_CheckAllowSlopAndInorder(n, spec, atTopLevel, status)) {
+            res = REDISMODULE_ERR;
+          }
         }
       }
       break;
@@ -1670,7 +1673,13 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
     case QN_UNION:
     case QN_TOKEN:
-      QueryNode_ValidateToken(n, spec, opts, status);
+      {
+        if (spec->flags & Index_HasNonEmpty) {
+          // We don't validate this if there is no TEXT\TAG field that does not
+          // index empty values.
+          QueryNode_ValidateToken(n, spec, opts, status);
+        }
+      }
     case QN_NUMERIC:
     case QN_NOT:
     case QN_OPTIONAL:
@@ -1699,7 +1708,10 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root) {
+  if (!q || !q->root ||
+      !(spec->flags & Index_HasNonEmpty) &&
+      (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
+  ) {
     return REDISMODULE_OK;
   }
   return QueryNode_CheckIsValid(q->root, spec, opts, status);

@@ -163,6 +163,7 @@ typedef enum {
 
   Index_HasGeometry = 0x40000,
 
+  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
