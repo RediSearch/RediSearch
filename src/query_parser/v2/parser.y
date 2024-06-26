@@ -1109,6 +1109,13 @@ param_num(A) ::= ATTRIBUTE(B). {
     A.inclusive = 1;
 }
 
+param_num(A) ::= MINUS ATTRIBUTE(B). {
+    A = B;
+    A.sign = -1;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 1;
+}
+
 param_num(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
@@ -1119,4 +1126,11 @@ param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
+}
+
+param_num(A) ::= LP MINUS ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+    A.sign = -1;
 }

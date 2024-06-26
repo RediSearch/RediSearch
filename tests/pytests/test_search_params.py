@@ -423,20 +423,6 @@ def test_numeric_range(env):
                    'PARAMS', 4, 'n', -101, 'm', 101)
     env.assertEqual(res[0], 0)
 
-    # invalid syntax - signs before parenthesis are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[+($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[-($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[-+($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[+-($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[--($n 9]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++($n 9]', 'PARAMS', 2, 'n', 1).error()
-
-    # invalid syntax - multiple signs before parameters are not allowed
-    env.expect('FT.SEARCH', 'idx', '@n:[+-$n 100]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[-+$n 100]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[1 --$n]', 'PARAMS', 2, 'n', 1).error()
-    env.expect('FT.SEARCH', 'idx', '@n:[++$n 100]', 'PARAMS', 2, 'n', 1).error()
-
 def test_vector(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)

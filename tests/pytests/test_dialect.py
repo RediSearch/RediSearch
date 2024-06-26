@@ -74,6 +74,75 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
 
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',                                                                                                                                 
+      '  UNION {',
+      '    1.2',
+      '    +1.2(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
+    expected = [
+      'UNION {',
+      '  1.2e+3',
+      '  +1.2e+3(expanded)',
+      '}',
+      '']
+    env.assertEqual(res, expected)
+
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
+      '  }',
+      '  UNION {',
+      '    3',
+      '    +3(expanded)',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
+    expected = [
+      'INTERSECT {',
+      '  UNION {',
+      '    1',
+      '    +1(expanded)',
+      '  }',
+      '  INTERSECT {',
+      '    UNION {',
+      '      e',
+      '      +e(expanded)',
+      '    }',
+      '    UNION {',
+      '      +3',
+      '      ++3(expanded)',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ]
+    env.assertEqual(res, expected)
+
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     set_max_dialect(env)
