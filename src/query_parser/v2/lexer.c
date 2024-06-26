@@ -35,7 +35,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     tok.pos = ts - q->raw;
     tok.s = ts + 1;
 
-    // Find the position before the '>'
+    // Find the position before the operator
     char *end1 = strchr(tok.s, c1) - 1;
     // Find the position after the operator
     char *start2 = end1 + opLen + 1;
@@ -49,14 +49,14 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       return 0;
     }
 
-    tok.s = start2 - 2;
-    tok.len = 2;
+    tok.s = start2 - opLen;
+    tok.len = opLen;
     RSQuery_Parse_v2(pParser, OperatorType, tok, q);
     if (!QPCTX_ISOK(q)) {
       return 0;
     }
 
-    // Remove spaces after the second '='
+    // Remove spaces after the operator
     while (isspace(*start2)) {
       ++start2;
     }
