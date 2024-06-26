@@ -27,12 +27,73 @@ void RSQuery_Parse_v2(void *yyp, int yymajor, QueryToken yyminor, QueryParseCtx 
 void *RSQuery_ParseAlloc_v2(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v2(void *p, void (*freeProc)(void *));
 
+int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok, 
+      QueryParseCtx *q, const char *ts, const char *te, char c1,
+      unsigned int opLen) {
+    tok.len = te - (ts + 1);
+    int len = tok.len;
+    tok.pos = ts - q->raw;
+    tok.s = ts + 1;
 
-/* #line 755 "lexer.rl" */
+    // Find the position before the '>'
+    char *end1 = strchr(tok.s, c1) - 1;
+    // Find the position after the operator
+    char *start2 = end1 + opLen + 1;
+    // Remove spaces before the operator
+    while (isspace(*end1)) {
+      --end1;
+    }
+    tok.len = end1 - tok.s + 1;
+    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    tok.s = start2 - 2;
+    tok.len = 2;
+    RSQuery_Parse_v2(pParser, OperatorType, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    // Remove spaces after the second '='
+    while (isspace(*start2)) {
+      ++start2;
+    }
+
+    // Detect parameter's sign if exists
+    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
+      tok.sign = *start2 == '-' ? -1 : 1;
+      ++start2;
+    }
+    tok.s = start2;
+    int is_attr = (*(tok.s) == '$') ? 1 : 0;
+    tok.len = (te - start2) + 1 - is_attr;
+    
+    if(is_attr) {
+      tok.s++;
+      // Remove trailing spaces from attribute
+      while (isspace(*(tok.s + tok.len - 1))) {
+        --tok.len;
+      }
+      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
+    } else {
+      char *ne = (char*)te;
+      tok.numval = strtod(tok.s, &ne);
+      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
+    }
+    if (!QPCTX_ISOK(q)) {
+        return 0;
+    }
+    return 1;
+}
+
+
+/* #line 504 "lexer.rl" */
 
 
 
-/* #line 36 "lexer.c" */
+/* #line 97 "lexer.c" */
 static const char _query_actions[] = {
 	0, 1, 0, 1, 1, 1, 2, 1, 
 	26, 1, 27, 1, 28, 1, 29, 1, 
@@ -515,7 +576,7 @@ static const int query_error = -1;
 static const int query_en_main = 91;
 
 
-/* #line 758 "lexer.rl" */
+/* #line 507 "lexer.rl" */
 
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v2(rm_malloc);
@@ -525,7 +586,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* ts = q->raw;          // query start
   const char* te = q->raw + q->len; // query end
   
-/* #line 529 "lexer.c" */
+/* #line 590 "lexer.c" */
 	{
 	cs = query_start;
 	ts = 0;
@@ -533,7 +594,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
 	act = 0;
 	}
 
-/* #line 767 "lexer.rl" */
+/* #line 516 "lexer.rl" */
   QueryToken tok = {.len = 0, .pos = 0, .s = 0};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
@@ -542,7 +603,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* eof = pe;
   
   
-/* #line 546 "lexer.c" */
+/* #line 607 "lexer.c" */
 	{
 	int _klen;
 	unsigned int _trans;
@@ -561,7 +622,7 @@ _resume:
 /* #line 1 "NONE" */
 	{ts = p;}
 	break;
-/* #line 565 "lexer.c" */
+/* #line 626 "lexer.c" */
 		}
 	}
 
@@ -632,459 +693,147 @@ _eof_trans:
 	{te = p+1;}
 	break;
 	case 3:
-/* #line 78 "lexer.rl" */
+/* #line 139 "lexer.rl" */
 	{act = 1;}
 	break;
 	case 4:
-/* #line 89 "lexer.rl" */
+/* #line 150 "lexer.rl" */
 	{act = 2;}
 	break;
 	case 5:
-/* #line 100 "lexer.rl" */
+/* #line 161 "lexer.rl" */
 	{act = 3;}
 	break;
 	case 6:
-/* #line 109 "lexer.rl" */
+/* #line 170 "lexer.rl" */
 	{act = 4;}
 	break;
 	case 7:
-/* #line 119 "lexer.rl" */
+/* #line 180 "lexer.rl" */
 	{act = 5;}
 	break;
 	case 8:
-/* #line 177 "lexer.rl" */
+/* #line 186 "lexer.rl" */
 	{act = 6;}
 	break;
 	case 9:
-/* #line 235 "lexer.rl" */
+/* #line 192 "lexer.rl" */
 	{act = 7;}
 	break;
 	case 10:
-/* #line 293 "lexer.rl" */
+/* #line 198 "lexer.rl" */
 	{act = 8;}
 	break;
 	case 11:
-/* #line 351 "lexer.rl" */
+/* #line 204 "lexer.rl" */
 	{act = 9;}
 	break;
 	case 12:
-/* #line 409 "lexer.rl" */
+/* #line 210 "lexer.rl" */
 	{act = 10;}
 	break;
 	case 13:
-/* #line 476 "lexer.rl" */
+/* #line 225 "lexer.rl" */
 	{act = 12;}
 	break;
 	case 14:
-/* #line 485 "lexer.rl" */
+/* #line 234 "lexer.rl" */
 	{act = 13;}
 	break;
 	case 15:
-/* #line 506 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{act = 15;}
 	break;
 	case 16:
-/* #line 564 "lexer.rl" */
+/* #line 313 "lexer.rl" */
 	{act = 23;}
 	break;
 	case 17:
-/* #line 578 "lexer.rl" */
+/* #line 327 "lexer.rl" */
 	{act = 25;}
 	break;
 	case 18:
-/* #line 607 "lexer.rl" */
+/* #line 356 "lexer.rl" */
 	{act = 30;}
 	break;
 	case 19:
-/* #line 610 "lexer.rl" */
+/* #line 359 "lexer.rl" */
 	{act = 32;}
 	break;
 	case 20:
-/* #line 619 "lexer.rl" */
+/* #line 368 "lexer.rl" */
 	{act = 33;}
 	break;
 	case 21:
-/* #line 630 "lexer.rl" */
+/* #line 379 "lexer.rl" */
 	{act = 34;}
 	break;
 	case 22:
-/* #line 656 "lexer.rl" */
+/* #line 405 "lexer.rl" */
 	{act = 36;}
 	break;
 	case 23:
-/* #line 670 "lexer.rl" */
+/* #line 419 "lexer.rl" */
 	{act = 37;}
 	break;
 	case 24:
-/* #line 685 "lexer.rl" */
+/* #line 434 "lexer.rl" */
 	{act = 38;}
 	break;
 	case 25:
-/* #line 714 "lexer.rl" */
+/* #line 463 "lexer.rl" */
 	{act = 40;}
 	break;
 	case 26:
-/* #line 119 "lexer.rl" */
+/* #line 180 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '!'
-    char *end1 = strchr(tok.s, '!') - 1;
-    // Find the position after '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the '!'
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, NOT_EQUAL, tok, q, ts, te, '!', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 27:
-/* #line 177 "lexer.rl" */
+/* #line 186 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the first '='
-    char *end1 = strchr(tok.s, '=') - 1;
-    // Find the position after the second '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the first '='
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, EQUALS, tok, q, ts, te, '=', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, EQUALS, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 28:
-/* #line 235 "lexer.rl" */
+/* #line 192 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '>'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GT, tok, q, ts, te, '>', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 29:
-/* #line 293 "lexer.rl" */
+/* #line 198 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GE, tok, q, ts, te, '>', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 30:
-/* #line 351 "lexer.rl" */
+/* #line 204 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '<'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LT, tok, q, ts, te, '<', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 31:
-/* #line 409 "lexer.rl" */
+/* #line 210 "lexer.rl" */
 	{te = p+1;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 32:
-/* #line 467 "lexer.rl" */
+/* #line 216 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -1096,7 +845,7 @@ _eof_trans:
   }}
 	break;
 	case 33:
-/* #line 485 "lexer.rl" */
+/* #line 234 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1109,7 +858,7 @@ _eof_trans:
   }}
 	break;
 	case 34:
-/* #line 496 "lexer.rl" */
+/* #line 245 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     tok.s = "";
@@ -1121,7 +870,7 @@ _eof_trans:
   }}
 	break;
 	case 35:
-/* #line 513 "lexer.rl" */
+/* #line 262 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, OR, tok, q);
@@ -1131,7 +880,7 @@ _eof_trans:
   }}
 	break;
 	case 36:
-/* #line 520 "lexer.rl" */
+/* #line 269 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LP, tok, q);
@@ -1141,7 +890,7 @@ _eof_trans:
   }}
 	break;
 	case 37:
-/* #line 528 "lexer.rl" */
+/* #line 277 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RP, tok, q);
@@ -1151,7 +900,7 @@ _eof_trans:
   }}
 	break;
 	case 38:
-/* #line 535 "lexer.rl" */
+/* #line 284 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LB, tok, q);
@@ -1161,7 +910,7 @@ _eof_trans:
   }}
 	break;
 	case 39:
-/* #line 542 "lexer.rl" */
+/* #line 291 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RB, tok, q);
@@ -1171,7 +920,7 @@ _eof_trans:
   }}
 	break;
 	case 40:
-/* #line 549 "lexer.rl" */
+/* #line 298 "lexer.rl" */
 	{te = p+1;{ 
      tok.pos = ts-q->raw;
      RSQuery_Parse_v2(pParser, COLON, tok, q);
@@ -1181,7 +930,7 @@ _eof_trans:
    }}
 	break;
 	case 41:
-/* #line 556 "lexer.rl" */
+/* #line 305 "lexer.rl" */
 	{te = p+1;{ 
      tok.pos = ts-q->raw;
      RSQuery_Parse_v2(pParser, SEMICOLON, tok, q);
@@ -1191,7 +940,7 @@ _eof_trans:
    }}
 	break;
 	case 42:
-/* #line 571 "lexer.rl" */
+/* #line 320 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, TILDE, tok, q);  
@@ -1201,7 +950,7 @@ _eof_trans:
   }}
 	break;
 	case 43:
-/* #line 585 "lexer.rl" */
+/* #line 334 "lexer.rl" */
 	{te = p+1;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, PERCENT, tok, q);
@@ -1211,7 +960,7 @@ _eof_trans:
   }}
 	break;
 	case 44:
-/* #line 592 "lexer.rl" */
+/* #line 341 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LSQB, tok, q);  
@@ -1221,7 +970,7 @@ _eof_trans:
   }}
 	break;
 	case 45:
-/* #line 599 "lexer.rl" */
+/* #line 348 "lexer.rl" */
 	{te = p+1;{ 
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RSQB, tok, q);   
@@ -1231,19 +980,19 @@ _eof_trans:
   }}
 	break;
 	case 46:
-/* #line 606 "lexer.rl" */
+/* #line 355 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 47:
-/* #line 607 "lexer.rl" */
+/* #line 356 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 48:
-/* #line 608 "lexer.rl" */
+/* #line 357 "lexer.rl" */
 	{te = p+1;}
 	break;
 	case 49:
-/* #line 641 "lexer.rl" */
+/* #line 390 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1260,7 +1009,7 @@ _eof_trans:
   }}
 	break;
 	case 50:
-/* #line 656 "lexer.rl" */
+/* #line 405 "lexer.rl" */
 	{te = p+1;{
     tok.type = QT_TERM;
     tok.len = te - (ts + 3); // remove the quotes and the star at the end
@@ -1276,7 +1025,7 @@ _eof_trans:
   }}
 	break;
 	case 51:
-/* #line 699 "lexer.rl" */
+/* #line 448 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1293,7 +1042,7 @@ _eof_trans:
   }}
 	break;
 	case 52:
-/* #line 714 "lexer.rl" */
+/* #line 463 "lexer.rl" */
 	{te = p+1;{
     tok.type = QT_TERM;
     tok.len = te - (ts + 4); // remove the quotes and the stars
@@ -1309,7 +1058,7 @@ _eof_trans:
   }}
 	break;
 	case 53:
-/* #line 728 "lexer.rl" */
+/* #line 477 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1324,7 +1073,7 @@ _eof_trans:
   }}
 	break;
 	case 54:
-/* #line 741 "lexer.rl" */
+/* #line 490 "lexer.rl" */
 	{te = p+1;{
     int is_attr = (*(ts+2) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_WILDCARD : QT_WILDCARD;
@@ -1339,7 +1088,7 @@ _eof_trans:
   }}
 	break;
 	case 55:
-/* #line 78 "lexer.rl" */
+/* #line 139 "lexer.rl" */
 	{te = p;p--;{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -1353,7 +1102,7 @@ _eof_trans:
   }}
 	break;
 	case 56:
-/* #line 89 "lexer.rl" */
+/* #line 150 "lexer.rl" */
 	{te = p;p--;{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -1367,7 +1116,7 @@ _eof_trans:
   }}
 	break;
 	case 57:
-/* #line 100 "lexer.rl" */
+/* #line 161 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -1379,7 +1128,7 @@ _eof_trans:
   }}
 	break;
 	case 58:
-/* #line 109 "lexer.rl" */
+/* #line 170 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -1391,367 +1140,55 @@ _eof_trans:
   }}
 	break;
 	case 59:
-/* #line 119 "lexer.rl" */
+/* #line 180 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '!'
-    char *end1 = strchr(tok.s, '!') - 1;
-    // Find the position after '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the '!'
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, NOT_EQUAL, tok, q, ts, te, '!', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 60:
-/* #line 177 "lexer.rl" */
+/* #line 186 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the first '='
-    char *end1 = strchr(tok.s, '=') - 1;
-    // Find the position after the second '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the first '='
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, EQUALS, tok, q, ts, te, '=', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, EQUALS, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 61:
-/* #line 235 "lexer.rl" */
+/* #line 192 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '>'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GT, tok, q, ts, te, '>', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 62:
-/* #line 293 "lexer.rl" */
+/* #line 198 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GE, tok, q, ts, te, '>', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 63:
-/* #line 351 "lexer.rl" */
+/* #line 204 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '<'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LT, tok, q, ts, te, '<', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 64:
-/* #line 409 "lexer.rl" */
+/* #line 210 "lexer.rl" */
 	{te = p;p--;{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 65:
-/* #line 485 "lexer.rl" */
+/* #line 234 "lexer.rl" */
 	{te = p;p--;{ 
     tok.pos = ts-q->raw;
     tok.s = ts;
@@ -1764,7 +1201,7 @@ _eof_trans:
   }}
 	break;
 	case 66:
-/* #line 506 "lexer.rl" */
+/* #line 255 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);  
@@ -1774,7 +1211,7 @@ _eof_trans:
   }}
 	break;
 	case 67:
-/* #line 578 "lexer.rl" */
+/* #line 327 "lexer.rl" */
 	{te = p;p--;{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, STAR, tok, q);
@@ -1784,11 +1221,11 @@ _eof_trans:
   }}
 	break;
 	case 68:
-/* #line 607 "lexer.rl" */
+/* #line 356 "lexer.rl" */
 	{te = p;p--;}
 	break;
 	case 69:
-/* #line 619 "lexer.rl" */
+/* #line 368 "lexer.rl" */
 	{te = p;p--;{
     tok.len = te-ts;
     tok.s = ts;
@@ -1801,7 +1238,7 @@ _eof_trans:
   }}
 	break;
 	case 70:
-/* #line 630 "lexer.rl" */
+/* #line 379 "lexer.rl" */
 	{te = p;p--;{
     tok.len = te - (ts + 2);
     tok.s = ts + 1;
@@ -1814,7 +1251,7 @@ _eof_trans:
   }}
 	break;
 	case 71:
-/* #line 656 "lexer.rl" */
+/* #line 405 "lexer.rl" */
 	{te = p;p--;{
     tok.type = QT_TERM;
     tok.len = te - (ts + 3); // remove the quotes and the star at the end
@@ -1830,7 +1267,7 @@ _eof_trans:
   }}
 	break;
 	case 72:
-/* #line 670 "lexer.rl" */
+/* #line 419 "lexer.rl" */
 	{te = p;p--;{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -1847,7 +1284,7 @@ _eof_trans:
   }}
 	break;
 	case 73:
-/* #line 685 "lexer.rl" */
+/* #line 434 "lexer.rl" */
 	{te = p;p--;{
     tok.type = QT_TERM;
     tok.len = te - (ts + 3); // remove the quotes and the star at the end
@@ -1863,7 +1300,7 @@ _eof_trans:
   }}
 	break;
 	case 74:
-/* #line 714 "lexer.rl" */
+/* #line 463 "lexer.rl" */
 	{te = p;p--;{
     tok.type = QT_TERM;
     tok.len = te - (ts + 4); // remove the quotes and the stars
@@ -1879,7 +1316,7 @@ _eof_trans:
   }}
 	break;
 	case 75:
-/* #line 89 "lexer.rl" */
+/* #line 150 "lexer.rl" */
 	{{p = ((te))-1;}{ 
     tok.s = ts;
     tok.len = te-ts;
@@ -1893,7 +1330,7 @@ _eof_trans:
   }}
 	break;
 	case 76:
-/* #line 100 "lexer.rl" */
+/* #line 161 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
@@ -1905,367 +1342,55 @@ _eof_trans:
   }}
 	break;
 	case 77:
-/* #line 119 "lexer.rl" */
+/* #line 180 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '!'
-    char *end1 = strchr(tok.s, '!') - 1;
-    // Find the position after '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the '!'
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, NOT_EQUAL, tok, q, ts, te, '!', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 78:
-/* #line 177 "lexer.rl" */
+/* #line 186 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the first '='
-    char *end1 = strchr(tok.s, '=') - 1;
-    // Find the position after the second '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the first '='
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, EQUALS, tok, q, ts, te, '=', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, EQUALS, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 79:
-/* #line 235 "lexer.rl" */
+/* #line 192 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '>'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GT, tok, q, ts, te, '>', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 80:
-/* #line 293 "lexer.rl" */
+/* #line 198 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GE, tok, q, ts, te, '>', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 81:
-/* #line 351 "lexer.rl" */
+/* #line 204 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '<'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LT, tok, q, ts, te, '<', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 82:
-/* #line 409 "lexer.rl" */
+/* #line 210 "lexer.rl" */
 	{{p = ((te))-1;}{
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }}
 	break;
 	case 83:
-/* #line 578 "lexer.rl" */
+/* #line 327 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, STAR, tok, q);
@@ -2275,11 +1400,11 @@ _eof_trans:
   }}
 	break;
 	case 84:
-/* #line 607 "lexer.rl" */
+/* #line 356 "lexer.rl" */
 	{{p = ((te))-1;}}
 	break;
 	case 85:
-/* #line 619 "lexer.rl" */
+/* #line 368 "lexer.rl" */
 	{{p = ((te))-1;}{
     tok.len = te-ts;
     tok.s = ts;
@@ -2292,7 +1417,7 @@ _eof_trans:
   }}
 	break;
 	case 86:
-/* #line 670 "lexer.rl" */
+/* #line 419 "lexer.rl" */
 	{{p = ((te))-1;}{
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -2361,355 +1486,43 @@ _eof_trans:
 	break;
 	case 5:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '!'
-    char *end1 = strchr(tok.s, '!') - 1;
-    // Find the position after '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the '!'
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, NOT_EQUAL, tok, q, ts, te, '!', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, NOT_EQUAL, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
 	case 6:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the first '='
-    char *end1 = strchr(tok.s, '=') - 1;
-    // Find the position after the second '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the first '='
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, EQUALS, tok, q, ts, te, '=', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, EQUALS, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
 	case 7:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '>'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GT, tok, q, ts, te, '>', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
 	case 8:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '>'
-    char *end1 = strchr(tok.s, '>') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GE, tok, q, ts, te, '>', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, GE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
 	case 9:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '<'
-    char *start2 = end1 + 2;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LT, tok, q, ts, te, '<', 1)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LT, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
 	case 10:
 	{{p = ((te))-1;}
-    tok.len = te - (ts + 1);
-    int len = tok.len;
-    tok.pos = ts - q->raw;
-    tok.s = ts + 1;
-
-    // Find the position before the '<'
-    char *end1 = strchr(tok.s, '<') - 1;
-    // Find the position after the '='
-    char *start2 = end1 + 3;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
-    }
-    tok.len = end1 - tok.s + 1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
-    if (!QPCTX_ISOK(q)) {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
       {p++; goto _out; }
-    }
-
-    tok.s = start2 - 2;
-    tok.len = 2;
-    RSQuery_Parse_v2(pParser, LE, tok, q);
-    if (!QPCTX_ISOK(q)) {
-      {p++; goto _out; }
-    }
-
-    // Remove spaces after the second '='
-    while (isspace(*start2)) {
-      ++start2;
-    }
-
-    // Detect parameter's sign if exists
-    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
-      tok.sign = *start2 == '-' ? -1 : 1;
-      ++start2;
-    }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
-    
-    if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
-      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
-    } else {
-      char *ne = (char*)te;
-      tok.numval = strtod(tok.s, &ne);
-      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
-    }
-    if (!QPCTX_ISOK(q)) {
-        {p++; goto _out; }
     }
   }
 	break;
@@ -2865,7 +1678,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 2869 "lexer.c" */
+/* #line 1682 "lexer.c" */
 		}
 	}
 
@@ -2878,7 +1691,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 2882 "lexer.c" */
+/* #line 1695 "lexer.c" */
 		}
 	}
 
@@ -2896,7 +1709,7 @@ _again:
 	_out: {}
 	}
 
-/* #line 775 "lexer.rl" */
+/* #line 524 "lexer.rl" */
   
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v2(pParser, 0, tok, q);
