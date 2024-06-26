@@ -73,17 +73,29 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
+      - name: Install llvm & rust
+        if: inputs.san == 'address'
+        run: |
+          .install/install_llvm.sh ${{ steps.mode.outputs.mode }}
+          .install/install_rust.sh 
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "CC=$(which clang-17)" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-17)" >> $GITHUB_ENV
+      
+      - name: verify CC and CXX
+        run: |
+          echo "CC=$CC"
+          echo "CXX=$CXX"
+
       - name: Get Redis
-        if: inputs.get-redis != 'skip getting redis'
         uses: actions/checkout@v3
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.

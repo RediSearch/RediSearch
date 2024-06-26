@@ -8,13 +8,16 @@ on:
       flow-config:
         type: string
         required: true
+      get-redis:
+        type: string
+
 
 jobs:
+
   clang-sanitizer:
     uses: ./.github/workflows/task-test.yml
     with:
-      container: redisfab/clang:17-x64-bullseye
       test-config: ${{ inputs.flow-config }}
-      get-redis: 'skip getting redis'
-      san: addr
+      san: address
+      env: ubuntu-latest
     secrets: inherit
