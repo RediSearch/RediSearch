@@ -32,6 +32,12 @@ def TestEmptyNonIndexed():
                 'FT.SEARCH', 'idx', query
             ).error().contains('Empty value for field that does not index empty values')
 
+        # Bad syntax for empty tag should return empty result (compatibility..)
+        for query in ['@tag:""', "@tag:''", '@tag:("")', "@tag:('')"]:
+            env.expect(
+                'FT.SEARCH', 'idx', query
+            ).equal(EMPTY_RESULT)
+
     env.flush()
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text1', 'TEXT', 'text2', 'TEXT').ok()

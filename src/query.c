@@ -1616,24 +1616,28 @@ static int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *sp
 }
 
 static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts) {
-  // TODO: Can we get here from other cases than TAG\TEXT? If so, that may result in a wrong output
-
   if (opts->flags & QueryNode_IsTag) {
     return opts->flags & QueryNode_IndexesEmpty;
   }
 
-  // TEXT field
+  // TEXT field (probably)
   bool empty_text = n->opts.fieldMask == RS_FIELDMASK_ALL;
-  // Check if there is a field from the field mask that indexes empty. If not,
-  // we throw an error.
-  arrayof(FieldSpec *) fields = IndexSpec_GetFieldsByMask(spec, n->opts.fieldMask);
-  array_foreach(fields, fs, {
-    if (FieldSpec_IndexesEmpty(fs)) {
-      empty_text = true;
-      break;
+  if (!empty_text) {
+    // Check if there is a field from the field mask that indexes empty. If not,
+    // we throw an error.
+    arrayof(FieldSpec *) fields = IndexSpec_GetFieldsByMask(spec, n->opts.fieldMask);
+    if (array_len(fields) == 0) {
+      // Not a TEXT field. We don't want to throw an error, for backward compatibility.
+      return true;
     }
-  });
-  array_free(fields);
+    array_foreach(fields, fs, {
+      if (FieldSpec_IndexesEmpty(fs)) {
+        empty_text = true;
+        break;
+      }
+    });
+    array_free(fields);
+  }
   return empty_text;
 }
 
@@ -1666,11 +1670,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       withChildren = 0;
       break;
     case QN_TAG:
-      opts->flags |= QueryNode_IsTag;
-      const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
-      if (fs && FieldSpec_IndexesEmpty(fs)) {
-        opts->flags |= QueryNode_IndexesEmpty;
+      {
+        opts->flags |= QueryNode_IsTag;
+        const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
+        if (fs && FieldSpec_IndexesEmpty(fs)) {
+          opts->flags |= QueryNode_IndexesEmpty;
+        }
       }
+      break;
     case QN_UNION:
     case QN_TOKEN:
       {
@@ -1680,6 +1687,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
           QueryNode_ValidateToken(n, spec, opts, status);
         }
       }
+      break;
     case QN_NUMERIC:
     case QN_NOT:
     case QN_OPTIONAL:
