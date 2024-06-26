@@ -117,7 +117,12 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  uint8_t flags;
 } SearchResult;
+
+/* SearchResult flags */
+static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 /* Result processor return codes */
 
