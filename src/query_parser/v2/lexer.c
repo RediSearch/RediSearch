@@ -915,7 +915,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '>') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -1035,7 +1035,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '<') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -1582,7 +1582,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '>') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -1702,7 +1702,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '<') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -2096,7 +2096,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '>') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -2216,7 +2216,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '<') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -2547,7 +2547,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '>') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }
@@ -2665,7 +2665,7 @@ _eof_trans:
     char *end1 = strchr(tok.s, '<') - 1;
     // Find the position after the '='
     char *start2 = end1 + 3;
-    // Remove spaces before the first '='
+    // Remove spaces before the operator
     while (isspace(*end1)) {
       --end1;
     }

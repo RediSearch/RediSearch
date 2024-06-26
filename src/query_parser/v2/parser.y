@@ -202,9 +202,6 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %type verbatim { QueryNode * }
 %destructor verbatim { QueryNode_Free($$); }
 
-%type exact { QueryNode * }
-%destructor exact { QueryNode_Free($$); }
-
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
 
@@ -638,14 +635,13 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 /////////////////////////////////////////////////////////////////
 
 text_expr(A) ::= EXACT(B) . [TERMLIST] {
-  char *word;
-  char *str = strndup(B.s, B.len);
+  char *str = rm_strndup(B.s, B.len);
 
   A = NewPhraseNode(0);
 
   while (str != NULL) {
     // get the next token
-    size_t tokLen;
+    size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
       QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
@@ -653,7 +649,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     }
   }
 
-  free(str);
+  rm_free(str);
   A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -901,7 +897,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
   }
 }
 
-numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER] {
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [NUMBER]{
   if (B.type == QT_PARAM_NUMERIC) {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
   }
