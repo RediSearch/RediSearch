@@ -53,11 +53,11 @@ def TestEmptyNonIndexed():
         env.expect(
             'FT.SEARCH', 'idx2', '@text1|text2:""'
         ).equal(EMPTY_RESULT)
-        env.cmd('HSET', 'h1', 'text1', '', 'text2', '')
+        conn.execute_command('HSET', 'h1', 'text1', '', 'text2', '')
         env.expect(
             'FT.SEARCH', 'idx2', '@text1|text2:""'
         ).equal([1, 'h1', ['text1', '', 'text2', '']])
-        env.cmd('DEL', 'h1')
+        conn.execute_command('DEL', 'h1')
 
 def EmptyTagJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TAG field of a
