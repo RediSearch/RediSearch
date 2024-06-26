@@ -29,7 +29,6 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       QueryParseCtx *q, const char *ts, const char *te, char c1,
       unsigned int opLen) {
     tok.len = te - (ts + 1);
-    int len = tok.len;
     tok.pos = ts - q->raw;
     tok.s = ts + 1;
 
@@ -433,7 +432,7 @@ main := |*
 
   suffix_exact => {
     tok.type = QT_TERM;
-    tok.len = te - (ts + 3); // remove the quotes and the star at the end
+    tok.len = te - (ts + 3); // remove the quotes at the end
     tok.s = ts + 2; // skip the star and the quote
     tok.numval = 0;
     tok.pos = ts-q->raw;
@@ -462,7 +461,7 @@ main := |*
 
   contains_exact => {
     tok.type = QT_TERM;
-    tok.len = te - (ts + 4); // remove the quotes and the stars
+    tok.len = te - (ts + 4); // remove the quotes and the star
     tok.s = ts + 2; // skip the star and the quote
     tok.numval = 0;
     tok.pos = ts-q->raw;

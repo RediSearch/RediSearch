@@ -560,9 +560,9 @@ def testNumericOperators():
     res2 = env.cmd('FT.SEARCH', 'idx', '@n> +$min   @n> +11', 'NOCONTENT',
                    'PARAMS', '2', 'min', '12', 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n> -$min', 'NOCONTENT',
-    #                'PARAMS', '2', 'min', '-12', 'SORTBY', 'n', 'ASC')
-    # env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n> -$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '-12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
 
     # Test > +inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>inf', 'NOCONTENT')
@@ -632,9 +632,9 @@ def testNumericOperators():
     res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT', 
                    'PARAMS', 2, 'p', 'inf', 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT', 
-    #                'PARAMS', 2, 'p', '-inf', 'SORTBY', 'n', 'ASC')
-    # env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT', 
+                   'PARAMS', 2, 'p', '-inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
 
     # Test < -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n<-inf', 'NOCONTENT')
@@ -642,9 +642,9 @@ def testNumericOperators():
     res2 = env.cmd('FT.SEARCH', 'idx', '@n<$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', '-inf')
     env.assertEqual(res2, res1)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT',
-    #                'PARAMS', 2, 'p', 'inf')
-    # env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf')
+    env.assertEqual(res2, res1)
 
     # Test <= +inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n<=inf', 'NOCONTENT', 'LIMIT', 0, 12,
