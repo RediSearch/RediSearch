@@ -28,6 +28,30 @@ def TestEmptyNonIndexed():
                 'FT.SEARCH', 'idx', query
             ).error().contains('Empty value for field that does not index empty values')
 
+    env.flush()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text1', 'TEXT', 'text2', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'text1', 'TEXT', 'text2', 'TEXT', 'INDEXEMPTY').ok()
+
+    # Multiple fields in one expression
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
+
+        # An error should be thrown in case no field in the mask indexes empty
+        # values
+        env.expect(
+            'FT.SEARCH', 'idx', '@text1|text2:""'
+        ).error().contains('Empty value for field that does not index empty values')
+
+        # A result should be returned in case at least on of the fields indexes
+        # empty values
+        env.cmd('HSET', 'h1', 'text1', '', 'text2', '')
+        env.expect(
+            'FT.SEARCH', 'idx2', '@text1|text2:""'
+        ).equal([1, 'h1', ['text1', '', 'text2', '']])
+        env.cmd('DEL', 'h1')
+
 def EmptyTagJSONTest(env, idx, dialect):
     """Tests the indexing and querying of empty values for a TAG field of a
     JSON index"""
