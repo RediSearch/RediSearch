@@ -81,17 +81,12 @@ def testFuzzySyntaxError(env):
 
 def testFuzzyWithNumbersOnly(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    env.expect('HSET', 'doc1', 'test', '12345').equal(1)
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
 
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
-        expected = [1, 'doc1', ['test', '12345']]
-        res = env.cmd('FT.SEARCH', 'idx', '%%21345%%', 'DIALECT', dialect)
-        env.assertEqual(res, expected)
-
-        res = env.cmd('FT.SEARCH', 'idx', '%%$p%%','PARAMS', 2, 'p', '21345',
-                   'DIALECT', dialect,)
-        env.assertEqual(res, expected)
+        env.expect('ft.search', 'idx', '%%21345%%', 'DIALECT', dialect)\
+            .equal([1, 'doc1', ['test', '12345']])
 
 @skip()
 def testTagFuzzy(env):

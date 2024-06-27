@@ -211,8 +211,7 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     }
     ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
     // Do not expand NUMERIC node, SIZE node, or TERM node that contains a digit
-    if(q->opts->expanderName == NULL && (qt->type == QT_NUMERIC ||
-        qt->type == QT_SIZE || str_contains_digit(s))) {
+    if(qt->type == QT_NUMERIC || qt->type == QT_SIZE || str_contains_digit(s)) {
         ret->opts.flags |= QueryNode_Verbatim;
     }
   } else {
@@ -1595,12 +1594,11 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  QueryNode_EvalParams(opts->params, q->root, status, opts->expanderName);
+  QueryNode_EvalParams(opts->params, q->root, status);
   return REDISMODULE_OK;
 }
 
-int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status,
-                          const char *expanderName) {
+int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
@@ -1621,7 +1619,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status,
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
     case QN_GEOMETRY:
-      res = QueryNode_EvalParamsCommon(params, n, status, expanderName);
+      res = QueryNode_EvalParamsCommon(params, n, status);
       break;
     case QN_UNION:
       // no immediately owned params to resolve
@@ -1635,7 +1633,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status,
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_EvalParams(params, n->children[ii], status, expanderName);
+      res = QueryNode_EvalParams(params, n->children[ii], status);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1738,15 +1736,14 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   }
 }
 
-int QueryNode_EvalParamsCommon(dict *params, QueryNode *node,
-                                QueryError *status, const char* expanderName) {
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status) {
   if (node->params) {
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
       // If parameter's value is a number, don't expand the node.
-      if (res == 2 && expanderName == NULL) {
+      if (res == 2) {
         node->opts.flags |= QueryNode_Verbatim;
       }
     }
