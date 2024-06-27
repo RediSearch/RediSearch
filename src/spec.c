@@ -182,6 +182,17 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
   return NULL;
 }
 
+// Get the field specs that match a field mask.
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
+  arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
+  for (int i = 0; i < sp->numFields; i++) {
+    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+      res = array_append(res, sp->fields + i);
+    }
+  }
+  return res;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /*
@@ -910,8 +921,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     if (!parseTextField(fs, ac, status)) goto error;
+    if (!FieldSpec_IndexesEmpty(fs)) {
+      sp->flags |= Index_HasNonEmpty;
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     if (!parseTagField(fs, ac, status)) goto error;
+    if (!FieldSpec_IndexesEmpty(fs)) {
+      sp->flags |= Index_HasNonEmpty;
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field

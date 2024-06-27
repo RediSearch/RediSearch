@@ -148,6 +148,8 @@ typedef enum {
   QueryNode_Verbatim = 0x01,
   QueryNode_OverriddenInOrder = 0x02,
   QueryNode_YieldsDistance = 0x04,
+  QueryNode_IndexesEmpty = 0x08,
+  QueryNode_IsTag = 0x10,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -218,7 +220,6 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
-int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

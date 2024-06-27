@@ -127,10 +127,6 @@ int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 
-// Checks whether query nodes are valid
-// Currently Phrase nodes are checked whether slop/inorder are allowed
-int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
-
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);

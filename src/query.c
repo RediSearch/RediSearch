@@ -1603,22 +1603,64 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   return res;
 }
 
-int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root || !isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder)) {
-    return REDISMODULE_OK;
+static int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool atTopLevel, QueryError *status) {
+  // Need to check when slop/inorder are locally overridden at query node level, or at query top-level
+  if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_OverriddenInOrder)) {
+    // Check only fields that are used in this query node (either specific fields or all fields)
+    return IndexSpec_CheckAllowSlopAndInorder(spec, qn->opts.fieldMask, status);
+  } else {
+    return 1;
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status);
 }
 
-int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts) {
+  if (opts->flags & QueryNode_IsTag) {
+    return opts->flags & QueryNode_IndexesEmpty;
+  }
+
+  // TEXT field (probably)
+  bool empty_text = n->opts.fieldMask == RS_FIELDMASK_ALL;
+  if (!empty_text) {
+    // Check if there is a field from the field mask that indexes empty. If not,
+    // we throw an error.
+    arrayof(FieldSpec *) fields = IndexSpec_GetFieldsByMask(spec, n->opts.fieldMask);
+    if (array_len(fields) == 0) {
+      // Not a TEXT field. We don't want to throw an error, for backward compatibility.
+      array_free(fields);
+      return true;
+    }
+    array_foreach(fields, fs, {
+      if (FieldSpec_IndexesEmpty(fs)) {
+        empty_text = true;
+        break;
+      }
+    });
+    array_free(fields);
+  }
+  return empty_text;
+}
+
+// If the token is of an empty string, and the searched field doesn't index
+// empty strings, we should return an error
+static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+  if (n->tn.len == 0 && n->tn.str && !strcmp(n->tn.str, "") && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Use `%s` in field creation in order to index and query for empty strings", SPEC_INDEXEMPTY_STR);
+    return false;
+  }
+  return true;
+}
+
+static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_PHRASE:
       {
-        bool atTopLevel = opts->slop >=0 || (opts->flags & Search_InOrder);
-        if (!QueryNode_CheckAllowSlopAndInorder(n, spec, atTopLevel, status)) {
-          res = REDISMODULE_ERR;
+        if (isSpecJson(spec) && (spec->flags & Index_HasUndefinedOrder)){
+          bool atTopLevel = opts->slop >=0 || (opts->flags & Search_InOrder);
+          if (!QueryNode_CheckAllowSlopAndInorder(n, spec, atTopLevel, status)) {
+            res = REDISMODULE_ERR;
+          }
         }
       }
       break;
@@ -1626,8 +1668,25 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_MISSING:
       withChildren = 0;
       break;
+    case QN_TAG:
+      {
+        opts->flags |= QueryNode_IsTag;
+        const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
+        if (fs && FieldSpec_IndexesEmpty(fs)) {
+          opts->flags |= QueryNode_IndexesEmpty;
+        }
+      }
+      break;
     case QN_UNION:
     case QN_TOKEN:
+      {
+        if (spec->flags & Index_HasNonEmpty) {
+          // We don't validate this if there is no TEXT\TAG field that does not
+          // index empty values.
+          QueryNode_ValidateToken(n, spec, opts, status);
+        }
+      }
+      break;
     case QN_NUMERIC:
     case QN_NOT:
     case QN_OPTIONAL:
@@ -1636,7 +1695,6 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     case QN_IDS:
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
-    case QN_TAG:
     case QN_FUZZY:
     case QN_LEXRANGE:
     case QN_VECTOR:
@@ -1652,6 +1710,18 @@ int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
     }
   }
   return res;
+}
+
+// Checks whether query nodes are valid
+// Currently Phrase nodes are checked whether slop/inorder are allowed
+int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
+  if (!q || !q->root ||
+      !(spec->flags & Index_HasNonEmpty) &&
+      (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
+  ) {
+    return REDISMODULE_OK;
+  }
+  return QueryNode_CheckIsValid(q->root, spec, opts, status);
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
@@ -2073,14 +2143,4 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, 
     }
   }
   return 1;
-}
-
-int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool atTopLevel, QueryError *status) {
-  // Need to check when slop/inorder are locally overridden at query node level, or at query top-level
-  if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_OverriddenInOrder)) {
-    // Check only fields that are used in this query node (either specific fields or all fields)
-    return IndexSpec_CheckAllowSlopAndInorder(spec, qn->opts.fieldMask, status);
-  } else {
-    return 1;
-  }
 }
