@@ -160,7 +160,9 @@ UNION {
     }
   }
   INTERSECT {
-    goodbye
+    EXACT {
+      goodbye
+    }
     UNION {
       moon
       +moon(expanded)
@@ -187,7 +189,9 @@ UNION {
       +goodby(expanded)
       goodby(expanded)
     }
-    moon
+    EXACT {
+      moon
+    }
   }
 }
 '''[1:])
@@ -195,12 +199,20 @@ UNION {
     env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
 UNION {
   INTERSECT {
-    hello
-    world
+    EXACT {
+      hello
+    }
+    EXACT {
+      world
+    }
   }
   INTERSECT {
-    goodbye
-    moon
+    EXACT {
+      goodbye
+    }
+    EXACT {
+      moon
+    }
   }
 }
 '''[1:])
@@ -208,25 +220,45 @@ UNION {
     env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
 UNION {
   INTERSECT {
-    hello
-    world
+    EXACT {
+      hello
+    }
+    EXACT {
+      world
+    }
   }
   UNION {
     INTERSECT {
-      hello
-      world
+      EXACT {
+        hello
+      }
+      EXACT {
+        world
+      }
     }
     UNION {
       INTERSECT {
-        hallo
-        world
+        EXACT {
+          hallo
+        }
+        EXACT {
+          world
+        }
       }
-      werld
+      EXACT {
+        werld
+      }
     }
     INTERSECT {
-      hello
-      world
-      werld
+      EXACT {
+        hello
+      }
+      EXACT {
+        world
+      }
+      EXACT {
+        werld
+      }
     }
   }
 }
@@ -483,7 +515,9 @@ UNION {
     +hello(expanded)
   }
   INTERSECT {
-    world
+    EXACT {
+      world
+    }
     UNION {
       again
       +again(expanded)
@@ -500,7 +534,9 @@ UNION {
   }
   INTERSECT {
     NOT{
-      world
+      EXACT {
+        world
+      }
     }
     UNION {
       again
@@ -518,7 +554,9 @@ INTERSECT {
   }
   OPTIONAL{
     NOT{
-      world
+      EXACT {
+        world
+      }
     }
   }
   OPTIONAL{
@@ -582,7 +620,11 @@ def testLongUnionList(env):
 
     # Make sure we get a single union node of all the args, and not a deep tree
     exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
-    env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    dialect = env.cmd(config_cmd(), "GET", "DEFAULT_DIALECT")[0][1]
+    if (dialect == 1):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    elif (dialect == 2):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:EXACT {{\n    @t:t{i}\n  }}' for i in range(1, num_args+1)]) + '\n}\n')
 
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()

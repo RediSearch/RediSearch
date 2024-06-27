@@ -67,6 +67,8 @@ typedef struct {
 
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
+void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 
@@ -80,5 +82,17 @@ int MRConnManager_ConnectAll(MRConnManager *m);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
+
+/*
+ * Set number of connections to each node to `num`, disconnect from extras.
+ * Assumes that `num` is less than the current number of connections and non-zero
+ */
+void MRConnManager_Shrink(MRConnManager *m, size_t num);
+
+/*
+ * Set number of connections to each node to `num`, connect new connections.
+ * Assumes that `num` is greater than the current number of connections
+ */
+void MRConnManager_Expand(MRConnManager *m, size_t num);
 
 void MRConnManager_Free(MRConnManager *m);

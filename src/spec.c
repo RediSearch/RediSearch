@@ -61,7 +61,7 @@ bool isTrimming = false;
 size_t memoryLimit = -1;
 size_t used_memory = 0;
 
-static redisearch_threadpool cleanPool = NULL;
+static redisearch_thpool_t *cleanPool = NULL;
 
 //---------------------------------------------------------------------------------------------
 
@@ -180,6 +180,17 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
     }
   }
   return NULL;
+}
+
+// Get the field specs that match a field mask.
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
+  arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
+  for (int i = 0; i < sp->numFields; i++) {
+    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
+      res = array_append(res, sp->fields + i);
+    }
+  }
+  return res;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -884,7 +895,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
-  
+
     if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_FLAT_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
@@ -910,8 +921,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
     if (!parseTextField(fs, ac, status)) goto error;
+    if (!FieldSpec_IndexesEmpty(fs)) {
+      sp->flags |= Index_HasNonEmpty;
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     if (!parseTagField(fs, ac, status)) goto error;
+    if (!FieldSpec_IndexesEmpty(fs)) {
+      sp->flags |= Index_HasNonEmpty;
+    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
@@ -2008,7 +2025,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static redisearch_threadpool reindexPool = NULL;
+static redisearch_thpool_t *reindexPool = NULL;
 
 static IndexesScanner *IndexesScanner_NewGlobal() {
   if (global_spec_scanner) {
@@ -2780,7 +2797,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
 #ifdef MT_BUILD
-    workersThreadPool_Activate();
+    workersThreadPool_OnEventStart();
 #endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -2796,14 +2813,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       Indexes_ScanAndReindex();
     }
 #ifdef MT_BUILD
-    workersThreadPool_waitAndTerminate(ctx);
+    workersThreadPool_OnEventEnd(true);
 #endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 #ifdef MT_BUILD
   else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
-    workersThreadPool_waitAndTerminate(ctx);
+    workersThreadPool_OnEventEnd(true);
   }
 #endif
 }
@@ -2925,7 +2942,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(ctx, spec, id);
-  } 
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {

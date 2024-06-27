@@ -25,6 +25,7 @@ from unittest import SkipTest
 import inspect
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
+REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
@@ -49,6 +50,27 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
+class DialectEnv(Env):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dialect = None
+
+    def set_dialect(self, dialect):
+        self.dialect = dialect
+        result = run_command_on_all_shards(self, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        expected_result = ['OK'] * self.shardsCount
+        self.assertEqual(result, expected_result, message=f"Failed to set dialect to {dialect} on all shards")
+
+    def get_dialect(self):
+        return self.dialect
+
+    def assertEqual(self, first, second, depth=0, message=None):
+        if self.dialect is not None:
+            if message is None:
+                message = f'Dialect {self.dialect}'
+            else:
+                message = f'Dialect {self.dialect}, {message}'
+        super().assertEqual(first, second, depth=depth, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -202,8 +224,7 @@ def server_version_is_less_than(ver):
 
 def index_info(env, idx='idx'):
     res = env.cmd('FT.INFO', idx)
-    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return res
+    return to_dict(res)
 
 
 def dump_numeric_index_tree(env, idx, numeric_field):
@@ -225,11 +246,14 @@ def numeric_tree_summary(env, idx, numeric_field):
 
 
 def getWorkersThpoolStats(env):
-    return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
+    return to_dict(env.cmd(debug_cmd(), "WORKERS", "stats"))
+
+def getWorkersThpoolNumThreads(env):
+    return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
 
 def getWorkersThpoolStatsFromShard(shard_conn):
-    return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+    return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
 
 def skipOnExistingEnv(env):
@@ -355,7 +379,7 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
             if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-               raise SkipTest()
+                raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
                 return f(env)
@@ -639,6 +663,6 @@ def verify_shard_init(shard):
                 if 'no such index' in str(e):
                     break
 
-def cmd_assert(env, cmd, res):
+def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
-    env.assertEqual(db_res, res)
+    env.assertEqual(db_res, res, message=message)

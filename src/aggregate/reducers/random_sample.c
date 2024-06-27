@@ -21,7 +21,7 @@ static void *sampleNewInstance(Reducer *base) {
   size_t blocksize = MAX(10000, sizeof(rsmplCtx) + r->len * sizeof(RSValue *));
   rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), blocksize);
   ctx->seen = 0;
-  ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
+  ctx->samplesArray = RSValue_NewArray(RSValue_AllocateArray(r->len), 0);
   return ctx;
 }
 
@@ -49,19 +49,12 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  size_t len = MIN(r->len, sc->seen);
-  RSValue *ret = sc->samplesArray;
-  sc->samplesArray = NULL;
-  return ret;
+  return RSValue_IncrRef(sc->samplesArray); // return a reference to the array
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
-  RSMPLReducer *r = (RSMPLReducer *)rbase;
-  if (sc->samplesArray) {
-    RSValue_Decref(sc->samplesArray);
-  }
+  RSValue_Decref(sc->samplesArray); // release own reference to the array
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {

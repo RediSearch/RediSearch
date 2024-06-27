@@ -25,13 +25,81 @@ void RSQuery_Parse_v2(void *yyp, int yymajor, QueryToken yyminor, QueryParseCtx 
 void *RSQuery_ParseAlloc_v2(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v2(void *p, void (*freeProc)(void *));
 
+int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok, 
+      QueryParseCtx *q, const char *ts, const char *te, char c1,
+      unsigned int opLen) {
+    tok.len = te - (ts + 1);
+    tok.pos = ts - q->raw;
+    tok.s = ts + 1;
+
+    // Find the position before the operator
+    char *end1 = strchr(tok.s, c1) - 1;
+    // Find the position after the operator
+    char *start2 = end1 + opLen + 1;
+    // Remove unescaped spaces at the end of the modifier
+    char *m = (char*)(tok.s);
+    int escaped = (*m == '\\');
+    while (m < end1) {
+      if (isspace(*(m + 1)) && !escaped) {
+        end1 = m;
+        break;
+      }
+      ++m;
+      escaped = !escaped && *m == '\\';
+    }
+    tok.len = end1 - tok.s + 1;
+    printf("token: '%.*s'\n", tok.len, tok.s);
+    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    tok.s = start2 - opLen;
+    tok.len = opLen;
+    RSQuery_Parse_v2(pParser, OperatorType, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    // Remove spaces after the operator
+    while (isspace(*start2)) {
+      ++start2;
+    }
+
+    // Detect parameter's sign if exists
+    if ((*start2 == '+' || *start2 == '-') && *(start2+1) == '$') {
+      tok.sign = *start2 == '-' ? -1 : 1;
+      ++start2;
+    }
+    tok.s = start2;
+    int is_attr = (*(tok.s) == '$') ? 1 : 0;
+    tok.len = (te - start2) + 1 - is_attr;
+    
+    if(is_attr) {
+      tok.s++;
+      // Remove trailing spaces from attribute
+      while (isspace(*(tok.s + tok.len - 1))) {
+        --tok.len;
+      }
+      RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
+    } else {
+      char *ne = (char*)te;
+      tok.numval = strtod(tok.s, &ne);
+      RSQuery_Parse_v2(pParser, NUMBER, tok, q);
+    }
+    if (!QPCTX_ISOK(q)) {
+        return 0;
+    }
+    return 1;
+}
+
 %%{
 
 machine query;
 
-inf = ['+\-']? 'inf' $ 4;
+inf = [+\-]? 'inf'i $ 4;
 size = digit+ $ 2;
-number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 3;
+number = [+\-]? digit+('.' digit+)? (('E'|'e') ['+\-]? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -51,13 +119,23 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
+exact = quote . ((any - quote) | (escape.quote))+ . quote;
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
+mod_not_equal = '@'.term.(space*).'!='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_equal = '@'.term.(space*).'=='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_gt = '@'.term.(space*).'>'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_ge = '@'.term.(space*).'>='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_lt = '@'.term.(space*).'<'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_le = '@'.term.(space*).'<='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
+contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
+prefix_exact = (exact.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
+suffix_exact = (star.exact) $1;
 as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
@@ -105,6 +183,43 @@ main := |*
       fbreak;
     }
   };
+
+  mod_not_equal => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, NOT_EQUAL, tok, q, ts, te, '!', 2)) {
+      fbreak;
+    }
+  };
+
+  mod_equal => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, EQUALS, tok, q, ts, te, '=', 2)) {
+      fbreak;
+    }
+  };
+
+  mod_gt => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GT, tok, q, ts, te, '>', 1)) {
+      fbreak;
+    }
+  };
+
+  mod_ge => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, GE, tok, q, ts, te, '>', 2)) {
+      fbreak;
+    }
+  };
+
+  mod_lt => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LT, tok, q, ts, te, '<', 1)) {
+      fbreak;
+    }
+  };
+
+  mod_le => {
+    if(!RSQuery_ParseNumericOp_v2(pParser, LE, tok, q, ts, te, '<', 2)) {
+      fbreak;
+    }
+  };
+
   arrow => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -136,7 +251,9 @@ main := |*
 
   empty_string => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, EMPTY_STRING, tok, q);  
+    tok.s = "";
+    tok.len = 0;
+    RSQuery_Parse_v2(pParser, TERM, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -171,14 +288,14 @@ main := |*
       fbreak;
     }
   };
-  lb => { 
+  lb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  rb => { 
+  rb => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RB, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -266,6 +383,17 @@ main := |*
     }
   };
 
+  exact => {
+    tok.len = te - (ts + 2);
+    tok.s = ts + 1;
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+    RSQuery_Parse_v2(pParser, EXACT, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   prefix => {
     int is_attr = (*ts == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -280,6 +408,21 @@ main := |*
       fbreak;
     }
   };
+
+  prefix_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 3); // remove the quotes and the star at the end
+    tok.s = ts + 1; // skip the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse_v2(pParser, PREFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   suffix => {
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -294,6 +437,21 @@ main := |*
       fbreak;
     }
   };
+
+  suffix_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 3); // remove the quotes at the end
+    tok.s = ts + 2; // skip the star and the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
+    
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
   contains => {
     int is_attr = (*(ts+1) == '$') ? 1 : 0;
     tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
@@ -304,6 +462,20 @@ main := |*
 
     RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
     
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  contains_exact => {
+    tok.type = QT_TERM;
+    tok.len = te - (ts + 4); // remove the quotes and the star
+    tok.s = ts + 2; // skip the star and the quote
+    tok.numval = 0;
+    tok.pos = ts-q->raw;
+
+    RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -348,7 +520,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* ts = q->raw;          // query start
   const char* te = q->raw + q->len; // query end
   %% write init;
-  QueryToken tok = {.len = 0, .pos = 0, .s = 0};
+  QueryToken tok = {.len = 0, .pos = 0, .s = 0, .sign = 1};
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;
