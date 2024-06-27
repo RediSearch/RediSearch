@@ -184,7 +184,6 @@ RSValue *MRReply_ToValue(MRReply *r) {
       size_t l;
       const char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
-      // v = RS_StringValT(s, l, RSString_Volatile);
       break;
     }
     case MR_REPLY_ERROR: {
@@ -215,11 +214,11 @@ RSValue *MRReply_ToValue(MRReply *r) {
     }
     case MR_REPLY_ARRAY: {
       size_t n = MRReply_Length(r);
-      RSValue **arr = rm_malloc(n * sizeof(*arr));
+      RSValue **arr = RSValue_AllocateArray(n);
       for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+      v = RSValue_NewArray(arr, n);
       break;
     }
     case MR_REPLY_NIL:

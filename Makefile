@@ -34,6 +34,8 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
+  VERBOSE_UTESTS=1    # enable logging in cpp tests
+
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -204,6 +206,12 @@ CC_COMMON_H=src/common.h
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(VERBOSE_UTESTS),1)
+CC_FLAGS.common += -DVERBOSE_UTESTS
+endif
+
+#----------------------------------------------------------------------------------------------
+
 ifeq ($(TESTS),0)
 CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=OFF
 else
@@ -327,12 +335,10 @@ ifeq ($(FORCE),1)
 	rm -f lexer.c parser.c
 	$(SHOW)$(MAKE) -C src/query_parser/v1 clean
 	$(SHOW)$(MAKE) -C src/query_parser/v2 clean
-	$(SHOW)$(MAKE) -C src/query_parser/v3 clean
 endif
 	$(SHOW)$(MAKE) -C src/aggregate/expr
 	$(SHOW)$(MAKE) -C src/query_parser/v1
 	$(SHOW)$(MAKE) -C src/query_parser/v2
-	$(SHOW)$(MAKE) -C src/query_parser/v3
 
 .PHONY: parsers
 

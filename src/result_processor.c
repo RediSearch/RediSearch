@@ -624,8 +624,10 @@ typedef struct {
 } RPLoader;
 
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
-  // If the document was modified or deleted, we don't load it
+  // If the document was modified or deleted, we don't load it, and we need to mark
+  // the result as expired.
   if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
+    r->flags |= Result_ExpiredDoc;
     return;
   }
 
@@ -635,6 +637,8 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
+    // The result contains an expired document.
+    r->flags |= Result_ExpiredDoc;
     QueryError_ClearError(&self->status);
   }
 }
@@ -661,9 +665,9 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = 1;   // used in `LOAD_ALLKEYS` mode. TODO: use only with JSON specs and DIALECT<3
+  self->loadopts.forceLoad = forceLoad;
   self->loadopts.status = &self->status;
   self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
@@ -680,10 +684,10 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -705,13 +709,14 @@ static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, con
  * 3. Yielding phase - the RP will yield the buffered results.
  *******************************************************************************************************************/
 
+#define DEFAULT_BUFFER_BLOCK_SIZE 1024
+
 typedef struct RPSafeLoader {
   // Loading context
   RPLoader base_loader;
 
   // Buffer management
   SearchResult **BufferBlocks;
-  size_t BlockSize;
   size_t buffer_results_count;
 
   // Results iterator
@@ -719,6 +724,10 @@ typedef struct RPSafeLoader {
 
   // Last buffered result code. To know weather to return OK or EOF.
   char last_buffered_rc;
+
+  // If true, the loader will become a plain loader after the buffer is empty.
+  // Used when changing the MT mode through a cursor execution session (e.g. FT.CURSOR READ)
+  bool becomePlainLoader;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -735,7 +744,7 @@ static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
 
   // If the block is not allocated, allocate it
   if (!*ret) {
-    *ret = array_new(SearchResult, self->BlockSize);
+    *ret = array_new(SearchResult, DEFAULT_BUFFER_BLOCK_SIZE);
   }
 
   return *ret;
@@ -744,11 +753,11 @@ static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
 
 // If @param currBlock is full we add a new block and return it, otherwise returns @param CurrBlock.
 static SearchResult *InsertResult(RPSafeLoader *self, SearchResult *resToBuffer, SearchResult *currBlock) {
-  size_t idx_in_curr_block = self->buffer_results_count % self->BlockSize;
+  size_t idx_in_curr_block = self->buffer_results_count % DEFAULT_BUFFER_BLOCK_SIZE;
   // if the block is full, allocate a new one
   if (idx_in_curr_block == 0) {
     // get the curr block, allocate new block if needed
-    currBlock = GetResultsBlock(self, self->buffer_results_count / self->BlockSize);
+    currBlock = GetResultsBlock(self, self->buffer_results_count / DEFAULT_BUFFER_BLOCK_SIZE);
   }
   // append the result to the current block at rp->curr_idx_at_block
   // this operation takes ownership of the result's allocated data
@@ -763,7 +772,6 @@ static bool IsBufferEmpty(RPSafeLoader *self) {
 
 static SearchResult *GetNextResult(RPSafeLoader *self) {
   size_t curr_elem_index = self->curr_result_index;
-  size_t blockSize = self->BlockSize;
 
   // if we reached to the end of the buffer return NULL
   if (curr_elem_index >= self->buffer_results_count) {
@@ -771,10 +779,10 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
   }
 
   // get current block
-  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / blockSize];
+  SearchResult *curr_block = self->BufferBlocks[curr_elem_index / DEFAULT_BUFFER_BLOCK_SIZE];
 
   // get the result in the block
-  SearchResult* ret = curr_block + (curr_elem_index % blockSize);
+  SearchResult* ret = curr_block + (curr_elem_index % DEFAULT_BUFFER_BLOCK_SIZE);
 
   // Increase result's index
   ++self->curr_result_index;
@@ -786,8 +794,12 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
 
 static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
-
-  self->base_loader.base.Next = rpSafeLoaderNext_Accumulate; // Reset the next function, in case we are in cursor mode
+  // Reset the next function, in case we are in cursor mode
+  if (self->becomePlainLoader) {
+    self->base_loader.base.Next = rploaderNext;
+  } else {
+    self->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
+  }
   self->buffer_results_count = 0;
   self->curr_result_index = 0;
 
@@ -893,12 +905,11 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, size_t block_size) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
 
-  sl->BlockSize = block_size;
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
@@ -913,17 +924,80 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 /*********************************************************************************/
 
-#define DEFAULT_BUFFER_BLOCK_SIZE 1024
-
-ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+  r->stateflags |= QEXEC_S_HAS_LOAD;
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, DEFAULT_BUFFER_BLOCK_SIZE);
+    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(r->sctx, lk, keys, nkeys);
+    return RPPlainLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
   }
 }
+
+// Consumes the input loader and returns a new safe loader that wraps it.
+static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
+  RPSafeLoader *sl = rm_new(RPSafeLoader);
+
+  // Copy the loader, move ownership of the keys
+  sl->base_loader = *loader;
+  rm_free(loader);
+
+  // Reset the loader's buffer and state
+  sl->BufferBlocks = NULL;
+  sl->buffer_results_count = 0;
+  sl->curr_result_index = 0;
+
+  sl->last_buffered_rc = RS_RESULT_OK;
+
+  sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
+  sl->base_loader.base.Free = rpSafeLoaderFree;
+  sl->base_loader.base.type = RP_SAFE_LOADER;
+  return &sl->base_loader.base;
+}
+
+void SetLoadersForBG(AREQ *r) {
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+  while (cur) {
+    if (cur->type == RP_LOADER) {
+      cur = RPSafeLoader_New_FromPlainLoader((RPLoader *)cur);
+      downstream->upstream = cur;
+    } else if (cur->type == RP_SAFE_LOADER) {
+      // If the pipeline was originally built with a safe loader and later got set to run on
+      // the main thread, we keep the safe loader and only change the next function.
+      // Now we need to change the next function back to the safe loader's next function.
+      assert(cur->Next == rploaderNext);
+      cur->Next = rpSafeLoaderNext_Accumulate;
+      ((RPSafeLoader *)cur)->becomePlainLoader = false;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Update the endProc to the new head in case it was changed
+  r->qiter.endProc = dummyHead.upstream;
+}
+
+void SetLoadersForMainThread(AREQ *r) {
+  ResultProcessor *rp = r->qiter.endProc;
+  while (rp) {
+    if (rp->type == RP_SAFE_LOADER) {
+      // If the `Next` function is `rpSafeLoaderNext_Accumulate`, it means that the loader didn't
+      // buffer any result yet (or was reset), so we can safely change it to `rploaderNext`.
+      // Otherwise, we keep the `Next` function as is (rpSafeLoaderNext_Yield) and set the flag
+      // `becomePlainLoader` to true, so the loader will become a plain loader after the buffer is
+      // empty.
+      if (rp->Next == rpSafeLoaderNext_Accumulate) {
+        rp->Next = rploaderNext;
+      }
+      ((RPSafeLoader *)rp)->becomePlainLoader = true;
+    }
+    rp = rp->upstream;
+  }
+}
+
+/*********************************************************************************/
 
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",

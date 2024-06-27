@@ -163,6 +163,7 @@ typedef enum {
 
   Index_HasGeometry = 0x40000,
 
+  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -399,6 +400,11 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 * Return the field spec if found, NULL if not
 */
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
+
+/**
+ * Get the field specs in the field mask `mask`.
+ */
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */

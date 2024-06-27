@@ -219,7 +219,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+      QueryError_SetErrorFmt(eval->err, QUERY_ENOPROPVAL, "%s: has no value, consider using EXISTS if applicable", e->lookupObj->name);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -513,21 +513,22 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   switch (expr->t) {
     case RSExpr_Literal:
       literal = RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf));
-      RedisModule_Reply_Stringf(reply, "%s - Literal %s", typeStr, literal);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
+      break;
     case RSExpr_Property:
-      RedisModule_Reply_Stringf(reply, "%s - Property %s", typeStr, expr->property.key);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, expr->property.key);
       break;
     case RSExpr_Op:
-      RedisModule_Reply_Stringf(reply, "%s - Operator %c", typeStr, expr->op.op);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Operator %c", typeStr, expr->op.op);
       break;
     case RSExpr_Function:
-      RedisModule_Reply_Stringf(reply, "%s - Function %s", typeStr, expr->func.name);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Function %s", typeStr, expr->func.name);
       break;
     case RSExpr_Predicate:
-      RedisModule_Reply_Stringf(reply, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
+      RedisModule_Reply_SimpleStringf(reply, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
       break;
     case RSExpr_Inverted:
-      RedisModule_Reply_Stringf(reply, "%s - Inverted", typeStr);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Inverted", typeStr);
       break;
     default:
       RS_LOG_ASSERT(0, "error");

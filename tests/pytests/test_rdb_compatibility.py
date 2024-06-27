@@ -4,9 +4,6 @@ from includes import *
 from common import *
 from RLTest import Env
 
-
-REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
-
 RDBS = [
     'redisearch_1.2.0.rdb',
     'redisearch_1.4.0.rdb',
@@ -21,14 +18,7 @@ RDBS = [
 def downloadFiles(rdbs = None):
     rdbs = RDBS if rdbs is None else rdbs
 
-    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
-    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
-    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
-    # and the test can continue.
-    try:
-        os.makedirs(REDISEARCH_CACHE_DIR)
-    except FileExistsError:
-        pass
+    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
@@ -81,7 +71,7 @@ def testRDBCompatibility(env):
 
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]

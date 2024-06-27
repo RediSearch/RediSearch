@@ -7,7 +7,7 @@
 
 #include "config.h"
 #include "util/config_macros.h"
-#include "rmr/endpoint.h"
+#include "rmr/rmr.h"
 
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
@@ -61,10 +61,27 @@ CONFIG_GETTER(getGlobalPass) {
 }
 
 // CONN_PER_SHARD
+int triggerConnPerShard(RSConfig *config) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  size_t connPerShard;
+  if (realConfig->connPerShard != 0) {
+    connPerShard = realConfig->connPerShard;
+  } else {
+    #ifdef MT_BUILD
+      connPerShard = config->numWorkerThreads + 1;
+    #else
+      connPerShard = 1;
+    #endif
+  }
+  MR_UpdateConnPerShard(connPerShard);
+  return REDISMODULE_OK;
+}
+
 CONFIG_SETTER(setConnPerShard) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetSize(ac, &realConfig->connPerShard, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  return triggerConnPerShard(config);
 }
 
 CONFIG_GETTER(getConnPerShard) {
@@ -125,10 +142,10 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setGlobalPass,
              .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
-             .helpText = "Number of connections to each shard in the cluster",
+             .helpText = "Number of connections to each shard in the cluster. Default to 0. "
+                         "If 0, the number of connections is set to `WORKERS` + 1.",
              .setValue = setConnPerShard,
-             .getValue = getConnPerShard,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
+             .getValue = getConnPerShard,},
             {.name = "CURSOR_REPLY_THRESHOLD",
              .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR READ` on the shards",
              .setValue = setCursorReplyThreshold,
@@ -178,4 +195,11 @@ MRClusterType DetectClusterType() {
 
 RSConfigOptions *GetClusterConfigOptions(void) {
   return &clusterOptions_g;
+}
+
+void ClusterConfig_RegisterTriggers(void) {
+#ifdef MT_BUILD
+  const char *connPerShardConfigs[] = {"WORKERS", NULL};
+  RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+#endif
 }

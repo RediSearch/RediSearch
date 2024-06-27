@@ -34,6 +34,7 @@ typedef enum {
   trimmed_cmd,
   restore_cmd,
   expired_cmd,
+  hexpired_cmd,
   evicted_cmd,
   change_cmd,
   loaded_cmd,
@@ -72,7 +73,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0;
+                    *loaded_event = 0, *copy_to_event = 0, *hexpired_event = 0;
 
   // clang-format off
 
@@ -88,6 +89,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(hexpired)
   else CHECK_CACHED_EVENT(expired)
   else CHECK_CACHED_EVENT(evicted)
   else CHECK_CACHED_EVENT(change)
@@ -111,6 +113,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(hexpired)
     else CHECK_AND_CACHE_EVENT(expired)
     else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)
@@ -138,6 +141,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
+    case hexpired_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       break;
 
@@ -296,7 +300,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
 #ifdef MT_BUILD
-      workersThreadPool_Activate();
+      workersThreadPool_OnEventStart();
 #endif
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
@@ -306,7 +310,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
       // ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_SetTerminationWhenEmpty();
+      workersThreadPool_OnEventEnd(false);
 #endif
       break;
     default:

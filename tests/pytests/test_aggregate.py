@@ -706,6 +706,26 @@ def testAggregateGroupByOnEmptyField(env):
     for var in expected:
         env.assertContains(var, res)
 
+def test_groupby_array(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', 'split(@t1, ",")', 'AS', 't1',
+                'APPLY', 'split(@t2, ",")', 'AS', 't2',
+                'GROUPBY', '2', '@t1', '@t2')
+
+  exp = [4, ['t1', 'foo', 't2', 'baz'],
+            ['t1', 'foo', 't2', 'qux'],
+            ['t1', 'bar', 't2', 'baz'],
+            ['t1', 'bar', 't2', 'qux']]
+
+  # Check that the result is as expected (res elements contained in exp, and same size)
+  for row in res:
+    env.assertContains(row, exp)
+  env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
+
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
@@ -1199,12 +1219,70 @@ def testWithKNN(env):
     conn.execute_command('HSET', 'doc6{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '200')
 
     expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
-    for dialect in [2, 5]:
-        res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
-                                'GROUPBY', '1', '@n',
-                                'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
-                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', dialect)
-        env.assertEqual(res[1:], expected_res)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
+                            'GROUPBY', '1', '@n',
+                            'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
+                            'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', 2)
+    env.assertEqual(res[1:], expected_res)
+
+def setup_missing_values_index(index_missing):
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
+    conn = getConnectionByEnv(env)
+    schema = ['tag', 'TAG', 'INDEXMISSING' if index_missing else None, 'num1', 'NUMERIC', 'num2', 'NUMERIC']
+    schema = [part for part in schema if part is not None]
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'tag', 'val', 'num2', '5.5')
+    conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
+    if index_missing:
+        conn.execute_command('HSET', 'doc3', 'num1', '3', 'num2', '2.7')
+    return env
+
+def test_aggregate_filter_on_missing_values():
+    env = setup_missing_values_index(False)
+    # Search for the documents with the indexed fields (sanity)
+    # document doc1 has no value for num1, so we expect to receive the mentioned error
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
+     contains('num1: has no value, consider using EXISTS if applicable'))
+    env.flush()
+
+def test_aggregate_filter_on_missing_indexed_values():
+    env = setup_missing_values_index(True)
+    # Search for the documents with the indexed fields (sanity)
+    # doc3 doesn't have a value for tag but we expect the pipeline to avoid using the not equal operator on it
+    (env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'FILTER',
+                '"@tag != \'va\'"', 'DIALECT', '2').contains(['tag', 'val']))
+    env.flush()
+
+def test_aggregate_group_by_on_missing_values():
+    env = setup_missing_values_index(False)
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    env.flush()
+
+def test_aggregate_group_by_on_missing_indexed_values():
+    def group_by_result_to_dict(lst):
+        if lst is None or len(lst) == 0:
+            return lst
+        return {element_list[1]: element_list[0] for element_list in lst[1:]}
+    env = setup_missing_values_index(True)
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'GROUPBY', '1', '@tag').apply(group_by_result_to_dict).equal({None: 'tag', 'val': 'tag'})
+    env.flush()
+
+def test_aggregate_apply_on_missing_values():
+    env = setup_missing_values_index(False)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
+        "has no value, consider using EXISTS if applicable"
+    )
+    env.flush()
+
+def test_aggregate_apply_on_missing_indexed_values():
+    env = setup_missing_values_index(True)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
+               'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
+    env.flush()
 
 def testMathOperators(env):
     conn = getConnectionByEnv(env)
