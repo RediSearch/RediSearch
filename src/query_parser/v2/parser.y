@@ -19,6 +19,7 @@
 
 %left RP RB RSQB.
 
+%left EXACT.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.
@@ -28,6 +29,8 @@
 
 %left ARROW.
 %left COLON.
+%left NOT_EQUAL EQUALS.
+%left GE GT LE LT.
 
 %left NUMBER.
 %left SIZE.
@@ -43,7 +46,7 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T ISMISSING.
+%fallback TERM EXACT AS_T ISMISSING.
 
 %token_type {QueryToken}
 
@@ -130,6 +133,41 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
   }
 }
+
+//! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
+static const char ToksepParserMap_g[256] = {
+    [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
+    ['}'] = 1, ['['] = 1,  [']'] = 1,  [':'] = 1, [';'] = 1, ['~'] = 1, ['!'] = 1, ['@'] = 1,
+    ['#'] = 1,             ['%'] = 1,  ['^'] = 1, ['&'] = 1, ['*'] = 1, ['-'] = 1, ['='] = 1,
+    ['+'] = 1, ['|'] = 1,  ['\''] = 1, ['`'] = 1, ['"'] = 1, ['<'] = 1, ['>'] = 1, ['?'] = 1,
+};
+
+/**
+ * Copy of toksep.h function to use a different map
+ * Function reads string pointed to by `s` and indicates the length of the next
+ * token in `tokLen`. `s` is set to NULL if this is the last token.
+ */
+static inline char *toksep2(char **s, size_t *tokLen) {
+  uint8_t *pos = (uint8_t *)*s;
+  char *orig = *s;
+  int escaped = 0;
+  for (; *pos; ++pos) {
+    if (ToksepParserMap_g[*pos] && !escaped) {
+      *s = (char *)++pos;
+      *tokLen = ((char *)pos - orig) - 1;
+      if (!*pos) {
+        *s = NULL;
+      }
+      return orig;
+    }
+    escaped = !escaped && *pos == '\\';
+  }
+
+  // Didn't find a terminating token. Use a simpler length calculation
+  *s = NULL;
+  *tokLen = (char *)pos - orig;
+  return orig;
+};
 
 } // END %include
 
@@ -466,6 +504,43 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
     }
 }
 
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(qp);
+  A = NewNotNode(E);
+}
+
+expr(A) ::= modifier(B) EQUALS param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) GT param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) GE param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) LT param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) LE param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
 
     if (C == NULL) {
@@ -559,17 +634,24 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-text_expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
-  // TODO: Quoted/verbatim string in termlist should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  B->pn.exact = 1;
-  B->opts.flags |= QueryNode_Verbatim;
+text_expr(A) ::= EXACT(B) . [TERMLIST] {
+  char *str = rm_strndup(B.s, B.len);
+  char *s = str;
 
-  A = B;
-}
+  A = NewPhraseNode(0);
 
-text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  while (str != NULL) {
+    // get the next token
+    size_t tokLen = 0;
+    char *tok = toksep2(&str, &tokLen);
+    if(tokLen > 0) {
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+      QueryNode_AddChild(A, C);
+    }
+  }
+
+  rm_free(s);
+  A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -714,6 +796,7 @@ modifierlist(A) ::= modifier(B) OR term(C). {
     A = NULL;
   }
 }
+
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
   if (__builtin_expect(C.len > 0, 1)) {

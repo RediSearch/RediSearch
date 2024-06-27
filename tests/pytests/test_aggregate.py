@@ -1219,12 +1219,11 @@ def testWithKNN(env):
     conn.execute_command('HSET', 'doc6{3}', 'v', create_np_array_typed([3] * dim).tobytes(), 'n', '200')
 
     expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
-    for dialect in [2, 5]:
-        res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
-                                'GROUPBY', '1', '@n',
-                                'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
-                                'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', dialect)
-        env.assertEqual(res[1:], expected_res)
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
+                            'GROUPBY', '1', '@n',
+                            'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
+                            'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', 2)
+    env.assertEqual(res[1:], expected_res)
 
 def setup_missing_values_index(index_missing):
     env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
