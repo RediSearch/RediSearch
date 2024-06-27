@@ -30,7 +30,7 @@ def TestEmptyNonIndexed():
         for query in ['@tag:{""}', "@tag:{''}", '@text:""', "@text:''"]:
             env.expect(
                 'FT.SEARCH', 'idx', query
-            ).error().contains('Empty value for field that does not index empty values')
+            ).error().contains('Use `INDEXEMPTY` in field creation in order to index and query for empty strings')
 
         # Bad syntax for empty tag should return empty result (compatibility..)
         for query in ['@tag:""', "@tag:''", '@tag:("")', "@tag:('')"]:
@@ -52,7 +52,7 @@ def TestEmptyNonIndexed():
         # values
         env.expect(
             'FT.SEARCH', 'idx', '@text1|text2:""'
-        ).error().contains('Empty value for field that does not index empty values')
+        ).error().contains('Use `INDEXEMPTY` in field creation in order to index and query for empty strings')
 
         # A result should be returned in case at least on of the fields indexes
         # empty values
@@ -1339,7 +1339,7 @@ def testEmptyParam():
         res = env.expect(
             'FT.SEARCH', 'idx', '@text1:($p) | @text2:($p)',
                       'PARAMS', 2, 'p', ''
-        ).error().contains('Empty value for field that does not index empty values')
+        ).error().contains('Use `INDEXEMPTY` in field creation in order to index and query for empty strings')
 
         # Same with result
         res = env.cmd('FT.SEARCH', 'idx', '@text1:($p)',
