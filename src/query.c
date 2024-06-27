@@ -1628,6 +1628,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
     arrayof(FieldSpec *) fields = IndexSpec_GetFieldsByMask(spec, n->opts.fieldMask);
     if (array_len(fields) == 0) {
       // Not a TEXT field. We don't want to throw an error, for backward compatibility.
+      array_free(fields);
       return true;
     }
     array_foreach(fields, fs, {
