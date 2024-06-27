@@ -620,7 +620,11 @@ def testLongUnionList(env):
 
     # Make sure we get a single union node of all the args, and not a deep tree
     exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
-    env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    dialect = conn.execute_command("FT.CONFIG GET DEFAULT_DIALECT")[0][1]
+    if (dialect == 1):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    elif (dialect == 2):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:EXACT {{\n    @t:t{i}\n  }}' for i in range(1, num_args+1)]) + '\n}\n')
 
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
