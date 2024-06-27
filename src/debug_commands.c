@@ -1212,11 +1212,11 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     END_POSTPONED_LEN_ARRAY(num_stats_fields);
     return REDISMODULE_OK;
   }  else if (!strcasecmp(op, "n_threads")) {
-    RedisModule_ReplyWithLongLong(ctx, workersThreadPool_NumThreads());
+    return RedisModule_ReplyWithLongLong(ctx, workersThreadPool_NumThreads());
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'WORKERS' subcommand");
   }
-  return RedisModule_ReplyWithCString(ctx, "OK");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 #endif
 
