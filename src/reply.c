@@ -198,13 +198,33 @@ int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, si
   return REDISMODULE_OK;
 }
 
-int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
+int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val) {
+  RedisModule_ReplyWithCString(reply->ctx, val);
+  json_add(reply, false, "\"%s\"", val);
+  _RedisModule_Reply_Next(reply);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   char *p;
   rm_vasprintf(&p, fmt, args);
   RedisModule_ReplyWithSimpleString(reply->ctx, p);
   json_add(reply, false, "\"%s\"", p);
+  rm_free(p);
+  _RedisModule_Reply_Next(reply);
+  va_end(args);
+  return REDISMODULE_OK;
+}
+
+int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  char *p;
+  size_t len = rm_vasprintf(&p, fmt, args);
+  RedisModule_ReplyWithStringBuffer(reply->ctx, p, len);
+  json_add(reply, false, "\"%.*s\"", len, p);
   rm_free(p);
   _RedisModule_Reply_Next(reply);
   va_end(args);
@@ -385,7 +405,7 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
   return REDISMODULE_OK;
 }
 
-int RedisModule_ReplyKV_Stringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
+int RedisModule_ReplyKV_SimpleStringf(RedisModule_Reply *reply, const char *key, const char *fmt, ...) {
   RedisModule_Reply_SimpleString(reply, key);
   va_list args;
   va_start(args, fmt);
@@ -477,5 +497,31 @@ void print_reply(RedisModule_Reply *reply) {
 }
 
 #endif // REDISMODULE_REPLY_DEBUG
+
+//---------------------------------------------------------------------------------------------
+
+char *escapeSimpleString(const char *str) {
+  size_t len = strlen(str);
+  // This is a short lived string, so we can afford to allocate twice the size
+  char *escaped = rm_malloc(len * 2 + 1);
+  char *p = escaped;
+  for (size_t i = 0; i < len; i++) {
+    char c = str[i];
+    switch (c) {
+    case '\n':
+      *p++ = '\\';
+      *p++ = 'n';
+      break;
+    case '\r':
+      *p++ = '\\';
+      *p++ = 'r';
+      break;
+    default:
+      *p++ = c;
+    }
+  }
+  *p = '\0';
+  return escaped;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

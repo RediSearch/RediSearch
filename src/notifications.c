@@ -296,7 +296,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
 #ifdef MT_BUILD
-      workersThreadPool_Activate();
+      workersThreadPool_OnEventStart();
 #endif
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
@@ -306,7 +306,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
       // ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_SetTerminationWhenEmpty();
+      workersThreadPool_OnEventEnd(false);
 #endif
       break;
     default:

@@ -171,7 +171,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     }
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey(cv->lastLk, req->requiredFields[currentField], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-      RSValue *v = rlk ? (RSValue*)getReplyKey(rlk, r) : NULL;
+      const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
       if (v && v->t == RSValue_Duo) {
         // For duo value, we use the value here (not the other value)
         v = RS_DUOVAL_VAL(*v);
@@ -184,7 +184,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = &rsv;
       }
       if (need_map) {
-        RedisModule_Reply_SimpleString(reply, req->requiredFields[currentField]); // key name
+        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
       }
       reeval_key(reply, v);
     }
@@ -199,49 +199,53 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    // Get the number of fields in the reply.
-    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-    SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
-    int excludeFlags = RLOOKUP_F_HIDDEN;
-    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+    if (r->flags & Result_ExpiredDoc) {
+      RedisModule_Reply_Null(reply);
+    } else {
+      // Get the number of fields in the reply.
+      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
+      SchemaRule *rule = (req->sctx && req->sctx->spec) ? req->sctx->spec->rule : NULL;
+      int excludeFlags = RLOOKUP_F_HIDDEN;
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
+      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
-    RedisModule_Reply_Map(reply);
-      int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
-          continue;
-        }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-        SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-        flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-        unsigned int apiVersion = req->sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
-          // Which value to use for duo value
-          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-            // STRING
-            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-              // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
-            } else {
-              // Single
-              v = RS_DUOVAL_VAL(*v);
-            }
-          } else {
-            // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
+      RedisModule_Reply_Map(reply);
+        int i = 0;
+        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+          if (!kk->name || !skipFieldIndex[i++]) {
+            continue;
           }
+          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+          RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+
+          SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+          flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+          unsigned int apiVersion = req->sctx->apiVersion;
+          if (v && v->t == RSValue_Duo) {
+            // Which value to use for duo value
+            if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+              // STRING
+              if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+                // Multi
+                v = RS_DUOVAL_OTHERVAL(*v);
+              } else {
+                // Single
+                v = RS_DUOVAL_VAL(*v);
+              }
+            } else {
+              // EXPAND
+              v = RS_DUOVAL_OTHER2VAL(*v);
+            }
+          }
+          RSValue_SendReply(reply, v, flags);
         }
-        RSValue_SendReply(reply, v, flags);
-      }
-    RedisModule_Reply_MapEnd(reply);
+      RedisModule_Reply_MapEnd(reply);
+    }
   }
 
 _out:
@@ -1062,8 +1066,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
-    AREQ_Free(req);
-    cursor->execState = NULL;
     Cursor_Free(cursor);
   } else {
     // Update the idle timeout
@@ -1071,7 +1073,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
+static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, bool bg) {
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
 
   if (cursor == NULL) {
@@ -1079,6 +1081,9 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     return;
   }
   QueryError status = {0};
+  AREQ *req = cursor->execState;
+  req->qiter.err = &status;
+
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -1087,16 +1092,24 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped while the cursor was idle");
-      // QueryError_ReplyAndClear(reply->ctx, &status);
-      RedisModule_Reply_Error(reply, QueryError_GetError(&status));
-      QueryError_ClearError(&status);
+      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
+    if (HasLoader(req)) { // Quick check if the cursor has loaders.
+      bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
+      if (bg && !isSetForBackground) {
+        // Reset loaders to run in background
+        SetLoadersForBG(req);
+        // Mark the request as set to run in background
+        req->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+      } else if (!bg && isSetForBackground) {
+        // Reset loaders to run in main thread
+        SetLoadersForMainThread(req);
+        // Mark the request as set to run in main thread
+        req->reqflags &= ~QEXEC_F_RUN_IN_BACKGROUND;
+      }
+    }
   }
-
-  AREQ *req = cursor->execState;
-  req->qiter.err = &status;
 
   runCursor(reply, cursor, count);
   if (has_spec) {
@@ -1113,7 +1126,7 @@ typedef struct {
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cid, cr_ctx->count);
+  cursorRead(reply, cr_ctx->cid, cr_ctx->count, true);
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
@@ -1168,7 +1181,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else
 #endif
     {
-      cursorRead(reply, cid, count);
+      cursorRead(reply, cid, count, false);
     }
 
   } else if (cmdc == 'D') {
@@ -1188,8 +1201,4 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
-}
-
-void Cursor_FreeExecState(void *p) {
-  AREQ_Free((AREQ *)p);
 }

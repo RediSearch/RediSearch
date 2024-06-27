@@ -56,13 +56,13 @@ def testCursors(env):
 
 @skip(noWorkers=True)
 def testCursorsBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL _PRINT_PROFILE_CLOCK FALSE')
+    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
 
 @skip(cluster=True, noWorkers=True)
 def testCursorsBGEdgeCasesSanity():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -237,7 +237,7 @@ def testIndexDropWhileIdle(env: Env):
 
 @skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     testIndexDropWhileIdle(env)
 
 def exceedCursorCapacity(env):
@@ -259,12 +259,12 @@ def testExceedCursorCapacity(env):
 
 @skip(cluster=True, noWorkers=True)
 def testExceedCursorCapacityBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
 
 @skip(noWorkers=True, cluster=False)
 def testCursorOnCoordinatorBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     CursorOnCoordinator(env)
 
 @skip(cluster=False)

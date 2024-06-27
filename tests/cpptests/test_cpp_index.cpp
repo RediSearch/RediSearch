@@ -310,7 +310,7 @@ TEST_F(IndexTest, testUnion) {
     irs[1] = NewReadIterator(r2);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
-    IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL, &config);
+    IndexIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
     RSIndexResult *h = NULL;
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
@@ -367,7 +367,7 @@ TEST_F(IndexTest, testWeight) {
   irs[1] = NewReadIterator(r2);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL, &config);
+  IndexIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;

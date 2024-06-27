@@ -236,7 +236,9 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     char *explain = explainRoot;
     char *curLine = NULL;
     while ((curLine = strsep(&explain, "\n")) != NULL) {
-      RedisModule_ReplyWithSimpleString(ctx, curLine);
+      char *line = isUnsafeForSimpleString(curLine) ? escapeSimpleString(curLine): curLine;
+      RedisModule_ReplyWithSimpleString(ctx, line);
+      if (line != curLine) rm_free(line);
       numElems++;
     }
     RedisModule_ReplySetArrayLength(ctx, numElems);
@@ -838,7 +840,13 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      RedisModule_Reply_SimpleString(reply, sp->name);
+      if (isUnsafeForSimpleString(sp->name)) {
+        char *escaped = escapeSimpleString(sp->name);
+        RedisModule_Reply_SimpleString(reply, escaped);
+        rm_free(escaped);
+      } else {
+        RedisModule_Reply_SimpleString(reply, sp->name);
+      }
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
@@ -1095,7 +1103,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
+  RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
