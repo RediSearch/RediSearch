@@ -36,11 +36,19 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     char *end1 = strchr(tok.s, c1) - 1;
     // Find the position after the operator
     char *start2 = end1 + opLen + 1;
-    // Remove spaces before the operator
-    while (isspace(*end1)) {
-      --end1;
+    // Remove unescaped spaces at the end of the modifier
+    char *m = (char*)(tok.s);
+    int escaped = (*m == '\\');
+    while (m < end1) {
+      if (isspace(*(m + 1)) && !escaped) {
+        end1 = m;
+        break;
+      }
+      ++m;
+      escaped = !escaped && *m == '\\';
     }
     tok.len = end1 - tok.s + 1;
+    printf("token: '%.*s'\n", tok.len, tok.s);
     RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
     if (!QPCTX_ISOK(q)) {
       return 0;

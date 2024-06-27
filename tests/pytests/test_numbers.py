@@ -888,3 +888,42 @@ def testNumericOperators():
     env.expect('FT.SEARCH', 'idx', "@n>>1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n<<1").error().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', "@n*-").error().contains('Syntax error')
+
+def testNumericOperatorsModifierWithEscapes():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    alias_and_modifier = {
+         'm ': '@m\ ',
+         "m ": "@m\\ ",
+         " m": "@\\ m",
+         "m\\": "@m\\\\",
+         " m ": "@\\ m\\ ",
+         "m@1": "@m\\@1",
+         'm ': '@m\     ',
+    }
+
+    for alias, escaped_mod in alias_and_modifier.items():
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'AS', alias, 'NUMERIC').ok()
+        env.assertEqual(conn.execute_command('HSET', 'key1', 'n', '10'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key2', 'n', '20'), 1)
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '  > 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + ' >= 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '< 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '  <= 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '== 10', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '!= 10', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        env.flush()
