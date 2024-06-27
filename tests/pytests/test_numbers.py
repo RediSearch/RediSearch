@@ -392,7 +392,7 @@ def testNegativeValues(env):
     env.assertEqual(res[0], doc_id)
 
 def testNumberFormat(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'numeric').ok()
@@ -420,8 +420,9 @@ def testNumberFormat(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
-    env.assertEqual(res, expected)
+    # Breaking change, should be solved in major version
+    # res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res, expected)
 
     # Test signed numbers
     res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
@@ -452,10 +453,11 @@ def testNumberFormat(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-0.1 0.1]', 'NOCONTENT', 'WITHCOUNT')
     expected = [2, 'doc06', 'doc07']
     env.assertEqual(res1, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
-    env.assertEqual(res2, expected)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
-    env.assertEqual(res2, expected)
+    # Breaking change, should be solved in major version
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res2, expected)
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res2, expected)
 
 def testNumericOperators():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
@@ -489,9 +491,9 @@ def testNumericOperators():
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= +$max', 'NOCONTENT',
                    'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
     env.assertEqual(res2, res1)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= -$max', 'NOCONTENT',
-    #                'WITHCOUNT', 'PARAMS', '4', 'min', '-12', 'max', '-14')
-    # env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= -$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '-12', 'max', '-14')
+    env.assertEqual(res2, res1)
 
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<=3.14', 'NOCONTENT')
     env.assertEqual(res1, [1, 'key8'])

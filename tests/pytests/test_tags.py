@@ -755,8 +755,8 @@ def testDialect2TagExact():
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"}')
     env.assertEqual(res, expected_result)
 
-def testDialect5InvalidSyntax(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 5')
+def testDialect2InvalidSyntax():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
@@ -820,13 +820,6 @@ def testDialect5InvalidSyntax(env):
     # test cntrl character
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.EXPLAIN idx @t1:\10")
-
-    # test escaped space
-    with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.EXPLAIN", "idx", "@t1:{this\\ is a test}")
-    
-    with env.assertResponseError(contained='Syntax error'):
-        env.cmd("FT.EXPLAIN", "idx", "@t1:{this\\ single_escape}")
 
 def testDialect2SpecialChars():
     """Test search with punct characters with dialect 2."""
