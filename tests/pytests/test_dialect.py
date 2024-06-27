@@ -157,7 +157,7 @@ def test_v1_vs_v2(env):
     ]
     env.assertEqual(res, expected)
 
-    # DIALECT 2 or later does not expand numbers
+    # DIALECT 2 does not expand numbers
     res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 1)
     expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
     env.assertEqual(res, expected)
@@ -186,19 +186,14 @@ def test_v1_vs_v2(env):
     expected = ['-inf', '']
     env.assertEqual(res, expected)
 
-    # DIALECT 2 or later does not expand terms wich contain numbers
-    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
+    # terms wich contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
+    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 2)
-    expected = ['cherry1', '']
     env.assertEqual(res, expected)
-
-    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', 'cherry1',
-               'DIALECT', 1).error().contains('Syntax error')
     res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', 'cherry1',
                   'DIALECT', 2)
-    expected = ['cherry1', '']
     env.assertEqual(res, expected)
 
 def test_spell_check_dialect_errors(env):

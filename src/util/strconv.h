@@ -118,15 +118,4 @@ static char *rm_strdupcase(const char *s, size_t len) {
   return ret;
 }
 
-/* Return 1 if the string contains a digit, 0 otherwise*/
-static int str_contains_digit(const char* s) {
-  while (*s) {
-    if (isdigit(*s)) {
-      return 1;
-    }
-    s++;
-  }
-  return 0;
-}
-
 #endif

@@ -167,7 +167,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
   if (!val)
     return -1;
 
-  int val_contains_number = 0;
+  int val_is_numeric = 0;
   switch(param->type) {
 
     case PARAM_NONE:
@@ -175,15 +175,13 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
-      if (str_contains_digit(val)) {
-        val_contains_number = 1;
-      } else if (ParseDouble(val, (double*)param->target, param->sign)) {
+      if (ParseDouble(val, (double*)param->target, param->sign)) {
         // parsed as double to check +inf, -inf
-        val_contains_number = 1;
+        val_is_numeric = 1;
       }
       *(char**)param->target = rm_strdupcase(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
-      return 1 + val_contains_number;
+      return 1 + val_is_numeric;
 
     case PARAM_WILDCARD:
       *(char**)param->target = rm_calloc(1, val_len + 1);
