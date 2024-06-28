@@ -48,7 +48,6 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       escaped = !escaped && *m == '\\';
     }
     tok.len = end1 - tok.s + 1;
-    printf("token: '%.*s'\n", tok.len, tok.s);
     RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
     if (!QPCTX_ISOK(q)) {
       return 0;
