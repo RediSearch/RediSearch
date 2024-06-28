@@ -48,3 +48,21 @@ jobs:
             gh pr ready $pr --undo
             gh pr ready $pr
           done
+      - name: Approval # Approve the pull request
+        run: |
+          for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
+            gh pr review $pr --approve
+            gh pr merge $pr --auto
+          done
+      - name: Notify manual backport is needed
+        if: steps.backport.outputs.was_successful == 'false'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "pull_request_url": "${{ github.event.pull_request.issue_url || github.event.comment.issue_url }}",
+              "email": "${{ github.event.sender.email }}",
+              "id": "${{ github.event.sender.id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BACKPORT_FAILED }}
