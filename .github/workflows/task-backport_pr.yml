@@ -49,6 +49,8 @@ jobs:
             gh pr ready $pr
           done
       - name: Approval # Approve the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
             gh pr review $pr --approve
