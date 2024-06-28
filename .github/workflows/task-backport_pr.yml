@@ -41,21 +41,13 @@ jobs:
           copy_labels_pattern: '.*' # copy all labels. Excluding the backport labels automatically
       - name: Trigger CI
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+          GH_TOKEN: ${{ secrets.CI_TOKEN }}
         # Draft and then undraft the pull requests to trigger CI
         run: |
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
             gh pr ready $pr --undo
             gh pr ready $pr
-          done
-      - name: Approval # Approve the pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ toJson(github.event) }}
-          GH_CONTEXT: ${{ toJson(github) }}
-        run: |
-          for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
-            # gh pr review $pr --approve
+            gh pr review $pr --approve
             gh pr merge $pr --auto
           done
       - name: Notify manual backport is needed
@@ -64,9 +56,9 @@ jobs:
         with:
           payload: |
             {
-              "pull_request_url": "${{ github.event.pull_request.issue_url || github.event.comment.issue_url }}",
-              "email": "${{ github.event.sender.email }}",
-              "id": "${{ github.event.sender.id }}"
+              "pull_request_url": "${{ github.event.pull_request.html_url || github.event.comment.html_url }}",
+              "email": "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com",
+              "id": "U${{ github.event.sender.id }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BACKPORT_FAILED }}
