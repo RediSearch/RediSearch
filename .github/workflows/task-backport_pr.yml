@@ -51,9 +51,11 @@ jobs:
       - name: Approval # Approve the pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ toJson(github.event) }}
+          GH_CONTEXT: ${{ toJson(github) }}
         run: |
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
-            gh pr review $pr --approve
+            # gh pr review $pr --approve
             gh pr merge $pr --auto
           done
       - name: Notify manual backport is needed
