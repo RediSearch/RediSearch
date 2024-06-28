@@ -61,7 +61,7 @@ jobs:
       # - get-latest-redis-tag
       # - test-linux
       # - test-macos
-      # - coverage
+      # - covera
       # - sanitize
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
