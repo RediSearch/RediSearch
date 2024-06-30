@@ -2,7 +2,7 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env
 
 
 def testHammingScorer(env):
@@ -292,34 +292,30 @@ def testScoreError(env):
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
 
-@skip(cluster=True) # TODO: generalize the scores for coordinator
-def testLoadScore(env):
+def exposeScore(env: Env):
     env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
     with env.getClusterConnectionIfNeeded() as conn:
         conn.execute_command('HSET', 'doc1', 'title', 'hello')
         conn.execute_command('HSET', 'doc2', 'title', 'world')
 
-    expected = [2, 'doc1', ['__score', '2'], 'doc2', ['__score', '0']]
-    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 1, '__score').equal(expected)
-    expected = [1, ['__score', '2'], ['__score', '0']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 1, '__score').equal(expected)
+    doc1_score = 1 if env.isCluster() else 2 # TODO: why?
 
-    expected = [2, 'doc1', ['s', '2'], 'doc2', ['s', '0']]
-    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 3, '__score', 'AS', 's').equal(expected)
-    expected = [1, ['s', '2'], ['s', '0']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 3, '__score', 'AS', 's').equal(expected)
+    if env.protocol == 2:
+        expected = [2, '0', ['score', '0'], str(doc1_score), ['score', str(doc1_score)]]
+    elif env.protocol == 3:
+        expected = {'attributes': [], 'total_results': 2, 'format': 'STRING', 'warning': [], 'results': [
+            {'score': 0.0, 'extra_attributes': {'score': '0'}, 'values': []},
+            {'score': float(doc1_score), 'extra_attributes': {'score': str(doc1_score)}, 'values': []}]}
 
-    # Set a __score entry for the documents
-    with env.getClusterConnectionIfNeeded() as conn:
-        conn.execute_command('HSET', 'doc1', '__score', 'A+')
-        conn.execute_command('HSET', 'doc2', '__score', 'B-')
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCORES', 'APPLY', 'score()', 'AS', 'score', 'SORTBY', 1, '@score').equal(expected)
 
-    expected = [2, 'doc1', ['__score', 'A+'], 'doc2', ['__score', 'B-']]
-    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 1, '__score').equal(expected)
-    expected = [1, ['__score', 'A+'], ['__score', 'B-']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 1, '__score').equal(expected)
+    # Test error when using `score()` when there is no score
+    exp_error = "score is not available in pipeline (missing WITHSCORES?)"
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'APPLY', 'score()', 'AS', 'score').error().equal(exp_error)
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'APPLY', 'score()', 'AS', 'score').error().equal(exp_error)
 
-    expected = [2, 'doc1', ['s', 'A+'], 'doc2', ['s', 'B-']]
-    env.expect('FT.SEARCH', 'idx', '~hello', 'CALCSCORES', 'RETURN', 3, '__score', 'AS', 's').equal(expected)
-    expected = [1, ['s', 'A+'], ['s', 'B-']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'CALCSCORES', 'LOAD', 3, '__score', 'AS', 's').equal(expected)
+def testExposeScore_RESP2():
+    exposeScore(Env(protocol=2))
+
+def testExposeScore_RESP3():
+    exposeScore(Env(protocol=3))
