@@ -82,6 +82,7 @@ void RegisterMathFunctions();
 void RegisterStringFunctions();
 void RegisterDateFunctions();
 void RegisterGeoFunctions();
+void RegisterScoreFunctions();
 void RegisterAllFunctions();
 
 void FunctionRegistry_Free(void);
