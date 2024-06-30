@@ -219,6 +219,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
 
         conn.execute_command('FLUSHALL')
 
+@skip(cluster=True, redis_less_than="7.2")
 def test_expire_aggregate(env):
     conn = env.getConnection()
     # Use "lazy" expire (expire only when key is accessed)
