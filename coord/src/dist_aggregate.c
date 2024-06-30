@@ -452,6 +452,13 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     processResultFormat(&nc->areq->reqflags, rows);
 
+    if (nc->areq->reqflags & QEXEC_F_SEND_SCORES) {
+      MRReply *score = MRReply_MapElement(result, "score");
+      RS_LOG_ASSERT(score && MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+      r->score = MRReply_Double(score);
+      r->flags |= Result_ScoreIsSet;
+    }
+
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
       const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
@@ -463,6 +470,12 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   else // RESP2
   {
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
+    if (nc->areq->reqflags & QEXEC_F_SEND_SCORES) {
+      int rc = MRReply_ToDouble(rep, &r->score); // RESP2 doesn't have native double type
+      RS_LOG_ASSERT(rc, "invalid score record");
+      r->flags |= Result_ScoreIsSet;
+      rep = MRReply_ArrayElement(rows, nc->curIdx++);
+    }
     for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
       size_t len;
       const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
@@ -559,6 +572,10 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     tmparr = array_append(tmparr, "FORMAT");
     tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
+  }
+
+  if (RMUtil_ArgIndex("WITHSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
+    tmparr = array_append(tmparr, "WITHSCORES");
   }
 
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
