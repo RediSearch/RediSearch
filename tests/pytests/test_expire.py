@@ -215,3 +215,23 @@ def expireDocs(env, isSortable, expected_results, isJson):
         env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE').equal(res)
 
         conn.execute_command('FLUSHALL')
+
+@skip(cluster=True, redis_less_than="7.2")
+def test_expire_aggregate(env):
+    conn = env.getConnection()
+    # Use "lazy" expire (expire only when key is accessed)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+    conn.execute_command('HSET', 'doc1', 't', 'bar')
+    conn.execute_command('HSET', 'doc2', 't', 'arr')
+
+    # expire doc1
+    conn.execute_command('PEXPIRE', 'doc1', 1)
+    # ensure expiration before search
+    time.sleep(0.01)
+    # In some pipelines we can re-use the search result by clearing it before populating it with a new result.
+    # If not cleared, it might affect subsequent results.
+    # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
+    env.assertEqual(res, [1, None, ['t', 'arr']])
