@@ -12,7 +12,7 @@
 static int score(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("score", 0, 0, err);
   if (!(ctx->res && ctx->res->flags & Result_ScoreIsSet)) {
-    QueryError_SetError(err, QUERY_ENOPROPVAL, "Score is not available");
+    QueryError_SetError(err, QUERY_ENOPROPVAL, "score is not available in pipeline (missing WITHSCORES?)");
     return EXPR_EVAL_ERR;
   }
 
