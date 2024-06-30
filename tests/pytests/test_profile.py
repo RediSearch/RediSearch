@@ -77,14 +77,18 @@ def testProfileSearch(env):
   # test no crash on reaching deep reply array
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
   expected_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                   ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                    ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
-                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
+                    ]]
+                   ]]
+                  ]]
+                 ]]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   if server_version_less_than(env, '6.2.0'):
@@ -92,16 +96,21 @@ def testProfileSearch(env):
 
   actual_res = env.cmd('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                   ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                    ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                      ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
-                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
+                     ]]
+                    ]]
+                   ]]
+                  ]]
+                 ]]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
 @skip(cluster=True)
