@@ -123,6 +123,7 @@ typedef struct {
 
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
+static const uint8_t Result_ScoreIsSet = 1 << 1;
 
 /* Result processor return codes */
 

@@ -13,7 +13,7 @@ static int score(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Qu
   VALIDATE_ARGS("score", 0, 0, err);
 
   result->t = RSValue_Number;
-  result->numval = ctx->res->score;
+  result->numval = (ctx->res && ctx->res->flags & Result_ScoreIsSet) ? ctx->res->score : NAN;
   return EXPR_EVAL_OK;
 }
 

@@ -225,6 +225,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
 
     // Apply the scoring function
     res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
+    res->flags |= Result_ScoreIsSet;
     if (self->scorerCtx.scrExp) {
       res->scoreExplain = (RSScoreExplain *)self->scorerCtx.scrExp;
       self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
