@@ -51,11 +51,11 @@ SORTBY {field_name} [ASC|DESC]
 ## Example
 
 ```
-> FT.CREATE users SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
+> FT.CREATE users ON HASH PREFIX 1 "user" SCHEMA first_name TEXT SORTABLE last_name TEXT age NUMERIC SORTABLE
 
 # Add some users
-> FT.ADD users user1 1.0 FIELDS first_name "alice" last_name "jones" age 35
-> FT.ADD users user2 1.0 FIELDS first_name "bob" last_name "jones" age 36
+> HSET user1 first_name "alice" last_name "jones" age 35
+> HSET user2 first_name "bob" last_name "jones" age 36
 
 # Searching while sorting
 
@@ -63,6 +63,6 @@ SORTBY {field_name} [ASC|DESC]
 > FT.SEARCH users "@last_name:jones" SORTBY first_name DESC
 
 # Searching by both first and last name, and sorting by age
-> FT.SEARCH users "alice jones" SORTBY age ASC
+> FT.SEARCH users "jones" SORTBY age ASC
 
 ```
