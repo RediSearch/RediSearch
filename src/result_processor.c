@@ -49,6 +49,7 @@ void SearchResult_Clear(SearchResult *r) {
     r->indexResult = NULL;
   }
 
+  r->flags = 0;
   RLookupRow_Wipe(&r->rowdata);
   if (r->dmd) {
     DMD_Return(r->dmd);
