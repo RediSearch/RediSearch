@@ -11,9 +11,13 @@
 // Expose the score of the current document
 static int score(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("score", 0, 0, err);
+  if (!(ctx->res && ctx->res->flags & Result_ScoreIsSet)) {
+    QueryError_SetError(err, QUERY_ENOPROPVAL, "Score is not available");
+    return EXPR_EVAL_ERR;
+  }
 
   result->t = RSValue_Number;
-  result->numval = (ctx->res && ctx->res->flags & Result_ScoreIsSet) ? ctx->res->score : NAN;
+  result->numval = ctx->res->score;
   return EXPR_EVAL_OK;
 }
 
