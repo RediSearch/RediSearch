@@ -992,7 +992,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+    RedisModule_ReplyWithErrorFormat(ctx, "No `SEARCH` or `AGGREGATE` provided, got: %s", cmd);
     return REDISMODULE_OK;
   }
 
