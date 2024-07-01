@@ -2,7 +2,7 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env
 
 
 def testHammingScorer(env):
@@ -291,3 +291,19 @@ def testScoreError(env):
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
+
+def testExposeScore(env: Env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', 'doc1', 'title', 'hello')
+        conn.execute_command('HSET', 'doc2', 'title', 'world')
+
+    doc1_score = 1 if env.isCluster() else 2 # TODO: why?
+
+    expected = [2, 'doc1', ['score', str(doc1_score)], 'doc2', ['score', '0']] # With doc name
+    env.expect('FT.SEARCH', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'RETURN', '1', 'score').equal(expected)
+    expected = [2, ['score', str(doc1_score)], ['score', '0']] # Without doc name
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'SORTBY', '2', '@score', 'DESC').equal(expected)
+
+    expected = [1, ['count', '1']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'FILTER', '@score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
