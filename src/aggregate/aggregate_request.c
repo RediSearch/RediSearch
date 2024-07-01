@@ -1156,19 +1156,19 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
+static inline bool prepareAdditionalMetrics(AREQ *req, RLookup *rl, QueryError *status) {
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
     char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetField(req->sctx->spec, name, name_len)) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
-      return NULL;
+      return false;
     }
     RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
       QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
-      return NULL;
+      return false;
     }
 
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
@@ -1178,7 +1178,26 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
     if (requests[i].key_ptr)
       *requests[i].key_ptr = key;
   }
-  return RPMetricsLoader_New();
+  return true;
+}
+
+static size_t getLimit(AREQ *req, PLN_ArrangeStep *astp)
+{
+  size_t limit = astp->offset + astp->limit;
+  if (!limit) {
+    limit = DEFAULT_LIMIT;
+  }
+
+  // TODO: unify if when req holds only maxResults according to the query type.
+  //(SEARCH / AGGREGATE)
+  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxSearchResults);
+  }
+
+  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
+    limit = MIN(limit, req->maxAggregateResults);
+  }
+  return limit;
 }
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
@@ -1194,20 +1213,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
-  }
-
-  // TODO: unify if when req holds only maxResults according to the query type.
-  //(SEARCH / AGGREGATE)
-  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxSearchResults);
-  }
-
-  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxAggregateResults);
-  }
+  size_t limit = getLimit(req, astp);
 
   if (IsCount(req) || !limit) {
     rp = RPCounter_New();
@@ -1270,23 +1276,24 @@ end:
   return rp;
 }
 
+static void fillScoringFunctionArgs(AREQ *req, ScoringFunctionArgs *scargs) {
+  if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+    scargs->scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+  }
+  IndexSpec_GetStats(req->sctx->spec, &scargs->indexStats);
+  scargs->qdata = req->ast.udata;
+  scargs->qdatalen = req->ast.udatalen;
+}
+
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(AREQ *req) {
+static ExtScoringFunctionCtx *getScoringFunction(AREQ *req, ScoringFunctionArgs *scargs) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
   }
-  ScoringFunctionArgs scargs = {0};
-  if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
-  }
-  ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
+  ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  IndexSpec_GetStats(req->sctx->spec, &scargs.indexStats);
-  scargs.qdata = req->ast.udata;
-  scargs.qdatalen = req->ast.udatalen;
-  ResultProcessor *rp = RPScorer_New(fns, &scargs);
-  return rp;
+  return fns;
 }
 
 static int hasQuerySortby(const AGGPlan *pln) {
@@ -1295,15 +1302,13 @@ static int hasQuerySortby(const AGGPlan *pln) {
   return arng && arng->sortKeys;
 }
 
+//#define HARD_CODE_RP_TEST 1
+
 #define PUSH_RP()                           \
   rpUpstream = pushRP(req, rp, rpUpstream); \
   rp = NULL;
 
-/**
- * Builds the implicit pipeline for querying and scoring, and ensures that our
- * subsequent execution stages actually have data to operate on.
- */
-static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
+static void initializePipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
   req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
@@ -1314,16 +1319,51 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
+  bool useMetrics = req->ast.metricRequests;
+  if (useMetrics) {
+    prepareAdditionalMetrics(req, first, Status);
+  }
+}
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+static void buildHardCodedPipeline(AREQ *req, QueryError *Status) {
+  AGGPlan *pln = &req->ap;
+  PLN_ArrangeStep astp = {.base = {.type = PLN_T_ARRANGE}};
+  initializePipeline(req, Status);
+  const bool useScorer = (req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (IsSearch(req) && !IsCount(req) &&
+       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)));
+
+  HardCodeArgs args = {0};
+  args.itr = req->rootiter;
+  args.lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+  args.maxresults = getLimit(req, &astp);
+  ExtScoringFunctionCtx* fns = NULL;
+  if (useScorer) {
+    fillScoringFunctionArgs(req, &args.scargs);
+    args.fns = getScoringFunction(req, &args.scargs);
+  }
+
   ResultProcessor *rpUpstream = NULL;
+  ResultProcessor *rp = RPHardCode_New(req, &args);
+  req->qiter.rootProc = req->qiter.endProc = rp;
+  PUSH_RP();
+}
+
+/**
+ * Builds the implicit pipeline for querying and scoring, and ensures that our
+ * subsequent execution stages actually have data to operate on.
+ */
+static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
+  initializePipeline(req, Status);
+  ResultProcessor *rpUpstream = NULL;
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (req->ast.metricRequests) {
-    rp = getAdditionalMetricsRP(req, first, Status);
+    rp = RPMetricsLoader_New();
     if (!rp) {
       return;
     }
@@ -1333,10 +1373,14 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+  const bool useScorer = (req->reqflags & QEXEC_F_SEND_SCORES) ||
       (IsSearch(req) && !IsCount(req) &&
-       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
-    rp = getScorerRP(req);
+       (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)));
+  if (useScorer) {
+    ScoringFunctionArgs scargs = {0};
+    fillScoringFunctionArgs(req, &scargs);
+    ExtScoringFunctionCtx* fns = getScoringFunction(req, &scargs);
+    rp = RPScorer_New(fns, &scargs);
     PUSH_RP();
   }
 }
@@ -1397,6 +1441,11 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
+}
+
+int AREQ_BuildHardCodedPipeline(AREQ *req, QueryError *status) {
+  buildHardCodedPipeline(req, status);
+  return REDISMODULE_OK;
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {

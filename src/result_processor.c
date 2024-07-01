@@ -84,12 +84,8 @@ typedef struct {
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPIndexIterator;
 
-/* Next implementation */
-static int rpidxNext(ResultProcessor *base, SearchResult *res) {
-  RPIndexIterator *self = (RPIndexIterator *)base;
-  IndexIterator *it = self->iiter;
-
-  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+static int rpidProcess(ResultProcessor* base, SearchResult* res, IndexIterator *it, size_t* timeoutLimiter) {
+  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, timeoutLimiter) == TIMED_OUT) {
     return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
@@ -156,6 +152,13 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
+/* Next implementation */
+static int rpidxNext(ResultProcessor *base, SearchResult *res) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  IndexIterator *it = self->iiter;
+  return rpidProcess(base, res, it, &self->timeoutLimiter);
+}
+
 static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
@@ -212,6 +215,25 @@ typedef struct {
   ScoringFunctionArgs scorerCtx;
 } RPScorer;
 
+static int rpscoreProcess(ResultProcessor* base, RSScoringFunction *scorer, ScoringFunctionArgs* scorerCtx, SearchResult *res) {
+    // Apply the scoring function
+    res->score = (*scorer)(scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
+    if (scorerCtx->scrExp) {
+      res->scoreExplain = (RSScoreExplain *)scorerCtx->scrExp;
+      scorerCtx->scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+    }
+    // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
+    // number of results (it's been increased by the upstream processor)
+    if (res->score == RS_SCORE_FILTEROUT) {
+      base->parent->totalResults--;
+      SearchResult_Clear(res);
+      // continue and loop to the next result, since this is excluded by the
+      // scorer.
+      return 1;
+    }
+    return 0;
+}
+
 static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
   int rc;
   RPScorer *self = (RPScorer *)base;
@@ -221,22 +243,8 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     if (rc != RS_RESULT_OK) {
       return rc;
     }
-
-    // Apply the scoring function
-    res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
-    if (self->scorerCtx.scrExp) {
-      res->scoreExplain = (RSScoreExplain *)self->scorerCtx.scrExp;
-      self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
-    }
-    // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
-    // number of results (it's been increased by the upstream processor)
-    if (res->score == RS_SCORE_FILTEROUT) {
-      base->parent->totalResults--;
-      SearchResult_Clear(res);
-      // continue and loop to the next result, since this is excluded by the
-      // scorer.
+    if (rpscoreProcess(base, &self->scorer, &self->scorerCtx, res))
       continue;
-    }
 
     break;
   } while (1);
@@ -280,6 +288,14 @@ typedef struct {
   ResultProcessor base;
 } RPMetrics;
 
+static inline void rpMetricsProcess(SearchResult *res)
+{
+  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
+  for (size_t i = 0; i < array_len(arr); i++) {
+    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
+  }
+}
+
 static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   int rc;
 
@@ -287,13 +303,8 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-
-  arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
-  for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
-  }
-
-  return rc;
+  rpMetricsProcess(res);
+  return RS_RESULT_OK;
 }
 
 /* Free implementation for RPMetrics */
@@ -334,10 +345,8 @@ ResultProcessor *RPMetricsLoader_New() {
 typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
 typedef struct {
-  ResultProcessor base;
-
   // The heap. We use a min-max heap here
-  mm_heap_t *pq;
+  void *pq; // mm_heap_t
 
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   RPSorterCompareFunc cmp;
@@ -356,13 +365,16 @@ typedef struct {
 
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
+} SortCtx;
+
+typedef struct {
+  ResultProcessor base;
+  SortCtx sortCtx;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
-static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
-  RPSorter *self = (RPSorter *)rp;
-  SearchResult *cur_best = mmh_pop_max(self->pq);
-
+static int rpsortNext_Pop(SortCtx *ctx, SearchResult *r) {
+  SearchResult *cur_best = mmh_pop_max((mm_heap_t*)ctx->pq);
   if (cur_best) {
     RLookupRow oldrow = r->rowdata;
     *r = *cur_best;
@@ -371,34 +383,74 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  return ctx->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+}
+
+static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
+  return rpsortNext_Pop(&((RPSorter *)rp)->sortCtx, r);
 }
 
 static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
 
-  SearchResult_Destroy(self->pooledResult);
-  rm_free(self->pooledResult);
+  SearchResult_Destroy(self->sortCtx.pooledResult);
+  rm_free(self->sortCtx.pooledResult);
 
   // calling mmh_free will free all the remaining results in the heap, if any
-  mmh_free(self->pq);
+  mmh_free((mm_heap_t*)self->sortCtx.pq);
   rm_free(rp);
 }
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
-static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
-  RPSorter *self = (RPSorter *)rp;
-
-  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
-
-  // if our upstream has finished - just change the state to not accumulating, and yield
+static bool checkIfDoneSorting(int rc, RSTimeoutPolicy policy, bool* timedOut) {
   if (rc == RS_RESULT_EOF) {
-    rp->Next = rpsortNext_Yield;
-    return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
+    return true;
+  } else if (rc == RS_RESULT_TIMEDOUT && (policy == TimeoutPolicy_Return)) {
+    *timedOut = true;
+    return true;
+  }
+  return false;
+}
+
+static void rpsortQueue(SortCtx* ctx, double *minScore) {
+ // If the queue is not full - we just push the result into it
+  mm_heap_t* pq = ctx->pq;
+  if (pq->count < pq->size) {
+
+    // copy the index result to make it thread safe - but only if it is pushed to the heap
+    ctx->pooledResult->indexResult = NULL;
+    mmh_insert(pq, ctx->pooledResult);
+    if (ctx->pooledResult->score < *minScore) {
+      *minScore = ctx->pooledResult->score;
+    }
+    // we need to allocate a new result for the next iteration
+    ctx->pooledResult = rm_calloc(1, sizeof(*ctx->pooledResult));
+  } else {
+    // find the min result
+    SearchResult *minh = mmh_peek_min(pq);
+
+    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
+    if (minh->score > *minScore) {
+      *minScore = minh->score;
+    }
+
+    // if needed - pop it and insert a new result
+    if (ctx->cmp(ctx->pooledResult, minh, ctx->cmpCtx) > 0) {
+      ctx->pooledResult->indexResult = NULL;
+      ctx->pooledResult = mmh_exchange_min(pq, ctx->pooledResult);
+    }
+    // clear the result in preparation for the next iteration
+    SearchResult_Clear(ctx->pooledResult);
+  }
+}
+
+static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  SortCtx *ctx = &((RPSorter*)rp)->sortCtx;
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, ctx->pooledResult);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (checkIfDoneSorting(rc, rp->parent->timeoutPolicy, &ctx->timedOut)) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc != RS_RESULT_OK) {
@@ -406,34 +458,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
-  // If the queue is not full - we just push the result into it
-  if (self->pq->count < self->pq->size) {
-
-    // copy the index result to make it thread safe - but only if it is pushed to the heap
-    self->pooledResult->indexResult = NULL;
-    mmh_insert(self->pq, self->pooledResult);
-    if (self->pooledResult->score < rp->parent->minScore) {
-      rp->parent->minScore = self->pooledResult->score;
-    }
-    // we need to allocate a new result for the next iteration
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-  } else {
-    // find the min result
-    SearchResult *minh = mmh_peek_min(self->pq);
-
-    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (minh->score > rp->parent->minScore) {
-      rp->parent->minScore = minh->score;
-    }
-
-    // if needed - pop it and insert a new result
-    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      self->pooledResult->indexResult = NULL;
-      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
-    }
-    // clear the result in preparation for the next iteration
-    SearchResult_Clear(self->pooledResult);
-  }
+  rpsortQueue(ctx, &rp->parent->minScore);
   return RESULT_QUEUED;
 }
 
@@ -471,11 +496,13 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     qerr = self->base.parent->err;
   }
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
+  const SortCtx* ctx = &self->sortCtx;
+
+  for (size_t i = 0; i < ctx->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
+    const RSValue *v1 = RLookup_GetItem(ctx->fieldcmp.keys[i], &h1->rowdata);
+    const RSValue *v2 = RLookup_GetItem(ctx->fieldcmp.keys[i], &h2->rowdata);
     // take the ascending bit for this property from the ascending bitmap
-    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
+    ascending = SORTASCMAP_GETASC(ctx->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       // If at least one of these has no sort key, it gets high value regardless of asc/desc
       if (v1) {
@@ -509,17 +536,20 @@ static void srDtor(void *p) {
   }
 }
 
+void initSortCtx(SortCtx* sortCtx, size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap)
+{
+  sortCtx->cmp = nkeys ? cmpByFields : cmpByScore;
+  sortCtx->cmpCtx = sortCtx;
+  sortCtx->fieldcmp.ascendMap = ascmap;
+  sortCtx->fieldcmp.keys = keys;
+  sortCtx->fieldcmp.nkeys = nkeys;
+  sortCtx->pq = mmh_init_with_size(maxresults, sortCtx->cmp, sortCtx->cmpCtx, srDtor);
+  sortCtx->pooledResult = rm_calloc(1, sizeof(*sortCtx->pooledResult));
+}
+
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
-
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->cmp = nkeys ? cmpByFields : cmpByScore;
-  ret->cmpCtx = ret;
-  ret->fieldcmp.ascendMap = ascmap;
-  ret->fieldcmp.keys = keys;
-  ret->fieldcmp.nkeys = nkeys;
-
-  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
-  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  initSortCtx(&ret->sortCtx, maxresults, keys, nkeys, ascmap);
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
@@ -617,13 +647,17 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 ////////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
-  ResultProcessor base;
   RLookup *lk;
   RLookupLoadOptions loadopts;
   QueryError status;
+} LoadCtx;
+
+typedef struct {
+  ResultProcessor base;
+  LoadCtx loadCtx;
 } RPLoader;
 
-static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+static void rpLoader_loadDocument(LoadCtx *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it
   if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
     return;
@@ -646,14 +680,14 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     return rc;
   }
 
-  rpLoader_loadDocument(lc, r);
+  rpLoader_loadDocument(&lc->loadCtx, r);
   return RS_RESULT_OK;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
-  QueryError_ClearError(&lc->status);
-  rm_free(lc->loadopts.keys);
+  QueryError_ClearError(&lc->loadCtx.status);
+  rm_free(lc->loadCtx.loadopts.keys);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -661,29 +695,28 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
-  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = forceLoad;
-  self->loadopts.status = &self->status;
-  self->loadopts.sctx = sctx;
-  self->loadopts.dmd = NULL;
-  self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-  memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-  self->loadopts.nkeys = nkeys;
+static void rploaderNew_setLoadOpts(LoadCtx *loadCtx, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+  loadCtx->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
+  loadCtx->loadopts.forceLoad = forceLoad;
+  loadCtx->loadopts.status = &loadCtx->status;
+  loadCtx->loadopts.sctx = sctx;
+  loadCtx->loadopts.dmd = NULL;
+  loadCtx->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
+  memcpy(loadCtx->loadopts.keys, keys, sizeof(*keys) * nkeys);
+  loadCtx->loadopts.nkeys = nkeys;
   if (nkeys) {
-    self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
+    loadCtx->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
   } else {
-    self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    loadCtx->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
     lk->options |= RLOOKUP_OPT_ALL_LOADED; // TODO: turn on only for HASH specs
   }
 
-  self->lk = lk;
+  loadCtx->lk = lk;
 }
 
 static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
-
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&self->loadCtx, sctx, lk, keys, nkeys, forceLoad);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -812,7 +845,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
-    rpLoader_loadDocument(&self->base_loader, curr_res);
+    rpLoader_loadDocument(&self->base_loader.loadCtx, curr_res);
   }
 
   // Reset the iterator
@@ -904,7 +937,7 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
 static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&sl->base_loader.loadCtx, sctx, lk, keys, nkeys, forceLoad);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -1084,15 +1117,17 @@ typedef struct {
   size_t count;
 } RPCounter;
 
+static int rpcountProcess(size_t *count, SearchResult *res) {
+  *count += 1;
+  SearchResult_Clear(res);
+}
+
 static int rpcountNext(ResultProcessor *base, SearchResult *res) {
   int rc;
   RPCounter *self = (RPCounter *)base;
-
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    self->count += 1;
-    SearchResult_Clear(res);
+    rpcountProcess(&self->count, res);
   }
-
   // Since this never returns RM_OK, in profile mode, count should be increased
   // to compensate for EOF
   if (base->upstream->type == RP_PROFILE) {
@@ -1115,5 +1150,74 @@ ResultProcessor *RPCounter_New() {
   ret->base.Next = rpcountNext;
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;
+  return &ret->base;
+}
+
+typedef struct {
+  ResultProcessor base;
+  HardCodeArgs args;
+  SortCtx sortCtx;
+  LoadCtx loadCtx;
+} RPHardCode;
+
+static int simulateScore(RPHardCode* self, SearchResult *res)
+{
+  for (bool getNext = true; getNext; ) {
+    int result = rpidProcess(&self->base, res, self->args.itr, &self->args.timeoutLimiter);
+    if (result != RS_RESULT_OK) {
+      return result;
+    }
+    /*if (self->args.metricRequested) {
+    	  rpMetricsProcess(res);
+    }*/
+    getNext = false;
+    if (self->args.fns) {
+      getNext = rpscoreProcess(&self->base, &self->args.fns->sf, &self->args.scargs, res);
+    }
+  }
+  return RS_RESULT_OK;
+}
+
+static int hardCodeNext(ResultProcessor *base, SearchResult *res) {
+  RPHardCode *self = (RPHardCode *)base;
+  // sorting phase
+  int rc = RS_RESULT_OK;
+  if (!self->args.finishedSorting) {
+    uint32_t chunkLimit = base->parent->resultLimit;
+    base->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+    for (rc = RESULT_QUEUED; rc == RESULT_QUEUED;) {
+      rc = simulateScore(self, res);
+      self->args.finishedSorting = checkIfDoneSorting(rc, base->parent->timeoutPolicy, &self->sortCtx.timedOut);
+      if (self->args.finishedSorting) {
+        break;
+      }
+      rpsortQueue(&self->sortCtx, &base->parent->minScore);
+      rc = RESULT_QUEUED;
+    }
+    base->parent->resultLimit = chunkLimit; // restore the limit
+  }
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+  rc = rpsortNext_Pop(&self->sortCtx, res);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+  rpLoader_loadDocument(&self->loadCtx, res);
+  return RS_RESULT_OK;
+}
+
+static void hardCodeFree(ResultProcessor *iter) {
+  rm_free(iter);
+}
+
+ResultProcessor *RPHardCode_New(AREQ *r, HardCodeArgs *args) {
+  RPHardCode *ret = rm_calloc(1, sizeof(*ret));
+  initSortCtx(&ret->sortCtx, args->maxresults, NULL, 0, 0);
+  rploaderNew_setLoadOpts(&ret->loadCtx, r->sctx, args->lookup, NULL, 0, true);
+  ret->args = *args;
+  ret->base.Next = hardCodeNext;
+  ret->base.Free = hardCodeFree;
+  ret->base.type = RP_INDEX;
   return &ret->base;
 }

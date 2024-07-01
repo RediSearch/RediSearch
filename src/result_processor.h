@@ -195,6 +195,20 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 
 ResultProcessor *RPMetricsLoader_New();
 
+typedef struct
+{
+  IndexIterator *itr;
+  size_t timeoutLimiter;
+  ExtScoringFunctionCtx *fns;
+  ScoringFunctionArgs scargs;
+  RLookup* lookup;
+  size_t maxresults;
+  bool finishedSorting;
+} HardCodeArgs;
+
+struct AREQ;
+ResultProcessor *RPHardCode_New(struct AREQ *r, HardCodeArgs *args);
+
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
 #define SORTASCMAP_MAXFIELDS 8
@@ -229,7 +243,6 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * for each result, one result at a time, and yield it to the next processor in the chain.
  *
  *******************************************************************************************************************/
-struct AREQ;
 ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
 
 void SetLoadersForBG(struct AREQ *r);

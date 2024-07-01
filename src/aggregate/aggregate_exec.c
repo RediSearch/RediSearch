@@ -797,6 +797,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->parseTime = parseClock - req->initClock;
   }
 
+  //rc = AREQ_BuildHardCodedPipeline(req, status);
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
@@ -992,7 +993,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
+    RedisModule_ReplyWithErrorFormat(ctx, "No `SEARCH` or `AGGREGATE` provided, got: %s", cmd);
     return REDISMODULE_OK;
   }
 

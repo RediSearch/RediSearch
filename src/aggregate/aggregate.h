@@ -243,6 +243,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildHardCodedPipeline(AREQ *req, QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /******************************************************************************
