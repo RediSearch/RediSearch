@@ -454,9 +454,11 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
     if (nc->areq->reqflags & QEXEC_F_SEND_SCORES) {
       MRReply *score = MRReply_MapElement(result, "score");
-      RS_LOG_ASSERT(score && MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
-      r->score = MRReply_Double(score);
-      r->flags |= Result_ScoreIsSet;
+      if (score) {
+        RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+        r->score = MRReply_Double(score);
+        r->flags |= Result_ScoreIsSet;
+      }
     }
 
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
@@ -470,7 +472,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   else // RESP2
   {
     MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
-    if (nc->areq->reqflags & QEXEC_F_SEND_SCORES) {
+    if (nc->areq->reqflags & QEXEC_F_SEND_SCORES && MRReply_Type(rep) != MR_REPLY_ARRAY) {
       int rc = MRReply_ToDouble(rep, &r->score); // RESP2 doesn't have native double type
       RS_LOG_ASSERT(rc, "invalid score record");
       r->flags |= Result_ScoreIsSet;

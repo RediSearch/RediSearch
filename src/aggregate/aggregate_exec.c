@@ -112,7 +112,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     }
   }
 
-  if (options & QEXEC_F_SEND_SCORES) {
+  if (options & QEXEC_F_SEND_SCORES && r->flags & Result_ScoreIsSet) {
     if (has_map) {
       RedisModule_Reply_SimpleString(reply, "score");
     }
