@@ -211,7 +211,7 @@ typedef struct {
   RSScoringFunction scorer;
   RSFreeFunction scorerFree;
   ScoringFunctionArgs scorerCtx;
-  const RLookupKey * const scoreKey;
+  const RLookupKey *scoreKey;
 } RPScorer;
 
 static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
@@ -269,7 +269,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   ret->scorer = funcs->sf;
   ret->scorerFree = funcs->ff;
   ret->scorerCtx = *fnargs;
-  memcpy((void *)&ret->scoreKey, &rlk, sizeof(rlk));
+  ret->scoreKey = rlk;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
   ret->base.type = RP_SCORER;
