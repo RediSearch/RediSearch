@@ -313,6 +313,7 @@ def exposeScore(env: Env):
     exp_error = "score is not available in pipeline (missing WITHSCORES?)"
     env.expect('FT.AGGREGATE', 'idx', '~hello', 'APPLY', 'score()', 'AS', 'score').error().equal(exp_error)
     env.expect('FT.AGGREGATE', 'idx', '~hello', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'APPLY', 'score()', 'AS', 'score').error().equal(exp_error)
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCORES', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'APPLY', 'score()', 'AS', 'score').error().equal(exp_error)
 
 def testExposeScore_RESP2():
     exposeScore(Env(protocol=2))
