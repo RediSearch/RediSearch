@@ -87,6 +87,7 @@ typedef enum {
 typedef struct {
   const char *expanderName;
   const char *scorerName;
+  const char *scoreField; // output field name for the scorer
   RSLanguage language;
 
   uint32_t flags;

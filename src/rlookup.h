@@ -384,15 +384,6 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
  */
 void RLookup_Cleanup(RLookup *l);
 
-static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
-  for (const RLookupKey *k = l->head; k; k = k->next) {
-    if (k->flags & f) {
-      return k;
-    }
-  }
-  return NULL;
-}
-
 /**
  * Initialize the lookup with fields from hash.
  */
