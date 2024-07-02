@@ -37,7 +37,6 @@ jobs:
         with:
           pull_title: '[${target_branch}] ${pull_title}'
           merge_commits: 'skip'
-          copy_requested_reviewers: 'true'
           copy_labels_pattern: '.*' # copy all labels. Excluding the backport labels automatically
       - name: Trigger CI
         env:
@@ -47,4 +46,5 @@ jobs:
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
             gh pr ready $pr --undo
             gh pr ready $pr
+            gh pr edit  $pr --add-reviewer ${{ github.event.pull_request.user.login || github.event.issue.user.login || github.actor }}
           done
