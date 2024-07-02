@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict
+from common import getConnectionByEnv, index_info, to_dict, skip
 
 
 
@@ -11,6 +11,9 @@ index_errors_str = 'Index Errors'
 
 def get_field_stats_dict(info_command_output, index = 0):
   return to_dict(info_command_output['field statistics'][index])
+
+def get_global_index_errors_dict(info_command_output):
+  return to_dict(info_command_output[index_errors_str])
 
 def test_vector_index_failures(env):
   con = getConnectionByEnv(env)
@@ -275,3 +278,28 @@ def test_vector_indexing_with_json(env):
     expected_error_dict[last_indexing_error_str] = 'Invalid vector length. Expected 2, got 3'
 
     env.assertEqual(error_dict, expected_error_dict)
+
+@skip(cluster=True)
+# No need to run this test on cluster
+def test_fail_background_index_when_low_mem(env):
+    con = getConnectionByEnv(env)
+    # Create a document with a text field.
+    con.hset('doc1', 't', 'hello')
+    # Set the maxmemory to a value that will cause the background indexing to fail.
+    used_memory = con.info('memory')['used_memory']
+    con.config_set('maxmemory',  int(used_memory * 1.1))
+    # Create an index with a text field. The background indexing should fail.
+    env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+    # Check that the index has no documents.
+    info = index_info(env)
+    env.assertEqual(info['num_docs'], 0)
+    
+    global_index_errors = get_global_index_errors_dict(info)
+    expected_error_dict = {
+      indexing_failures_str: 1,
+      last_indexing_error_key_str: 'doc1',
+      last_indexing_error_str: 'Used memory is more than 80%% of max memory, cancelling the scan'
+    }
+    env.assertEqual(global_index_errors, expected_error_dict)
+    
+    
