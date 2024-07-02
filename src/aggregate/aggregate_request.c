@@ -487,7 +487,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
       {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
-      {.name = "WITHSCOREFIELD", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreField},
+      {.name = "WITHSCORES_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreField},
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},

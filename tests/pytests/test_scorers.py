@@ -301,9 +301,9 @@ def testExposeScore(env: Env):
     doc1_score = 1 if env.isCluster() else 2 # TODO: why?
 
     expected = [2, 'doc1', ['score', str(doc1_score)], 'doc2', ['score', '0']] # With doc name
-    env.expect('FT.SEARCH', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'RETURN', '1', 'score').equal(expected)
+    env.expect('FT.SEARCH', 'idx', '~hello', 'WITHSCORES_AS', 'score', 'RETURN', '1', 'score').equal(expected)
     expected = [2, ['score', str(doc1_score)], ['score', '0']] # Without doc name
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'SORTBY', '2', '@score', 'DESC').equal(expected)
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCORES_AS', 'score', 'SORTBY', '2', '@score', 'DESC').equal(expected)
 
     expected = [1, ['count', '1']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCOREFIELD', 'score', 'FILTER', '@score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'WITHSCORES_AS', 'score', 'FILTER', '@score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
