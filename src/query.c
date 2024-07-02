@@ -198,7 +198,8 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC) {
+  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC
+      || qt->type == QT_SIZE) {
     char *s;
     size_t len;
     if (qt->type == QT_TERM) {
@@ -209,6 +210,10 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
       len = qt->len;
     }
     ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
+    // Do not expand numbers
+    if(qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
+        ret->opts.flags |= QueryNode_Verbatim;
+    }
   } else {
     ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);
@@ -267,7 +272,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
-  if (qt->type == QT_TERM) {
+  if (qt->type == QT_TERM || qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
     char *s = rm_strdupcase(qt->s, qt->len);
     ret->fz = (QueryFuzzyNode){
       .tok =
@@ -1774,6 +1779,10 @@ int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
+      // If parameter's value is a number, don't expand the node.
+      if (res == 2) {
+        node->opts.flags |= QueryNode_Verbatim;
+      }
     }
   }
   return REDISMODULE_OK;
