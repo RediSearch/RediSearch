@@ -34,6 +34,8 @@ on:
 jobs:
   validation:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.set-outputs.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +43,9 @@ jobs:
       - name: Validate Tag Input
         run: |
           [[ $(git tag --list ${{ inputs.tag }} | wc -l) -eq 1 ]] || exit 1
+      - name: Set Outputs
+        id: set-outputs
+        run: echo "sha=$(git rev-parse ${{ inputs.tag }})" >> $GITHUB_OUTPUT
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
@@ -126,8 +131,6 @@ jobs:
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Get boto3
         run: pip install boto3
-      - id: tag-sha
-        run: echo "sha=$(git rev-parse ${{ inputs.tag }})" >> $GITHUB_OUTPUT
       - name: Set Version Artifacts
         shell: python
         run: |
@@ -143,7 +146,7 @@ jobs:
 
           suffix = ".${{ inputs.tag }}.zip"
           new_suffix = ".${{ inputs.tag }}.zip".replace("v", "")
-          expected_sha = "${{ steps.tag-sha.outputs.sha }}"
+          expected_sha = "${{ needs.validation.outputs.sha }}"
 
           client = boto3.client("s3")
 
