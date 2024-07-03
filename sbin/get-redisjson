@@ -60,7 +60,7 @@ else
 	if [[ $dist == ubuntu ]]; then
 	  if [[ $nick == noble ]]; then
     	nick="ubuntu24.04"
-		if [[ $nick == jammy ]]; then
+		elif [[ $nick == jammy ]]; then
 			nick="ubuntu22.04"
 		elif [[ $nick == focal ]]; then
 			nick="ubuntu20.04"
