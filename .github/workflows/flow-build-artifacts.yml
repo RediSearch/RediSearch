@@ -206,8 +206,7 @@ jobs:
 
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
-              print(f"Copying {src} to {dst}")
-              # client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
 
           group_print("New Files", dest_files)
 
