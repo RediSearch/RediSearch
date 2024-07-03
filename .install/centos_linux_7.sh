@@ -3,12 +3,23 @@ MODE=$1 # whether to install using sudo or not
 set -e
 export DEBIAN_FRONTEND=noninteractive
 ARCH=$([[ $(uname -m) == x86_64 ]] && echo x86_64 || echo noarch)
+
+# http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
+# and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
+set_all_baseurls() {
+    for file in /etc/yum.repos.d/*.repo; do
+        $MODE sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
+        $MODE sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
+    done
+}
+
+set_all_baseurls # set the baseurls to the working mirror before installing basic packages
 $MODE yum update -y
 $MODE yum install -y https://packages.endpointdev.com/rhel/7/os/${ARCH}/endpoint-repo.${ARCH}.rpm
 $MODE yum groupinstall -y "Development Tools"
 $MODE yum -y install centos-release-scl
 
-
+set_all_baseurls # set the baseurls again before installing devtoolset-11 (some new repos were added)
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
     devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync
 
