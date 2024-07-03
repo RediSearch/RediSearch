@@ -58,6 +58,8 @@ else
 	[[ $arch == arm64v8 ]] && arch=aarch64
 
 	if [[ $dist == ubuntu ]]; then
+	  if [[ $nick == noble ]]; then
+    	nick="ubuntu24.04"
 		if [[ $nick == jammy ]]; then
 			nick="ubuntu22.04"
 		elif [[ $nick == focal ]]; then
