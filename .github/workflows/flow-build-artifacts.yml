@@ -115,6 +115,7 @@ jobs:
 
   deploy:
     needs: [build-linux-x86, build-linux-arm, build-macos, validation]
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS Credentials
