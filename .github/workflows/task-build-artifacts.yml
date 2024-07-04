@@ -46,7 +46,33 @@ jobs:
         id: mode
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-      - name: Deps checkout
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        run: |
+          for platform in ubuntu:xenial ubuntu:bionic centos:7 amazonlinux:2; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              # https://github.com/actions/checkout/issues/1809
+              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
+              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
+              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
+              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Deps checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: setup
+          ref: ${{ env.REF }}
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.txt
+      - name: Deps checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
           path: setup
@@ -61,7 +87,14 @@ jobs:
       - name: Install aws cli
         working-directory: setup/.install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Full checkout
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ env.REF }}
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
           submodules: recursive
@@ -71,7 +104,15 @@ jobs:
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
       # Get Redis
-      - name: Get Redis
+      - name: Get Redis (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.redis-ref }}
+          path: redis
+      - name: Get Redis (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
           repository: redis/redis
@@ -98,7 +139,15 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
