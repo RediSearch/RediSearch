@@ -7,8 +7,8 @@ on:
         type: choice
         options:
           - all
-          - ubuntu:jammy
           - ubuntu:noble
+          - ubuntu:jammy
           - ubuntu:focal
           - ubuntu:bionic
           - rockylinux:8
