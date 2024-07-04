@@ -76,8 +76,10 @@ static void OPT_Rewind(void *ctx) {
     optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
   }
 
+  const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
+  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index};
   // create new numeric filter
-  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config);
+  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -232,7 +234,9 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
-  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config);
+  const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
+  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index};
+  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     oi->base.ctx = oi;
     OptimizerIterator_Free(&oi->base);

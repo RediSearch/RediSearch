@@ -950,6 +950,7 @@ typedef struct {
   size_t len;
   double weight;
   TimeoutCtx timeoutCtx;
+  FieldFilterCtx fieldCtx;
 } NotIterator, NotContext;
 
 static void NI_Abort(void *ctx) {

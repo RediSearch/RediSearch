@@ -18,6 +18,10 @@ typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+// Used to identify any field index within the spec, not just textual fields
+typedef uint16_t t_fieldIndex;
+#define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
+typedef struct timespec t_expirationTimePoint;
 
 #define DOCID_MAX UINT64_MAX
 
@@ -76,11 +80,18 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+  Document_HasExpiration = 0x10,
+  Document_FailedToOpen = 0x20,// Document was failed to opened by a loader (might expired) but not yet marked as deleted.
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
+enum FieldExpirationPolicy {
+  FIELD_EXPIRATION_POLICY_ALL, // all of the fields need to be expired for true to be returned
+  FIELD_EXPIRATION_POLICY_ANY // one of the fields need to be expired for true to be returned
+};
+
 #define hasPayload(x) (x & Document_HasPayload)
+#define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).

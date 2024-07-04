@@ -33,7 +33,11 @@ typedef enum {
   rename_to_cmd,
   trimmed_cmd,
   restore_cmd,
+  expire_cmd,
+  persist_cmd,
   expired_cmd,
+  hexpire_cmd,
+  hpersist_cmd,
   hexpired_cmd,
   evicted_cmd,
   change_cmd,
@@ -73,7 +77,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0, *hexpired_event = 0;
+                    *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
+                    *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
 
   // clang-format off
 
@@ -90,7 +95,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
   else CHECK_CACHED_EVENT(hexpired)
+  else CHECK_CACHED_EVENT(expire)
   else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(persist)
+  else CHECK_CACHED_EVENT(hpersist)
   else CHECK_CACHED_EVENT(evicted)
   else CHECK_CACHED_EVENT(change)
   else CHECK_CACHED_EVENT(del)
@@ -113,7 +121,9 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(hexpire)
     else CHECK_AND_CACHE_EVENT(hexpired)
+    else CHECK_AND_CACHE_EVENT(expire)
     else CHECK_AND_CACHE_EVENT(expired)
     else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)
@@ -134,7 +144,14 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
       RedisModule_FreeString(ctx, key);
       break;
-
+    case expire_cmd:
+    case persist_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      break;
+    case hexpire_cmd:
+    case hpersist_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      break;
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:

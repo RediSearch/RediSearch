@@ -18,7 +18,7 @@ CursorList g_CursorsListCoord;
 
 static uint64_t curTimeNs() {
   struct timespec tv;
-  clock_gettime(CLOCK_MONOTONIC, &tv);
+  clock_gettime(CLOCK_REALTIME, &tv);
   return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 

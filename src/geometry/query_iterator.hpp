@@ -13,6 +13,7 @@
 #include <ranges>     // ranges::input_range, ranges::begin, ranges::end
 #include <algorithm>  // ranges::sort
 
+struct IndexSpec;
 namespace RediSearch {
 namespace GeoShape {
 struct QueryIterator {
@@ -22,6 +23,8 @@ struct QueryIterator {
   IndexIterator base_;
   container_type iter_;
   std::size_t index_;
+  const IndexSpec* indexSpec_;
+  const FieldIndexFilterContext* filterCtx_;
 
   explicit QueryIterator() = delete;
 
@@ -29,10 +32,10 @@ struct QueryIterator {
   template <typename R, typename Proj = std::identity>
     requires std::ranges::input_range<R> &&
                  std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
-  explicit QueryIterator(R &&range, std::size_t &alloc, Proj proj = {})
+  explicit QueryIterator(const IndexSpec* spec, const FieldIndexFilterContext* filterCtx, R &&range, std::size_t &alloc, Proj proj = {})
       : base_{init_base(this)},
         iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
-        index_{0} {
+        index_{0}, indexSpec_(spec), filterCtx_(filterCtx) {
     std::ranges::sort(iter_, std::ranges::less{}, proj);
   }
 
@@ -45,6 +48,7 @@ struct QueryIterator {
 
   auto base() noexcept -> IndexIterator *;
 
+  int read_single(RSIndexResult *&hit) noexcept;
   int read(RSIndexResult *&hit) noexcept;
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
@@ -52,6 +56,7 @@ struct QueryIterator {
   std::size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
+  void set_time(timespec now) noexcept;
 
   static IndexIterator init_base(QueryIterator *ctx);
 };

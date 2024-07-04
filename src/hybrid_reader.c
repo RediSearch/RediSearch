@@ -298,7 +298,7 @@ static int HR_HasNext(void *ctx) {
 
 // In KNN mode, the results will return sorted by ascending order of the distance
 // (better score first), while in hybrid mode, the results will return in descending order.
-static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
+static int HR_ReadHybridUnsortedSingle(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
@@ -314,20 +314,30 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   *hit = mmh_pop_min(hr->topResults);
+  if (DocTable_IsFieldIndexExpired(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+    return INDEXREAD_NOTFOUND;
+  }
   array_append(hr->returnedResults, *hit);
   hr->lastDocId = (*hit)->docId;
   return INDEXREAD_OK;
 }
 
-static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
+static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
+  int rc = INDEXREAD_OK;
+  do {
+    rc = HR_ReadHybridUnsortedSingle(ctx, hit);
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
+}
+
+static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
     if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
-  if (!HR_HasNext(ctx)) {
+  if (!HR_HasNext(hr)) {
     return INDEXREAD_EOF;
   }
   *hit = hr->base.current;
@@ -335,10 +345,23 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
+
+  if (DocTable_IsFieldIndexExpired(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+    return INDEXREAD_NOTFOUND;
+  }
+
   hr->lastDocId = (*hit)->docId;
   ResultMetrics_Reset(*hit);
   ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
+}
+
+static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
+  int rc = INDEXREAD_OK;
+  do {
+    rc = HR_ReadKnnUnsortedSingle(ctx, hit);
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
 }
 
 static size_t HR_NumEstimated(void *ctx) {
@@ -430,6 +453,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->ignoreScores = hParams.ignoreDocScore;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
+  hi->spec = hParams.spec;
+  hi->filterCtx = *hParams.filterCtx;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.

@@ -121,12 +121,13 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
+    DocTable* docs = &RP_SPEC(base)->docs;
     if (r->dmd) {
       dmd = r->dmd;
     } else {
-      dmd = DocTable_Borrow(&RP_SPEC(base)->docs, r->docId);
+      dmd = DocTable_Borrow(docs, r->docId);
     }
-    if (!dmd || (dmd->flags & Document_Deleted)) {
+    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd)) {
       DMD_Return(dmd);
       continue;
     }

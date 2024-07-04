@@ -14,6 +14,7 @@
 #include "util/timeout.h"
 
 typedef struct {
+  IndexSpec *spec;
   VecSimIndex *index;
   size_t dim;
   VecSimType elementType;
@@ -24,10 +25,12 @@ typedef struct {
   bool ignoreDocScore;
   IndexIterator *childIt;
   struct timespec timeout;
+  const FieldIndexFilterContext* filterCtx;
 } HybridIteratorParams;
 
 typedef struct {
   IndexIterator base;
+  IndexSpec *spec;
   VecSimIndex *index;
   size_t dimension;                // index dimension
   VecSimType vecType;              // index data type
@@ -47,6 +50,7 @@ typedef struct {
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
   TimeoutCtx timeoutCtx;           // Timeout parameters
+  FieldIndexFilterContext filterCtx;
 } HybridIterator;
 
 #ifdef __cplusplus
