@@ -111,7 +111,7 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config) {
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config, t_fieldIndex fieldIndex) {
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
@@ -126,13 +126,14 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, Con
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fieldIndex };
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
-      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config);
+      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {
         iters[itersCount++] = numIter;
       }

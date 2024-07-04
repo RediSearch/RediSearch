@@ -60,9 +60,9 @@ def buildExpireDocsResults(isSortable, isJson):
     results[both_docs_no_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'arr']] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', ['$', '{"t":"arr"}']]
     results[both_docs_sortby] = [2, 'doc2', ['t', 'arr'], 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', ['t', 'arr','$', '{"t":"arr"}'], 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
 
-    results[doc2_is_null] = [2, 'doc1', ['t', 'bar'], 'doc2', None] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', None]
-    results[doc2_is_null_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', None] if not isJson else [2, 'doc1', ['t', 'bar', '$', '{"t":"bar"}'], 'doc2', None]
-    results[doc2_is_null_sortby_sorted] = [2, 'doc2', None, 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', None, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+    results[doc2_is_null] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['$', '{"t":"bar"}']]
+    results[doc2_is_null_sortby] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+    results[doc2_is_null_sortby_sorted] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
 
     # on Json we also return the sortby field value.
     results[only_doc1_sortby] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
@@ -256,7 +256,7 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    env.assertEqual(res, [1, None, ['t', 'arr']])
+    env.assertEqual(res, [1, ['t', 'arr']])
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []

@@ -143,7 +143,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const char *name = field ? field->name : NULL;
+  const char *name = opt->fieldName;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
@@ -243,8 +243,12 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
+        const char* sortByNodeFieldName = opt->sortbyNode->nn.nf->fieldName;
+        const FieldSpec *fs = IndexSpec_GetField(spec, sortByNodeFieldName, strlen(sortByNodeFieldName));
+        FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config);
+                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
+                                                             &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
       }

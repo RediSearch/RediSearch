@@ -226,10 +226,11 @@ def testExpireDocs():
               # Without sortby -
               # Documents are sorted according to dicId
               # both docs exist but we failed to load doc1 since it was found to be expired during the query
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],
+              # doc1 expiration notification will cause it to move to the end of the list, so it will be second
+              [1, 'doc2', ['t', 'foo']],
               # With sortby -
               # Loading the value of the expired document failed, so it gets lower priority.
-              [2, 'doc2', ['t', 'foo'], 'doc1', None])
+              [1, 'doc2', ['t', 'foo']])
 
 def testExpireDocsSortable():
     '''
@@ -238,10 +239,11 @@ def testExpireDocsSortable():
     expireDocs(True,  # With SORTABLE -
                # Since the field is SORTABLE, the field's value is available to the sorter, and
                # the documents are ordered according to the sortkey values.
+               # due to the expire notification doc1 is moved to the end of the list
                # However, the loader fails to load doc1 and the result is marked as expired so
                # the value does not appear in the result.
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],  # Without sortby - ordered by docid
-              [2, 'doc1', None, 'doc2', ['t', 'foo']])  # With sortby - ordered by the original value, bar > foo
+              [1, 'doc2', ['t', 'foo']],  # Without sortby - ordered by docid
+              [1, 'doc2', ['t', 'foo']])  # With sortby - ordered by the original value, bar > foo
 
 def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
     '''

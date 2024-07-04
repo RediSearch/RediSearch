@@ -893,7 +893,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
+  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
@@ -903,7 +903,9 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config);
+
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index};
+  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
@@ -918,7 +920,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config, fs->index);
 }
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
@@ -935,7 +937,8 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
-  IndexIterator *ret = api->query(index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index};
+  IndexIterator *ret = api->query(q->sctx->spec, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
     QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index: %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
@@ -989,7 +992,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it, fs->index);
   // If iterator was created successfully, and we have a metric to yield, update the
   // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
   if (it && qn->vn.vq->scoreField) {
@@ -1408,7 +1411,8 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Create a reader for the missing values InvertedIndex.
-  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index};
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec, &filterCtx);
 
   return NewReadIterator(ir);
 }

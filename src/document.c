@@ -173,8 +173,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
   aCtx->stateFlags = 0;
   QueryError_ClearError(&aCtx->status);
-  aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
+  aCtx->totalTokens = 0;
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;

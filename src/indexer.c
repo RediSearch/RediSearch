@@ -203,6 +203,12 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       DocTable_SetByteOffsets(md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
+    Document* doc = cur->doc;
+    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || array_len(doc->fieldExpirations) > 0;
+    if (hasExpiration) {
+      md->flags |= Document_HasExpiration;
+    }
+    DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
     DMD_Return(md);
   }
 }
@@ -258,26 +264,26 @@ static void reopenCb(void *arg) {}
 // Index missing field docs.
 // Add field names to missingFieldDict if it is missing in the document
 // and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) allFields) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
-  bool found_df;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
   dict *df_fields_dict = dictCreate(&dictTypeHeapStrings, NULL);
-  uint last_ind = 0;
+  t_fieldIndex last_ind = 0;
 
-  for(size_t i = 0; i < spec->numFields; i++) {
-    found_df = false;
+  for (t_fieldIndex i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
+    bool field_has_non_expiring_value = false;
     if (dictFind(df_fields_dict, (void *)fs->name) != NULL) {
-      found_df = true;
+      field_has_non_expiring_value = true;
     } else {
       for (size_t j = last_ind; j < aCtx->doc->numFields; j++) {
-        if (!strcmp(fs->name, doc->fields[j].name)) {
-          found_df = true;
+        const bool hasExpiration = allFields && (doc->fieldExpirations[j].point.tv_sec || doc->fieldExpirations[j].point.tv_nsec);
+        if (!strcmp(fs->name, doc->fields[j].name) && !hasExpiration) {
+          field_has_non_expiring_value = true;
           last_ind++;
           break;
         }
@@ -287,9 +293,9 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     }
 
     // We wish to index this document for this field only if the document doesn't contain it.
-    if (!found_df) {
+    if (!field_has_non_expiring_value) {
       InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
-      if(iiMissingDocs == NULL) {
+      if (iiMissingDocs == NULL) {
         size_t dummy_mem;
         iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
         dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
@@ -310,7 +316,6 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
  * the tokens of further entries in the queue
  */
 static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *parentMap[MAX_BULK_DOCS];
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
@@ -349,7 +354,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 
   // Handle missing values indexing
-  writeMissingFieldDocs(aCtx, &ctx);
+  writeMissingFieldDocs(aCtx, &ctx, doc->fieldExpirations);
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {

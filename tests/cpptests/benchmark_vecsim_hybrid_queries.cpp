@@ -57,7 +57,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createIndex(n, step, i);
         inv_indices[i] = w;
-        IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+        IndexReader *r = NewMinimalTermIndexReader(w);
         ind_readers[i] = r;
       }
       IndexIterator **irs = (IndexIterator **)calloc(percent, sizeof(IndexIterator *));
@@ -72,7 +72,9 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       float query[NUM_ITERATIONS][d];
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
-      HybridIteratorParams hParams = {.index = index,
+      FieldIndexFilterContext filterCtx = {.fieldIndex=0};
+      HybridIteratorParams hParams = {.spec = NULL,
+                                      .index = index,
                                       .dim = d,
                                       .elementType = VecSimType_FLOAT32,
                                       .spaceMetric = VecSimMetric_L2,
@@ -80,7 +82,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
                                       .ignoreDocScore = true,
-                                      .childIt = ui
+                                      .childIt = ui,
+                                      .filterCtx = &filterCtx,
       };
       QueryError err = {QUERY_OK};
       IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);

@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record);
+                                          RSIndexResult *record, const FieldFilterCtx* filterCtx);
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
@@ -328,13 +328,13 @@ void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
   printf("InvertedIndex {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numDocs %u, lastId %llu, size %u\n", idx->numDocs, idx->lastId, idx->size);
+  printf("numDocs %u, lastId %lu, size %u\n", idx->numDocs, idx->lastId, idx->size);
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     PRINT_INDENT(indent);
-    printf("value %f, docId %llu\n", res->num.value, res->docId);
+    printf("value %f, docId %lu\n", res->num.value, res->docId);
   }
   IR_Free(ir);
   --indent;
@@ -348,7 +348,7 @@ void IndexBlock_Dump(IndexBlock *b, int indent) {
   printf("IndexBlock {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numEntries %u, firstId %llu, lastId %llu, \n", b->numEntries, b->firstId, b->lastId);
+  printf("numEntries %u, firstId %lu, lastId %lu, \n", b->numEntries, b->firstId, b->lastId);
   --indent;
   PRINT_INDENT(indent);
   printf("}\n");
@@ -944,7 +944,8 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 }
 
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, int skipMulti) {
+                              double rangeMin, double rangeMax, int skipMulti,
+                              const FieldIndexFilterContext* filterCtx) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -952,7 +953,8 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res);
+  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx};
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res, &fieldCtx);
 }
 
 size_t IR_NumEstimated(void *ctx) {
@@ -1006,6 +1008,14 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       ir->sameId = ir->lastId;
     }
 
+    if (ir->sp) {
+      const bool fieldExpired = ir->filterCtx.maskFilter ?
+                                DocTable_IsFieldMaskExpired(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.mask) :
+                                DocTable_IsFieldIndexExpired(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.index);
+      if (fieldExpired) {
+        continue;
+      }
+    }
 
     ++ir->len;
     *e = record;
@@ -1149,7 +1159,8 @@ size_t IR_NumDocs(void *ctx) {
 
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                             RSIndexResult *record) {
+                             RSIndexResult *record, const FieldFilterCtx* filterCtx) {
+  // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
   ret->currentBlock = 0;
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
@@ -1161,6 +1172,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
+  ret->filterCtx = *filterCtx;
   ret->isValidP = NULL;
   ret->sp = sp;
   IR_SetAtEnd(ret, 0);
@@ -1168,9 +1180,9 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record) {
+                                          RSIndexResult *record, const FieldFilterCtx* filterCtx) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, skipMulti, record);
+  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, skipMulti, record, filterCtx);
   return ret;
 }
 
@@ -1194,17 +1206,23 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+  FieldFilterCtx filterCtx = {.maskFilter = true,
+                              .filter.mask.fieldMask = fieldMask,
+                              .filter.mask.policy = FIELD_EXPIRATION_POLICY_ALL,
+                              .filter.mask.spec = sp};
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record, &filterCtx);
 }
 
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec* spec,
+                                   const FieldIndexFilterContext* filterCtx) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
   IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);  
   if (!decoder.decoder) {  
     return NULL;  
-  } 
+  }
+  FieldFilterCtx fieldCtx = {.filter.index = *filterCtx, .maskFilter = false };
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+  return NewIndexReaderGeneric(spec, idx, decoder, dctx, false, record, &fieldCtx);
 }
 
 void IR_Free(IndexReader *ir) {

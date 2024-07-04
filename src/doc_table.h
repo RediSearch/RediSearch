@@ -14,8 +14,8 @@
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
-#include "util/dict.h"
 #include "rmutil/rm_assert.h"
+#include "ttl_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,6 +73,7 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  TimeToLiveTable ttl;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -127,6 +128,29 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  * the document. This is used for highlighting
  */
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
+
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+
+typedef struct {
+  struct IndexSpec* spec;
+  // For textual fields, allows to host multiple field indices at once
+  t_fieldMask fieldMask;
+  // our field expiration policy
+  enum FieldExpirationPolicy policy;
+} FieldMaskFilterContext;
+
+typedef struct {
+  // For the other fields, allows a single field to be referenced
+  t_fieldIndex fieldIndex;
+} FieldIndexFilterContext;
+
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd);
+
+bool DocTable_IsFieldIndexExpired(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx);
+
+bool DocTable_IsFieldMaskExpired(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx);
+
+void DocTable_SetTimeForExpirationChecks(DocTable *t, const struct timespec *now);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);

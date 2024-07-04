@@ -178,7 +178,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexReader *reader = NewMinimalTermIndexReader(invidx);
   ReplyReaderResults(reader, sctx->redisCtx);
 
 end:
@@ -260,7 +260,8 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true);
+      FieldIndexFilterContext fieldCtx = {.fieldIndex = RS_INVALID_FIELD_INDEX};
+      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true, &fieldCtx);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
     }
@@ -330,7 +331,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     REPLY_WITH_DOUBLE("value", res->num.value, ARRAY_LEN_VAR(invertedIndexValues));
     REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
@@ -475,7 +476,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    IndexReader *reader = NewMinimalTermIndexReader(iv);
     ReplyReaderResults(reader, sctx->redisCtx);
     ++resultSize;
   }
@@ -938,7 +939,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+      IndexReader *reader = NewMinimalTermIndexReader(iv);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
 

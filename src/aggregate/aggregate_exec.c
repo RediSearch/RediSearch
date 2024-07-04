@@ -346,7 +346,8 @@ static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
-void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc, const timespec* now) {
+  DocTable_SetTimeForExpirationChecks(&req->sctx->spec->docs, now);
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
@@ -411,7 +412,7 @@ static bool hasTimeoutError(QueryError *err) {
  * Sends a chunk of <n> rows in the resp2 format
 */
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
+  cachedVars cv, const timespec* now) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
@@ -419,7 +420,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
     bool cursor_done = false;
 
-    startPipeline(req, rp, &results, &r, &rc);
+    startPipeline(req, rp, &results, &r, &rc, now);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
@@ -525,14 +526,14 @@ done_2_err:
  * Sends a chunk of <n> rows in the resp3 format
 */
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
+  cachedVars cv, const timespec* now) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
     bool cursor_done = false;
 
-    startPipeline(req, rp, &results, &r, &rc);
+    startPipeline(req, rp, &results, &r, &rc, now);
 
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
@@ -653,7 +654,7 @@ done_3_err:
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
+void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit, const timespec* now) {
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
   }
@@ -667,15 +668,17 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     req->qiter.resultLimit = limit;
 
   if (reply->resp3) {
-    sendChunk_Resp3(req, reply, limit, cv);
+    sendChunk_Resp3(req, reply, limit, cv, now);
   } else {
-    sendChunk_Resp2(req, reply, limit, cv);
+    sendChunk_Resp2(req, reply, limit, cv, now);
   }
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  sendChunk(req, reply, -1);
+  timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  sendChunk(req, reply, -1, &now);
   RedisModule_EndReply(reply);
   AREQ_Free(req);
 }
@@ -1067,7 +1070,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
   req->cursorChunkSize = num;
 
-  sendChunk(req, reply, num);
+  timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  sendChunk(req, reply, num, &now);
   RedisSearchCtx_UnlockSpec(req->sctx); // Verify that we release the spec lock
 
   if (req->stateflags & QEXEC_S_ITERDONE) {

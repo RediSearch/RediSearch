@@ -9,7 +9,9 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f, IteratorsConfig *config);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t,
+                                     const NumericFilter *f, IteratorsConfig *config,
+                                     const FieldIndexFilterContext* filterCtx);
 }
 
 // Helper so we get the same pseudo-random numbers
@@ -107,7 +109,8 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
+    FieldIndexFilterContext filterCtx = {.fieldIndex = 0};
+    IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
     RSIndexResult *res = NULL;
@@ -183,15 +186,16 @@ void testRangeIteratorHelper(bool isMulti) {
   // test loading limited range
   double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}}; 
 
+  FieldIndexFilterContext filterCtx = {.fieldIndex = 0};
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {   
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
-      IndexIterator *it = createNumericIterator(NULL, t, flt, &config);
+      IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
       size_t numEstimated = it->NumEstimated(it->ctx);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       fltLimited->limit = 50;
-      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config);
+      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );

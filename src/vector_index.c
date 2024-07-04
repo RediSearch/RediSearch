@@ -70,7 +70,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
@@ -85,6 +85,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fieldIndex};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -109,6 +110,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
                                       .timeout = q->sctx->timeout,
+                                      .spec = q->sctx->spec,
+                                      .filterCtx = &filterCtx,
       };
       return NewHybridVectorIterator(hParams, q->status);
     }

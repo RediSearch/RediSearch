@@ -51,13 +51,14 @@ namespace {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
     return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
   }                                                                                         \
-  auto Index_##variant##_Query(const GeometryIndex *idx, QueryType query_type,              \
+  auto Index_##variant##_Query(const IndexSpec* spec, const FieldIndexFilterContext* filterCtx, \
+                               const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
                                RedisModuleString **err_msg) -> IndexIterator * {            \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
         return std::get<rtree_ptr<variant>>(idx->index)                                     \
-            ->query(std::string_view{str, len}, query_type, err_msg);                       \
+            ->query(spec, filterCtx, std::string_view{str, len}, query_type, err_msg);      \
       case GEOMETRY_FORMAT_GEOJSON:                                                         \
       default:                                                                              \
         return nullptr;                                                                     \
