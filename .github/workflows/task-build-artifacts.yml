@@ -72,7 +72,7 @@ jobs:
           sparse-checkout: |
             .install
             tests/pytests/requirements.txt
-      - name: Deps checkout
+      - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
