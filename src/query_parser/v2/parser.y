@@ -1191,6 +1191,7 @@ num(A) ::= MINUS num(B). {
 
 term(A) ::= TERM(B) . {
   A = B;
+  A.type = QT_TERM;
 }
 
 term(A) ::= NUMBER(B) . {
@@ -1209,9 +1210,6 @@ term(A) ::= SIZE(B). {
 
 param_term(A) ::= term(B). {
   A = B;
-  if((A.type != QT_NUMERIC) && (A.type != QT_SIZE)) {
-    A.type = QT_TERM;
-  }
 }
 
 param_term(A) ::= ATTRIBUTE(B). {

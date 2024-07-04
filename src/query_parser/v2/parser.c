@@ -2432,6 +2432,7 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
       case 94: /* term ::= TERM */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_TERM;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -2453,9 +2454,6 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
       case 97: /* param_term ::= term */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
-  if((yylhsminor.yy0.type != QT_NUMERIC) && (yylhsminor.yy0.type != QT_SIZE)) {
-    yylhsminor.yy0.type = QT_TERM;
-  }
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
