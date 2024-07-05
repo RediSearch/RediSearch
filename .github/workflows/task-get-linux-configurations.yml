@@ -13,7 +13,8 @@ env:
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:bionic',
+                    'amazonlinux:2']"
 
 on:
   workflow_call:
@@ -97,6 +98,10 @@ jobs:
           # amazonlinux:2 needs pre-checkout dependencies
           if x86_platforms.count('amazonlinux:2') > 0:
             x86_include.append({
+              'OS': 'amazonlinux:2',
+              'pre-deps': "yum install -y tar gzip"})
+          if arm_platforms.count('amazonlinux:2') > 0:
+            arm_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
 
