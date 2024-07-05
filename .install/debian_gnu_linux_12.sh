@@ -15,8 +15,8 @@ then
         $MODE apt install -yqq gcc-11 g++-11
         # Update alternatives
         $MODE update-alternatives \
-                --install /usr/bin/gcc-11 gcc /usr/local/bin/gcc 60 \
-                --slave /usr/bin/g++-11 g++ /usr/local/bin/g++
+                --install /usr/bin/gcc gcc /usr/bin/gcc-11 60 \
+                --slave /usr/bin/g++ g++ /usr/bin/g++-11
 fi
 
 source install_cmake.sh $MODE
