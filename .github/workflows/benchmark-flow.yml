@@ -58,9 +58,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./deps/readies/bin/getredis --with-github-token
 
-      - name: Build Redis
-        working-directory: redis
-        run: make install
       - name: Build RediSearch
         run: make build
             COORD=${{ inputs.cluster_env }}
