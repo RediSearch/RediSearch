@@ -5,9 +5,6 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
@@ -38,28 +35,29 @@ env:
 jobs:
   benchmark-steps:
     runs-on: ubuntu-latest
-    container: ${{ inputs.container }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup
-        run: ./sbin/setup
-      - name: Git Config
-        run: git config --global --add safe.directory '*'
-
-
+          fetch-depth: 0 # fetch all history for accurate results
+      - name: Setup specific
+        working-directory: .install
+        run: ./install_script.sh sudo
+      - name: Setup common
+        run: .install/common_installations.sh sudo
+  
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
-
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+  
       - name: Get Redis
-        uses: actions/checkout@v4
-        with:
-          repository: redis/redis
-          ref: unstable
-          path: redis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./deps/readies/bin/getredis --with-github-token
+
       - name: Build Redis
         working-directory: redis
         run: make install
@@ -67,7 +65,7 @@ jobs:
         run: make build
             COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
-            REDISEARCH_MT_BUILD=0
+            REDISEARCH_MT_BUILD=1
             SHOW=1
       - name: Prepare automation
         run: |
