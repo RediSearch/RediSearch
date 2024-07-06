@@ -6,6 +6,9 @@ metadata:
 timeout_seconds: 1800
 setups:
   - oss-standalone
+  - oss-standalone-threads-3
+  - oss-standalone-threads-6
+  - oss-standalone-threads-12
 
 
 dbconfig:

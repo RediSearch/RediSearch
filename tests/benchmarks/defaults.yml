@@ -49,7 +49,64 @@ spec:
     resources:
       requests:
         cpus: "1"
-        memory: "10g"
+        memory: "25g"
+
+  - name: oss-standalone-threads-3
+    type: oss-standalone
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "4"
+        memory: "25g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 3
+          MIN_OPERATION_WORKERS: 3
+        module-oss:
+          WORKERS: 3
+          MIN_OPERATION_WORKERS: 3
+
+  - name: oss-standalone-threads-6
+    type: oss-standalone
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "7"
+        memory: "25g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 6
+          MIN_OPERATION_WORKERS: 6
+        module-oss:
+          WORKERS: 6
+          MIN_OPERATION_WORKERS: 6
+
+  - name: oss-standalone-threads-12
+    type: oss-standalone
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "13"
+        memory: "25g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 12
+          MIN_OPERATION_WORKERS: 12
+        module-oss:
+          WORKERS: 12
+          MIN_OPERATION_WORKERS: 12
 
   - name: oss-standalone-1replica
     type: oss-standalone
