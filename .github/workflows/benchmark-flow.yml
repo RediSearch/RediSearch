@@ -8,6 +8,9 @@ on:
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
+      json_module_path:
+        type: string
+        default: bin/linux-jammy-x64/RedisJSON/rejson.so
       profile_env:
         type: number # for default of 0
       cluster_env:
@@ -93,7 +96,7 @@ jobs:
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
         run: redisbench-admin run-remote
-              --module_path $(cat ../../bin/REJSON_PATH)
+              --module_path ../../${{ inputs.json_module_path }}
               --module_path ../../${{ inputs.module_path }}
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
