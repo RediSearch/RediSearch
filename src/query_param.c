@@ -28,10 +28,10 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
   assert (unit->type != QT_TERM_CASE);
   if (unit->type == QT_TERM && unit->s) {
     gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
-  } else if (unit->type == QT_NUMERIC || unit->type == QT_SIZE) {
-    QERR_MKSYNTAXERR(q->status, "Invalid GeoFilter unit");
-  } else {
+  } else if (unit->type == QT_PARAM_GEO_UNIT) {
     QueryParam_SetParam(q, &ret->params[3], &gf->unitType, NULL, unit);
+  } else {
+    QERR_MKSYNTAXERR(q->status, "Invalid GeoFilter unit");
   }
   return ret;
 }
