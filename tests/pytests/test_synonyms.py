@@ -149,6 +149,12 @@ def testSynonymsIntensiveLoad(env):
             env.assertEqual(res[0:2], [1, 'doc%d' % i])
             env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
 
+            # Test using PARAMS
+            res = env.cmd('ft.search', 'idx', '$p', 'EXPANDER', 'SYNONYM',
+                          'PARAMS', 2, 'p', 'child%d' % i, 'DIALECT', 2)
+            env.assertEqual(res[0:2], [1, 'doc%d' % i])
+            env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
+
 def testSynonymsLowerCase(env):
     env.expect('FT.CREATE lowcase ON HASH SCHEMA foo text').ok()
     env.expect('FT.SYNUPDATE lowcase id1 HELLO SHALOM AHALAN').ok()
