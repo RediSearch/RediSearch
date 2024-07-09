@@ -77,13 +77,19 @@ def test_param_errors(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
 
     # Test errors in param usage: missing param, wrong param value
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').raiseError().contains('No such parameter `radius`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').raiseError().equal('No such parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().equal('Invalid numeric value (bad) for parameter `rapido`')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError().contains('Invalid GeoFilter unit')
-    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Invalid GeoFilter unit')
-    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').raiseError().contains('Bad upper range')
+    env.expect('FT.SEARCH', 'idx', '@foo:$param').error().contains('No such parameter `param`')
+    env.expect('FT.SEARCH', 'idx', '@foo:(%$param%)').error().contains('No such parameter `param`')
+    env.expect('FT.SEARCH', 'idx', '@bar:{$param}').error().contains('No such parameter `param`')
+    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]').error().contains('No such parameter `min`')
+    env.expect('FT.SEARCH', 'idx', '@g:[$long 34.95126 10 km]').error().contains('No such parameter `long`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 ft]').error().contains('No such parameter `lat`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius m]', 'NOCONTENT').error().contains('No such parameter `radius`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').error().equal('No such parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').error().equal('No such parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').error().equal('Invalid numeric value (bad) for parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error().contains('Invalid GeoFilter unit')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').error().contains('Invalid GeoFilter unit')
+    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').error().contains('Bad upper range')
 
     # Test parsing errors
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 badval $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().contains('Syntax error')
