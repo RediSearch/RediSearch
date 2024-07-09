@@ -63,8 +63,8 @@ if is_command python3; then
 	runn python3 -m virtualenv venv
 	. venv/bin/activate
 fi
-runn $READIES/bin/getpy3
-runn ./sbin/system-setup.py
+# Install only rust, because the rest of the dependencies are already installed
+runn $READIES/bin/getrust
 $OP source /etc/profile.d/rust.sh
 
 runn BINROOT=$TARGET_DIR make SAN=$SAN
