@@ -119,11 +119,11 @@ jobs:
           if x86_platforms.count('alpine:3.19') > 0:
             x86_include.append({
               'OS': 'alpine:3.19',
-              'pre-deps': "dnf install -y bash"})
+              'pre-deps': "apk add bash"})
           if arm_platforms.count('alpine:3.19') > 0:
             arm_include.append({
               'OS': 'alpine:3.19',
-              'pre-deps': "dnf install -y bash"})
+              'pre-deps': "apk add bash"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
