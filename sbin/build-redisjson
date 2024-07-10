@@ -65,13 +65,9 @@ if is_command python3; then
 fi
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
-	if [[ $READIES/bin/getrust == 0 ]]; then
-		$OP source /etc/profile.d/rust.sh
-	else
-		runn "curl --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/rust-lang/rustup/master/rustup-init.sh -sSf | sh -s -- -y"
-		$OP source $HOME/.cargo/env
-		rustup show
-	fi
+	runn "curl --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/rust-lang/rustup/master/rustup-init.sh -sSf | sh -s -- -y"
+	source $HOME/.cargo/env
+	rustup show
 	runn BINROOT=$TARGET_DIR make SAN=$SAN
 	echo "Created ${TARGET_DIR}/rejson.so"
 fi
