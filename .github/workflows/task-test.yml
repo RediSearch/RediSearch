@@ -42,7 +42,7 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        shell: bash -l -eo pipefail {0}
+        shell: sh -l -eo pipefail {0}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
