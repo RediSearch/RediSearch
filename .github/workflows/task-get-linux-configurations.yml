@@ -9,15 +9,15 @@ env:
                     'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
-                    'debian:bullseye',
-                    'gcc:12.4.0-bookworm',
+                    'bullseye',
+                    'debian:bookworm',
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'gcc:12.4.0-bookworm']"
+                    'debian:bookworm']"
 
 on:
   workflow_call:
@@ -64,7 +64,10 @@ jobs:
           def needs_arch(arch):
             return requested_arch in ['all', arch]
 
-          naming = {'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0'}
+          naming = {
+            'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+            'debian:bookworm': 'gcc:12.4.0-bookworm'
+          }
 
           # Normalize the platform name
           requested_platform = naming.get(requested_platform, requested_platform)
