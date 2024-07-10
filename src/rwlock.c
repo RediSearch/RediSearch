@@ -43,7 +43,7 @@ static rwlockThreadLocal* RediSearch_GetLockThreadData() {
     rwData->type = lockType_None;
     pthread_setspecific(_lockKey, rwData);
     pthread_mutex_lock(&rwLockMutex);
-    rwlocks = array_append(rwlocks, rwData);
+    array_append(rwlocks, rwData);
     pthread_mutex_unlock(&rwLockMutex);
   }
   return rwData;
