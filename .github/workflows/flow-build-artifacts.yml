@@ -7,12 +7,14 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
+          - debian:bookworm
           - amazonlinux:2
           - mariner:2
           - macos
