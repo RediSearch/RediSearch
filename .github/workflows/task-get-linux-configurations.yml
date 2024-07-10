@@ -11,11 +11,13 @@ env:
                     'rockylinux:9',
                     'debian:bullseye',
                     'amazonlinux:2',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'alpine:3.19']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:bionic',
+                    'alpine:3.19']"
 
 on:
   workflow_call:
