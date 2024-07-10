@@ -9,15 +9,15 @@ env:
                     'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
-                    'bullseye',
-                    'debian:bookworm',
+                    'debian:bullseye',
+                    'gcc:12.4.0-bookworm',
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'debian:bookworm']"
+                    'gcc:12.4.0-bookworm']"
 
 on:
   workflow_call:
