@@ -13,7 +13,7 @@ TEST_F(ArrTest, testStruct) {
   Foo *arr = (Foo *)array_new(Foo, 8);
 
   for (size_t i = 0; i < 10; i++) {
-    arr = (Foo *)array_append(arr, (Foo){i});
+    array_append(arr, (Foo){i});
     ASSERT_EQ(i + 1, array_len(arr));
   }
 
@@ -27,7 +27,7 @@ TEST_F(ArrTest, testStruct) {
 TEST_F(ArrTest, testScalar) {
   int *ia = array_new(int, 8);
   for (size_t i = 0; i < 100; i++) {
-    ia = array_append(ia, i);
+    array_append(ia, i);
     ASSERT_EQ(i + 1, array_len(ia));
     ASSERT_EQ(i, array_tail(ia));
   }
@@ -45,7 +45,7 @@ TEST_F(ArrTest, testStrings) {
   char **a = array_new(char *, 1);
   size_t i = 0;
   for (i = 0; strs[i] != NULL; i++) {
-    a = array_append(a, strdup(strs[i]));
+    array_append(a, strdup(strs[i]));
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
@@ -62,11 +62,11 @@ TEST_F(ArrTest, testTrimm) {
   const char **a = array_new(const char *, 16);
   size_t i = 0;
   for (i = 0; strs[i] != NULL; i++) {
-    a = array_append(a, strs[i]);
+    array_append(a, strs[i]);
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
-  a = array_trimm_cap(a, 2);
+  array_trimm_cap(a, 2);
   ASSERT_EQ(array_len(a), 2);
   array_trimm_len(a, 1);
   ASSERT_EQ(array_len(a), 1);
@@ -109,13 +109,13 @@ TEST_F(ArrTest, testEnsure) {
 
 TEST_F(ArrTest, testDelete) {
   int *a = array_new(int, 1);
-  a = array_append(a, 42);
+  array_append(a, 42);
   a = array_del(a, 0);
   ASSERT_EQ(0, array_len(a));
 
   // repopulate
   for (size_t ii = 0; ii < 10; ++ii) {
-    a = array_append(a, ii);
+    array_append(a, ii);
   }
   ASSERT_EQ(10, array_len(a));
   // Remove last element

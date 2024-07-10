@@ -597,11 +597,12 @@ attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
 
 attribute_list(A) ::= attribute(B) . {
   A = array_new(QueryAttribute, 2);
-  A = array_append(A, B);
+  array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-  A = array_append(B, C);
+  array_append(B, C);
+  A = B;
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
@@ -1143,15 +1144,17 @@ vector_attribute(A) ::= TERM(B) param_term(C). {
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
-  A.params = array_append(B.params, C.param);
-  A.needResolve = array_append(B.needResolve, C.needResolve);
+  array_append(B.params, C.param);
+  array_append(B.needResolve, C.needResolve);
+  A.params = B.params;
+  A.needResolve = B.needResolve;
 }
 
 vector_attribute_list(A) ::= vector_attribute(B). {
   A.params = array_new(VecSimRawParam, 1);
   A.needResolve = array_new(bool, 1);
-  A.params = array_append(A.params, B.param);
-  A.needResolve = array_append(A.needResolve, B.needResolve);
+  array_append(A.params, B.param);
+  array_append(A.needResolve, B.needResolve);
 }
 
 /*** Vector range queries ***/
