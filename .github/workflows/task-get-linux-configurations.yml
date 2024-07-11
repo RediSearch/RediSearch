@@ -12,12 +12,14 @@ env:
                     'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2',
+                    'amazonlinux:2023',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'gcc:12-bookworm']"
+                    'gcc:12-bookworm',
+                    'amazonlinux:2023']"
 
 on:
   workflow_call:
@@ -102,13 +104,23 @@ jobs:
           x86_include = []
 
           # amazonlinux:2 needs pre-checkout dependencies
-          if x86_platforms.count('amazonlinux:2') > 0:
+          if 'amazonlinux:2' in x86_platforms:
             x86_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
 
+          # amazonlinux:2023 needs pre-checkout dependencies
+          if 'amazonlinux:2023' in x86_platforms: 
+            x86_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip"})
+          if 'amazonlinux:2023' in arm_platforms:
+            arm_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip"})
+
           # mariner:2 needs pre-checkout dependencies
-          if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
+          if 'mcr.microsoft.com/cbl-mariner/base/core:2.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
