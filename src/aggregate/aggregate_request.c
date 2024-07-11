@@ -487,7 +487,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
       {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
-      {.name = "WITHSCORES_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreField},
+      {AC_MKBITFLAG("ADDSCORES", &req->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
@@ -570,8 +570,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  if (searchOpts->scoreField) {
-    req->reqflags |= QEXEC_F_SEND_SCORES_AS_FIELD;
+  if (IsSearch(req) && (req->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)) {
+    QERR_MKBADARGS_FMT(status, "ADDSCORES is not supported on FT.SEARCH");
+    return REDISMODULE_ERR;
   }
 
   searchOpts->inkeys = (const char **)inKeys.objs;
@@ -1291,8 +1292,8 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
-  if (req->searchopts.scoreField) {
-    scoreKey = RLookup_GetKey(rl, req->searchopts.scoreField, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  if (req->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {
+    scoreKey = RLookup_GetKey(rl, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
