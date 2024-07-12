@@ -41,6 +41,7 @@ on:
           - debian:bullseye
           - debian:bookworm
           - amazonlinux:2
+          - amazonlinux:2023
           - mariner:2
           - alpine:3.19
         description: 'Platform to build on. Use "all" to build on all'
