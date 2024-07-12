@@ -4,6 +4,10 @@
 
 #include <stdbool.h>
 
+// __STRING macro is not defined in Alpine Linux 3.19
+#if !defined(__GLIBC__) && !defined(__STRING)
+#define __STRING(x) #x
+#endif
 
 typedef enum {
   SPECIAL_CASE_NONE,
