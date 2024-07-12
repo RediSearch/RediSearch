@@ -4,9 +4,9 @@
 
 #include <stdbool.h>
 
-// __STRING macro is not defined in Alpine Linux 3.19
+// Hack to support Alpine Linux 3.19 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
-#define __STRING(x) #x
+#include <sys/cdefs.h>
 #endif
 
 typedef enum {
