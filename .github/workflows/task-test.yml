@@ -42,7 +42,7 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        shell: ${{ (inputs.container == 'alpine:3.19') && 'sh -l -eo pipefail {0}' || 'bash -l -eo pipefail {0}' }}
+        shell: ${{ (inputs.container == 'alpine:3.19') && 'if [[ $(which bash) ]]; then bash -l -eo pipefail {0}; else sh -l -eo pipefail {0}; fi' || 'bash -l -eo pipefail {0}' }}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script

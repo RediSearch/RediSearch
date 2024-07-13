@@ -55,7 +55,6 @@ runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
 
 # Patch RedisJSON to build in Alpine - disable static linking
-echo $(pwd)
 OS_NAME=$(cat /etc/os-release | egrep "^NAME=" | cut -d '=' -f 2 | tr -d '"')
 if [[ $OS_NAME == "Alpine Linux" ]]; then
 	$OP sed -i "s/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g" Makefile
