@@ -9,4 +9,6 @@ $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     tar xz which rsync bsd-compat-headers clang clang17-libclang
 
 $MODE apk add cmake --no-cache
+
+ln -s ~/.bash_profile ~/.profile
 #source install_cmake.sh $MODE

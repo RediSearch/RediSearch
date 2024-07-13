@@ -128,11 +128,11 @@ jobs:
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
 
           # alpine:3.19 needs pre-checkout dependencies
-          if x86_platforms.count('alpine:3.19') > 0:
+          if 'alpine:3.19' in x86_platforms:
             x86_include.append({
               'OS': 'alpine:3.19',
               'pre-deps': "apk add bash"})
-          if arm_platforms.count('alpine:3.19') > 0:
+          if 'alpine:3.19' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3.19',
               'pre-deps': "apk add bash"})
