@@ -41,19 +41,12 @@ jobs:
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
-      run: |
-        if [[ "${{ inputs.container }}" == 'alpine:3.19' ]]; then
-          if [[ ! $(which bash) ]]; then
-            sh -l -eo pipefail {0}
-          else
-            bash -l -eo pipefail {0} 
-          fi
-        else
-          bash -l -eo pipefail {0}
-        fi
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
+        shell: sh -l eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
