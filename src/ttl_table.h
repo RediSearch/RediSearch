@@ -28,7 +28,7 @@ void TimeToLiveTable_SetTimeForCurrentThread(TimeToLiveTable *table, const struc
 
 void TimeToLiveTable_UpdateDocExpirationTime(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpiration, arrayof(FieldExpiration) allFieldSorted);
 bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId);
-bool TimeToLiveTable_HasDocOrFieldIndexExpired(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex);
-bool TimeToLiveTable_HasDocOrFieldIndicesExpired(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPolicy policy);
+bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
+bool TimeToLiveTable_VerifyFieldIndicesPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate);
 
 #endif //TTL_TABLE_H

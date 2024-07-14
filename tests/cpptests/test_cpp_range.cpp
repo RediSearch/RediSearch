@@ -109,7 +109,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
     }
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    FieldIndexFilterContext filterCtx = {.fieldIndex = 0};
+    FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
     IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
@@ -186,7 +186,7 @@ void testRangeIteratorHelper(bool isMulti) {
   // test loading limited range
   double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}}; 
 
-  FieldIndexFilterContext filterCtx = {.fieldIndex = 0};
+  FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {   
       // j==1 for ascending order, j==0 for descending order

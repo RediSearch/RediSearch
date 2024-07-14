@@ -225,16 +225,16 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd) {
   return TimeToLiveTable_HasDocExpired(&t->ttl, dmd->id);
 }
 
-bool DocTable_IsFieldIndexExpired(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx) {
+bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx) {
   if (!t->ttl.hashTable) {
-    return false;
+    return true;
   }
-  return TimeToLiveTable_HasDocOrFieldIndexExpired(&t->ttl, docId, ctx->fieldIndex);
+  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(&t->ttl, docId, ctx->fieldIndex, ctx->predicate);
 }
 
-bool DocTable_IsFieldMaskExpired(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx) {
+bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx) {
   if (!t->ttl.hashTable || ctx->fieldMask == RS_FIELDMASK_ALL) {
-    return false;
+    return true;
   }
   t_fieldIndex* sortedFieldIndices = array_new(t_fieldIndex, ctx->spec->numFields);
   for (size_t index = 0; index < ctx->spec->numFields; ++index) {
@@ -246,9 +246,9 @@ bool DocTable_IsFieldMaskExpired(const DocTable *t, t_docId docId, const FieldMa
       sortedFieldIndices = array_ensure_append(sortedFieldIndices, &fs->index, 1, t_fieldIndex);
     }
   }
-  const bool expired = TimeToLiveTable_HasDocOrFieldIndicesExpired(&t->ttl, docId, sortedFieldIndices, ctx->policy);
+  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate);
   array_free(sortedFieldIndices);
-  return expired;
+  return verified;
 }
 
 void DocTable_SetTimeForExpirationChecks(DocTable *t, const struct timespec *now)

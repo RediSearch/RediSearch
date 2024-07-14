@@ -314,7 +314,8 @@ static int HR_ReadHybridUnsortedSingle(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   *hit = mmh_pop_min(hr->topResults);
-  if (DocTable_IsFieldIndexExpired(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+
+  if (!DocTable_VerifyFieldIndexExpirationPredicate(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
     return INDEXREAD_NOTFOUND;
   }
   array_append(hr->returnedResults, *hit);
@@ -346,7 +347,7 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  if (DocTable_IsFieldIndexExpired(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+  if (!DocTable_VerifyFieldIndexExpirationPredicate(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
     return INDEXREAD_NOTFOUND;
   }
 

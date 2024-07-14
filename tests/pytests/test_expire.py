@@ -1,4 +1,5 @@
 import copy
+import time
 from itertools import chain
 
 from common import *
@@ -413,3 +414,18 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
+
+@skip(redis_less_than='7.4')
+def testLazyFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'INDEXMISSING', 'y', 'numeric')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', '34')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '56')
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.5)
+    # there shouldn't be an active expiration for field x in doc:1
+    # but due to the ttl table we should not return doc:1 when searching for x
+    #env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])

@@ -23,7 +23,7 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
     return INDEXREAD_EOF;
   }
   t_docId docId = iter_[index_++];
-  if (indexSpec_ && DocTable_IsFieldIndexExpired(&indexSpec_->docs, docId, filterCtx_)) {
+  if (indexSpec_ && !DocTable_VerifyFieldIndexExpirationPredicate(&indexSpec_->docs, docId, filterCtx_)) {
     return INDEXREAD_NOTFOUND;
   }
 

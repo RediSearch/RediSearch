@@ -135,20 +135,23 @@ typedef struct {
   struct IndexSpec* spec;
   // For textual fields, allows to host multiple field indices at once
   t_fieldMask fieldMask;
-  // our field expiration policy
-  enum FieldExpirationPolicy policy;
+  // our field expiration predicate
+  enum FieldExpirationPredicate predicate;
 } FieldMaskFilterContext;
 
 typedef struct {
   // For the other fields, allows a single field to be referenced
   t_fieldIndex fieldIndex;
+  enum FieldExpirationPredicate predicate;
 } FieldIndexFilterContext;
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd);
 
-bool DocTable_IsFieldIndexExpired(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx);
-
-bool DocTable_IsFieldMaskExpired(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx);
+// Will return true if the document passed the predicate
+// default predicate - one of the fields did not yet expire -> entry is still valid
+// missing predicate - one of the fields did expire -> entry is valid in the context of missing
+bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx);
+bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx);
 
 void DocTable_SetTimeForExpirationChecks(DocTable *t, const struct timespec *now);
 
