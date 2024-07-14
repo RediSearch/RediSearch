@@ -135,7 +135,7 @@ jobs:
           if 'alpine:3.19' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3.19',
-              'pre-deps': 'apk add bash gcompat; sed -i "s:ID=alpine:ID=NotpineForGHA:" /etc/os-release'})
+              'pre-deps': "apk add bash"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
