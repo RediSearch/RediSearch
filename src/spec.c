@@ -106,22 +106,19 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
 }
 
 static inline FieldExpiration* getDocFieldExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr, RedisModuleString** fields) {
-  size_t count = array_len(fields);
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "scv", keystr, "FIELDS", fields, count);
+  size_t vectorElementCount = array_len(fields);
+  long long fieldCount = vectorElementCount;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     return NULL;
   }
-  t_fieldIndex sz = RedisModule_CallReplyLength(rep);
-  arrayof(FieldExpiration) result = array_new(FieldExpiration, count);
+  size_t sz = RedisModule_CallReplyLength(rep);
+  arrayof(FieldExpiration) result = array_newlen(FieldExpiration, sz);
   for (t_fieldIndex i = 0; i < sz; i++) {
-    const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
-    if (!s) {
-      continue;
-    }
-
+    const int64_t milliseconds = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(rep, i));
     FieldExpiration* fieldExpiration = &result[i];
     fieldExpiration->index = i;
-    fieldExpiration->point = timespecFromMilliseconds(atoll(s));
+    fieldExpiration->point = timespecFromMilliseconds(milliseconds);
   }
   return result;
 }
@@ -2907,7 +2904,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 }
 
 static inline FieldExpiration* getFieldExpirationTime(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
-  arrayof(RedisModuleString *) fields = array_new(RedisModuleString *, spec->numFields);
+  arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
   for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
     FieldSpec *f = spec->fields + field;
     RS_LOG_ASSERT(f->index < spec->numFields, "index is outside allowed range");
@@ -2916,6 +2913,7 @@ static inline FieldExpiration* getFieldExpirationTime(IndexSpec *spec, RedisModu
   FieldExpiration* result = getDocFieldExpirationTime(ctx, key, fields);
   for (int field = 0; field < spec->numFields; ++field) {
     RedisModule_FreeString(ctx, fields[field]);
+    fields[field] = NULL;
   }
   array_free(fields);
   return result;

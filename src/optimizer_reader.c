@@ -77,7 +77,7 @@ static void OPT_Rewind(void *ctx) {
   }
 
   const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
-  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index};
+  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index, .predicate = FIELD_EXPIRATION_DEFAULT};
   // create new numeric filter
   optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
@@ -235,7 +235,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
   const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
-  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index};
+  FieldIndexFilterContext filterCtx = {.fieldIndex = field->index, .predicate = FIELD_EXPIRATION_DEFAULT};
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     oi->base.ctx = oi;

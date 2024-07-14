@@ -401,9 +401,7 @@ void Document_Free(Document *doc) {
       rm_free((void *)doc->payload);
     }
   }
-  if (doc->fieldExpirations) {
-    rm_free(doc->fieldExpirations);
-  }
+  array_free(doc->fieldExpirations);
 }
 
 #define globalAddRSstringsSize 3

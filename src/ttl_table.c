@@ -27,7 +27,7 @@ static void destructor_DocId(void *privdata, void *key) {
 
 static void destructor_TimeToLiveEntry(void *privdata, void *key) {
     TimeToLiveEntry* entry = (TimeToLiveEntry*)key;
-    rm_free(entry->fieldExpirations);
+    array_free(entry->fieldExpirations);
     rm_free(entry);
 }
 
@@ -72,7 +72,7 @@ void TimeToLiveTable_UpdateDocExpirationTime(TimeToLiveTable *table, t_docId doc
   for (t_fieldIndex i = 0; i < array_len(allFieldSorted); i++) {
     FieldExpiration* fieldExpiration = &allFieldSorted[i];
     if (fieldExpiration->point.tv_sec || fieldExpiration->point.tv_nsec) {
-      validFieldSorted = array_ensure_append(validFieldSorted, fieldExpiration, 1, FieldExpiration);
+      array_ensure_append(validFieldSorted, fieldExpiration, 1, FieldExpiration);
     }
   }
   TimeToLiveTable_Add(table, docId, docExpirationTime, validFieldSorted);
@@ -114,59 +114,24 @@ bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId) 
   return DidExpire(&ttlEntry->documentExpiration.point, TimeToLiveTable_GetTimeForCurrentThread(table));
 }
 
-bool TimeToLiveTable_HasDocOrFieldIndexExpired(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex) {
+static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate) {
   dictEntry *entry = dictFind(table->hashTable, (void*)docId);
   if (!entry) {
-    // the document did not have a ttl for it or its children
-    return false;
+    // the document did not have a ttl for itself or its children
+    // if predicate is default then we know at least one field is valid
+    // if predicate is missing then we know the field is indeed missing since the document has no expiration for it
+    return true;
   }
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
   struct timespec* now = TimeToLiveTable_GetTimeForCurrentThread(table);
-  if (DidExpire(&ttlEntry->documentExpiration.point, now)) {
-    // the document itself has expired
-    return true;
-  }
-
   if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
-    // the document has no fields with expiration times
-    return false;
-  }
-
-  for (t_fieldIndex runningIndex = 0; runningIndex < array_len(ttlEntry->fieldExpirations); ++runningIndex) {
-    FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[fieldIndex];
-    if (fieldExpiration->index == fieldIndex) {
-      return DidExpire(&fieldExpiration->point, now);
-    } else if (fieldExpiration->index > fieldIndex) {
-      break; // the array is sorted, if we passed fieldIndex then we aren't getting to it
-    }
-  }
-  // if we reached here, then all the fields had expiration times
-  // if the policy was all then implicitly all of them were expired due to not returning false
-  // if the policy was any then implicitly all of them didn't yet expir due to not returning true
-  return false;
-}
-
-bool TimeToLiveTable_HasDocOrFieldIndicesExpired(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPolicy policy) {
-  dictEntry *entry = dictFind(table->hashTable, (void*)docId);
-  if (!entry) {
-    // the document did not have a ttl for it or its children
-    return false;
-  }
-
-  TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  struct timespec* now = TimeToLiveTable_GetTimeForCurrentThread(table);
-  if (DidExpire(&ttlEntry->documentExpiration.point, now)) {
-    // the document itself has expired
+    // the document has no fields with expiration times, there exists at least one valid field
     return true;
-  }
-  if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
-    // the document has no fields with expiration times
-    return false;
   }
 
   size_t currentRecord = 0;
-  for (size_t runningIndex = 0; runningIndex < array_len(sortedFieldIndices); ) {
+  for (size_t runningIndex = 0; runningIndex < fieldCount; ) {
     t_fieldIndex fieldIndexToCheck = sortedFieldIndices[runningIndex];
     FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[currentRecord];
     if (fieldIndexToCheck > fieldExpiration->index) {
@@ -175,17 +140,23 @@ bool TimeToLiveTable_HasDocOrFieldIndicesExpired(const TimeToLiveTable *table, t
       ++runningIndex;
     } else {
       // the field has an expiration time
-      if (!DidExpire(&fieldExpiration->point, now) && policy == FIELD_EXPIRATION_POLICY_ALL) {
-        return false;
-      } else if (DidExpire(&fieldExpiration->point, now) && policy == FIELD_EXPIRATION_POLICY_ANY) {
+      const bool expired = DidExpire(&fieldExpiration->point, now);
+      if (!expired && predicate == FIELD_EXPIRATION_DEFAULT) {
+        return true;
+      } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
         return true;
       }
       ++currentRecord;
       ++runningIndex;
     }
   }
-  // if we reached here, then all the fields had expiration times
-  // if the policy was all then implicitly all of them were expired due to not returning false
-  // if the policy was any then implicitly all of them didn't yet expir due to not returning true
-  return policy == FIELD_EXPIRATION_POLICY_ALL;
+  return false;
+}
+
+bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
+  return verifyFieldIndices(table, docId, &fieldIndex, 1, predicate);
+}
+
+bool TimeToLiveTable_VerifyFieldIndicesPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate) {
+  return verifyFieldIndices(table, docId, sortedFieldIndices, array_len(sortedFieldIndices), predicate);
 }

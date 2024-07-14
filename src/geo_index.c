@@ -126,7 +126,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, Con
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
-  FieldIndexFilterContext filterCtx = {.fieldIndex = fieldIndex };
+  FieldIndexFilterContext filterCtx = {.fieldIndex = fieldIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =

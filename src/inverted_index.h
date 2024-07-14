@@ -223,7 +223,7 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
                               const FieldIndexFilterContext* filterCtx);
 
 static inline IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
-  FieldIndexFilterContext fieldCtx = {.fieldIndex = RS_INVALID_FIELD_INDEX };
+  FieldIndexFilterContext fieldCtx = {.fieldIndex = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
 }
 

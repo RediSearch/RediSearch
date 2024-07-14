@@ -953,7 +953,8 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx};
+  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx,
+                             .filter.index.predicate = FIELD_EXPIRATION_DEFAULT};
   return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res, &fieldCtx);
 }
 
@@ -1009,10 +1010,10 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     if (ir->sp) {
-      const bool fieldExpired = ir->filterCtx.maskFilter ?
-                                DocTable_IsFieldMaskExpired(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.mask) :
-                                DocTable_IsFieldIndexExpired(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.index);
-      if (fieldExpired) {
+      const bool validValue = ir->filterCtx.maskFilter ?
+                                DocTable_VerifyFieldMaskExpirationPredicate(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.mask) :
+                                DocTable_VerifyFieldIndexExpirationPredicate(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.index);
+      if (!validValue) {
         continue;
       }
     }
@@ -1208,7 +1209,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   FieldFilterCtx filterCtx = {.maskFilter = true,
                               .filter.mask.fieldMask = fieldMask,
-                              .filter.mask.policy = FIELD_EXPIRATION_POLICY_ALL,
+                              .filter.mask.predicate = FIELD_EXPIRATION_DEFAULT,
                               .filter.mask.spec = sp};
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record, &filterCtx);
 }
@@ -1220,7 +1221,8 @@ IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec* spec,
   if (!decoder.decoder) {  
     return NULL;  
   }
-  FieldFilterCtx fieldCtx = {.filter.index = *filterCtx, .maskFilter = false };
+  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx,
+                             .filter.index.predicate = FIELD_EXPIRATION_MISSING };
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
   return NewIndexReaderGeneric(spec, idx, decoder, dctx, false, record, &fieldCtx);
 }
