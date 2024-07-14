@@ -570,7 +570,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  if (IsSearch(req) && (req->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)) {
+  if (IsSearch(req) && HasScoreInPipeline(req)) {
     QERR_MKBADARGS_FMT(status, "ADDSCORES is not supported on FT.SEARCH");
     return REDISMODULE_ERR;
   }
@@ -1292,7 +1292,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
-  if (req->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {
+  if (HasScoreInPipeline(req)) {
     scoreKey = RLookup_GetKey(rl, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
