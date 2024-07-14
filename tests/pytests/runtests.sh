@@ -197,7 +197,7 @@ setup_clang_sanitizer() {
 			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
 				echo Building RedisJSON ...
 				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+				export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
 				$ROOT/sbin/build-redisjson
 				REJSON_MODULE=$(cat $MODULE_FILE)
 				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
@@ -314,7 +314,7 @@ setup_redisjson() {
 		else
 			FORCE_GET=
 			[[ $REJSON == get ]] && FORCE_GET=1
-			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+			export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
 			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
 			REJSON_MODULE=$(cat $MODULE_FILE)
 			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
