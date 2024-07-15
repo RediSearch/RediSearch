@@ -14,7 +14,7 @@
 #include "rq.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
-#include "coord/src/config.h"
+#include "coord/config.h"
 
 #include <stdio.h>
 #include <stdlib.h>

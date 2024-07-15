@@ -8,7 +8,7 @@
 
 #include "index_error.h"
 #include "reply.h"
-#include "coord/src/rmr/reply.h"
+#include "coord/rmr/reply.h"
 
 
 // A struct to hold the information of a field specification.

@@ -11,7 +11,7 @@
 #include "rq.h"
 #include "rmalloc.h"
 #include "rmr.h"
-#include "coord/src/config.h"
+#include "coord/config.h"
 
 struct queueItem {
   void *privdata;

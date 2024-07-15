@@ -14,7 +14,7 @@
 #include "profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
-#include "coord/src/config.h"
+#include "coord/config.h"
 #include "dist_profile.h"
 
 #include <err.h>

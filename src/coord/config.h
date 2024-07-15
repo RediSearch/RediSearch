@@ -9,7 +9,7 @@
 
 #include "redismodule.h"
 #include "rmr/endpoint.h"
-#include "../../src/config.h"
+#include "src/config.h"
 
 #include <string.h>
 

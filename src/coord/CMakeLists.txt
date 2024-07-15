@@ -1,10 +1,10 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
 
-get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/../.. ABSOLUTE)
 
 #@@ lists_from_env(LIBUV HIREDIS)
 
@@ -63,7 +63,7 @@ if (APPLE)
 endif()
 
 add_subdirectory(${root} search)
-add_subdirectory(src/rmr)
+add_subdirectory(rmr)
 
 file(GLOB COORDINATOR_SRC *.c *.cpp)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -105,7 +105,7 @@ macro(MODULE_TARGET TYPE)
 
     add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
-		src/build-info/info-${MODULE_NAME_SUFFIX}.c)
+		build-info/info-${MODULE_NAME_SUFFIX}.c)
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
 
@@ -141,8 +141,6 @@ if (BUILD_COORD_OSS)
 		dl)
 
 	if (BUILD_SEARCH_UNIT_TESTS)
-		add_subdirectory(src/rmr/test)
-		add_subdirectory(tests/unit)
 		add_subdirectory(${root}/tests/ctests/ext-example example_extension)
 		add_subdirectory(${root}/tests/cpptests/redismock redismock)
 	endif()

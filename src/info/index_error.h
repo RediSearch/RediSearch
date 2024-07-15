@@ -9,7 +9,7 @@
 #include "redismodule.h"
 #include "reply.h"
 #include <time.h>
-#include "coord/src/rmr/reply.h"
+#include "coord/rmr/reply.h"
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 

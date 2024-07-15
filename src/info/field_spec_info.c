@@ -50,7 +50,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     RedisModule_Reply_MapEnd(reply);
 }
 
-#include "coord/src/rmr/reply.h"
+#include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
