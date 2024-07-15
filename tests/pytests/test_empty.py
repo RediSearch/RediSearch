@@ -1232,8 +1232,8 @@ def testInvalidUseOfEmptyString():
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 '' km]').error().\
             contains(expected_error)
         
-        # Fix this tests after implementing MOD-7025
-        # empty string is PARAM evaluated as 0
+        # Fix this tests after implementing MOD-7244
+        # empty string is evaluated as 0
         res = env.execute_command(
             'FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]',
             'PARAMS', 2, 'long', '')
