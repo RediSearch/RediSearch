@@ -37,7 +37,6 @@ add_compile_definitions(
 	REDISMODULE_SDK_RLEC
 	_GNU_SOURCE
 	REDIS_MODULE_TARGET
-	RS_COORDINATOR
 	RMUTIL_NO_SDS)
 
 setup_cc_options()

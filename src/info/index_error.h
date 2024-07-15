@@ -9,6 +9,7 @@
 #include "redismodule.h"
 #include "reply.h"
 #include <time.h>
+#include "coord/src/rmr/reply.h"
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
@@ -51,16 +52,11 @@ void IndexError_Clear(IndexError error);
 // Reply the index errors to the client.
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time);
 
-#ifdef RS_COORDINATOR
-#include "coord/src/rmr/reply.h"
-
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 // This is used when merging errors from different shards in a cluster.
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other);
 
 IndexError IndexError_Deserialize(MRReply *reply);
-
-#endif // RS_COORDINATOR
 
 #ifdef __cplusplus
 }

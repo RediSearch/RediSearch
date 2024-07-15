@@ -869,15 +869,6 @@ done:
 
 static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
   if (withProfile != NO_PROFILE) {
-
-    // WithCursor is disabled on the shards for external use but is available internally to the coordinator
-    #ifndef RS_COORDINATOR
-    if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
-      QueryError_SetError(status, QUERY_EGENERIC, "FT.PROFILE does not support cursor");
-      return REDISMODULE_ERR;
-    }
-    #endif
-
     r->reqflags |= QEXEC_F_PROFILE;
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;

@@ -8,6 +8,7 @@
 
 #include "index_error.h"
 #include "reply.h"
+#include "coord/src/rmr/reply.h"
 
 
 // A struct to hold the information of a field specification.
@@ -38,13 +39,8 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
-#ifdef RS_COORDINATOR
-
-#include "coord/src/rmr/reply.h"
-
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
-#endif
