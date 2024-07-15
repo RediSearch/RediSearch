@@ -214,10 +214,10 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
 
 /* Append an element to the array, returning the array which may have been reallocated */
 #define array_append(arr, x)                       \
-  ({                                               \
+  do {                                             \
     (arr) = (__typeof__(arr))array_grow((arr), 1); \
     array_tail((arr)) = (x);                       \
-  })
+  } while(0)
 
 /* Get the length of the array */
 static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
