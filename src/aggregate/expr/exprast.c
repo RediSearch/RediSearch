@@ -151,7 +151,7 @@ void RSExpr_GetProperties(RSExpr *e, char ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      *props = array_append(*props, rm_strdup(e->property.key));
+      array_append(*props, rm_strdup(e->property.key));
       break;
     case RSExpr_Literal:
       break;

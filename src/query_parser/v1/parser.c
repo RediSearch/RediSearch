@@ -1351,7 +1351,6 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 10: /* attribute ::= ATTRIBUTE COLON term */
 {
-    
     yylhsminor.yy87 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
 }
   yymsp[-2].minor.yy87 = yylhsminor.yy87;
@@ -1359,13 +1358,14 @@ static YYACTIONTYPE yy_reduce(
       case 11: /* attribute_list ::= attribute */
 {
     yylhsminor.yy1 = array_new(QueryAttribute, 2);
-    yylhsminor.yy1 = array_append(yylhsminor.yy1, yymsp[0].minor.yy87);
+    array_append(yylhsminor.yy1, yymsp[0].minor.yy87);
 }
   yymsp[0].minor.yy1 = yylhsminor.yy1;
         break;
       case 12: /* attribute_list ::= attribute_list SEMICOLON attribute */
 {
-    yylhsminor.yy1 = array_append(yymsp[-2].minor.yy1, yymsp[0].minor.yy87);
+    array_append(yymsp[-2].minor.yy1, yymsp[0].minor.yy87);
+    yylhsminor.yy1 = yymsp[-2].minor.yy1;
 }
   yymsp[-2].minor.yy1 = yylhsminor.yy1;
         break;
