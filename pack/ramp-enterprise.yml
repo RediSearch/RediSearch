@@ -2,7 +2,7 @@ display_name: RediSearch 2
 capability_name: Search and query
 author: RedisLabs
 email: meir@redislabs.com
-description: High performance search index on top of Redis (with clustering)
+description: High performance search index on top of Redis
 homepage: 'http://redisearch.io'
 license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
 command_line_args: ""
