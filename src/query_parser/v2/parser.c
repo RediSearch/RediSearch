@@ -2433,17 +2433,30 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
 }
         break;
       case 94: /* term ::= TERM */
-      case 95: /* term ::= NUMBER */ yytestcase(yyruleno==95);
-      case 96: /* term ::= SIZE */ yytestcase(yyruleno==96);
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_TERM;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 95: /* term ::= NUMBER */
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_NUMERIC;
+}
+  yymsp[0].minor.yy0 = yylhsminor.yy0;
+        break;
+      case 96: /* term ::= SIZE */
+      case 101: /* param_size ::= SIZE */ yytestcase(yyruleno==101);
+{
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_SIZE;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 97: /* param_term ::= term */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
-  yylhsminor.yy0.type = QT_TERM;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -2468,13 +2481,6 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
-      case 101: /* param_size ::= SIZE */
-{
-  yylhsminor.yy0 = yymsp[0].minor.yy0;
-  yylhsminor.yy0.type = QT_SIZE;
-}
-  yymsp[0].minor.yy0 = yylhsminor.yy0;
-        break;
       case 102: /* param_size ::= ATTRIBUTE */
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
@@ -2484,9 +2490,9 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
         break;
       case 103: /* param_num ::= ATTRIBUTE */
 {
-    yylhsminor.yy0 = yymsp[0].minor.yy0;
-    yylhsminor.yy0.type = QT_PARAM_NUMERIC;
-    yylhsminor.yy0.inclusive = 1;
+  yylhsminor.yy0 = yymsp[0].minor.yy0;
+  yylhsminor.yy0.type = QT_PARAM_NUMERIC;
+  yylhsminor.yy0.inclusive = 1;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;

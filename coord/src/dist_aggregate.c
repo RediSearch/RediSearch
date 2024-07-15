@@ -561,6 +561,10 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
+  if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
+    tmparr = array_append(tmparr, "ADDSCORES");
+  }
+
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
     array_append(tmparr, us->serialized[ii]);
   }
