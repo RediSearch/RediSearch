@@ -1011,8 +1011,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     if (ir->sp) {
       const bool validValue = ir->filterCtx.maskFilter ?
-                                DocTable_VerifyFieldMaskExpirationPredicate(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.mask) :
-                                DocTable_VerifyFieldIndexExpirationPredicate(&ir->sp->docs, ir->lastId, &ir->filterCtx.filter.index);
+                                DocTable_VerifyFieldMaskExpirationPredicate(&ir->sp->docs, record->docId, &ir->filterCtx.filter.mask) :
+                                DocTable_VerifyFieldIndexExpirationPredicate(&ir->sp->docs, record->docId, &ir->filterCtx.filter.index);
       if (!validValue) {
         continue;
       }

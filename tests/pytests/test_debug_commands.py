@@ -39,7 +39,7 @@ class TestDebugCommands(object):
 
     def testDocInfo(self):
         rv = self.env.cmd(debug_cmd(), 'docinfo', 'idx', 'doc1')
-        self.env.assertEqual(['internal_id', 1, 'flags', '(0x1c):HasSortVector,HasOffsetVector,',
+        self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
                                 ['index', 1, 'field', 'age AS age', 'value', '34'],

@@ -209,12 +209,10 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted) {
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   if (hasExpirationTimeInformation(dmd->flags)) {
-    if (t->ttl.hashTable == NULL) {
-      TimeToLiveTable_Init(&t->ttl);
-    }
-    TimeToLiveTable_UpdateDocExpirationTime(&t->ttl, dmd->id, ttl, allFieldSorted);
+    TimeToLiveTable_Init(&t->ttl);
+    TimeToLiveTable_Add(&t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
   }
 }
 
@@ -236,15 +234,18 @@ bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docI
   if (!t->ttl.hashTable || ctx->fieldMask == RS_FIELDMASK_ALL) {
     return true;
   }
-  t_fieldIndex* sortedFieldIndices = array_new(t_fieldIndex, ctx->spec->numFields);
+  t_fieldIndex* sortedFieldIndices = NULL;
   for (size_t index = 0; index < ctx->spec->numFields; ++index) {
     FieldSpec* fs = &ctx->spec->fields[index];
     if (fs->ftId == (t_fieldId)-1) {
       continue;
     }
     if (ctx->fieldMask & FIELD_BIT(fs)) {
-      sortedFieldIndices = array_ensure_append(sortedFieldIndices, &fs->index, 1, t_fieldIndex);
+      array_ensure_append_1(sortedFieldIndices, fs->index);
     }
+  }
+  if (!sortedFieldIndices) {
+    return true;
   }
   const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate);
   array_free(sortedFieldIndices);
@@ -368,6 +369,7 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
 }
 
