@@ -165,7 +165,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   size_t termLen;
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
+    array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
   TrieIterator_Free(iter);
   return ret;

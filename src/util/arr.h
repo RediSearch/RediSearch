@@ -14,7 +14,7 @@
  *  int *arr = array_new(int, 8);
  *  // Add elements to the array
  *  for (int i = 0; i < 100; i++) {
- *   arr = array_append(arr, i);
+ *   array_append(arr, i);
  *  }
  *
  *  // read individual elements
@@ -214,11 +214,10 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
 
 /* Append an element to the array, returning the array which may have been reallocated */
 #define array_append(arr, x)                       \
-  ({                                               \
+  do {                                             \
     (arr) = (__typeof__(arr))array_grow((arr), 1); \
     array_tail((arr)) = (x);                       \
-    (arr);                                         \
-  })
+  } while(0)
 
 /* Get the length of the array */
 static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
@@ -268,7 +267,7 @@ static void array_free(array_t arr) {
 /* Repeate the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:
  *  int *arr = array_new(int, 10);
- *  arr = array_append(arr, 1);
+ *  array_append(arr, 1);
  *  array_foreach(arr, i, printf("%d\n", i));
  */
 #define array_foreach(arr, as, blk)                 \
