@@ -56,7 +56,6 @@ struct QueryIterator {
   std::size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
-  void set_time(timespec now) noexcept;
 
   static IndexIterator init_base(QueryIterator *ctx);
 };

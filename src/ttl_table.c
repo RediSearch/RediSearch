@@ -41,11 +41,16 @@ static dictType dictTimeToLive = {
 };
 
 void TimeToLiveTable_Init(TimeToLiveTable *table) {
-    table->hashTable = dictCreate(&dictTimeToLive, NULL);
+    if (!table->hashTable) {
+      table->hashTable = dictCreate(&dictTimeToLive, NULL);
+    }
 }
 
 void TimeToLiveTable_Destroy(TimeToLiveTable *table) {
-    dictRelease(table->hashTable);
+    if (table->hashTable) {
+      dictRelease(table->hashTable);
+      table->hashTable = NULL;
+    }
 }
 
 void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpirationTime, arrayof(FieldExpiration) sortedById) {
@@ -63,19 +68,6 @@ void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId) {
 
 bool TimeToLiveTable_Empty(TimeToLiveTable *table) {
   return dictSize(table->hashTable) == 0;
-}
-
-void TimeToLiveTable_UpdateDocExpirationTime(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpirationTime, arrayof(FieldExpiration) allFieldSorted)
-{
-  arrayof(FieldExpiration) validFieldSorted = NULL;
-  size_t valid = 0;
-  for (t_fieldIndex i = 0; i < array_len(allFieldSorted); i++) {
-    FieldExpiration* fieldExpiration = &allFieldSorted[i];
-    if (fieldExpiration->point.tv_sec || fieldExpiration->point.tv_nsec) {
-      array_ensure_append(validFieldSorted, fieldExpiration, 1, FieldExpiration);
-    }
-  }
-  TimeToLiveTable_Add(table, docId, docExpirationTime, validFieldSorted);
 }
 
 struct timespec* TimeToLiveTable_GetTimeForCurrentThread(const TimeToLiveTable *table) {
@@ -106,7 +98,6 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
 bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId) {
   dictEntry *entry = dictFind(table->hashTable, (void*)docId);
   if (!entry) {
-    // the document did not have a ttl for it or its children
     return false;
   }
 
@@ -131,7 +122,8 @@ static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docI
   }
 
   size_t currentRecord = 0;
-  for (size_t runningIndex = 0; runningIndex < fieldCount; ) {
+  const size_t recordCount = array_len(ttlEntry->fieldExpirations);
+  for (size_t runningIndex = 0; runningIndex < fieldCount && currentRecord < recordCount; ) {
     t_fieldIndex fieldIndexToCheck = sortedFieldIndices[runningIndex];
     FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[currentRecord];
     if (fieldIndexToCheck > fieldExpiration->index) {
