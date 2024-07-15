@@ -66,7 +66,7 @@ TEST_F(ArrTest, testTrimm) {
     ASSERT_EQ(i + 1, array_len(a));
     ASSERT_STREQ(strs[i], array_tail(a));
   }
-  array_trimm_cap(a, 2);
+  a = array_trimm_cap(a, 2);
   ASSERT_EQ(array_len(a), 2);
   array_trimm_len(a, 1);
   ASSERT_EQ(array_len(a), 1);
