@@ -1966,7 +1966,20 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   clusterConfig.type, clusterConfig.timeoutMS);
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
+    // Check if we are actually in cluster mode
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
+    RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+    size_t len;
+    const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
+    if (STR_EQCASE(isCluster, len, "yes")) {
+      // Init the topology updater cron loop
       InitRedisTopologyUpdater(ctx);
+    } else {
+      // We are not in cluster mode. No need to init the topology updater cron loop
+      // Set the number of shards to 1 to indicate the topology is "set"
+      NumShards = 1;
+    }
+    RedisModule_FreeCallReply(rep);
   }
 
   size_t num_connections_per_shard;
