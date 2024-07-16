@@ -560,6 +560,9 @@ def testMissingGC():
     bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
     env.assertTrue(int(bytes_collected) > 0)
 
+    # Reschedule the gc - add a job to the queue
+    env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')
+
     env.flush()
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXMISSING').ok()
@@ -594,3 +597,6 @@ def testMissingGC():
     gc_sec = res[res.index('gc_stats') + 1]
     bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
     env.assertTrue(int(bytes_collected) > 0)
+
+    # Reschedule the gc - add a job to the queue
+    env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')
