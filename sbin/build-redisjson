@@ -41,6 +41,9 @@ echo Building into $TARGET_DIR ...
 
 if [[ $FORCE == 1 ]]; then
 	runn rm -rf $TARGET_DIR
+elif [[ -f $TARGET_DIR/rejson.so ]]; then
+	echo "$TARGET_DIR/rejson.so already exists. Use FORCE=1 to rebuild."
+	exit 0
 fi
 
 BRANCH=${BRANCH:-master}
