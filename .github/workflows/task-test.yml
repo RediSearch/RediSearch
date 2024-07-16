@@ -131,31 +131,31 @@ jobs:
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
-      - name: Build # TODO: build with coordinator by default
-        run: make COORD=1 SAN=${{ inputs.san }}
-      - name: Build Tests # TODO: should be done in the build step above
+      - name: Build
         run: make SAN=${{ inputs.san }}
+      - name: Build Tests # TODO: should be done in the build step above
+        run: make SAN=${{ inputs.san }} COORD=0
 
       - name: Unit tests (standalone)
         id: test1
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        run: make COORD=0 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make COORD=0 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
         id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts

@@ -103,7 +103,7 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),) # Standalone build
+ifeq ($(COORD),0) # Standalone build (explicit)
 
 	ifeq ($(STATIC),1) # Static build
 		BINDIR=$(BINROOT)/search-static
@@ -139,6 +139,8 @@ else # COORD
 	endif
 
 	ifeq ($(COORD),1)
+		override COORD:=oss
+	else ifeq ($(COORD),) # Default: OSS Coordinator build
 		override COORD:=oss
 	endif
 

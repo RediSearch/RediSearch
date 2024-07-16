@@ -14,7 +14,7 @@ on:
       profile_env:
         type: number # for default of 0
       cluster_env:
-        type: string # for default of ""
+        type: number # for default of 0 (string has "" as default)
       benchmark_glob:
         type: string
         default: "*.yml"
