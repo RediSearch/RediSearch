@@ -179,9 +179,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
     const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
     if (strcasecmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, (char *)dictName);
+      array_append(includeDict, (char *)dictName);
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, (char *)dictName);
+      array_append(excludeDict, (char *)dictName);
     } else {
       RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
       goto end;

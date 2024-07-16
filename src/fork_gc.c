@@ -202,7 +202,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       // todo: is it ok??
       // The above TODO was written 5 years ago. We currently don't split blocks,
       // and it is also not clear why we care about high variations.
-      blocklist = array_append(blocklist, *blk);
+      array_append(blocklist, *blk);
       continue;
     }
 
@@ -215,7 +215,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       goto done;
     } else if (nrepaired == 0) {
       // unmodified block
-      blocklist = array_append(blocklist, *blk);
+      array_append(blocklist, *blk);
       continue;
     }
 
@@ -227,7 +227,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
       curr_bytesCollected += sizeof(IndexBlock);
     } else {
-      blocklist = array_append(blocklist, *blk);
+      array_append(blocklist, *blk);
       MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
       fixmsg->newix = array_len(blocklist) - 1;
       fixmsg->oldix = i;

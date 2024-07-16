@@ -411,7 +411,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           if (astp->sortKeys) {
             newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
             for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-              newStp->sortKeys = array_append(newStp->sortKeys, astp->sortKeys[ii]);
+              array_append(newStp->sortKeys, astp->sortKeys[ii]);
             }
           }
         }

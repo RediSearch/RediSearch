@@ -1359,13 +1359,14 @@ static YYACTIONTYPE yy_reduce(
       case 11: /* attribute_list ::= attribute */
 {
     yylhsminor.yy1 = array_new(QueryAttribute, 2);
-    yylhsminor.yy1 = array_append(yylhsminor.yy1, yymsp[0].minor.yy87);
+    array_append(yylhsminor.yy1, yymsp[0].minor.yy87);
 }
   yymsp[0].minor.yy1 = yylhsminor.yy1;
         break;
       case 12: /* attribute_list ::= attribute_list SEMICOLON attribute */
 {
-    yylhsminor.yy1 = array_append(yymsp[-2].minor.yy1, yymsp[0].minor.yy87);
+    array_append(yymsp[-2].minor.yy1, yymsp[0].minor.yy87);
+    yylhsminor.yy1 = yymsp[-2].minor.yy1;
 }
   yymsp[-2].minor.yy1 = yylhsminor.yy1;
         break;

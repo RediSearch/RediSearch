@@ -314,7 +314,7 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   *hit = mmh_pop_min(hr->topResults);
-  hr->returnedResults = array_append(hr->returnedResults, *hit);
+  array_append(hr->returnedResults, *hit);
   hr->lastDocId = (*hit)->docId;
   return INDEXREAD_OK;
 }

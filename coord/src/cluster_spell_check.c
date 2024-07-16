@@ -65,7 +65,7 @@ static spellCheckReducerTerm *spellcheckReducerCtx_GetOrCreateTermSuggerstions(
 
   if (reducer_term == NULL) {
     reducer_term = spellCheckReducerTerm_Create(term);
-    ctx->terms = array_append(ctx->terms, reducer_term);
+    array_append(ctx->terms, reducer_term);
   }
   return reducer_term;
 }
