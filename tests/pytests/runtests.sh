@@ -523,16 +523,10 @@ OSNICK=$($READIES/bin/platform --osnick)
 RLEC=${RLEC:-0}
 
 if [[ $RLEC != 1 ]]; then
-	MODULE="${MODULE:-$1}"
-	shift
-
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
-			if [[ -z $COORD ]]; then
-				MODULE=$BINROOT/search/redisearch.so
-			elif [[ $COORD == oss ]]; then
-				MODULE=$BINROOT/oss-coord/module-oss.so
-			fi
+			# By default, we test the module with the coordinator (for both cluster and standalone)
+			MODULE=$BINROOT/coord-oss/module-oss.so
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
 			echo "Module not found at ${MODULE}. Aborting."

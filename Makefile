@@ -410,7 +410,8 @@ endif
 run:
 ifeq ($(WITH_RLTEST),1)
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
-		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	MODULE=$(MODULE) \
+		$(ROOT)/tests/pytests/runtests.sh
 else
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
@@ -463,8 +464,8 @@ ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
-	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) \
-		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) \
+		$(ROOT)/tests/pytests/runtests.sh
 
 #----------------------------------------------------------------------------------------------
 
