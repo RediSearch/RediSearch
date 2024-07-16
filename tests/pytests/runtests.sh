@@ -30,7 +30,7 @@ help() {
 		MODARGS=args          RediSearch module arguments
 		BINROOT=path          Path to repo binary root dir
 
-		COORD=1|oss|rlec      Test Coordinator
+		COORD=0|1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
 		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
@@ -668,7 +668,7 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
-if [[ -z $COORD ]]; then
+if [[ $COORD == 0 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
