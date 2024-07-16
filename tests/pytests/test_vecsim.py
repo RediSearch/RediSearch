@@ -60,7 +60,6 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
                              'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
-    # in cluster mode, we send `_FT.DEBUG' to the local shard.
     env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], hybrid_mode, depth=1)
     return ret
 
@@ -332,7 +331,7 @@ def test_create():
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
             env.assertEqual(index_info(env, 'idx1')['attributes'][0][:len(info)], info)
-            info_data_HNSW = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx1", "v_HNSW")
+            info_data_HNSW = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx1", "v_HNSW")
             # replace memory values with a dummy value - irrelevant for the test
             info_data_HNSW[info_data_HNSW.index('MEMORY') + 1] = dummy_val
             info_data_HNSW[info_data_HNSW.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
@@ -343,7 +342,7 @@ def test_create():
 
             env.assertEqual(info_data_HNSW, expected_HNSW)
 
-            info_data_FLAT = conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx2", "v_FLAT")
+            info_data_FLAT = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx2", "v_FLAT")
             # replace memory value with a dummy value - irrelevant for the test
             info_data_FLAT[info_data_FLAT.index('MEMORY') + 1] = dummy_val
 
@@ -362,33 +361,33 @@ def test_create_multiple_vector_fields():
                'v_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # Validate each index type.
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     for nested in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
         info_data[nested] = to_dict(info_data[nested])
 
     env.assertEqual(info_data['ALGORITHM'], 'TIERED')
     env.assertEqual(info_data['BACKEND_INDEX']['ALGORITHM'], 'HNSW')
-    info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['ALGORITHM'], 'FLAT')
 
     # Insert one vector only to each index, validate it was inserted only to the right index.
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['INDEX_SIZE'], 0)
 
     conn.execute_command('HSET', 'b', 'v_flat', 'bbbbbbbb')
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data ['INDEX_SIZE'], 1)
 
     # Search in every index once, validate it was performed only to the right index.
     env.cmd('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefgh')
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['LAST_SEARCH_MODE'], 'STANDARD_KNN')
-    info_data = to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v_flat"))
+    info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
     env.assertEqual(info_data['LAST_SEARCH_MODE'], 'EMPTY_MODE')
 
 
@@ -1571,7 +1570,7 @@ def test_default_block_size_and_initial_capacity():
 
                 env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '6',
                                                   'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2'))
-                debug_info = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", currIdx, 'v'))
+                debug_info = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", currIdx, 'v'))
                 if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
                     env.assertLessEqual(debug_info['BLOCK_SIZE'], exp_block_size)
                 # TODO: if we ever add INITIAL_CAP to debug data, uncomment this
@@ -1619,7 +1618,7 @@ def test_redisearch_memory_limit():
         #            f'Vector index block size {block_size} exceeded server limit')
         # currIdx+=1
 
-        env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
+        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
 
         env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
                     'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
@@ -1628,7 +1627,7 @@ def test_redisearch_memory_limit():
         # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', data_type,
         #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
         # currIdx+=1
-        env.expect('FT.CONFIG', 'SET', 'VSS_MAX_RESIZE', '0').ok()
+        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', '0').ok()
 
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
@@ -1659,11 +1658,11 @@ def test_rdb_memory_limit():
         # should succeed after changing initial cap and block size to 0 and default
         env.dumpAndReload()
 
-        info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx-flat", "v"))
+        info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx-flat", "v"))
         env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
         # TODO: if we ever add INITIAL_CAP to debug data, add check here
         # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # info_data = to_dict(conn.execute_command("FT.DEBUG", "VECSIM_INFO", "idx-hnsw", "v"))
+        # info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx-hnsw", "v"))
         # env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
         # # TODO: if we ever add INITIAL_CAP to debug data, add check here
         conn.execute_command("FLUSHALL")
@@ -1973,8 +1972,7 @@ def test_range_query_complex_queries():
     conn = getConnectionByEnv(env)
     dim = 128
     index_size = 1000
-    prefix = '_' if env.isCluster() else '' # TODO: remove when CONFIG SET is supported on cluster
-    default = env.cmd(prefix + 'FT.CONFIG', 'GET', 'UNION_ITERATOR_HEAP')
+    default = env.cmd(config_cmd(), 'GET', 'UNION_ITERATOR_HEAP')
 
     union_iterator_heap_configs = [
         default,
@@ -1985,7 +1983,7 @@ def test_range_query_complex_queries():
     ]
 
     for union_iterator_heap in union_iterator_heap_configs:
-        env.expect(prefix + 'FT.CONFIG', 'SET', 'UNION_ITERATOR_HEAP', union_iterator_heap).ok
+        env.expect(config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', union_iterator_heap).ok
         loop_case = f'union config: {union_iterator_heap}'
 
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
@@ -2375,7 +2373,7 @@ def test_tiered_index_gc():
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
 
     debug_info = get_debug_info()
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

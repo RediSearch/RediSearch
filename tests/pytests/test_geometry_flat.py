@@ -11,8 +11,8 @@ def array_of_key_value_to_map(res):
 
 def assert_index_num_docs(env, idx, attr, num_docs):
   if not env.isCluster():
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 

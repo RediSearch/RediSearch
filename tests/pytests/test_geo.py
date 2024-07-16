@@ -53,7 +53,7 @@ def testGeoDistanceSimple(env):
   env.expect('FT.SEARCH', 'idx', '@location:[181 4.56 10 km]').error().contains('Invalid GeoFilter lat/lon')
   env.expect('FT.SEARCH', 'idx', '@location:[1.23 86 10 km]').equal([0])
   # test profile
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   res = ['Type', 'GEO', 'Term', '1.23,4.55 - 1.24,4.56', 'Counter', 4, 'Size', 4]
 
   act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
@@ -131,8 +131,8 @@ def testGeoDistanceFile(env):
 # causes server crash before MOD-5646 fix
 @skip(cluster=True)
 def testGeoOnReopen(env):
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
   conn = getConnectionByEnv(env)
 

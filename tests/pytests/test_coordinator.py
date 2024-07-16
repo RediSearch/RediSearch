@@ -171,7 +171,7 @@ def test_mod_6287(env):
     # Now (after PR 6287), the command for the errored shard will be set as
     # `depleted`, such that the `depleted` shards will be aligned with the
     # `pending` counter.
-    con2.execute_command('_FT.DEBUG', 'DELETE_LOCAL_CURSORS')
+    con2.execute_command(debug_cmd(), 'DELETE_LOCAL_CURSORS')
 
     # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
     # This results in the crash solved by #6287

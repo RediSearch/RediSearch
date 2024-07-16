@@ -302,10 +302,10 @@ def CursorOnCoordinator(env: Env):
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
 
-    default = int(env.cmd('_FT.CONFIG', 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
+    default = int(env.cmd(config_cmd(), 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
     configs = {default, 1, env.shardsCount - 1, env.shardsCount}
     for threshold in configs:
-        env.expect('_FT.CONFIG', 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()
+        env.expect(config_cmd(), 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()
 
         result_set = set()
         def add_results(res):
@@ -429,7 +429,7 @@ def test_mod_6597(env):
 
     # Populate the db (and index) with enough documents for the GC to work (one
     # more than `FORK_GC_CLEAN_THRESHOLD`).
-    res = env.cmd('FT.CONFIG', 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
+    res = env.cmd(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
     num_docs = int(res) + 1
     for i in range(num_docs):
         conn.execute_command('hset', f'doc{i}', 'test', str(i))
@@ -439,7 +439,7 @@ def test_mod_6597(env):
     n = len(res) - 1
 
     # Make sure GC is not self-invoked (periodic run).
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
 
     # Delete all documents of the index. The same effect is achieved if a split
     # occurred and a whole NumericRangeNode is deleted.

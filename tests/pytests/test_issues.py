@@ -20,10 +20,10 @@ def test_1414(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
   env.expect('ft.search', 'idx', '*', 'limit', '0', '1234567').error().contains('LIMIT exceeds maximum of 1000000')
-  env.expect('FT.CONFIG', 'set', 'MAXSEARCHRESULTS', '-1').ok()
+  env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', '-1').ok()
   env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx', '*', 'limit', '0', '1234567')),
                   toSortedFlatList([1, 'doc', ['foo', 'hello', 'bar', 'world']]))
-  env.expect('FT.CONFIG', 'set', 'MAXSEARCHRESULTS', '1000000').ok()
+  env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', '1000000').ok()
 
 def test_1502(env):
   conn = getConnectionByEnv(env)
@@ -138,7 +138,7 @@ def test_issue1834(env):
 def test_issue1880(env):
   # order of iterator in intersect is optimized by function
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
@@ -371,7 +371,7 @@ def test_MOD1907(env):
 @skip(cluster=True)
 def test_SkipFieldWithNoMatch(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
@@ -403,7 +403,7 @@ def test_SkipFieldWithNoMatch(env):
 @skip(cluster=True)
 def test_update_num_terms(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+  env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'foo')
@@ -418,9 +418,9 @@ def testOverMaxResults():
   conn = getConnectionByEnv(env)
 
   commands = [
-    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '25'],
-    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '20'],
-    ['FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '15'],
+    [config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '25'],
+    [config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '20'],
+    [config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '15'],
   ]
 
   for c in commands:
@@ -745,8 +745,8 @@ def test_mod4296_badexpr(env):
 
 @skip(cluster=True)
 def test_mod5062(env):
-  env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
-  env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+  env.expect(config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0').ok()
+  env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0').ok()
   n = 100
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -796,18 +796,18 @@ def test_mod5252(env):
 @skip(cluster=True)
 def test_mod_6276(env):
   # Setting the gc threshold to 0 so the gc won't skip its periodic run
-  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   # Create an index and add a document + garbage
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc', 't', 'Hello').equal(1)
   # Actual Test
-  env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
-  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
   env.expect('MULTI').ok()                                 # Start an atomic transaction:
-  env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
   env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
   env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
-  env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
 def test_mod5791(env):
     con = getConnectionByEnv(env)
@@ -915,7 +915,7 @@ def test_mod5910(env):
     # child is factored by its own number of children. Hence, the weighted expected number of results for the second
     # sub-query evaluated in this case to 2*2=4 under this config, so now we expect that the numeric iterator would come
     # *before* the union iterator.
-    env.assertEqual('OK', con.execute_command('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
+    env.assertEqual('OK', con.execute_command(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true'))
     res = con.execute_command('FT.PROFILE', 'idx', 'search', 'query', '(@n:[1 3] (@t:one | @t:two))')
     iterators_profile = to_dict(res[1][1][0])['Iterators profile']
     env.assertEqual(iterators_profile[1], 'INTERSECT')
@@ -925,14 +925,14 @@ def test_mod5910(env):
 
 @skip(cluster=True)
 def test_mod5880(env):
-    env.cmd("ft.config", "set", "FORK_GC_CLEAN_THRESHOLD", "0")
+    env.cmd(config_cmd(), "set", "FORK_GC_CLEAN_THRESHOLD", "0")
     env.cmd("ft.create", "idx", "schema", "t", "TEXT")
 
     env.cmd("HSET", "doc1", "t", "d")
     env.cmd("HSET", "doc2", "t", "dd")
     env.cmd("HSET", "doc3", "t", "ddd")
     env.cmd("HSET", "doc4", "t", "dde")
-    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['d', 'dd', 'ddd', 'dde'])
+    env.expect(debug_cmd(), "dump_terms", "idx").equal(['d', 'dd', 'ddd', 'dde'])
 
     # The terms trie structure as this point looks like this: X -d> X -d> X -d> X, -e> X
     # That is, there root node with a single child which is "d", which has another single child which is "d",
@@ -942,12 +942,12 @@ def test_mod5880(env):
     # copied half of the children to the new merged node. Then, when deleting "dde", we couldn't find it in trie, and
     # was left undeleted (inflating the memory as a consequence).
     env.cmd("DEL", "doc1")
-    env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
+    env.cmd(debug_cmd(), "GC_FORCEINVOKE", "idx")
 
     # Validate that we actually delete "dde" and that in doesn't exist in the trie.
     env.cmd("DEL", "doc4")
-    env.cmd("FT.DEBUG", "GC_FORCEINVOKE", "idx")
-    env.expect("FT.DEBUG", "dump_terms", "idx").equal(['dd', 'ddd'])
+    env.cmd(debug_cmd(), "GC_FORCEINVOKE", "idx")
+    env.expect(debug_cmd(), "dump_terms", "idx").equal(['dd', 'ddd'])
 
 @skip()
 def test_mod_4374(env):
@@ -979,7 +979,7 @@ def test_mod_4375(env):
   print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
 
   # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-  conn.execute_command('FT.CONFIG', 'set', 'union_iterator_heap', '1')
+  conn.execute_command(config_cmd(), 'set', 'union_iterator_heap', '1')
   print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
 
 @skip(cluster=False) # This test is only relevant for cluster

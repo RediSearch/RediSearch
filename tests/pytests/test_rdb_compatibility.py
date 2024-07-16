@@ -108,7 +108,7 @@ def testRDBCompatibility_vecsim():
         env.assertEqual(res['hash_indexing_failures'], 0)
         infos = {}
         for vec_field, algo in zip(vec_fields, algorithms):
-            infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))
+            infos[algo] = to_dict(env.cmd(debug_cmd() + ' VECSIM_INFO idx ' + vec_field))
             for k, v in infos[algo].items():
                 if k in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
                     infos[algo][k] = to_dict(v)
