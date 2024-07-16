@@ -1,5 +1,6 @@
 from common import *
 import json
+import faker
 
 fields_and_values = [
     # Field, Type, CommonOptions, Value, Field1Options
@@ -515,3 +516,87 @@ def testFilterOnMissingValues():
 
     # Search for the documents with the indexed fields (sanity)
     env.expect('FT.SEARCH', 'idx', '@foo:{val}', 'FILTER', 'goo', '0', '10').equal([1, 'doc2', ['foo', 'val', 'goo', '3']])
+
+@skip(cluster=True)
+def testMissingGC():
+    """Tests that the GC missing indexing functionality works as expected"""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a field that indexes missing values
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXMISSING').ok()
+
+    # Add some documents, with\without the indexed fields
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't2', 'world')
+
+    # Wait for docs to be indexed
+    waitForIndex(env, 'idx')
+
+    # Search for the doc
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc2'])
+
+    # Set the GC clean threshold to 0, and stop its periodic execution
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Delete `doc2`
+    conn.execute_command('DEL', 'doc2')
+
+    # Run GC, and wait for it to finish
+    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+    # Search for the deleted document
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    # Make sure the GC indeed cleaned the document, and it is reported in the
+    # GC stats
+    res = env.cmd('FT.INFO', 'idx')
+    gc_sec = res[res.index('gc_stats') + 1]
+    bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
+    env.assertTrue(int(bytes_collected) > 0)
+
+    # Reschedule the gc - add a job to the queue
+    env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')
+
+    env.flush()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'INDEXMISSING').ok()
+    # Same flow with more documents
+    n_docs = 1005       # 5 more than the amount of entries in an index block
+    fake = faker.Faker()
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{2 *i}', 't', fake.name())
+        conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
+
+    # Wait for docs to be indexed
+    waitForIndex(env, 'idx')
+
+    # Set the GC clean threshold to 0, and stop its periodic execution
+    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Delete docs with 'missing values'
+    for i in range(n_docs):
+        conn.execute_command('DEL', f'doc{2 * i + 1}')
+
+    # Run GC, and wait for it to finish
+    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+    # Make sure we have updated the index, by searching for the docs, and
+    # verifying that `bytes_collected` > 0
+    res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@t)', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.INFO', 'idx')
+    gc_sec = res[res.index('gc_stats') + 1]
+    bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
+    env.assertTrue(int(bytes_collected) > 0)
+
+    # Reschedule the gc - add a job to the queue
+    env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')
