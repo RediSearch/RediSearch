@@ -148,7 +148,7 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   newStp->isLimited = true;
   newStp->limit = k;
   newStp->sortKeys = array_new(const char *, 1);
-  newStp->sortKeys = array_append(newStp->sortKeys, distFieldName);
+  array_append(newStp->sortKeys, distFieldName);
   newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
   newStp->runLocal = true;  // the distributed KNN step will run in shards via the hybrid iterator
 
@@ -295,7 +295,7 @@ typedef char **myArgArray_t;
 
 static inline void append_string(myArgArray_t *arr, const char *src) {
   char *s = rm_strdup(src);
-  *arr = array_append(*arr, s);
+  array_append(*arr, s);
 }
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
@@ -336,7 +336,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     for (size_t ii = 0; ii < numsort; ++ii) {
       char *stmp;
       rm_asprintf(&stmp, "@%s", astp->sortKeys[ii]);
-      *arr = array_append(*arr, stmp);
+      array_append(*arr, stmp);
       if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
         append_string(arr, "ASC");
       } else {

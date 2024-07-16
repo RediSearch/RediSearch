@@ -145,7 +145,7 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
         return REDISMODULE_ERR;
       }
     }
-    requiredFields = array_append(requiredFields, s);
+    array_append(requiredFields, s);
   }
 
   req->requiredFields = requiredFields;
@@ -383,7 +383,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
     const char *s = AC_GetStringNC(&subArgs, NULL);
-    keys = array_append(keys, s);
+    array_append(keys, s);
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
@@ -398,7 +398,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
           goto err;
         }
         s++;
-        keys = array_append(keys, s);
+        array_append(keys, s);
         continue;
       }
 
