@@ -60,8 +60,8 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
   while (VecSimQueryReply_IteratorHasNext(iter)) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
-    metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
+    array_append(docIdsList, VecSimQueryResult_GetId(res));
+    array_append(metricList, VecSimQueryResult_GetScore(res));
   }
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);

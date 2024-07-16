@@ -434,12 +434,12 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   arrayof(RedisModuleString *) arguments =
       array_new(RedisModuleString *, 1 + opts->numFieldElems + 6);
 
-  arguments = array_append(arguments, opts->keyStr);
+  array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
-    arguments = array_append(arguments, globalAddRSstrings[0]);
-    arguments = array_append(arguments, opts->scoreStr);
+    array_append(arguments, globalAddRSstrings[0]);
+    array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
@@ -448,8 +448,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   if (opts->languageStr) {
-    arguments = array_append(arguments, globalAddRSstrings[1]);
-    arguments = array_append(arguments, opts->languageStr);
+    array_append(arguments, globalAddRSstrings[1]);
+    array_append(arguments, opts->languageStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
@@ -458,8 +458,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   if (opts->payload) {
-    arguments = array_append(arguments, globalAddRSstrings[2]);
-    arguments = array_append(arguments, opts->payload);
+    array_append(arguments, globalAddRSstrings[2]);
+    array_append(arguments, opts->payload);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));

@@ -191,7 +191,7 @@ static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, StrongRef r
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = rm_strdup(prefix);
   node->index_specs = array_new(StrongRef, 1);
-  node->index_specs = array_append(node->index_specs, ref);
+  array_append(node->index_specs, ref);
   return node;
 }
 
@@ -530,7 +530,7 @@ void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef ref) {
     TrieMap_Add(SchemaPrefixes_g, prefix, len, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
-    node->index_specs = array_append(node->index_specs, ref);
+    array_append(node->index_specs, ref);
   }
 }
 
