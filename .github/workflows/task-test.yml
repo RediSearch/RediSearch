@@ -131,12 +131,10 @@ jobs:
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
-      - name: Build Standalone
-        if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
-      - name: Build Coordinator
-        if: ${{ inputs.coordinator }}
+      - name: Build # TODO: build with coordinator by default
         run: make COORD=1 SAN=${{ inputs.san }}
+      - name: Build Tests # TODO: should be done in the build step above
+        run: make SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
         id: test1
