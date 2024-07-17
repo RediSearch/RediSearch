@@ -123,8 +123,8 @@ ifeq ($(COORD),0) # Standalone build (explicit)
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch-oss
+		RAMP_YAML=
+		PACKAGE_S3_DIR=
 
 	else # Search Lite
 		BINDIR=$(BINROOT)/search-lite
@@ -152,9 +152,10 @@ else # COORD
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
 		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch
+		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=
+		RAMP_YAML=pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
 		BINDIR=$(BINROOT)/coord-rlec
