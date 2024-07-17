@@ -211,6 +211,7 @@ typedef struct {
   RSScoringFunction scorer;
   RSFreeFunction scorerFree;
   ScoringFunctionArgs scorerCtx;
+  const RLookupKey *scoreKey;
 } RPScorer;
 
 static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
@@ -238,6 +239,9 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       // scorer.
       continue;
     }
+    if (self->scoreKey) {
+      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RS_NumVal(res->score));
+    }
 
     break;
   } while (1);
@@ -259,11 +263,13 @@ static void rpscoreFree(ResultProcessor *rp) {
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs) {
+                              const ScoringFunctionArgs *fnargs,
+                              const RLookupKey *rlk) {
   RPScorer *ret = rm_calloc(1, sizeof(*ret));
   ret->scorer = funcs->sf;
   ret->scorerFree = funcs->ff;
   ret->scorerCtx = *fnargs;
+  ret->scoreKey = rlk;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
   ret->base.type = RP_SCORER;

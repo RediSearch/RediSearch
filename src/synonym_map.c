@@ -43,7 +43,7 @@ static void TermData_AddId(TermData* t_data, const char* id) {
   if (!TermData_IdExists(t_data, id)) {
     char* newId;
     rm_asprintf(&newId, SYNONYM_PREFIX, id);
-    t_data->groupIds = array_append(t_data->groupIds, newId);
+    array_append(t_data->groupIds, newId);
   }
 }
 

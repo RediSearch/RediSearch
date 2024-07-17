@@ -187,7 +187,7 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
   for (int i = 0; i < sp->numFields; i++) {
     if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
-      res = array_append(res, sp->fields + i);
+      array_append(res, sp->fields + i);
     }
   }
   return res;
@@ -219,7 +219,7 @@ arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
   arrayof(FieldSpec *) fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
     if (FIELD_IS(spec->fields + i, type)) {
-      fields = array_append(fields, &(spec->fields[i]));
+      array_append(fields, &(spec->fields[i]));
     }
   }
   return fields;
@@ -1573,7 +1573,7 @@ void Indexes_Free(dict *d) {
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
-    specs = array_append(specs, spec_ref);
+    array_append(specs, spec_ref);
   }
   dictReleaseIterator(iter);
 
@@ -3028,7 +3028,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
             .spec = spec,
             .op = SpecOp_Add,
         };
-        res->specsOps = array_append(res->specsOps, specOp);
+        array_append(res->specsOps, specOp);
         dictEntry *entry = dictAddRaw(specs, spec->name, NULL);
         // put the location on the specsOps array so we can get it
         // fast using index name

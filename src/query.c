@@ -2022,7 +2022,7 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec) {
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse) {
 #define INITIAL_ARRAY_NODE_SIZE 5
   QueryNode **nodes = array_new(QueryNode *, INITIAL_ARRAY_NODE_SIZE);
-  nodes = array_append(nodes, q);
+  array_append(nodes, q);
   int retVal = 1;
   while (array_len(nodes) > 0) {
     QueryNode *curr = array_pop(nodes);
@@ -2032,11 +2032,11 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
     }
     if (reverse) {
       for (size_t ii = QueryNode_NumChildren(curr); ii; --ii) {
-        nodes = array_append(nodes, curr->children[ii - 1]);
+        array_append(nodes, curr->children[ii - 1]);
       }
     } else {
       for (size_t ii = 0; ii < QueryNode_NumChildren(curr); ++ii) {
-        nodes = array_append(nodes, curr->children[ii]);
+        array_append(nodes, curr->children[ii]);
       }
     }
   }
