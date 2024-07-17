@@ -76,6 +76,10 @@ else
 	elif [[ $dist == debian ]]; then
 		if [[ $nick == bookworm ]]; then
 			nick="ubuntu22.04"
+		elif [[ $nick == bullseye ]]; then
+			if [[ $arch == aarch64 ]]; then
+				nick="ubuntu20.04"
+			fi
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora || $dist == rocky ]]; then
 		if [[ $nick == centos9 || $nick == ol9 || $nick == rocky9 || $nick == rhel9 ]]; then
