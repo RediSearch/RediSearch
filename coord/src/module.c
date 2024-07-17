@@ -1988,7 +1988,8 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     // Check if we are actually in cluster mode
     RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-    RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+    RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+                       RedisModule_CallReplyLength(rep) == 2);
     size_t len;
     const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
     if (STR_EQCASE(isCluster, len, "yes")) {
