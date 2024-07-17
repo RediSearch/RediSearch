@@ -586,12 +586,12 @@ ifeq ($(REJSON_PATH),)
 	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
 endif
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=oss COV=1
+	$(SHOW)$(MAKE) build COORD=0 COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) unit-tests COORD=0 COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COORD=0 COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage
