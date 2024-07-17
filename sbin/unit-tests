@@ -23,7 +23,6 @@ help() {
 		C_TESTS=1      Run C tests
 		CPP_TESTS=1    Run C++ tests (gtest)
 		BENCH=1        Run micro-benchmark
-		COORD=1|oss    Test Coordinator
 		TEST_LEAK=1    Run test that leaks (for sanitizer diagnostics)
 
 		STATFILE=file  Write test status (0|1) into `file`
@@ -71,8 +70,6 @@ export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
 
-[[ $COORD == 1 ]] && COORD=oss
-
 TEST_LEAK=${TEST_LEAK:-0}
 
 [[ $C_TESTS == 1 ]] && CPP_TESTS=${CPP_TESTS:-0}
@@ -110,52 +107,19 @@ mkdir -p $LOGS_DIR
 
 E=0
 
-if [[ -z $COORD ]]; then
-	if [[ $C_TESTS == 1 ]]; then
-		$READIES/bin/sep1
-		echo "# Running C unit tests"
-		TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
-		cd $ROOT/tests/ctests
-		if [[ -z $TEST ]]; then
-			if [[ $NOP != 1 ]]; then
-				for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
-					test_name="$(basename $test)"
-					if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
-						TEST_NAME="$test_name" sanitizer_defs
-						{ $test; (( E |= $? )); } || true
-					fi
-				done
-			else
-				find $TESTS_DIR -name "test_*" -type f -executable -print
-			fi
-		else
-			$OP $GDB_CMD $TESTS_DIR/$TEST
-		fi
-	fi
-
-	if [[ $CPP_TESTS == 1 ]]; then
-		$READIES/bin/sep1
-		echo "# Running C++ unit tests"
-		TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
-		cd $ROOT/tests/cpptests
-		TEST_NAME=rstest sanitizer_defs
-		if [[ -z $TEST ]]; then
-			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
-		else
-			{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
-		fi
-	fi
-
-elif [[ $COORD == oss ]]; then
+if [[ $C_TESTS == 1 ]]; then
 	$READIES/bin/sep1
-	echo "# Running coordinator unit tests"
-	TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
-	cd $ROOT/coord/tests/unit
+	echo "# Running C unit tests"
+	TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
+	cd $ROOT/tests/ctests
 	if [[ -z $TEST ]]; then
 		if [[ $NOP != 1 ]]; then
 			for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
-				TEST_NAME="$(basename $test)" sanitizer_defs
-				{ $test; (( E |= $? )); } || true
+				test_name="$(basename $test)"
+				if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
+					TEST_NAME="$test_name" sanitizer_defs
+					{ $test; (( E |= $? )); } || true
+				fi
 			done
 		else
 			find $TESTS_DIR -name "test_*" -type f -executable -print
@@ -163,6 +127,36 @@ elif [[ $COORD == oss ]]; then
 	else
 		$OP $GDB_CMD $TESTS_DIR/$TEST
 	fi
+fi
+
+if [[ $CPP_TESTS == 1 ]]; then
+	$READIES/bin/sep1
+	echo "# Running C++ unit tests"
+	TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
+	cd $ROOT/tests/cpptests
+	TEST_NAME=rstest sanitizer_defs
+	if [[ -z $TEST ]]; then
+		{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
+	else
+		{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
+	fi
+fi
+
+$READIES/bin/sep1
+echo "# Running coordinator unit tests"
+TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
+cd $ROOT/coord/tests/unit
+if [[ -z $TEST ]]; then
+	if [[ $NOP != 1 ]]; then
+		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
+			TEST_NAME="$(basename $test)" sanitizer_defs
+			{ $test; (( E |= $? )); } || true
+		done
+	else
+		find $TESTS_DIR -name "test_*" -type f -executable -print
+	fi
+else
+	$OP $GDB_CMD $TESTS_DIR/$TEST
 fi
 
 #-------------------------------------------------------------------------------------- Summary

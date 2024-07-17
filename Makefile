@@ -459,7 +459,7 @@ endif
 test: unit-tests pytest
 
 unit-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest: $(REJSON_SO)
 ifneq ($(REJSON_PATH),)
@@ -472,10 +472,10 @@ endif
 #----------------------------------------------------------------------------------------------
 
 c-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 cpp-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
@@ -590,7 +590,6 @@ endif
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-tests COORD=0 COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest COORD=0 COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
