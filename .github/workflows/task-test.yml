@@ -138,7 +138,6 @@ jobs:
 
       - name: Unit tests
         id: test1
-        if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
