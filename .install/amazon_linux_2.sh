@@ -30,13 +30,16 @@ else
     $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo                        # Disable mirrorlist
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo # Enable a working baseurl
 
-    $MODE yum install -y wget git which devtoolset-10-gcc devtoolset-10-gcc-c++ devtoolset-10-make rsync python3 python3-devel unzip
+    $MODE yum install -y wget git which devtoolset-10-gcc devtoolset-10-gcc-c++ devtoolset-10-make rsync python3 python3-devel unzip clang
 
     source /opt/rh/devtoolset-10/enable
 
-    cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-    $MODE ln -s /opt/rh/devtoolset-10/root/usr/bin/gcc /usr/bin/gcc
-    $MODE ln -s /opt/rh/devtoolset-10/root/usr/bin/g++ /usr/bin/g++
+    $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
+    $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc10-gcc 60 --slave /usr/bin/g++ g++ /usr/bin/gcc10-g++
+    
+    # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
+    $MODE sed -i 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' /opt/rh/devtoolset-10/root/usr/include/c++/10/aarch64-redhat-linux/bits/c++config.h
+    $MODE sed -i 's/^# define _GLIBCXX_USE_CXX11_ABI 0/# define _GLIBCXX_USE_CXX11_ABI 1/g' /opt/rh/devtoolset-10/root/usr/include/c++/10/aarch64-redhat-linux/bits/c++config.h
 
 fi
 
