@@ -1542,7 +1542,7 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
    * C - same client
    * M - respect OOM
    * 0 - same RESP protocol
-   * ! - reply with MRReply
+   * ! - replicate the command if needed (allows for replication)
    */
   RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0!", argv + 1, argc - 1);
   RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
