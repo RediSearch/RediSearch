@@ -529,7 +529,7 @@ if [[ $RLEC != 1 ]]; then
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
 			# By default, we test the module with the coordinator (for both cluster and standalone)
-			MODULE=$BINROOT/coord-oss/module-oss.so
+			MODULE=$BINROOT/coord-oss/redisearch.so
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
 			echo "Module not found at ${MODULE}. Aborting."

@@ -93,14 +93,14 @@ macro(MODULE_TARGET TYPE)
     if (${TYPE} STREQUAL "oss")
         set(_moduleDefs "RS_CLUSTER_OSS")
 		set(MODULE_NAME_SUFFIX "oss")
+		set(_moduleName "redisearch")
     elseif (${TYPE} STREQUAL "rlec")
         set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
 		set(MODULE_NAME_SUFFIX "enterprise")
+		set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: WHY???
 	else()
 		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
     endif()
-
-    set(_moduleName module-${MODULE_NAME_SUFFIX})
 
     add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}

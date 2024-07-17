@@ -151,7 +151,7 @@ else # COORD
 	ifeq ($(COORD),oss) # OSS Coordinator
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
-		TARGET=$(BINDIR)/module-oss.so
+		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch
 		MODULE_NAME=search
 		RAMP_YAML=
