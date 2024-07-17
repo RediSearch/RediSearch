@@ -586,7 +586,6 @@ def testMissingGC():
 
     # Run GC, and wait for it to finish
     env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
-    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
     # Make sure we have updated the index, by searching for the docs, and
     # verifying that `bytes_collected` > 0
@@ -600,3 +599,4 @@ def testMissingGC():
 
     # Reschedule the gc - add a job to the queue
     env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
