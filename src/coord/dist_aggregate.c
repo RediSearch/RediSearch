@@ -750,9 +750,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    struct timespec now;
-    clock_gettime(CLOCK_REALTIME, &now);
-    sendChunk(r, reply, -1, &now);
+    sendChunk(r, reply, -1, NULL);
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);
