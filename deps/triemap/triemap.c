@@ -288,13 +288,13 @@ int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len,
     if (offset == len) {
       // If this is a terminal, non deleted node
       if (__trieMapNode_isTerminal(node) && !__trieMapNode_isDeleted(node)) {
-        *results = array_append(*results, node->value);
+        array_append(*results, node->value);
       }
       return array_len(*results);
     }
 
     if (node->value) {
-      *results = array_append(*results, node->value);
+      array_append(*results, node->value);
     }
 
     // reached end of node's string but not of the search string

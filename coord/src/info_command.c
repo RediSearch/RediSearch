@@ -172,7 +172,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
     fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
     for (size_t i = 0; i < len; i++) {
       FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
-      fields->fieldSpecInfo_arr = array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
+      array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
     }
   }
 

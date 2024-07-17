@@ -532,41 +532,41 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   const char **tmparr = array_new(const char *, us->nserialized);
 
   if (profileArgs == 0) {
-    tmparr = array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
+    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
   } else {
-    tmparr = array_append(tmparr, RS_PROFILE_CMD);
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
-    tmparr = array_append(tmparr, "AGGREGATE");
+    array_append(tmparr, RS_PROFILE_CMD);
+    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, "AGGREGATE");
     if (profileArgs == 3) {
-      tmparr = array_append(tmparr, "LIMITED");
+      array_append(tmparr, "LIMITED");
     }
-    tmparr = array_append(tmparr, "QUERY");
+    array_append(tmparr, "QUERY");
   }
 
-  tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
-  tmparr = array_append(tmparr, "WITHCURSOR");
+  array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
+  array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.
-  tmparr = array_append(tmparr, "_NUM_SSTRING");
+  array_append(tmparr, "_NUM_SSTRING");
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    tmparr = array_append(tmparr, "DIALECT");
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+    array_append(tmparr, "DIALECT");
+    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
   }
 
   argOffset = RMUtil_ArgIndex("FORMAT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    tmparr = array_append(tmparr, "FORMAT");
-    tmparr = array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
+    array_append(tmparr, "FORMAT");
+    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
   if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
-    tmparr = array_append(tmparr, "ADDSCORES");
+    array_append(tmparr, "ADDSCORES");
   }
 
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
-    tmparr = array_append(tmparr, us->serialized[ii]);
+    array_append(tmparr, us->serialized[ii]);
   }
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);

@@ -19,6 +19,7 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
+                    'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2023',
                     'alpine:3.19']"

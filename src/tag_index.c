@@ -95,7 +95,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
       tok = strtolower(tok);
     }
-    *resArray = array_append(*resArray, tok);
+    array_append(*resArray, tok);
     return REDISMODULE_OK;
   }
 
@@ -115,7 +115,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
         tok = strtolower(tok);
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      *resArray = array_append(*resArray, tok);
+      array_append(*resArray, tok);
     } else {
       break;
     }
@@ -126,7 +126,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (indexEmpty) {
     if (p == pp || last_is_sep)
     tok = rm_strdup("");
-    *resArray = array_append(*resArray, tok);
+    array_append(*resArray, tok);
   }
 
   rm_free(pp);
