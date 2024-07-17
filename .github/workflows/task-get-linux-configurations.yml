@@ -9,7 +9,7 @@ env:
                     'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
-                    'gcc:12-bullseye',
+                    'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2',
                     'amazonlinux:2023',
@@ -18,7 +18,7 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'gcc:12-bullseye',
+                    'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2023']"
 
@@ -69,7 +69,6 @@ jobs:
 
           naming = {
             'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-            'debian:bullseye': 'gcc:12-bullseye',
             'debian:bookworm': 'gcc:12-bookworm',
           }
 
