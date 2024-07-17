@@ -18,6 +18,7 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
+                    'rockylinux:8',
                     'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2023']"
