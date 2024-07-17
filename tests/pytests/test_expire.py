@@ -432,4 +432,4 @@ def testLazyFieldExpiration(env):
     # Test the field mask element, hello term should have a bit mask of 2 fields
     # For doc:1 the mask should have two bits for its two fields
     # since the field y is still valid we should still get doc:1 in the results
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([2, 'doc:2', 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
