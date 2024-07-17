@@ -347,7 +347,10 @@ static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
 }
 
 void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc, const timespec* now) {
-  DocTable_SetTimeForExpirationChecks(&req->sctx->spec->docs, now);
+  if (req->sctx->spec != NULL) {
+    // The coordinator does not have an index spec and so does not have a doc table
+    DocTable_SetTimeForExpirationChecks(&req->sctx->spec->docs, now);
+  }
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
