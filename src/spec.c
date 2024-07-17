@@ -99,7 +99,7 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER) {
     size_t length = 0;
     const char* error = rep ? RedisModule_CallReplyStringPtr(rep, &length) : "unknown error";
-    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, type: %d, error(%d): %s", RedisModule_CallReplyType(rep), errno, error);
+    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, type: %d, error(%d): %s", rep ? RedisModule_CallReplyType(rep) : REDISMODULE_REPLY_UNKNOWN, errno, error);
     return zero;
   }
 
