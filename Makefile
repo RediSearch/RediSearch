@@ -47,23 +47,27 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # run specified test
+  COORD=rlec           # test coordinator Enterprise
+  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
+  SA=1|0               # align for REDIS_STANDALONE
+  TEST=name            # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # e.g. TEST=test:testSearch
-  RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0|get     # also load RedisJSON module (default: 1)
-  REJSON_PATH=path   # use RedisJSON module at `path`
-  EXT=1              # External (existing) environment
-  GDB=1              # RLTest interactive debugging
-  VG=1               # use Valgrind
-  VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
-  ONLY_STABLE=1      # skip unstable tests
-  TEST_PARALLEL=n    # test parallalization
-  LOG_LEVEL=<level>  # server log level (default: debug)
+  COORD=rlec           # test coordinator Enterprise
+  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
+  SA=1|0               # align for REDIS_STANDALONE
+  TEST=name            # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...      # pass args to RLTest
+  REJSON=1|0|get       # also load RedisJSON module (default: 1)
+  REJSON_PATH=path     # use RedisJSON module at `path`
+  EXT=1                # External (existing) environment
+  GDB=1                # RLTest interactive debugging
+  VG=1                 # use Valgrind
+  VG_LEAKS=0           # do not search leaks with Valgrind
+  SAN=type             # use LLVM sanitizer (type=address|memory|leak|thread)
+  ONLY_STABLE=1        # skip unstable tests
+  TEST_PARALLEL=n      # test parallalization
+  LOG_LEVEL=<level>    # server log level (default: debug)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -412,7 +416,7 @@ endif
 run:
 ifeq ($(WITH_RLTEST),1)
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
-	MODULE=$(MODULE) \
+	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh
 else
 ifeq ($(GDB),1)
@@ -466,7 +470,7 @@ ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
-	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) \
+	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh
 
 #----------------------------------------------------------------------------------------------
@@ -589,8 +593,8 @@ endif
 	$(SHOW)$(MAKE) build COORD=0 COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COORD=0 COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

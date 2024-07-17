@@ -30,7 +30,8 @@ help() {
 		MODARGS=args          RediSearch module arguments
 		BINROOT=path          Path to repo binary root dir
 
-		COORD=0|1|oss|rlec      Test Coordinator
+		REDIS_STANDALONE=1|0  Test with standalone Redis (default: 1)
+		SA=1|0                Alias for REDIS_STANDALONE
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1|~1|0          Perform only common test variant (~1: all but common)
 		CONFIG=cfg            Perform one of: raw_docid, dialect_2,
@@ -329,7 +330,7 @@ setup_redisjson() {
 #----------------------------------------------------------------------------------------------
 
 run_env() {
-	if [[ $COORD == oss ]]; then
+	if [[ $REDIS_STANDALONE == 0 ]]; then
 		oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 		RLTEST_ARGS+=" ${oss_cluster_args}"
 	fi
@@ -518,7 +519,9 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------- Tests scope
 
-[[ $COORD == 1 ]] && COORD=oss
+# Fallback: REDIS_STANDALONE -> SA -> 1
+REDIS_STANDALONE=${REDIS_STANDALONE:-$SA}
+REDIS_STANDALONE=${REDIS_STANDALONE:-1}
 
 RLEC=${RLEC:-0}
 
@@ -668,7 +671,8 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
-if [[ $COORD == 0 ]]; then
+if [[ $COORD != rlec ]]; then # skip this block for RLEC
+if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
@@ -688,7 +692,7 @@ if [[ $COORD == 0 ]]; then
 		fi
 	fi
 
-elif [[ $COORD == oss ]]; then
+else
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
@@ -697,8 +701,9 @@ elif [[ $COORD == oss ]]; then
 
 	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-
-elif [[ $COORD == rlec ]]; then
+fi
+fi # $COORD != rlec
+if [[ $COORD == rlec ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
 	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true
