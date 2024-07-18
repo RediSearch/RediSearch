@@ -1186,7 +1186,7 @@ static int hardCodeNext(ResultProcessor *base, SearchResult *res) {
     uint32_t chunkLimit = base->parent->resultLimit;
     base->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
     for (rc = RESULT_QUEUED; rc == RESULT_QUEUED;) {
-      rc = simulateScore(self, res);
+      rc = simulateScore(self, self->sortCtx.pooledResult);
       self->args.finishedSorting = checkIfDoneSorting(rc, base->parent->timeoutPolicy, &self->sortCtx.timedOut);
       if (self->args.finishedSorting) {
         break;
@@ -1196,7 +1196,7 @@ static int hardCodeNext(ResultProcessor *base, SearchResult *res) {
     }
     base->parent->resultLimit = chunkLimit; // restore the limit
   }
-  if (rc != RS_RESULT_OK) {
+  if (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) {
     return rc;
   }
   rc = rpsortNext_Pop(&self->sortCtx, res);
