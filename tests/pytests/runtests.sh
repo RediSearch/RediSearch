@@ -526,7 +526,7 @@ REDIS_STANDALONE=${REDIS_STANDALONE:-1}
 RLEC=${RLEC:-0}
 
 if [[ $RLEC != 1 ]]; then
-	MODULE=${MODULE:-$1}
+	MODULE="${MODULE:-$1}"
 	shift
 
 	if [[ -z $MODULE ]]; then
