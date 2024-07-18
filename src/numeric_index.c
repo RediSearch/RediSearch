@@ -128,7 +128,7 @@ static inline void checkCardinality(NumericRange *n, double value) {
 
   // add new value to cardinality values
   CardinalityValue val = {.value = value, .appearances = 1};
-  n->values = array_append(n->values, val);
+  array_append(n->values, val);
   n->unique_sum += value;
   ++n->card;
 }
@@ -740,7 +740,7 @@ static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
       break;
     }
     cur.value = RedisModule_LoadDouble(rdb);
-    entries = array_append(entries, cur);
+    array_append(entries, cur);
   }
   *entriespp = entries;
   return array_len(entries);
@@ -824,8 +824,8 @@ NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) 
   }
   NumericRangeNode *ret = array_pop(iter->nodesStack);
   if (!NumericRangeNode_IsLeaf(ret)) {
-    iter->nodesStack = array_append(iter->nodesStack, ret->left);
-    iter->nodesStack = array_append(iter->nodesStack, ret->right);
+    array_append(iter->nodesStack, ret->left);
+    array_append(iter->nodesStack, ret->right);
   }
 
   return ret;

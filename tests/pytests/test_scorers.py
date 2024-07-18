@@ -2,7 +2,7 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env
 
 
 def testHammingScorer(env):
@@ -291,3 +291,19 @@ def testScoreError(env):
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
+
+def testExposeScore(env: Env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', 'doc1', 'title', 'hello')
+        conn.execute_command('HSET', 'doc2', 'title', 'world')
+
+    doc1_score = 1 if env.isCluster() else 2 # TODO: why?
+
+    expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+
+    expected = [1, ['count', '1']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
+
+    env.expect('FT.SEARCH', 'idx', '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')

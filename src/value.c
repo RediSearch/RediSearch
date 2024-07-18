@@ -607,12 +607,12 @@ static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue 
       RSValue_SendReply(reply, v, flags);
       return false;
     }
-    stack = array_append(stack, ((Item){.v = w, .k = k + 1}));
-    stack = array_append(stack, ((Item){.v = v, 0}));
+    array_append(stack, ((Item){.v = w, .k = k + 1}));
+    array_append(stack, ((Item){.v = v, 0}));
     return true;
   }
 
-  stack = array_append(stack, ((Item){.v = v, .k = 0}));
+  array_append(stack, ((Item){.v = v, .k = 0}));
   while (array_len(stack) > 0) {
     Item item = array_pop(stack);
     const RSValue *w = item.v;
