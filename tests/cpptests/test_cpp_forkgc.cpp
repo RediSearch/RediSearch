@@ -124,7 +124,7 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
+static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);

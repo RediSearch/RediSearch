@@ -18,6 +18,26 @@
 
 RedisModuleType *InvertedIndexType;
 
+static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
+  if (RS_IsMock) return;
+
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
+
+  struct timespec duration = { .tv_sec = durationNS / 1000,
+                               .tv_nsec = ((durationNS % 1000) * 1000000) };
+  clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
+
+  // The timeout mechanism is based on the monotonic clock, so we need another clock_gettime call
+  timespec monotoicNow = { .tv_sec = 0,
+                           .tv_nsec = 0 };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
+  rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
+}
+
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
@@ -136,7 +156,7 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 /**
  * Format redis key for a term.
  */
-RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = ctx->spec->nameLen;
@@ -159,12 +179,12 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
   return ret;
 }
 
-RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name,
                                         (int)len, term);
 }
 
-RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name,
                                         (int)len, term);
 }
@@ -216,8 +236,8 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   sctx->flags = RS_CTX_UNSET;
 }
 
-void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime) {
-  sctx->timeout = timeoutTime;
+void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
+  updateTime(&sctx->time, durationNS);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
@@ -233,7 +253,7 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
+static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleString *termKey,
                                         int write, bool *outIsNew) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
@@ -258,7 +278,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   return kdv->p;
 }
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
+InvertedIndex *Redis_OpenInvertedIndexEx(const RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, bool *outIsNew, RedisModuleKey **keyp) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
@@ -266,7 +286,7 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
   return idx;
 }
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
                               int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
@@ -285,7 +305,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     goto err;
   }
 
-  IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
+  IndexReader *ret = NewTermIndexReader(idx, ctx, fieldMask, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
   }

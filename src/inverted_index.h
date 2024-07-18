@@ -154,7 +154,7 @@ typedef struct {
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
-  const IndexSpec *sp;
+  const RedisSearchCtx *sctx;
 
   // the underlying data buffer
   BufferReader br;
@@ -218,7 +218,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
+IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
                               double rangeMin, double rangeMax, int skipMulti,
                               const FieldIndexFilterContext* filterCtx);
 
@@ -236,7 +236,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  * If singleWordMode is set to 1, we ignore the skip index and use the score
  * index.
  */
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
 
 static inline IndexReader *NewMinimalTermIndexReader(InvertedIndex *idx)
@@ -245,7 +245,7 @@ static inline IndexReader *NewMinimalTermIndexReader(InvertedIndex *idx)
 }
 
 /* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec* spec,
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx,
                                    const FieldIndexFilterContext* filterCtx);
 
 void IR_Abort(void *ctx);

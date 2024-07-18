@@ -90,11 +90,12 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+  if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
     return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
   }
 
-  if (RP_SCTX(base)->flags == RS_CTX_UNSET) {
+  RedisSearchCtx *sctx = RP_SCTX(base);
+  if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
     RedisSearchCtx_LockSpecRead(RP_SCTX(base));
@@ -127,7 +128,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     } else {
       dmd = DocTable_Borrow(docs, r->docId);
     }
-    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd)) {
+    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
       DMD_Return(dmd);
       continue;
     }

@@ -531,7 +531,7 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   rm_free(t);
 }
 
-IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
+IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
                                        const NumericFilter *f, int skipMulti,
                                        const FieldIndexFilterContext* filterCtx) {
 
@@ -543,14 +543,14 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(sp, nr->entries, f, nr->minVal, nr->maxVal, skipMulti, filterCtx);
+  IndexReader *ir = NewNumericReader(sctx, nr->entries, f, nr->minVal, nr->maxVal, skipMulti, filterCtx);
 
   return NewReadIterator(ir);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
+IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
                                      const FieldIndexFilterContext* filterCtx) {
 
@@ -567,7 +567,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(sp, rng, f, true, filterCtx);
+    IndexIterator *it = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
     Vector_Free(v);
     return it;
   }
@@ -583,7 +583,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(sp, rng, f, true, filterCtx);
+    its[i] = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
   }
   Vector_Free(v);
 
@@ -596,7 +596,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
                                         field);
 }
@@ -618,7 +618,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
   return kdv->p;
 }
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
                                                const FieldIndexFilterContext* filterCtx) {
   RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
@@ -642,7 +642,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(ctx->spec, t, flt, config, filterCtx);
+  IndexIterator *it = createNumericIterator(ctx, t, flt, config, filterCtx);
   if (!it) {
     return NULL;
   }
@@ -658,7 +658,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey) {
   return openNumericKeysDict(ctx->spec, keyName, 1);
 }

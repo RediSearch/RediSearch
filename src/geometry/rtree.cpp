@@ -295,7 +295,7 @@ auto RTree<cs>::query_begin(QueryType query_type, geom_type const& query_geom) c
 }
 
 template <typename cs>
-auto RTree<cs>::query(const IndexSpec* spec, const FieldIndexFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
+auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldIndexFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> IndexIterator* {
   try {
     using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
@@ -305,7 +305,7 @@ auto RTree<cs>::query(const IndexSpec* spec, const FieldIndexFilterContext* filt
     const auto results =
         std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    std::allocator_traits<alloc_type>::construct(alloc, qi, spec, filterCtx, results, allocated_);
+    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_);
     return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {
