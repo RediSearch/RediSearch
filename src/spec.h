@@ -312,7 +312,7 @@ typedef struct IndexSpec {
   // Count the number of times the index was used
   long long counter;
 
-  // read write lockAddDocumentCtx_Submit
+  // read write lock
   pthread_rwlock_t rwlock;
 
   // Cursors counters
