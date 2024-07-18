@@ -261,17 +261,6 @@ static void reopenCb(void *arg) {}
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
-void* weakKeyDup(void *privdata, const void *key){
-  return (void*)key;
-}
-
-void weakKeyDestructor(void *privdata, void *key){
-}
-
-int weakKeyCompare(void *privdata, const void *key1, const void *key2){
-  return key1 < key2;
-}
-
 // Index missing field docs.
 // Add field names to missingFieldDict if it is missing in the document
 // and add the doc to its corresponding inverted index
