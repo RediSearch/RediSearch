@@ -468,14 +468,15 @@ def HashMissingTest(env, conn):
         MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, False)
         env.flush()
 
-def testMissing(env):
+def testMissing():
     """Tests the missing values indexing feature thoroughly."""
 
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
     MAX_DIALECT = set_max_dialect(env)
 
     for dialect in range(2, MAX_DIALECT + 1):
-        env = Env(moduleArgs="DEFAULT_DIALECT " + str(dialect))
-        conn = getConnectionByEnv(env)
+        env.set_dialect(dialect)
 
         # Test missing fields indexing on hash documents
         HashMissingTest(env, conn)
@@ -586,7 +587,6 @@ def testMissingGC():
 
     # Run GC, and wait for it to finish
     env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx').equal('DONE')
-    env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE')
 
     # Make sure we have updated the index, by searching for the docs, and
     # verifying that `bytes_collected` > 0
@@ -600,3 +600,4 @@ def testMissingGC():
 
     # Reschedule the gc - add a job to the queue
     env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')
+    env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE')
