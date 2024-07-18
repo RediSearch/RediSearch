@@ -345,7 +345,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   if(!req->specialCases) {
     req->specialCases = array_new(specialCaseCtx*, 1);
   }
-  req->specialCases = array_append(req->specialCases, knn_ctx);
+  array_append(req->specialCases, knn_ctx);
   // Default: No SORTBY is given, or SORTBY is given by other field
   // When first sorting by different field, the topk vectors should be passed to the coordinator heap
   knn_ctx->knn.shouldSort = true;
@@ -457,7 +457,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   if(!req->specialCases) {
       req->specialCases = array_new(specialCaseCtx*, 1);
     }
-  req->specialCases = array_append(req->specialCases, ctx);
+  array_append(req->specialCases, ctx);
 }
 
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
@@ -1728,7 +1728,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
         if(req->requiredFields == NULL) {
           req->requiredFields = array_new(const char*, 1);
         }
-        req->requiredFields = array_append(req->requiredFields, ctx->sortby.sortKey);
+        array_append(req->requiredFields, ctx->sortby.sortKey);
         // Sortkey is the first required key value to return
         ctx->sortby.offset = 0;
         offset++;
@@ -1745,7 +1745,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
         if(req->requiredFields == NULL) {
           req->requiredFields = array_new(const char*, 1);
         }
-        req->requiredFields = array_append(req->requiredFields, ctx->knn.fieldName);
+        array_append(req->requiredFields, ctx->knn.fieldName);
         ctx->knn.offset = offset++;
         break;
       }

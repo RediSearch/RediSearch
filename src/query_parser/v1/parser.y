@@ -289,17 +289,17 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    
     A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
 }
 
 attribute_list(A) ::= attribute(B) . {
     A = array_new(QueryAttribute, 2);
-    A = array_append(A, B);
+    array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-    A = array_append(B, C);
+    array_append(B, C);
+    A = B;
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
