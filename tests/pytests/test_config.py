@@ -261,7 +261,7 @@ def testGetConfigOptionsCoord(env):
 
     check_config('SEARCH_THREADS')
 
-@skip(cluster=COORD) # Change to `skip(cluster=False)`
+@skip(cluster=CLUSTER) # Change to `skip(cluster=False)`
 def testAllConfigCoord(env):
     pass
 

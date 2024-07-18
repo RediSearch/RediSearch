@@ -526,6 +526,9 @@ REDIS_STANDALONE=${REDIS_STANDALONE:-1}
 RLEC=${RLEC:-0}
 
 if [[ $RLEC != 1 ]]; then
+	MODULE=${MODULE:-$1}
+	shift
+
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
 			# By default, we test the module with the coordinator (for both cluster and standalone)
@@ -536,6 +539,8 @@ if [[ $RLEC != 1 ]]; then
 			exit 1
 		fi
 	fi
+else
+	REDIS_STANDALONE= # RLEC and REDIS_STANDALONE are mutually exclusive
 fi
 
 SHARDS=${SHARDS:-3}
@@ -671,7 +676,6 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
-if [[ $COORD != rlec ]]; then # skip this block for RLEC
 if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
@@ -692,7 +696,7 @@ if [[ $REDIS_STANDALONE == 1 ]]; then
 		fi
 	fi
 
-else
+elif [[ $REDIS_STANDALONE == 0 ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
 
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
@@ -702,8 +706,8 @@ else
 	{ (MODARGS="${MODARGS}" RLTEST_ARGS="$RLTEST_ARGS ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
 fi
-fi # $COORD != rlec
-if [[ $COORD == rlec ]]; then
+
+if [[ $RLEC == 1 ]]; then
 	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
 	{ (RLTEST_ARGS+="${RLTEST_ARGS} --env existing-env --existing-env-addr $dhost:$RLEC_PORT" \
 	   run_tests "tests on RLEC"); (( E |= $? )); } || true

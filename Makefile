@@ -17,7 +17,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build          # compile and link
-  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  COORD=0|1|oss|rlec  # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
   MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
@@ -47,15 +47,13 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests
-  COORD=rlec           # test coordinator Enterprise
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
-  SA=1|0               # align for REDIS_STANDALONE
+  SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  COORD=rlec           # test coordinator Enterprise
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
-  SA=1|0               # align for REDIS_STANDALONE
+  SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # e.g. TEST=test:testSearch
   RLTEST_ARGS=...      # pass args to RLTest
   REJSON=1|0|get       # also load RedisJSON module (default: 1)
@@ -79,7 +77,7 @@ make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
 make pack             # create installation packages (default: 'redisearch-oss' package)
-  COORD=rlec            # pack RLEC coordinator ('redisearch' package)
+  COORD=rlec|oss        # pack RLEC coordinator ('redisearch' package)
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
@@ -229,7 +227,7 @@ ifeq ($(STATIC),1)
 CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
-ifneq ($(COORD),)
+ifneq ($(COORD),0)
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 endif
 
@@ -392,7 +390,7 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),)
+ifeq ($(COORD),0)
 CMAKE_TARGET=rscore
 CMAKE_TARGET_DIR=
 else
@@ -410,15 +408,19 @@ cc:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),oss)
+ifneq ($(COORD),0)
+ifeq ($(REDIS_STANDALONE),0)
 WITH_RLTEST=1
+else ifeq ($(SA),0)
+WITH_RLTEST=1
+endif
 endif
 
 run:
 ifeq ($(WITH_RLTEST),1)
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
 	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
-		$(ROOT)/tests/pytests/runtests.sh
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
@@ -472,7 +474,7 @@ ifneq ($(REJSON_PATH),)
 endif
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
-		$(ROOT)/tests/pytests/runtests.sh
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 

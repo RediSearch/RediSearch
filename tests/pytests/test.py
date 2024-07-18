@@ -4213,7 +4213,7 @@ def common_with_auth(env: Env):
 
 def test_with_password():
     mypass = '42MySecretPassword$'
-    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if CLUSTER else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
