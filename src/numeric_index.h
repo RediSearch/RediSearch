@@ -91,11 +91,11 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
+struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
                                               const NumericFilter *f, int skipMulti,
                                               const FieldIndexFilterContext* filterCtx);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType,
                                                IteratorsConfig *config, const FieldIndexFilterContext* filterCtx);
 
@@ -145,7 +145,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);

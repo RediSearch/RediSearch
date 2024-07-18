@@ -63,7 +63,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config, t_fieldIndex fieldIndex);
+IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config, t_fieldIndex fieldIndex);
 
 /*****************************************************************************/
 

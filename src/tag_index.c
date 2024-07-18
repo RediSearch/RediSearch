@@ -255,11 +255,11 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
 
-IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *value, size_t len,
+IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
                                    double weight) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  IndexReader *r = NewTermIndexReader(iv, sctx, RS_FIELDMASK_ALL, t, weight);
   if (!r) {
     return NULL;
   }
@@ -268,14 +268,14 @@ IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(sp, iv, value, len, weight);
+  return TagIndex_GetReader(sctx, iv, value, len, weight);
 }
 
 /* Format the key name for a tag index */
@@ -283,7 +283,7 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
-static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
+static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
   if (kdv) {
     return kdv->p;

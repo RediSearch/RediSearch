@@ -298,15 +298,8 @@ static int HR_HasNext(void *ctx) {
 
 // In KNN mode, the results will return sorted by ascending order of the distance
 // (better score first), while in hybrid mode, the results will return in descending order.
-static int HR_ReadHybridUnsortedSingle(void *ctx, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
-  if (!hr->resultsPrepared) {
-    hr->resultsPrepared = true;
-    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
-      return INDEXREAD_TIMEOUT;
-    }
-  }
-  if (!HR_HasNext(ctx)) {
+static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  if (!HR_HasNext(hr)) {
     return INDEXREAD_EOF;
   }
   if (hr->topResults->count == 0) {
@@ -315,7 +308,7 @@ static int HR_ReadHybridUnsortedSingle(void *ctx, RSIndexResult **hit) {
   }
   *hit = mmh_pop_min(hr->topResults);
 
-  if (hr->spec && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+  if (hr->sctx && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx, &hr->sctx->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
   array_append(hr->returnedResults, *hit);
@@ -324,20 +317,25 @@ static int HR_ReadHybridUnsortedSingle(void *ctx, RSIndexResult **hit) {
 }
 
 static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
-  int rc = INDEXREAD_OK;
-  do {
-    rc = HR_ReadHybridUnsortedSingle(ctx, hit);
-  } while (rc == INDEXREAD_NOTFOUND);
-  return rc;
-}
-
-static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
     if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
       return INDEXREAD_TIMEOUT;
     }
   }
+
+  int rc = INDEXREAD_OK;
+  do {
+    rc = HR_ReadHybridUnsortedSingle(hr, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
+}
+
+static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
   if (!HR_HasNext(hr)) {
     return INDEXREAD_EOF;
   }
@@ -347,7 +345,7 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  if (hr->spec && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->spec->docs, (*hit)->docId, &hr->filterCtx)) {
+  if (hr->sctx && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx, &hr->sctx->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
 
@@ -358,9 +356,20 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
 }
 
 static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
+  HybridIterator *hr = ctx;
+  if (!hr->resultsPrepared) {
+    hr->resultsPrepared = true;
+    if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
+      return INDEXREAD_TIMEOUT;
+    }
+  }
+
   int rc = INDEXREAD_OK;
   do {
     rc = HR_ReadKnnUnsortedSingle(ctx, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
   } while (rc == INDEXREAD_NOTFOUND);
   return rc;
 }
@@ -454,7 +463,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->ignoreScores = hParams.ignoreDocScore;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
-  hi->spec = hParams.spec;
+  hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {

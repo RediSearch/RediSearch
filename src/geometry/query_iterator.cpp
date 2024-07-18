@@ -6,6 +6,7 @@
 
 #include "query_iterator.hpp"
 #include "doc_table.h"
+#include "util/timeout.h"
 
 #include <utility>    // std::move
 #include <iterator>   // ranges::distance
@@ -23,7 +24,7 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
     return INDEXREAD_EOF;
   }
   t_docId docId = iter_[index_++];
-  if (indexSpec_ && !DocTable_VerifyFieldIndexExpirationPredicate(&indexSpec_->docs, docId, filterCtx_)) {
+  if (sctx_ && !DocTable_VerifyFieldIndexExpirationPredicate(&sctx_->spec->docs, docId, filterCtx_, &sctx_->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
 
@@ -33,9 +34,12 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
 }
 
 int QueryIterator::read(RSIndexResult *&hit) noexcept {
-  // TODO: need to handle timeouts
+  size_t timeoutCounter = 0;
   int rc = INDEXREAD_OK;
   do {
+    if (TimedOut_WithCounter(&sctx_->time.timeout, &timeoutCounter)) {
+      return INDEXREAD_TIMEOUT;
+    }
     rc = read_single(hit);
   } while (rc == INDEXREAD_NOTFOUND);
   return rc;

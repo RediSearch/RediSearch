@@ -29,6 +29,11 @@ typedef enum {
   RS_CTX_READWRITE
 } RSContextFlags;
 
+typedef struct
+{
+  struct timespec current;
+  struct timespec timeout;
+} SearchTime;
 
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
@@ -36,7 +41,7 @@ typedef struct RedisSearchCtx {
   RedisModuleKey *key_;
   IndexSpec *spec;
   uint64_t specId;  // Unique id of the spec; used when refreshing
-  struct timespec timeout;
+  SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
   RSContextFlags flags;
@@ -55,12 +60,12 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .timeout = { 0, 0 },
-                          .flags = RS_CTX_UNSET, };
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }},
+                          .flags = RS_CTX_UNSET,};
   return sctx;
 }
 
-void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime);
+void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 

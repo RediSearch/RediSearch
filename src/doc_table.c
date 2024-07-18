@@ -216,21 +216,21 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   }
 }
 
-bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd) {
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
   if (!hasExpirationTimeInformation(dmd->flags) || !t->ttl.hashTable) {
       return false;
   }
-  return TimeToLiveTable_HasDocExpired(&t->ttl, dmd->id);
+  return TimeToLiveTable_HasDocExpired(&t->ttl, dmd->id, expirationPoint);
 }
 
-bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx) {
+bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx, const struct timespec* expirationPoint) {
   if (!t->ttl.hashTable) {
     return true;
   }
-  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(&t->ttl, docId, ctx->fieldIndex, ctx->predicate);
+  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(&t->ttl, docId, ctx->fieldIndex, ctx->predicate, expirationPoint);
 }
 
-bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx) {
+bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx, const struct timespec* expirationPoint) {
   if (!t->ttl.hashTable || ctx->fieldMask == RS_FIELDMASK_ALL) {
     return true;
   }
@@ -247,16 +247,9 @@ bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docI
   if (!sortedFieldIndices) {
     return true;
   }
-  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate);
+  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate, expirationPoint);
   array_free(sortedFieldIndices);
   return verified;
-}
-
-void DocTable_SetTimeForExpirationChecks(DocTable *t, const struct timespec *now)
-{
-  if (t->ttl.hashTable) {
-    TimeToLiveTable_SetTimeForCurrentThread(&t->ttl, now);
-  }
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the

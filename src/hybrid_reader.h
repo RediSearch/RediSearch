@@ -14,7 +14,7 @@
 #include "util/timeout.h"
 
 typedef struct {
-  IndexSpec *spec;
+  RedisSearchCtx *sctx;
   VecSimIndex *index;
   size_t dim;
   VecSimType elementType;
@@ -30,7 +30,7 @@ typedef struct {
 
 typedef struct {
   IndexIterator base;
-  IndexSpec *spec;
+  RedisSearchCtx *sctx;
   VecSimIndex *index;
   size_t dimension;                // index dimension
   VecSimType vecType;              // index data type

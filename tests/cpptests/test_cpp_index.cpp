@@ -819,7 +819,7 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Run simple top k query.
-  HybridIteratorParams hParams = {.spec=NULL,
+  HybridIteratorParams hParams = {.sctx=NULL,
                                   .index = index,
                                   .dim = d,
                                   .elementType = t,
@@ -979,7 +979,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
 
   FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Create hybrid iterator - should return NULL.
-  HybridIteratorParams hParams = {.spec = NULL,
+  HybridIteratorParams hParams = {.sctx = NULL,
                                   .index = index,
                                   .query = top_k_query,
                                   .qParams = queryParams,

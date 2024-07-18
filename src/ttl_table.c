@@ -70,17 +70,6 @@ bool TimeToLiveTable_Empty(TimeToLiveTable *table) {
   return dictSize(table->hashTable) == 0;
 }
 
-struct timespec* TimeToLiveTable_GetTimeForCurrentThread(const TimeToLiveTable *table) {
-  static __thread struct timespec now = {0};
-  return &now;
-}
-
-void TimeToLiveTable_SetTimeForCurrentThread(TimeToLiveTable *table, const struct timespec* now) {
-  struct timespec* cached = TimeToLiveTable_GetTimeForCurrentThread(table);
-  cached->tv_sec = now->tv_sec;
-  cached->tv_nsec = now->tv_nsec;
-}
-
 static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirationTimePoint* now) {
   if (!field->tv_sec && !field->tv_nsec) {
     return false;
@@ -95,17 +84,17 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
   }
 }
 
-bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId) {
+bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table->hashTable, (void*)docId);
   if (!entry) {
     return false;
   }
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  return DidExpire(&ttlEntry->documentExpiration.point, TimeToLiveTable_GetTimeForCurrentThread(table));
+  return DidExpire(&ttlEntry->documentExpiration.point, expirationPoint);
 }
 
-static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate) {
+static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table->hashTable, (void*)docId);
   if (!entry) {
     // the document did not have a ttl for itself or its children
@@ -115,7 +104,6 @@ static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docI
   }
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  struct timespec* now = TimeToLiveTable_GetTimeForCurrentThread(table);
   if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
     // the document has no fields with expiration times, there exists at least one valid field
     return true;
@@ -132,7 +120,7 @@ static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docI
       ++runningIndex;
     } else {
       // the field has an expiration time
-      const bool expired = DidExpire(&fieldExpiration->point, now);
+      const bool expired = DidExpire(&fieldExpiration->point, expirationPoint);
       if (!expired && predicate == FIELD_EXPIRATION_DEFAULT) {
         return true;
       } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
@@ -145,10 +133,10 @@ static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docI
   return false;
 }
 
-bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
-  return verifyFieldIndices(table, docId, &fieldIndex, 1, predicate);
+bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  return verifyFieldIndices(table, docId, &fieldIndex, 1, predicate, expirationPoint);
 }
 
-bool TimeToLiveTable_VerifyFieldIndicesPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate) {
-  return verifyFieldIndices(table, docId, sortedFieldIndices, array_len(sortedFieldIndices), predicate);
+bool TimeToLiveTable_VerifyFieldIndicesPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  return verifyFieldIndices(table, docId, sortedFieldIndices, array_len(sortedFieldIndices), predicate, expirationPoint);
 }

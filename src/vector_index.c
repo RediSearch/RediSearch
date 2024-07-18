@@ -109,8 +109,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->timeout,
-                                      .spec = q->sctx->spec,
+                                      .timeout = q->sctx->time.timeout,
+                                      .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
       return NewHybridVectorIterator(hParams, q->status);
@@ -134,7 +134,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
+      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->time.timeout, .counter = 0 };
       VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);

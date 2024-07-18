@@ -73,7 +73,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
       FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
-      HybridIteratorParams hParams = {.spec = NULL,
+      HybridIteratorParams hParams = {.sctx = NULL,
                                       .index = index,
                                       .dim = d,
                                       .elementType = VecSimType_FLOAT32,

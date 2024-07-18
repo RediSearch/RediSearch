@@ -543,6 +543,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 
 typedef struct RS_ApiIter {
   IndexIterator* internal;
+  RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
   ScoringFunctionArgs scargs;
@@ -575,7 +576,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
@@ -584,9 +584,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
+  it->sctx = SEARCH_CTX_STATIC(NULL, sp);
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
+    if (QAST_Parse(&it->qast, &it->sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -597,11 +598,11 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // set queryAST configuration parameters
   iteratorsConfig_init(&it->qast.config);
 
-  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  if (QAST_Expand(&it->qast, NULL, &options, &it->sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, 0, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, NULL, 0, &status);
   if (!it->internal) {
     goto end;
   }

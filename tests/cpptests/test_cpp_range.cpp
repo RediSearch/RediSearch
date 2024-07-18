@@ -9,7 +9,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t,
+IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
                                      const FieldIndexFilterContext* filterCtx);
 }
