@@ -66,7 +66,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
           BRANCH: bump-version-${{ steps.verify.outputs.next_version }}
-        run: gh pr ready $BRANCH -R ${{ github.repository }}
+        run: |
+          gh pr ready $BRANCH -R ${{ github.repository }}
+          gh pr merge $BRANCH -R ${{ github.repository }} --auto
 
   set-artifacts:
     needs: update-version
