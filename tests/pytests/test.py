@@ -526,7 +526,7 @@ def testExplain(env: Env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(res, expected)
 
-    
+
     res = env.cmd('ft.explain', 'idx', q, 'DIALECT', 2)
     expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
     env.assertEqual(res, expected)
@@ -634,10 +634,10 @@ def testExplain(env: Env):
 
     _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
                     "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
                     "NUMERIC {-22.000000 < @bar < 50.000000}\n")
 
@@ -1391,7 +1391,7 @@ def testTagErrors(env):
 
 @skip(cluster=True)
 def testGeoDeletion(env):
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -1407,15 +1407,15 @@ def testGeoDeletion(env):
             't1', "hello")
 
     # keys are: "geo:idx/g1" and "geo:idx/g2"
-    env.assertEqual(3, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
-    env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
+    env.assertEqual(3, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(2, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g2')[0]))
 
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
     for _ in range(100):
         forceInvokeGC(env, 'idx')
-    env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
-    env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
+    env.assertEqual(2, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(1, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g2')[0]))
 
     # Replace the other one:
     env.cmd('ft.add', 'idx', 'doc2', 1.0,
@@ -1423,8 +1423,8 @@ def testGeoDeletion(env):
             't1', 'just text here')
     for _ in range(100):
         forceInvokeGC(env, 'idx')
-    env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
-    env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
+    env.assertEqual(1, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(0, len(env.cmd(debug_cmd() + ' DUMP_NUMIDX idx g2')[0]))
 
 def testInfields(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH',
@@ -2392,8 +2392,8 @@ def testTimeout(env):
         env.skip()
 
     num_range = 20000
-    env.cmd('ft.config', 'set', 'timeout', '1')
-    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+    env.cmd(config_cmd(), 'set', 'timeout', '1')
+    env.cmd(config_cmd(), 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
@@ -2401,7 +2401,7 @@ def testTimeout(env):
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
-    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
+    env.expect(config_cmd(), 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
@@ -2455,7 +2455,7 @@ def testTimeout(env):
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd(config_cmd(), 'set', 'timeout', '1')
     pl = conn.pipeline()
 
     env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 'SORTABLE')
@@ -2667,7 +2667,7 @@ def testPrefixDeletedExpansions(env):
 
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
-    maxexpansions = int(env.cmd('ft.config', 'get', 'MAXEXPANSIONS')[0][1])
+    maxexpansions = int(env.cmd(config_cmd(), 'get', 'MAXEXPANSIONS')[0][1])
 
     for x in range(maxexpansions):
         env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
@@ -3352,7 +3352,7 @@ def testIssue1169(env):
 def testIssue1184(env):
 
     field_types = ['TEXT', 'NUMERIC', 'TAG', 'GEO']
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     num_docs = 5
 
     for ft in field_types:
@@ -3622,7 +3622,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
-    env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
+    env.expect(debug_cmd() + ' DUMP_INVIDX idx foo').error().contains('not find the inverted index')
 
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
@@ -3835,7 +3835,7 @@ def test_free_resources_on_thread(env):
 
         results.append(end_time - start_time)
 
-        conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
+        conn.execute_command(config_cmd(), 'SET', '_FREE_RESOURCE_ON_THREAD', 'false')
 
     # ensure freeing resources on a 2nd thread is quicker
     # than freeing it on the main thread
@@ -3843,7 +3843,7 @@ def test_free_resources_on_thread(env):
     if not CI:
         env.assertLess(results[0], results[1])
 
-    conn.execute_command('FT.CONFIG', 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
+    conn.execute_command(config_cmd(), 'SET', '_FREE_RESOURCE_ON_THREAD', 'true')
 
 def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
@@ -4213,7 +4213,7 @@ def common_with_auth(env: Env):
 
 def test_with_password():
     mypass = '42MySecretPassword$'
-    args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
+    args = f'OSS_GLOBAL_PASSWORD {mypass}' if CLUSTER else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
@@ -4291,7 +4291,7 @@ def test_notIterTimeout(env):
         env.skip()
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'FAIL')
+    conn.execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
 
     # Create an index
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'title', 'TEXT', 'n', 'NUMERIC')

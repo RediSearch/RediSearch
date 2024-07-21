@@ -110,7 +110,7 @@ def testBasic(env):
 
     conn = getConnectionByEnv(env)
 
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..loc[*]', 'AS', 'loc', 'GEO').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
@@ -156,7 +156,7 @@ def testBasic(env):
     #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
     checkInfo(env, 'idx3', 1, 142 / (1024 * 1024))
 
-    # idx4 contains two GEO fields, the expected size of inverted index is 
+    # idx4 contains two GEO fields, the expected size of inverted index is
     # equivalent to the sum of the size of idx2 and idx3 = 121 + 142 = 263
     checkInfo(env, 'idx4', 1, 263 / (1024 * 1024))
 
@@ -249,8 +249,8 @@ def testDebugDump(env):
     env.expect('JSON.SET', 'doc:1', '$', json.dumps(["21.2,21.3", "21.4,21.5", "22,22"])).ok()
     env.expect('JSON.SET', 'doc:2', '$', json.dumps(["1.2,1.3", "1.4,1.5", "2,2"])).ok()
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
+    env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
+    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 

@@ -14,7 +14,7 @@ except:
 
 UNSTABLE = os.getenv('UNSTABLE', '0') == '1'
 SANITIZER = os.getenv('SANITIZER', '')
-COORD = os.getenv('COORD', '0') in ('1', 'oss', 'rlec')
+CLUSTER = os.getenv('REDIS_STANDALONE', '1') == '0'
 VALGRIND = os.getenv('VALGRIND', '0') == '1'
 CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
 NO_LIBEXT = os.getenv('NO_LIBEXT', '0') == '1'

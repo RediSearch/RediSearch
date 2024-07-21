@@ -18,7 +18,7 @@ def testUniqueSum(env):
 
     values = [("int", str(3)), ("negative double", str(-0.4)), ("positive double",str(4.67))]
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     for (title, value) in values:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
@@ -77,7 +77,7 @@ All the 19 first docs go right, the new doc goes left.
 @skip(cluster=True)
 def testSplit(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -137,7 +137,7 @@ def testSplit(env):
 @skip(cluster=True)
 def testOverrides(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -202,7 +202,7 @@ def testSanity(env):
 	for i in range(repeat):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
-	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
+	env.expect(debug_cmd(), 'numidx_summary', 'idx', 'n') \
 				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
 
 @skip(cluster=True)
@@ -210,7 +210,7 @@ def testCompressionConfig(env):
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
-	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
 	  	env.cmd('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
@@ -218,7 +218,7 @@ def testCompressionConfig(env):
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
 
 	# with compression. no exact number match.
-	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
 	  env.cmd('hset', i, 'n', str(1 + i / 100.0))
 
@@ -242,15 +242,15 @@ def testRangeParentsConfig(env):
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
 		for i in range(elements):
 			env.cmd('hset', i, 'n', i)
-		actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
+		actual_res = env.cmd(debug_cmd(), 'numidx_summary', 'idx0', 'n')
 		env.assertEqual(actual_res[0:2], result[test])
 
 		# reset with old ranges parents param
 		env.cmd('ft.drop', 'idx0')
-		env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
+		env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
 
 	# reset back
-	env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
 @skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
@@ -269,9 +269,9 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
-    num_summery_before = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    num_summery_before = to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))
     forceInvokeGC(env, 'idx')
-    num_summery_after = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    num_summery_after = to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))
     env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
 
     # test for PR#3018. check `numEntries` is updated after GC
@@ -287,8 +287,8 @@ def testEmptyNumericLeakCenter(env):
     # check that no empty node are left
 
 	# Make sure GC is not triggered sporadically (only manually)
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -306,9 +306,9 @@ def testEmptyNumericLeakCenter(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 
-    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_before = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     forceInvokeGC(env, 'idx')
-    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_after = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.assertGreater(num_summery_before[1], num_summery_after[1])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
@@ -344,7 +344,7 @@ https://redislabs.atlassian.net/wiki/spaces/DX/pages/4054876404/BUG+numeric+inde
 @skip(cluster=True) # coordinator doesn't suppory ft.config
 def testNegativeValues(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -569,19 +569,19 @@ def testNumericOperators():
     # Test > +inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>inf', 'NOCONTENT')
     env.assertEqual(res1, [0])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', '+inf')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', 'inf')
     env.assertEqual(res2, res1)
-    
+
     # Test > -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>-inf', 'NOCONTENT', 'LIMIT', 0, 20,
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [11, 'key7', 'key6', 'key9', 'key8', 'key1', 'key2',
                            'key3', 'key4', 'key5', 'key10', 'key11'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$p', 'NOCONTENT', 'PARAMS', 2, 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$p', 'NOCONTENT', 'PARAMS', 2,
                    'p', '-inf', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
 
@@ -594,7 +594,7 @@ def testNumericOperators():
     res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 'WITHCOUNT',
                    'PARAMS', 2, 'p', 'inf')
     env.assertEqual(res2, res1)
-    
+
     # Test >= -inf
     res1 = env.cmd('FT.SEARCH', 'idx', '@n>=-inf', 'NOCONTENT', 'LIMIT', 0, 20,
                    'SORTBY', 'n', 'ASC')
@@ -628,13 +628,13 @@ def testNumericOperators():
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res1, [10, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
                            'key2', 'key3', 'key4', 'key5'])
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', '+inf', 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', 'inf', 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', '-inf', 'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
 
@@ -657,11 +657,11 @@ def testNumericOperators():
                    'PARAMS', 2, 'p', 'inf', 'LIMIT', 0, 12,
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', 'inf', 'LIMIT', 0, 12,
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)
-    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT', 
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT',
                    'PARAMS', 2, 'p', '+inf', 'LIMIT', 0, 12,
                    'SORTBY', 'n', 'ASC')
     env.assertEqual(res2, res1)

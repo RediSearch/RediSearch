@@ -131,40 +131,32 @@ jobs:
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
-      - name: Build Standalone
-        if: ${{ inputs.standalone }}
+      - name: Build
         run: make SAN=${{ inputs.san }}
-      - name: Build Coordinator
-        if: ${{ inputs.coordinator }}
-        run: make COORD=1 SAN=${{ inputs.san }}
+      - name: Build Tests # TODO: should be done in the build step above
+        run: make SAN=${{ inputs.san }} COORD=0
 
-      - name: Unit tests (standalone)
+      - name: Unit tests
         id: test1
-        if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-      - name: Unit tests (coordinator)
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+      - name: Flow tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
-      - name: Flow tests (coordinator)
-        id: test4
-        if: ${{ inputs.coordinator }}
-        continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -176,7 +168,7 @@ jobs:
         # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -184,5 +176,5 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure'
+        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure'
         run: exit 1

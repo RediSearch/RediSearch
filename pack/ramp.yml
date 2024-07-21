@@ -9,7 +9,7 @@ command_line_args: ""
 compatible_redis_version: "7.4"
 min_redis_version: "7.2"
 min_redis_pack_version: "7.4"
-config_command: "FT.CONFIG SET"
+config_command: "_FT.CONFIG SET"
 capabilities:
     - types
     - replica_of

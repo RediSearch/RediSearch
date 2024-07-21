@@ -10,11 +10,11 @@ on:
         default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
-        default: bin/linux-x64-release/search/redisearch.so
+        default: bin/linux-x64-release/coord-oss/redisearch.so
       profile_env:
         type: number # for default of 0
       cluster_env:
-        type: string # for default of ""
+        type: number # for default of 0 (string has "" as default)
       benchmark_glob:
         type: string
         default: "*.yml"

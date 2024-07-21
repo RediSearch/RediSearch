@@ -12,9 +12,9 @@ def testSanity_dialect_3(env):
   dotestSanity(env, 3)
 
 def dotestSanity(env, dialect):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', dialect).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
   item_qty = 1000
 
   index_list = ['idx_bf', 'idx_suffix']
@@ -72,14 +72,14 @@ def dotestSanity(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
@@ -94,9 +94,9 @@ def testSanityTag_dialect_3(env):
   dotestSanityTag(env, 3)
 
 def dotestSanityTag(env, dialect):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', dialect).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).ok()
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', dialect).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).ok()
   item_qty = 1000
 
   index_list = ['idx_bf', 'idx_suffix']
@@ -160,14 +160,14 @@ def dotestSanityTag(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
 
-  env.expect('FT.CONFIG', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
@@ -175,10 +175,10 @@ def dotestSanityTag(env, dialect):
 
 @skip()
 def testBenchmark(env):
-  env.expect('FT.CONFIG', 'set', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'set', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'set', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
+  env.expect(config_cmd(), 'set', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'set', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'set', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 10000000).equal('OK')
   item_qty = 1000000
 
   index_list = ['idx_bf']
@@ -230,10 +230,10 @@ def testBenchmark(env):
 def testEscape(env):
   conn = getConnectionByEnv(env)
 
-  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
+  env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'SET', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -251,7 +251,7 @@ def testEscape(env):
   conn.execute_command('HSET', 'doc12', 't', 'hello\\\\')
   conn.execute_command('HSET', 'doc13', 't', 'halloween')
 
-  env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(
+  env.expect(debug_cmd(), 'dump_terms', 'idx').equal(
       ["'hello", '\\hello', 'hallelujah', 'halloween', 'hello', "hello'", "hello'world",
        'hello\\', 'hello\\world', 'help', 'jello', 'jellyfish', 'mellow'])
 
@@ -330,10 +330,10 @@ def testEscape(env):
 def testLowerUpperCase(env):
   conn = getConnectionByEnv(env)
 
-  env.expect('FT.CONFIG', 'SET', 'MINPREFIX', 1).ok()
-  env.expect('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', 2).ok()
-  env.expect('FT.CONFIG', 'SET', 'TIMEOUT', 100000).ok()
-  env.expect('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
+  env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect(config_cmd(), 'SET', 'TIMEOUT', 100000).ok()
+  env.expect(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false').ok()
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -380,7 +380,7 @@ def testBasic():
 
 def testSuffixCleanup(env):
   conn = getConnectionByEnv(env)
-  env.expect(('_' if env.isCluster() else '') + 'FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+  env.expect(config_cmd() + ' SET FORK_GC_CLEAN_THRESHOLD 0').ok()
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')

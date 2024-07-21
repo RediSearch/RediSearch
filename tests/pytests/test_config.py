@@ -1,32 +1,32 @@
 from RLTest import Env
 from includes import *
-from common import skip
+from common import skip, config_cmd
 
 not_modifiable = 'Not modifiable at runtime'
 
 @skip(cluster=True)
 def testConfig(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.expect('ft.config', 'help', 'idx').equal([])
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
+    env.expect(config_cmd(), 'help', 'idx').equal([])
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
 
 @skip(cluster=True)
 def testConfigErrors(env):
-    env.expect('ft.config', 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
-    env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
-    env.expect('ft.config', 'idx').error().contains('wrong number of arguments')
-    env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
+    env.expect(config_cmd(), 'no_such_command', 'idx').equal('No such configuration action')
+    env.expect(config_cmd(), 'idx').error().contains('wrong number of arguments')
+    env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', 3) \
         .equal('Max depth for range cannot be higher than max depth for balance')
-    env.expect('ft.config', 'set', 'MINSTEMLEN', 1).error()\
+    env.expect(config_cmd(), 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKERS', 1_000_000).error()\
+        env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
             .contains('Number of worker threads cannot exceed')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
     def check_config(conf):
-        env.expect('ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
+        env.expect(config_cmd(), 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
 
     check_config('EXTLOAD')
     check_config('NOGC')
@@ -70,38 +70,38 @@ def testGetConfigOptions(env):
 @skip(cluster=True)
 def testSetConfigOptions(env):
 
-    env.expect('ft.config', 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
-    env.expect('ft.config', 'set', 'EXTLOAD', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'NOGC', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
-    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 1).equal('OK')
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKERS', 1).equal('OK')
-        env.expect('ft.config', 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
-        env.expect('ft.config', 'set', 'WORKER_THREADS', 1).equal('OK') # deprecated
-        env.expect('ft.config', 'set', 'MT_MODE', 1).equal('OK') # deprecated
-    env.expect('ft.config', 'set', 'FRISOINI', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
-    env.expect('ft.config', 'set', 'GCSCANSIZE', 1).equal('OK')
-    env.expect('ft.config', 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect('ft.config', 'set', 'GC_POLICY', 1).equal(not_modifiable)
-    env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
-    env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
+        env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
+        env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
+        env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal('OK') # deprecated
+        env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal('OK') # deprecated
+    env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
+    env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
-    env.expect('ft.config', 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
-    env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
-    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
-    env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
-        env.expect('ft.config', 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+        env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+        env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
 
 
 @skip(cluster=True)
@@ -110,7 +110,7 @@ def testAllConfig(env):
     ## so no point of testing it
     if env.env == 'existing-env':
         env.skip()
-    res_list = env.cmd('ft.config get *')
+    res_list = env.cmd(config_cmd() + ' get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)
     env.assertEqual(res_dict['NOGC'][0], 'false')
@@ -156,7 +156,7 @@ def testInitConfig():
         env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        env.expect('ft.config', 'get', arg_name).equal([[arg_name, str(arg_value)]])
+        env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, str(arg_value)]])
         env.stop()
 
     test_arg_num('MAXDOCTABLESIZE', 123456)
@@ -186,7 +186,7 @@ def testInitConfig():
         env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        env.expect('ft.config', 'get', arg_name).equal([[arg_name, res]])
+        env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, res]])
         env.stop()
 
     test_arg_true_false('NOGC', 'true')
@@ -200,7 +200,7 @@ def testInitConfig():
         env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
-        env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
+        env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, ret_value]])
         env.stop()
 
     test_arg_str('GC_POLICY', 'fork')
@@ -225,20 +225,20 @@ def testInitConfig():
 @skip(cluster=True)
 def testImmutable(env):
 
-    env.expect('ft.config', 'set', 'EXTLOAD').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'NOGC').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
     if MT_BUILD:
-        env.expect('ft.config', 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
-        env.expect('ft.config', 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable) # deprecated
-        env.expect('ft.config', 'set', 'WORKERS_PRIORITY_BIAS_THRESHOLD').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'FRISOINI').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'GC_POLICY').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains(not_modifiable)
-    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains(not_modifiable)
+        env.expect(config_cmd(), 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
+        env.expect(config_cmd(), 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable) # deprecated
+        env.expect(config_cmd(), 'set', 'WORKERS_PRIORITY_BIAS_THRESHOLD').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'FRISOINI').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'GC_POLICY').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'NO_MEM_POOLS').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'PARTIAL_INDEXED_DOCS').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'UPGRADE_INDEX').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'RAW_DOCID_ENCODING').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_GAP').error().contains(not_modifiable)
 
 ###############################################################################
 # TODO: rewrite following tests properly for all coordinator's config options #
@@ -247,21 +247,21 @@ def testImmutable(env):
 @skip(cluster=False)
 def testConfigCoord(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.expect('_ft.config', 'help', 'idx').equal([])
+    env.expect(config_cmd(), 'help', 'idx').equal([])
 
 @skip(cluster=False)
 def testConfigErrorsCoord(env):
-    env.expect('_ft.config', 'set', 'SEARCH_THREADS', 'banana').error().contains(not_modifiable)
-    env.expect('_ft.config', 'set', 'SEARCH_THREADS', '-1').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'SEARCH_THREADS', 'banana').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'SEARCH_THREADS', '-1').error().contains(not_modifiable)
 
 @skip(cluster=False)
 def testGetConfigOptionsCoord(env):
     def check_config(conf):
-        env.expect('_ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
+        env.expect(config_cmd(), 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
 
     check_config('SEARCH_THREADS')
 
-@skip(cluster=COORD) # Change to `skip(cluster=False)`
+@skip(cluster=CLUSTER) # Change to `skip(cluster=False)`
 def testAllConfigCoord(env):
     pass
 
@@ -269,7 +269,7 @@ def testAllConfigCoord(env):
 def testInitConfigCoord():
     def test_arg_num(arg_name, arg_value):
         env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
-        env.expect('_ft.config', 'get', arg_name).equal([[arg_name, str(arg_value)]])
+        env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, str(arg_value)]])
         env.stop()
 
     test_arg_num('SEARCH_THREADS', 3)
@@ -277,4 +277,4 @@ def testInitConfigCoord():
 
 @skip(cluster=False)
 def testImmutableCoord(env):
-    env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
