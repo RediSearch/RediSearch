@@ -416,7 +416,7 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
 @skip(redis_less_than='7.3')
-def testLazyFieldExpiration(env):
+def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
@@ -433,3 +433,20 @@ def testLazyFieldExpiration(env):
     # For doc:1 the mask should have two bits for its two fields
     # since the field y is still valid we should still get doc:1 in the results
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+
+@skip(redis_less_than='7.3')
+def testLazyGeoshapeFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT', 'INDEXMISSING').ok()
+    first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    time.sleep(0.5)
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])

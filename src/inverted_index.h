@@ -246,7 +246,7 @@ static inline IndexReader *NewMinimalTermIndexReader(InvertedIndex *idx)
 
 /* Create a new index reader on an inverted index of "missing values". */
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   const FieldIndexFilterContext* filterCtx);
+                                   t_fieldIndex fieldIndex);
 
 void IR_Abort(void *ctx);
 

@@ -1213,13 +1213,13 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, 
 }
 
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   const FieldIndexFilterContext* filterCtx) {
+                                   t_fieldIndex fieldIndex) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
   IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
   if (!decoder.decoder) {
     return NULL;
   }
-  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx,
+  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index.fieldIndex = fieldIndex,
                              .filter.index.predicate = FIELD_EXPIRATION_MISSING };
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = freq;
