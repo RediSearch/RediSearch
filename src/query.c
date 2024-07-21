@@ -1411,8 +1411,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Create a reader for the missing values InvertedIndex.
-  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
-  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx, &filterCtx);
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx, fs->index);
 
   return NewReadIterator(ir);
 }
