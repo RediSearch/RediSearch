@@ -59,14 +59,16 @@ jobs:
             --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
             --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
             --base     "${{ github.event.release.target_commitish }}" \
-            --reviewer "${{ github.actor }}" \
+            --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
 
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
           BRANCH: bump-version-${{ steps.verify.outputs.next_version }}
-        run: gh pr ready $BRANCH -R ${{ github.repository }}
+        run: |
+          gh pr ready $BRANCH -R ${{ github.repository }}
+          gh pr merge $BRANCH -R ${{ github.repository }} --auto
 
   set-artifacts:
     needs: update-version
