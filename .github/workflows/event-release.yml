@@ -59,7 +59,7 @@ jobs:
             --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
             --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
             --base     "${{ github.event.release.target_commitish }}" \
-            --reviewer "${{ github.actor }}" \
+            --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
 
       - name: Trigger CI
