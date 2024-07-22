@@ -135,8 +135,8 @@ jobs:
         if: inputs.san == 'address'
         run: |
          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-          echo "CC=$(which clang-${{inputs.llvm_version}})" >> $GITHUB_ENV
-          echo "CXX=$(which clang++-${{inputs.llvm_version}})" >> $GITHUB_ENV
+          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "CC=$CC"
           echo "CXX=$CXX"
       - name: Build
