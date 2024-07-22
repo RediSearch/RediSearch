@@ -13,7 +13,6 @@ on:
 
 
 jobs:
-
   clang-sanitizer:
     uses: ./.github/workflows/task-test.yml
     with:

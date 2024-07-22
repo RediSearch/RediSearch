@@ -30,9 +30,7 @@ if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 	exit 1
 fi
 
-# if [[ -z $BINROOT ]]; then
-# 	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
-# fi
+
 TARGET_DIR=$BINROOT/RedisJSON
 echo Building into $TARGET_DIR ...
 
@@ -44,7 +42,7 @@ BRANCH=${BRANCH:-master}
 
 cd $ROOT/deps
 if [[ ! -d RedisJSON ]]; then
-	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git@$(BRANCH)
 fi
 
 cd ../
@@ -60,11 +58,6 @@ fi
 
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
-	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-	source $HOME/.cargo/env
-	rustup update 
-	rustup update nightly
-	rustup show
 
 	# for RedisJSON build with addess santizer if required
 	if [[ -n $SAN ]]; then

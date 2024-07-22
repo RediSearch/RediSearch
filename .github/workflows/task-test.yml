@@ -30,6 +30,7 @@ on:
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  LLVM_VERSION: ${{vars.LLVM_VERSION}}
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -86,7 +87,11 @@ jobs:
             tests/pytests/requirements.*
       - name: Setup specific
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+          ./install_llvm .sh ${{ steps.mode.outputs.mode }} ${{ env.BOOST_VERSION }}
+          ./install_rust.sh 
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -99,11 +104,6 @@ jobs:
           submodules: recursive
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
-
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
