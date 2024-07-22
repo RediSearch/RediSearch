@@ -450,3 +450,17 @@ def testLazyGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+
+
+@skip(redis_less_than='7.3')
+def testLazyVectorFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 INDEXMISSING t TEXT n NUMERIC').ok()
+    conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
+    conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
+    time.sleep(0.5)
+    env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
