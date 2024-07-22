@@ -90,7 +90,7 @@ jobs:
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
           ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
-          ./install_llvm .sh ${{ steps.mode.outputs.mode }} ${{ env.BOOST_VERSION }}
+          ./install_llvm.sh ${{ steps.mode.outputs.mode }} ${{ env.BOOST_VERSION }}
           ./install_rust.sh 
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
