@@ -131,7 +131,14 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-
+      - name: verify CC and CXX
+        if: inputs.san == 'address'
+        run: |
+         echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "CC=$(which clang-${{inputs.llvm_version}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{inputs.llvm_version}})" >> $GITHUB_ENV
+          echo "CC=$CC"
+          echo "CXX=$CXX"
       - name: Build
         run: make SAN=${{ inputs.san }}
       - name: Unit tests
