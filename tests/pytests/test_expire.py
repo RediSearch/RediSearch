@@ -151,7 +151,6 @@ def expireDocs(env, isSortable, expected_results, isJson):
     for sortby in [False, True]:
         # Use "lazy" expire (expire only when key is accessed)
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-        conn.execute_command('FT.DEBUG', 'MONITOR_EXPIRATION', 'documents', '0')
         sortby_cmd = [] if not sortby else ['SORTBY', 't']
         sortable_arg = [] if not isSortable else ['SORTABLE']
         if isJson:
@@ -164,7 +163,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
                 'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
             conn.execute_command('HSET', 'doc1', 't', 'bar')
             conn.execute_command('HSET', 'doc2', 't', 'arr')
-
+        conn.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')
         env.assertEqual(res, expected_results[both_docs_no_sortby], message='both docs exist')
@@ -245,8 +244,8 @@ def test_expire_aggregate(env):
     conn = env.getConnection()
     # Use "lazy" expire (expire only when key is accessed)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-    conn.execute_command('FT.DEBUG', 'MONITOR_EXPIRATION', 'documents', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')
@@ -259,7 +258,7 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    env.assertEqual(res, [1, None, ['t', 'arr']])
+    env.assertEqual(res, [1, ['t', 'arr'], None])
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
