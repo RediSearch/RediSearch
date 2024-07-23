@@ -291,13 +291,12 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
-  for (uint32_t sortedIndex = 0; sortedFieldWithExpiration && sortedIndex < array_len(sortedFieldWithExpiration); sortedIndex++) {
+  for (uint32_t sortedIndex = 0; sortedIndex < array_len(sortedFieldWithExpiration); sortedIndex++) {
     FieldExpiration* fe = &sortedFieldWithExpiration[sortedIndex];
     FieldSpec* fs = spec->fields + fe->index;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    // mark with NULL that the field has an expiration
     dictAdd(df_fields_dict, (void *)fs->name, fs);
   }
 

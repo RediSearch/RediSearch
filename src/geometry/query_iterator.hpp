@@ -13,7 +13,6 @@
 #include <ranges>     // ranges::input_range, ranges::begin, ranges::end
 #include <algorithm>  // ranges::sort
 
-struct IndexSpec;
 namespace RediSearch {
 namespace GeoShape {
 struct QueryIterator {
@@ -48,7 +47,6 @@ struct QueryIterator {
 
   auto base() noexcept -> IndexIterator *;
 
-  int read_single(RSIndexResult *&hit) noexcept;
   int read(RSIndexResult *&hit) noexcept;
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
@@ -58,6 +56,8 @@ struct QueryIterator {
   void rewind() noexcept;
 
   static IndexIterator init_base(QueryIterator *ctx);
+private:
+  int read_single(RSIndexResult *&hit) noexcept;
 };
 
 }  // namespace GeoShape

@@ -305,7 +305,7 @@ IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocT
     goto err;
   }
 
-  IndexReader *ret = NewTermIndexReader(idx, ctx, fieldMask, term, weight);
+  IndexReader *ret = NewTermIndexReaderEx(idx, ctx, fieldMask, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
   }

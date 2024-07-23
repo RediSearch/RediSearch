@@ -57,7 +57,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createIndex(n, step, i);
         inv_indices[i] = w;
-        IndexReader *r = NewMinimalTermIndexReader(w);
+        IndexReader *r = NewTermIndexReader(w);
         ind_readers[i] = r;
       }
       IndexIterator **irs = (IndexIterator **)calloc(percent, sizeof(IndexIterator *));

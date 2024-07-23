@@ -236,12 +236,12 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  * If singleWordMode is set to 1, we ignore the skip index and use the score
  * index.
  */
-IndexReader *NewTermIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
 
-static inline IndexReader *NewMinimalTermIndexReader(InvertedIndex *idx)
+static inline IndexReader *NewTermIndexReader(InvertedIndex *idx)
 {
-  return NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  return NewTermIndexReaderEx(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
 }
 
 /* Create a new index reader on an inverted index of "missing values". */

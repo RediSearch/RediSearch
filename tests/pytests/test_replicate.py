@@ -226,10 +226,10 @@ def testExpireDocs():
               # Without sortby -
               # Documents are sorted according to dicId
               # both docs exist but we failed to load doc1 since it was found to be expired during the query
-              [1, 'doc2', ['t', 'foo']],
+               [2, 'doc1', None, 'doc2', ['t', 'foo']],
               # With sortby -
               # Loading the value of the expired document failed, so it gets lower priority.
-              [1, 'doc2', ['t', 'foo']])
+               [2, 'doc2', ['t', 'foo'], 'doc1', None])
 
 def testExpireDocsSortable():
     '''
@@ -240,8 +240,8 @@ def testExpireDocsSortable():
                # the documents are ordered according to the sortkey values.
                # However, the loader fails to load doc1 and the result is marked as expired so
                # the value does not appear in the result.
-              [1, 'doc2', ['t', 'foo']],  # Without sortby - ordered by docid
-              [1, 'doc2', ['t', 'foo']])  # With sortby - ordered by the original value, bar > foo
+             [2, 'doc1', None, 'doc2', ['t', 'foo']],  # Without sortby - ordered by docid
+               [2, 'doc2', ['t', 'foo'], 'doc1', None])  # With sortby - ordered by the original value, bar > foo
 
 def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
     '''
@@ -259,7 +259,9 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
     for i in range(2):
         # Use "lazy" expire (expire only when key is accessed)
         master.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+        master.execute_command('FT.DEBUG', 'MONITOR_EXPIRATION', 'documents', '0')
         slave.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+        slave.execute_command('FT.DEBUG', 'MONITOR_EXPIRATION', 'documents', '0')
 
         sortby_cmd = [] if i == 0 else ['SORTBY', 't']
         sortable_arg = [] if not isSortable else ['SORTABLE']

@@ -29,9 +29,10 @@ typedef enum {
   RS_CTX_READWRITE
 } RSContextFlags;
 
-typedef struct
-{
+typedef struct {
+  // current execution time - real clock
   struct timespec current;
+  // when the query should timeout - monotonic raw clock, unrelated to real clock
   struct timespec timeout;
 } SearchTime;
 

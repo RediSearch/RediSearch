@@ -325,7 +325,7 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
     }
   }
 
-  int rc = INDEXREAD_OK;
+  int rc;
   do {
     rc = HR_ReadHybridUnsortedSingle(hr, hit);
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
@@ -364,7 +364,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
     }
   }
 
-  int rc = INDEXREAD_OK;
+  int rc;
   do {
     rc = HR_ReadKnnUnsortedSingle(ctx, hit);
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {

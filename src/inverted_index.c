@@ -1185,7 +1185,7 @@ static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIn
   return ret;
 }
 
-IndexReader *NewTermIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight) {
   if (term && sctx) {
     // compute IDF based on num of docs in the header
