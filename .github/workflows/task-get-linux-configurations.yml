@@ -13,6 +13,7 @@ env:
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
+                    'rockylinux:9',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
 
 on:
