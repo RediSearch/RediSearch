@@ -178,7 +178,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexReader *reader = NewMinimalTermIndexReader(invidx);
+  IndexReader *reader = NewTermIndexReader(invidx);
   ReplyReaderResults(reader, sctx->redisCtx);
 
 end:
@@ -476,7 +476,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = NewMinimalTermIndexReader(iv);
+    IndexReader *reader = NewTermIndexReader(iv);
     ReplyReaderResults(reader, sctx->redisCtx);
     ++resultSize;
   }
@@ -820,6 +820,43 @@ DEBUG_COMMAND(ttlExpire) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+typedef struct {
+  uint32_t docs;
+  uint32_t fields;
+} MonitorExpirationOptions;
+
+DEBUG_COMMAND(monitorExpiration) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  MonitorExpirationOptions options = {.docs = sp->monitorDocumentExpiration, .fields = sp->monitorFieldExpiration};
+  ACArgSpec argspecs[] = {
+      {.name = "documents", .type = AC_ARGTYPE_UINT, .target = &options.docs},
+      {.name = "fields", .type = AC_ARGTYPE_UINT, .target = &options.fields},
+      {NULL}};
+  RedisModuleKey *keyp = NULL;
+  ArgsCursor ac = {0};
+  ACArgSpec *errSpec = NULL;
+  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  int rv = AC_ParseArgSpec(&ac, argspecs, &errSpec);
+  if (rv != AC_OK) {
+    return RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
+  }
+
+  sp->monitorDocumentExpiration = options.docs;
+  sp->monitorFieldExpiration = options.fields;
+}
+
 DEBUG_COMMAND(GitSha) {
 #ifdef GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
@@ -939,7 +976,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexReader *reader = NewMinimalTermIndexReader(iv);
+      IndexReader *reader = NewTermIndexReader(iv);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
 
@@ -1249,6 +1286,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
+                               {"MONITOR_EXPIRATION", monitorExpiration},
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
 #endif

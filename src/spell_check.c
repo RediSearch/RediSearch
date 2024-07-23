@@ -91,7 +91,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, fieldMask, NULL, 1);
+  IndexReader *reader = NewTermIndexReaderEx(invidx, NULL, fieldMask, NULL, 1);
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {

@@ -230,7 +230,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewMinimalTermIndexReader(idx);  //
+    IndexReader *ir = NewTermIndexReader(idx);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -273,7 +273,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewMinimalTermIndexReader(idx);  //
+  IndexReader *r1 = NewTermIndexReader(idx);  //
 
   RSIndexResult *h = NULL;
 
@@ -301,8 +301,8 @@ TEST_F(IndexTest, testUnion) {
   for (int cfg = 0; cfg < 2; ++cfg) {
     InvertedIndex *w = createIndex(10, 2);
     InvertedIndex *w2 = createIndex(10, 3);
-    IndexReader *r1 = NewMinimalTermIndexReader(w);   //
-    IndexReader *r2 = NewMinimalTermIndexReader(w2);  //
+    IndexReader *r1 = NewTermIndexReader(w);   //
+    IndexReader *r2 = NewTermIndexReader(w2);  //
 
     // printf("Reading!\n");
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -358,8 +358,8 @@ TEST_F(IndexTest, testUnion) {
 TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createIndex(10, 1);
   InvertedIndex *w2 = createIndex(10, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
-  IndexReader *r2 = NewMinimalTermIndexReader(w2);   //
+  IndexReader *r1 = NewTermIndexReaderEx(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
+  IndexReader *r2 = NewTermIndexReader(w2);   //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -397,8 +397,8 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewMinimalTermIndexReader(w);   //
-  IndexReader *r2 = NewMinimalTermIndexReader(w2);  //
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -424,7 +424,7 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createIndex(10, 3);
 
-  IndexReader *r1 = NewMinimalTermIndexReader(w);  //
+  IndexReader *r1 = NewTermIndexReader(w);  //
   printf("last id: %llu\n", (unsigned long long)w->lastId);
 
   IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1, {0});
@@ -447,8 +447,8 @@ TEST_F(IndexTest, DISABLED_testOptional) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewMinimalTermIndexReader(w);   //
-  IndexReader *r2 = NewMinimalTermIndexReader(w2);  //
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -705,7 +705,7 @@ TEST_F(IndexTest, testNumericEncodingMulti) {
 TEST_F(IndexTest, testAbort) {
 
   InvertedIndex *w = createIndex(1000, 1);
-  IndexReader *r = NewMinimalTermIndexReader(w);  //
+  IndexReader *r = NewTermIndexReader(w);  //
 
   IndexIterator *it = NewReadIterator(r);
   int n = 0;
@@ -725,8 +725,8 @@ TEST_F(IndexTest, testIntersection) {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewMinimalTermIndexReader(w);   //
-  IndexReader *r2 = NewMinimalTermIndexReader(w2);  //
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -793,7 +793,7 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimMetric met = VecSimMetric_L2;
   VecSimType t = VecSimType_FLOAT32;
   InvertedIndex *w = createIndex(n, step);
-  IndexReader *r = NewMinimalTermIndexReader(w);
+  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
@@ -906,7 +906,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  r = NewMinimalTermIndexReader(w);
+  r = NewTermIndexReader(w);
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
@@ -953,7 +953,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   size_t n = 1;
   size_t d = 4;
   InvertedIndex *w = createIndex(n, 1);
-  IndexReader *r = NewMinimalTermIndexReader(w);
+  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index with a single vector.
   VecSimParams params{
@@ -1678,7 +1678,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 2);
 
-  IndexReader *ir = NewMinimalTermIndexReader(idx);
+  IndexReader *ir = NewTermIndexReader(idx);
   RSIndexResult *h = NULL;
   ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
   ASSERT_EQ(1, h->docId);

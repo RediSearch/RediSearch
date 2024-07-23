@@ -1762,6 +1762,8 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->monitorDocumentExpiration = true;
+  sp->monitorFieldExpiration = true;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -2965,9 +2967,12 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  doc.docExpirationTime.tv_nsec = doc.docExpirationTime.tv_sec = 0;
   doc.fieldExpirations = NULL;
-  doc.docExpirationTime = getDocExpirationTime(ctx, key);
-  if (type == DocumentType_Hash) {
+  if (spec->monitorDocumentExpiration) {
+    doc.docExpirationTime = getDocExpirationTime(ctx, key);
+  }
+  if (type == DocumentType_Hash && spec->monitorFieldExpiration) {
     doc.fieldExpirations = getHashFieldExpirationTime(spec, ctx, key);
   }
 

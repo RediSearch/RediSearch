@@ -738,7 +738,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   tok.str = (char *)r;
   tok.len = n;
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = NewTermIndexReader(invidx, q->sctx, RS_FIELDMASK_ALL, term, ctx->weight);
+  IndexReader *ir = NewTermIndexReaderEx(invidx, q->sctx, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
     Term_Free(term);
     return;

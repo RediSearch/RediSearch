@@ -259,7 +259,7 @@ IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv,
                                    double weight) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sctx, RS_FIELDMASK_ALL, t, weight);
+  IndexReader *r = NewTermIndexReaderEx(iv, sctx, RS_FIELDMASK_ALL, t, weight);
   if (!r) {
     return NULL;
   }
