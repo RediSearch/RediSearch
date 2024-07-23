@@ -855,6 +855,7 @@ DEBUG_COMMAND(monitorExpiration) {
 
   sp->monitorDocumentExpiration = options.docs;
   sp->monitorFieldExpiration = options.fields;
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 DEBUG_COMMAND(GitSha) {

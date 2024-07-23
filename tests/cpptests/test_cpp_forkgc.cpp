@@ -249,6 +249,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
 
   // Now add documents until we have new blocks added.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
@@ -287,6 +288,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
@@ -355,6 +357,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   unsigned curId = 1;
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
@@ -430,6 +433,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
@@ -471,6 +475,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
@@ -511,6 +516,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
