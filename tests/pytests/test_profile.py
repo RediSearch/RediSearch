@@ -9,7 +9,7 @@ from RLTest import Env
 @skip(cluster=True)
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
@@ -107,7 +107,7 @@ def testProfileSearch(env):
 @skip(cluster=True)
 def testProfileSearchLimited(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
@@ -124,7 +124,7 @@ def testProfileSearchLimited(env):
 @skip(cluster=True)
 def testProfileAggregate(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
@@ -175,7 +175,7 @@ def testProfileErrors(env):
 @skip(cluster=True)
 def testProfileNumeric(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
   for i in range(10000):
@@ -197,7 +197,7 @@ def testProfileNumeric(env):
 def testProfileNegativeNumeric():
   env = Env(protocol=3)
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   docs = 1_000
   # values_ranges[i] = (min_val , range description)
@@ -246,7 +246,7 @@ def testProfileNegativeNumeric():
 @skip(cluster=True)
 def testProfileTag(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'tag')
   conn.execute_command('hset', '1', 't', 'foo,bar')
@@ -260,8 +260,8 @@ def testProfileTag(env):
 @skip(cluster=True)
 def testProfileVector(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  env.cmd('FT.CONFIG', 'SET', 'DEFAULT_DIALECT', '2')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', '2')
 
   env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT').ok()
   conn.execute_command('hset', '1', 'v', 'bababaca', 't', "hello")
@@ -278,7 +278,7 @@ def testProfileVector(env):
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
   env.assertEqual(actual_profile['Result processors profile'][1], expected_vecsim_rp_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'STANDARD_KNN')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'STANDARD_KNN')
 
   # Range query - uses metric iterator. Radius is set so that the closest 2 vectors will be in the range
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
@@ -289,7 +289,7 @@ def testProfileVector(env):
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
   env.assertEqual(actual_profile['Result processors profile'][1], expected_vecsim_rp_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'RANGE_QUERY')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'RANGE_QUERY')
 
 # Test with hybrid query variations
   # Expect ad-hoc BF to take place - going over child iterator exactly once (reading 2 results)
@@ -304,7 +304,7 @@ def testProfileVector(env):
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
   env.assertEqual(actual_profile['Result processors profile'][1], expected_vecsim_rp_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
 
   for i in range(6, 10001):
     conn.execute_command('hset', str(i), 'v', 'bababada', 't', "hello world")
@@ -322,7 +322,7 @@ def testProfileVector(env):
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
   env.assertEqual(actual_profile['Result processors profile'][1], expected_vecsim_rp_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Add another 10K vectors with a different tag.
   for i in range(10001, 20001):
@@ -338,7 +338,7 @@ def testProfileVector(env):
                                       'SORTBY', '__v_score', 'PARAMS', '2', 'vec', '????????', 'nocontent')
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
   # Ask explicitly to run in batches mode, without asking for a certain batch size.
   # First batch size is 4, and every batch should be double in its size from its previous one. We go over the entire
@@ -351,7 +351,7 @@ def testProfileVector(env):
                               ['Type', 'TEXT', 'Term', 'other', 'Counter', 13, 'Size', 10000]]]]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Ask explicitly to run in batches mode, with batch size of 100.
   # After 200 iterations, we should go over the entire index.
@@ -363,7 +363,7 @@ def testProfileVector(env):
                              ['Type', 'TEXT', 'Term', 'other', 'Counter', 200, 'Size', 10000]]]]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
 
   # Asking only for a batch size without asking for batches policy. While batchs mode is on, the bacth size will be as
   # requested, but the mode can change dynamically to ADHOC-BF.
@@ -377,12 +377,12 @@ def testProfileVector(env):
                              ['Type', 'TEXT', 'Term', 'other', 'Counter', 3, 'Size', 10000]]]]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
-  env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
+  env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
 def testResultProcessorCounter(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'foo')
@@ -397,8 +397,8 @@ def testResultProcessorCounter(env):
 @skip(cluster=True)
 def testProfileMaxPrefixExpansion(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 2)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'foo1')
@@ -408,13 +408,13 @@ def testProfileMaxPrefixExpansion(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo*', 'limit', '0', '0')
   env.assertEqual(actual_res[1][1][0][3][6:8], ['Warning', 'Max prefix expansion reached'])
 
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
+  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200)
 
 @skip(cluster=True)
 def testNotIterator(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 2)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('HSET', '1', 't', 'foo')
   conn.execute_command('HSET', '2', 't', 'bar')

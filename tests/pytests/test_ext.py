@@ -5,6 +5,7 @@ import sys
 from RLTest import Env
 from includes import *
 from test_info_modules import info_modules_to_dict
+from common import config_cmd
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -43,5 +44,5 @@ def testExt(env):
     env.assertTrue('search_extension_load' in info['search_runtime_configurations'])
 
     if not env.isCluster():
-        res = env.cmd('ft.config', 'get', 'EXTLOAD')[0][1]
+        res = env.cmd(config_cmd(), 'get', 'EXTLOAD')[0][1]
         env.assertContains('libexample_extension', res)

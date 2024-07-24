@@ -17,7 +17,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build          # compile and link
-  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
+  COORD=0|1|oss|rlec  # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
   MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
@@ -47,23 +47,25 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # run specified test
+  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
+  SA=1|0               # alias for REDIS_STANDALONE
+  TEST=name            # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # e.g. TEST=test:testSearch
-  RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0|get     # also load RedisJSON module (default: 1)
-  REJSON_PATH=path   # use RedisJSON module at `path`
-  EXT=1              # External (existing) environment
-  GDB=1              # RLTest interactive debugging
-  VG=1               # use Valgrind
-  VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
-  ONLY_STABLE=1      # skip unstable tests
-  TEST_PARALLEL=n    # test parallalization
-  LOG_LEVEL=<level>  # server log level (default: debug)
+  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
+  SA=1|0               # alias for REDIS_STANDALONE
+  TEST=name            # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...      # pass args to RLTest
+  REJSON=1|0|get       # also load RedisJSON module (default: 1)
+  REJSON_PATH=path     # use RedisJSON module at `path`
+  EXT=1                # External (existing) environment
+  GDB=1                # RLTest interactive debugging
+  VG=1                 # use Valgrind
+  VG_LEAKS=0           # do not search leaks with Valgrind
+  SAN=type             # use LLVM sanitizer (type=address|memory|leak|thread)
+  ONLY_STABLE=1        # skip unstable tests
+  TEST_PARALLEL=n      # test parallalization
+  LOG_LEVEL=<level>    # server log level (default: debug)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -75,7 +77,7 @@ make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
 make pack             # create installation packages (default: 'redisearch-oss' package)
-  COORD=rlec            # pack RLEC coordinator ('redisearch' package)
+  COORD=rlec|oss        # pack RLEC coordinator ('redisearch' package)
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
@@ -103,7 +105,7 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),) # Standalone build
+ifeq ($(COORD),0) # Standalone build (explicit)
 
 	ifeq ($(STATIC),1) # Static build
 		BINDIR=$(BINROOT)/search-static
@@ -119,8 +121,8 @@ ifeq ($(COORD),) # Standalone build
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch-oss
+		RAMP_YAML=
+		PACKAGE_S3_DIR=
 
 	else # Search Lite
 		BINDIR=$(BINROOT)/search-lite
@@ -140,15 +142,18 @@ else # COORD
 
 	ifeq ($(COORD),1)
 		override COORD:=oss
+	else ifeq ($(COORD),) # Default: OSS Coordinator build
+		override COORD:=oss
 	endif
 
 	ifeq ($(COORD),oss) # OSS Coordinator
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
-		TARGET=$(BINDIR)/module-oss.so
-		PACKAGE_NAME=redisearch
+		TARGET=$(BINDIR)/redisearch.so
+		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=
+		RAMP_YAML=pack/ramp.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
 		BINDIR=$(BINROOT)/coord-rlec
@@ -222,7 +227,7 @@ ifeq ($(STATIC),1)
 CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
-ifneq ($(COORD),)
+ifneq ($(COORD),0)
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 endif
 
@@ -385,7 +390,7 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),)
+ifeq ($(COORD),0)
 CMAKE_TARGET=rscore
 CMAKE_TARGET_DIR=
 else
@@ -403,13 +408,18 @@ cc:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),oss)
+ifneq ($(COORD),0)
+ifeq ($(REDIS_STANDALONE),0)
 WITH_RLTEST=1
+else ifeq ($(SA),0)
+WITH_RLTEST=1
+endif
 endif
 
 run:
 ifeq ($(WITH_RLTEST),1)
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
+	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -456,23 +466,23 @@ endif
 test: unit-tests pytest
 
 unit-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest: $(REJSON_SO)
 ifneq ($(REJSON_PATH),)
 	@echo Testing with $(REJSON_PATH)
 endif
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
-	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) \
+	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
 c-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) C_TESTS=1 TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 cpp-tests:
-	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) CPP_TESTS=1 BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
@@ -583,12 +593,11 @@ ifeq ($(REJSON_PATH),)
 	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
 endif
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=oss COV=1
+	$(SHOW)$(MAKE) build COORD=0 COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 $(REJSON_COV_ARG)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

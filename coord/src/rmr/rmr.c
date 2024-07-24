@@ -275,10 +275,20 @@ static void uvUpdateConnPerShard(void *p) {
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
 }
 
+extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
   if (!rq_g) return; // not initialized yet, we have nothing to update yet.
   void *p = (void *)(uintptr_t)connPerShard;
-  RQ_Push(rq_g, uvUpdateConnPerShard, p);
+  if (NumShards == 1) {
+    // If we observe that there is only one shard from the main thread,
+    // we know the uv thread is not initialized yet (and may never be).
+    // We can update the connection pool size directly from the main thread.
+    // This is mostly a no-op, as the connection pool is not in use (yet or at all).
+    // This call should only update the connection pool size for when the connection pool is initialized.
+    uvUpdateConnPerShard(p);
+  } else {
+    RQ_Push(rq_g, uvUpdateConnPerShard, p);
+  }
 }
 
 static void uvGetConnectionPoolState(void *p) {

@@ -63,7 +63,7 @@ def test_worker_threads_sanity():
     for it in range(2):
         # At first iteration insert vectors 0,1,...,n_vectors-1, and the second insert ids
         # n_vectors, n_vector+1,...,2*n_vectors-1.
-        env.expect('FT.DEBUG', 'WORKERS', 'PAUSE').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
         load_vectors_to_redis(env, n_vectors, 0, dim, ids_offset=it*n_vectors)
         env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], n_vectors, message=f"iteration {it+1}")
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0 if it==0 else 2*n_vectors,
@@ -89,13 +89,13 @@ def test_worker_threads_sanity():
             assertInfoField(env, 'idx', 'num_docs', n_vectors*(it+1))
             # Resume the workers thread pool, let the background indexing start (in the first iteration it is paused)
             if i==1:
-                env.expect('FT.DEBUG', 'WORKERS', 'RESUME').ok()
+                env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
             # At first, we expect to see background indexing, but after RDB load, we expect that all vectors
             # are indexed before RDB loading ends
             debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
             if i==2:
                 env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0, message=f"iteration {it+1} after reloading")
-            env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
 
 def test_delete_index_while_indexing():
@@ -368,7 +368,7 @@ def test_switch_loader_modes():
     _, cursor1 = env.cmd(*query)
 
     # Turn off the multithread mode (1)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     # Create a cursor while using the off mode
     _, cursor2 = env.cmd(*query)
@@ -376,21 +376,21 @@ def test_switch_loader_modes():
     cursor1 = read_from_cursor(cursor1)
 
     # Turn on the multithread mode (2)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn off the multithread mode (3)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     # Read from the cursors
     cursor1 = read_from_cursor(cursor1)
     cursor2 = read_from_cursor(cursor2)
 
     # Turn on the multithread mode last time (4)
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     # Read from the second cursor
     cursor2 = read_from_cursor(cursor2)
@@ -405,11 +405,11 @@ def test_switch_loader_modes():
     _, cursor3 = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
                          'WITHCURSOR', 'COUNT', cursor_count)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
 
     cursor3 = read_from_cursor(cursor3)
 
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '1').ok()
+    env.expect(config_cmd(), 'SET', 'WORKERS', '1').ok()
 
     cursor3 = read_from_cursor(cursor3)
 

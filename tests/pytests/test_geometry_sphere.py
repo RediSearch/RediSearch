@@ -11,15 +11,15 @@ def array_of_key_value_to_map(res):
 
 def assert_index_num_docs(env, idx, attr, num_docs):
   if not env.isCluster():
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
 def testSanitySearchHashWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
-  
+
   small = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
   large = 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001), (34.9002 29.7002, 34.9049 29.7002, 34.9049 29.7049, 34.9002 29.7049, 34.9002 29.7002))' # contains hole
   conn.execute_command('HSET', 'small', 'geom', small)
@@ -33,7 +33,7 @@ def testSanitySearchHashWithin(env):
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
-  
+
   query = 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))'
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
@@ -42,7 +42,7 @@ def testSanitySearchHashWithin(env):
 def testSanitySearchPointWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
-  
+
   point = 'POINT(34.9010 29.7010)'
   small = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
   large = 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))'
@@ -50,7 +50,7 @@ def testSanitySearchPointWithin(env):
   conn.execute_command('HSET', 'point', 'geom', point)
   conn.execute_command('HSET', 'small', 'geom', small)
   conn.execute_command('HSET', 'large', 'geom', large)
-  
+
   query = 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))'
   expected = [2, 'point', ['geom', point], 'small', ['geom', small]]
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal(expected)
@@ -61,7 +61,7 @@ def testSanitySearchPointWithin(env):
   query = 'POINT(34.9050 29.7050)'
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[contains $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3)
   env.assertEqual(res[0], 2)
-  
+
   query = 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))'
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [3, 'large', 'point', 'small'])
@@ -78,7 +78,7 @@ def testSanitySearchJsonWithin(env):
   conn.execute_command('JSON.SET', 'large', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))"}')
   expected = ['$', '[{"geom":"POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))"}]']
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal([1, 'small', expected])
-  
+
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'RETURN', 1, 'geom', 'DIALECT', 3).equal([1, 'small', ['geom', json.dumps([json.loads(expected[1])[0]['geom']])]])
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7250, 34.9250 29.7250, 34.9250 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
@@ -91,11 +91,11 @@ def testSanitySearchJsonCombined(env):
   conn.execute_command('JSON.SET', 'p1', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Homer"}')
   conn.execute_command('JSON.SET', 'p2', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9090 29.7090, 34.9100 29.7001, 34.9001 29.7001))", "name": "Bart"}')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 2).equal([1, 'p1'])
-  
+
 def testSanitySearchHashIntersectsDisjoint(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
-  
+
   wide = 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9100 29.7200, 34.9100 29.7001, 34.9001 29.7001))'
   tall = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9200 29.7100, 34.9200 29.7001, 34.9001 29.7001))'
   conn.execute_command('HSET', 'wide', 'geom', wide)
@@ -109,7 +109,7 @@ def testSanitySearchHashIntersectsDisjoint(env):
   query = 'POLYGON((34.9000 29.7101, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7101, 34.9000 29.7101))'
   env.expect('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'wide', ['geom', wide]])
   env.expect('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([1, 'tall', ['geom', tall]])
-  
+
   query = 'POLYGON((34.9101 29.7101, 34.9101 29.7150, 34.9150 29.7150, 34.9150 29.7101, 34.9101 29.7101))'
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
@@ -151,7 +151,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p6', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9001 29.7001))", "name": "Milhouse"}')
   # Zero coordinates
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON(()())", "name": "Mr. Burns"}')
-  
+
   # TODO: GEOMETRY - understand why the following WKTs do not fail?
   # Missing Y coordinate
   conn.execute_command('JSON.SET', 'p3', '$', '{"geom": "POLYGON((34.9001 29.7001, 001 , 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Moe"}')
@@ -190,28 +190,28 @@ def testWKTQueryError(env):
   # Bad/missing param
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
-  
+
 
 
 def testSimpleUpdate(env):
   ''' Test updating geometries '''
-  
+
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'geom2', 'GEOSHAPE').ok()
   conn.execute_command('HSET', 'k1', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))')
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))')
   conn.execute_command('HSET', 'k3', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))', 'geom2', 'POLYGON((34.9001 29.7001, 34.9001 29.7140, 34.9140 29.7140, 34.9140 29.7001, 34.9001 29.7001))')
-  
+
   expected1 = ['geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))']
   expected2 = ['geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7120, 34.9120 29.7120, 34.9120 29.7001, 34.9001 29.7001))']
   expected3 = ['geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))', 'geom2', 'POLYGON((34.9001 29.7001, 34.9001 29.7140, 34.9140 29.7140, 34.9140 29.7001, 34.9001 29.7001))']
-  
+
   # Dump geoshape index
   assert_index_num_docs(env, 'idx', 'geom', 3)
   assert_index_num_docs(env, 'idx', 'geom2', 1)
   # Search
   env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'DIALECT', 3).equal([1, 'k1', expected1])
-  
+
   # Update
   conn.execute_command('HSET', 'k2', 'geom', 'POLYGON((34.9001 29.7001, 34.9001 29.7120, 34.9120 29.7120, 34.9120 29.7001, 34.9001 29.7001))')
   # Dump geoshape index
@@ -265,7 +265,7 @@ def testSimpleUpdate(env):
 
 def testFieldUpdate(env):
   ''' Test updating a field, keeping the rest intact '''
-  
+
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom1', 'GEOSHAPE', 'geom2', 'GEOSHAPE').ok()
   field1 = ['geom1',  'POLYGON((34.9001 29.7001, 34.9001 29.7200, 34.9200 29.7200, 34.9200 29.7001, 34.9001 29.7001))']
@@ -315,10 +315,10 @@ def testFieldUpdate(env):
 
 def testFtInfo(env):
   ''' Test FT.INFO on Geoshape '''
-  
+
   conn = getConnectionByEnv(env)
   info_key_name = 'geoshapes_sz_mb'
-  
+
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'geom', 'GEOSHAPE', 'txt', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2_no_geom', 'SCHEMA', 'txt', 'TEXT').ok()
   res = to_dict(env.cmd('FT.INFO idx1'))
