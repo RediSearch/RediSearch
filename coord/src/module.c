@@ -1531,6 +1531,26 @@ static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *c
   return RMUtil_ReplyWithErrorFmt(ctx, "Cannot perform `%s`: Cannot block", RedisModule_StringPtrLen(cmd, NULL));
 }
 
+static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  size_t len;
+  const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
+  RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
+  char *localCmd;
+  rm_asprintf(&localCmd, "_%.*s", len, cmd);
+  /*
+   * v - argv input array of RedisModuleString
+   * C - same client
+   * M - respect OOM
+   * 0 - same RESP protocol
+   * ! - replicate the command if needed (allows for replication)
+   */
+  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0!", argv + 1, argc - 1);
+  RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
+  rm_free(localCmd);
+  RedisModule_FreeCallReply(r);
+  return REDISMODULE_OK;
+}
+
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
 // If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
 // Notice that only OSS cluster should deal with such redirections.
@@ -1541,6 +1561,9 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return genericCallUnderscoreVariant(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1566,6 +1589,8 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    return genericCallUnderscoreVariant(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1621,17 +1646,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    size_t len;
-    const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
-    RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
-    char *localCmd;
-    rm_asprintf(&localCmd, "_%.*s", len, cmd);
-    // C - same client, M - respect OOM, 0 - same RESP protocol (and v - argv input)
-    RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0", argv + 1, argc - 1);
-    rm_free(localCmd);
-    RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
-    RedisModule_FreeCallReply(r);
-    return REDISMODULE_OK;
+    return genericCallUnderscoreVariant(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1698,6 +1713,8 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    return genericCallUnderscoreVariant(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1721,6 +1738,9 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return IndexInfoCommand(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -1966,7 +1986,21 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   clusterConfig.type, clusterConfig.timeoutMS);
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
+    // Check if we are actually in cluster mode
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
+    RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+                       RedisModule_CallReplyLength(rep) == 2);
+    size_t len;
+    const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
+    if (STR_EQCASE(isCluster, len, "yes")) {
+      // Init the topology updater cron loop.
       InitRedisTopologyUpdater(ctx);
+    } else {
+      // We are not in cluster mode. No need to init the topology updater cron loop.
+      // Set the number of shards to 1 to indicate the topology is "set"
+      NumShards = 1;
+    }
+    RedisModule_FreeCallReply(rep);
   }
 
   size_t num_connections_per_shard;

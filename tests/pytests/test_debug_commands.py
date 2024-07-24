@@ -17,8 +17,8 @@ class TestDebugCommands(object):
         self.env.cmd('SET', 'foo', 'bar')
 
     def testDebugWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx').error().contains('wrong number of arguments')
-        self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'dump_invidx').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd()).error().contains('wrong number of arguments')
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
@@ -29,185 +29,189 @@ class TestDebugCommands(object):
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
             help_list.append('WORKERS')
-        self.env.expect('FT.DEBUG', 'help').equal(help_list)
+        if COORD_BUILD:
+            coord_help_list = ['SHARD_CONNECTION_STATES']
+            help_list.extend(coord_help_list)
+
+        self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']:
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
-            self.env.expect('FT.DEBUG', cmd).error().contains(err_msg)
+            self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
     def testDocInfo(self):
-        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
+        rv = self.env.cmd(debug_cmd(), 'docinfo', 'idx', 'doc1')
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
                                 ['index', 1, 'field', 'age AS age', 'value', '34'],
                                 ['index', 2, 'field', 't AS t', 'value', 'test']]], rv)
-        self.env.expect('ft.debug', 'docinfo', 'idx').error()
-        self.env.expect('ft.debug', 'docinfo', 'idx', 'doc2').error()
+        self.env.expect(debug_cmd(), 'docinfo', 'idx').error()
+        self.env.expect(debug_cmd(), 'docinfo', 'idx', 'doc2').error()
 
     def testDumpInvertedIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx', 'idx', 'meir').equal([1])
-        self.env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'meir').equal([1])
+        self.env.expect(debug_cmd(), 'dump_invidx', 'idx', 'meir').equal([1])
+        self.env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'meir').equal([1])
 
     def testDumpInvertedIndexWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx', 'idx').error()
+        self.env.expect(debug_cmd(), 'dump_invidx', 'idx').error()
 
     def testDumpUnexistsInvertedIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx', 'idx', 'meir1').error()
+        self.env.expect(debug_cmd(), 'dump_invidx', 'idx', 'meir1').error()
 
     def testDumpInvertedIndexInvalidSchema(self):
-        self.env.expect('FT.DEBUG', 'dump_invidx', 'idx1', 'meir').error()
+        self.env.expect(debug_cmd(), 'dump_invidx', 'idx1', 'meir').error()
 
     def testDumpNumericIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx', 'age').equal([[1]])
-        self.env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'age').equal([[1]])
+        self.env.expect(debug_cmd(), 'dump_numidx', 'idx', 'age').equal([[1]])
+        self.env.expect(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'age').equal([[1]])
 
     def testDumpNumericIndexWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx').error()
+        self.env.expect(debug_cmd(), 'dump_numidx', 'idx').error()
 
     def testDumpUnexistsNumericIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx', 'ag1').error()
+        self.env.expect(debug_cmd(), 'dump_numidx', 'idx', 'ag1').error()
 
     def testDumpNumericIndexInvalidSchema(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'idx1', 'age').error()
+        self.env.expect(debug_cmd(), 'dump_numidx', 'idx1', 'age').error()
 
     def testDumpNumericIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'dump_numidx', 'foo', 'age').error()
+        self.env.expect(debug_cmd(), 'dump_numidx', 'foo', 'age').error()
 
     def testDumpTagIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['test', [1]]])
-        self.env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['test', [1]]])
+        self.env.expect(debug_cmd(), 'dump_tagidx', 'idx', 't').equal([['test', [1]]])
+        self.env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['test', [1]]])
 
     def testDumpTagIndexWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx').error()
+        self.env.expect(debug_cmd(), 'dump_tagidx', 'idx').error()
 
     def testDumpUnexistsTagIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't1').error()
+        self.env.expect(debug_cmd(), 'dump_tagidx', 'idx', 't1').error()
 
     def testDumpTagIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'foo', 't1').error()
+        self.env.expect(debug_cmd(), 'dump_tagidx', 'foo', 't1').error()
 
     def testDumpTagIndexInvalidSchema(self):
-        self.env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').error()
+        self.env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').error()
 
     def testInfoTagIndex(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't').equal(['num_values', 1])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't').equal(['num_values', 1])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries').equal(['num_values', 1, 'values', []])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries').equal(['num_values', 1, 'values', []])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries', 'limit', '1') \
+        self.env.expect(debug_cmd(), 'info_tagidx', 'idx', 't').equal(['num_values', 1])
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't').equal(['num_values', 1])
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries').equal(['num_values', 1, 'values', []])
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't', 'count_value_entries').equal(['num_values', 1, 'values', []])
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries', 'limit', '1') \
             .equal(['num_values', 1, 'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1, 'entries', [1]]]] )
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', '1') \
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', '1') \
             .equal(['num_values', 1, 'values', [['value', 'test', 'num_entries', 1, 'num_blocks', 1]]])
-        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', 'abc').error()
+        self.env.expect(debug_cmd(), 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', 'abc').error()
 
     def testInfoTagIndexWrongArity(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx').error()
+        self.env.expect(debug_cmd(), 'info_tagidx', 'idx').error()
 
     def testInfoUnexistsTagIndex(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't1').error()
+        self.env.expect(debug_cmd(), 'info_tagidx', 'idx', 't1').error()
 
     def testInfoTagIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'foo', 't1').error()
+        self.env.expect(debug_cmd(), 'info_tagidx', 'foo', 't1').error()
 
     def testInfoTagIndexInvalidSchema(self):
-        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx1', 't').error()
+        self.env.expect(debug_cmd(), 'info_tagidx', 'idx1', 't').error()
 
     def testDocIdToId(self):
-        self.env.expect('FT.DEBUG', 'docidtoid', 'idx', 'doc1').equal(1)
-        self.env.expect('FT.DEBUG', 'DOCIDTOID', 'idx', 'doc1').equal(1)
+        self.env.expect(debug_cmd(), 'docidtoid', 'idx', 'doc1').equal(1)
+        self.env.expect(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1').equal(1)
 
     def testDocIdToIdOnUnexistingDoc(self):
-        self.env.expect('FT.DEBUG', 'docidtoid', 'idx', 'doc').equal(0)
+        self.env.expect(debug_cmd(), 'docidtoid', 'idx', 'doc').equal(0)
 
     def testIdToDocId(self):
-        self.env.expect('FT.DEBUG', 'idtodocid', 'idx', '1').equal('doc1')
-        self.env.expect('FT.DEBUG', 'IDTODOCID', 'idx', '1').equal('doc1')
+        self.env.expect(debug_cmd(), 'idtodocid', 'idx', '1').equal('doc1')
+        self.env.expect(debug_cmd(), 'IDTODOCID', 'idx', '1').equal('doc1')
 
     def testIdToDocIdOnUnexistingId(self):
-        self.env.expect('FT.DEBUG', 'idtodocid', 'idx', '2').error().equal('document was removed')
-        self.env.expect('FT.DEBUG', 'idtodocid', 'idx', 'docId').error().equal('bad id given')
+        self.env.expect(debug_cmd(), 'idtodocid', 'idx', '2').error().equal('document was removed')
+        self.env.expect(debug_cmd(), 'idtodocid', 'idx', 'docId').error().equal('bad id given')
 
     def testDumpPhoneticHash(self):
-        self.env.expect('FT.DEBUG', 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
-        self.env.expect('FT.DEBUG', 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
+        self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
+        self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
 
     def testDumpPhoneticHashWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_phonetic_hash').error()
+        self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
 
     def testDumpTerms(self):
-        self.env.expect('FT.DEBUG', 'dump_terms', 'idx').equal(['meir'])
-        self.env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal(['meir'])
+        self.env.expect(debug_cmd(), 'dump_terms', 'idx').equal(['meir'])
+        self.env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal(['meir'])
 
     def testDumpTermsWrongArity(self):
-        self.env.expect('FT.DEBUG', 'dump_terms').error()
+        self.env.expect(debug_cmd(), 'dump_terms').error()
 
     def testDumpTermsUnknownIndex(self):
-        self.env.expect('FT.DEBUG', 'dump_terms', 'idx1').error()
+        self.env.expect(debug_cmd(), 'dump_terms', 'idx1').error()
 
     def testInvertedIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
+        self.env.expect(debug_cmd(), 'invidx_summary', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             557139, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
-        self.env.expect('FT.DEBUG', 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
+        self.env.expect(debug_cmd(), 'INVIDX_SUMMARY', 'idx', 'meir').equal(['numDocs', 1, 'numEntries', 1, 'lastId', 1, 'flags',
                                                                             557139, 'numberOfBlocks', 1, 'blocks',
                                                                             ['firstId', 1, 'lastId', 1, 'numEntries', 1]])
 
     def testUnexistsInvertedIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx', 'meir1').error()
+        self.env.expect(debug_cmd(), 'invidx_summary', 'idx', 'meir1').error()
 
     def testInvertedIndexSummaryInvalidIdxName(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx1', 'meir').error()
+        self.env.expect(debug_cmd(), 'invidx_summary', 'idx1', 'meir').error()
 
     def testInvertedIndexSummaryWrongArity(self):
-        self.env.expect('FT.DEBUG', 'invidx_summary', 'idx1').error()
+        self.env.expect(debug_cmd(), 'invidx_summary', 'idx1').error()
 
     def testNumericIdxIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
                                                                            'lastDocId', 1, 'revisionId', 0,
                                                                            'emptyLeaves', 0, 'RootMaxDepth', 0])
 
-        self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
+        self.env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
                                                                            'lastDocId', 1, 'revisionId', 0,
                                                                            'emptyLeaves', 0, 'RootMaxDepth', 0])
 
     def testUnexistsNumericIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age1').error()
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age1').error()
 
     def testNumericIndexSummaryInvalidIdxName(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1', 'age').error()
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx1', 'age').error()
 
     def testNumericIndexSummaryWrongArity(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').error()
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx1').error()
 
     def testDumpSuffixWrongArity(self):
-        self.env.expect('FT.DEBUG', 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
+        self.env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
 
     def testGCStopAndContinueSchedule(self):
-        self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
-        self.env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()
-        self.env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
-        self.env.expect('FT.DEBUG', 'TTL', 'non-existing').error().contains('Unknown index name')
-        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect('FT.DEBUG', 'TTL', 'idx').error().contains('Index is not temporary')
-        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
-        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
+        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL', 'idx').error().contains('Index is not temporary')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
 
         self.env.expect('FT.CREATE', 'idx_temp', 'TEMPORARY', 3600, 'PREFIX', 1, 'temp:', 'SCHEMA', 'name', 'TEXT').ok()
         # Should pass if command is called within 10 minutes from creation.
-        self.env.assertGreater(self.env.cmd('FT.DEBUG', 'TTL', 'idx_temp'), 3000) # It should be close to 3600.
-        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').ok()
-        self.env.expect('FT.DEBUG', 'TTL_PAUSE', 'idx_temp').error().contains('Index does not have a timer')
-        self.env.expect('FT.DEBUG', 'TTL_EXPIRE', 'idx_temp').ok()
+        self.env.assertGreater(self.env.cmd(debug_cmd(), 'TTL', 'idx_temp'), 3000) # It should be close to 3600.
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx_temp').ok()
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx_temp').error().contains('Index does not have a timer')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx_temp').ok()
         with TimeLimit(10):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
@@ -216,15 +220,15 @@ class TestDebugCommands(object):
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
-        self.env.expect('FT.DEBUG', 'WORKERS').error().contains(
-            "wrong number of arguments for 'FT.DEBUG|WORKERS' command")
-        self.env.expect('FT.DEBUG', 'WORKERS', 'invalid').error().contains(
+        self.env.expect(debug_cmd(), 'WORKERS').error().contains(
+            f"wrong number of arguments for '{debug_cmd()}|WORKERS' command")
+        self.env.expect(debug_cmd(), 'WORKERS', 'invalid').error().contains(
             "Invalid argument for 'WORKERS' subcommand")
-        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').error()\
+        self.env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        self.env.expect(debug_cmd(), 'WORKERS', 'pause').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is not running")
-        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').error()\
+        self.env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+        self.env.expect(debug_cmd(), 'WORKERS', 'resume').error()\
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
     def testWorkersPoolDrain(self):
@@ -232,8 +236,8 @@ class TestDebugCommands(object):
             self.env.skip()
         # test stats and drain
         orig_stats = getWorkersThpoolStats(self.env)
-        self.env.expect('FT.DEBUG', 'WORKERS', 'pause').ok()
-        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').error() \
+        self.env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        self.env.expect(debug_cmd(), 'WORKERS', 'drain').error() \
             .contains("Operation failed: workers thread pool is not running")
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test',
                         'v', create_np_array_typed([1, 2]).tobytes()).equal(1)
@@ -248,8 +252,8 @@ class TestDebugCommands(object):
 
         # After resuming, expect that the job is done.
         orig_stats = stats
-        self.env.expect('FT.DEBUG', 'WORKERS', 'resume').ok()
-        self.env.expect('FT.DEBUG', 'WORKERS', 'drain').ok()
+        self.env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+        self.env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
         stats = getWorkersThpoolStats(self.env)
         self.env.assertEqual(stats, {'totalJobsDone': orig_stats['totalJobsDone']+1,
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
@@ -261,7 +265,7 @@ class TestDebugCommands(object):
         if not MT_BUILD:
             self.env.skip()
         # test stats and drain
-        self.env.expect('FT.DEBUG', 'WORKERS', 'n_threads').equal(self.workers_count)
+        self.env.expect(debug_cmd(), 'WORKERS', 'n_threads').equal(self.workers_count)
 
 
 @skip(cluster=True)
@@ -280,24 +284,24 @@ def testDumpHNSW(env):
     env.expect(index_info(env, 'temp-idx')['num_docs'], 3)
 
     # Test error handling
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx').error() \
-        .contains("wrong number of arguments for 'FT.DEBUG|DUMP_HNSW' command")
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'bad_idx', 'v').error() \
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx').error() \
+        .contains(f"wrong number of arguments for '{debug_cmd()}|DUMP_HNSW' command")
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'bad_idx', 'v').error() \
         .contains("Can not create a search ctx")
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'bad_vec_field').error() \
         .contains("Vector index not found")
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_flat').error() \
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_flat').error() \
         .contains("Vector index is not an HNSW index")
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW_multi').error() \
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW_multi').error() \
         .contains("Command not supported for HNSW multi-value index")
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_bad_doc_name').error() \
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_bad_doc_name').error() \
         .contains("The given key does not exist in index")
 
     # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
         equal(['Doc id', 1, ['Neighbors in level 0', 2]])
 
-    env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
         equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
                "Doc id 3 doesn't contain the given field"])
 

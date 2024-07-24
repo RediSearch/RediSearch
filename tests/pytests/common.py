@@ -228,9 +228,8 @@ def index_info(env, idx='idx'):
 
 
 def dump_numeric_index_tree(env, idx, numeric_field):
-    res = env.cmd('FT.DEBUG', 'DUMP_NUMIDXTREE', idx, numeric_field)
-    tree_dump = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return tree_dump
+    tree_dump = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, numeric_field)
+    return to_dict(tree_dump)
 
 
 def dump_numeric_index_tree_root(env, idx, numeric_field):
@@ -240,9 +239,8 @@ def dump_numeric_index_tree_root(env, idx, numeric_field):
     return root_dump
 
 def numeric_tree_summary(env, idx, numeric_field):
-    res = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', idx, numeric_field)
-    tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return tree_summary
+    tree_summary = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', idx, numeric_field)
+    return to_dict(tree_summary)
 
 
 def getWorkersThpoolStats(env):
@@ -269,7 +267,7 @@ def skipOnCrdtEnv(env):
         env.skip()
 
 def skipOnDialect(env, dialect):
-    server_dialect = int(env.expect('FT.CONFIG', 'GET', 'DEFAULT_DIALECT').res[0][1])
+    server_dialect = int(env.expect(config_cmd(), 'GET', 'DEFAULT_DIALECT').res[0][1])
     if dialect == server_dialect:
         env.skip()
 
@@ -307,15 +305,17 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+COORD_BUILD = any('coord-oss' in m for m in Defaults.module) or 'coord-oss' in Defaults.module
+
 def debug_cmd():
-    return '_ft.debug' if COORD else 'ft.debug'
+    return '_FT.DEBUG' if COORD_BUILD else 'FT.DEBUG'
+
+def config_cmd():
+    return '_FT.CONFIG' if COORD_BUILD else 'FT.CONFIG'
+
 
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
-
-def config_cmd():
-    return '_ft.config' if COORD else 'ft.config'
-
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
@@ -360,7 +360,7 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
                 raise SkipTest()
-            if cluster == COORD:
+            if cluster == CLUSTER:
                 raise SkipTest()
             if macos and OS == 'macos':
                 raise SkipTest()
@@ -378,7 +378,7 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
-            if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+            if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()

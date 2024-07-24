@@ -72,7 +72,7 @@ def testTagPrefix(env):
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world',
                'tags', 'hello world,hello-world,hell,jell').ok()
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
+    env.expect(debug_cmd(), 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
     for _ in env.reloadingIterator():
@@ -176,12 +176,12 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
     if not env.isCluster():
-        conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
+        conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx4', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx5', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
 
     env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
         .equal([3, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
@@ -204,11 +204,11 @@ def testTagCaseSensitive(env):
         forceInvokeGC(env, 'idx4')
         forceInvokeGC(env, 'idx5')
 
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['f o', [4, 5, 6]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['F O', [4, 5]], ['f o', [4, 6]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['f o', [5, 6]], ['f o,f o', [4]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['f o', [4, 5, 6]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['F O', [4, 5]], ['f o', [4, 6]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['f o', [5, 6]], ['f o,f o', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx4', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
 
     # not casesensitive
     env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
@@ -250,25 +250,25 @@ def testTagCaseSensitive(env):
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
     conn.execute_command('HSET', 'doc3', 't', 'baz')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['bar', [2]], ['baz', [3]], ['foo', [1]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['bar', [2]], ['baz', [3]], ['foo', [1]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1, 'doc1', ['t', 'foo']])
 
     # delete two tags
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc2')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0])
 
     # delete last tag
     conn.execute_command('DEL', 'doc3')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # check term can be used after being empty
     conn.execute_command('HSET', 'doc4', 't', 'foo')
@@ -280,11 +280,11 @@ def testTagGCClearEmpty(env):
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1, []])
@@ -296,7 +296,7 @@ def testTagGCClearEmptyWithCursor(env):
     forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -307,11 +307,11 @@ def testTagGCClearEmptyWithCursor(env):
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1, []])
@@ -323,12 +323,12 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # add data
     conn.execute_command('HSET', 'doc3', 't', 'foo')
     conn.execute_command('HSET', 'doc4', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
 
     # read from the cursor
     res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
@@ -346,7 +346,7 @@ def testEmptyTagLeak(env):
     tags = 30
 
     conn = getConnectionByEnv(env)
-    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     pl = conn.pipeline()
 
@@ -359,7 +359,7 @@ def testEmptyTagLeak(env):
             pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
         pl.execute()
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
 def test_empty_suffix_withsuffixtrie(env):
     """Tests that we don't leak when we search for a suffix with no entries in
@@ -529,7 +529,7 @@ def testDialect2TagExact():
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
-    res = env.cmd('FT.SEARCH', 'idx', 
+    res = env.cmd('FT.SEARCH', 'idx',
                   '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:3'])
@@ -640,7 +640,7 @@ def testDialect2TagExact():
     # wildcard with leading and trailing spaces are valid, spaces are ignored
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
-    
+
     res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
     env.assertEqual(res, res2)
 
@@ -787,20 +787,20 @@ def testDialect2InvalidSyntax():
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}")
-    
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @tag:{w'-abc*}")
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})")
-         
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}'")
 
     # escaping an invalid wildcard
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{\\w-:abc}")
-    
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{\\w'-:abc}")
 
@@ -839,7 +839,7 @@ def testDialect2SpecialChars():
 
     # Create docs with a text containing the punct characters
     for c in punct:
-        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text", 
+        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text",
                              f"single\\{chr(c)}term")
 
     # Create docs without special characters
@@ -932,7 +932,7 @@ def testTagUNF():
     # Create index without UNF
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
-    
+
     # Create index with UNF
     env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()

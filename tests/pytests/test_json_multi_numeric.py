@@ -258,8 +258,8 @@ def testDebugDump(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps([-1, 2, 3]))
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps([-2, -1, 2]))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
+    env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
+    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 
@@ -287,10 +287,10 @@ def testInvertedIndexMultipleBlocks(env):
         conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({ 'arr':  [doc, doc + doc_num - overlap],
                                                                                  'arr2': [doc]}))
     expected_ids = range(1, doc_num + 1)
-    res = conn.execute_command('FT.DEBUG', 'DUMP_NUMIDX' ,'idx', 'arr')
+    res = conn.execute_command(debug_cmd(), 'DUMP_NUMIDX' ,'idx', 'arr')
     env.assertEqual(set(toSortedFlatList(res)), set(expected_ids), message='DUMP_NUMIDX')
 
-    res = to_dict(conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'arr'))
+    res = to_dict(conn.execute_command(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'arr'))
     env.assertEqual(res['numEntries'], doc_num * 2)
     env.assertEqual(res['lastDocId'], doc_num)
 
@@ -345,7 +345,7 @@ def testInfoAndGC(env):
 
     printSeed(env)
 
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
 
     # Various lambdas to create and delete docs
     def create_json_docs_multi(env, doc_num):
@@ -591,7 +591,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[5 6]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary1 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary1 = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'val')
 
     # Add values from 5000 to -5000
     # Add to the left, rebalance to the right
@@ -605,7 +605,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx', '@val:[-6 -5]', 'NOCONTENT').equal([3, 'doc:5005', 'doc:5006', 'doc:5007'])
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
-    summary2 = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'val')
+    summary2 = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'val')
 
     env.assertEqual(summary1, summary2)
 
@@ -621,7 +621,7 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps({'val': [1, 2, 3]}))
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
-    env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
+    env.expect(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
         'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(109), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
@@ -633,7 +633,7 @@ def checkUpdateNumRecords(env, is_json):
         env.skip()
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
 
     if is_json:
         env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()

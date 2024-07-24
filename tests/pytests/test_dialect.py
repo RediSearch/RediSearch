@@ -9,23 +9,23 @@ def test_dialect_config_get_set_from_default(env):
     # skip when default MODARGS for pytest is DEFAULT_DIALECT 2. RediSearch>=2.4 is loading with dialect v1 as default.
     skipOnDialect(env, 2)
     MAX_DIALECT = set_max_dialect(env)
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 2").ok()
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 2").ok()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
 
 @skip(cluster=True)
 def test_dialect_config_get_set_from_config(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     MAX_DIALECT = set_max_dialect(env)
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 1").ok()
-    env.expect("FT.CONFIG GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT 0").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT -1").error()
-    env.expect("FT.CONFIG SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
+    env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
+    env.expect(config_cmd() + " SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
@@ -99,7 +99,7 @@ def test_v1_vs_v2(env):
 
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
     expected = [
-      'INTERSECT {',                                                                                                                                 
+      'INTERSECT {',
       '  UNION {',
       '    1.2',
       '    +1.2(expanded)',
@@ -209,7 +209,7 @@ def test_dialect_aggregate(env):
     env.expect("FT.CREATE idx SCHEMA t1 TEXT t2 TEXT").ok()
     conn.execute_command("HSET", "h1", "t1", "James Brown", "t2", "Jimi Hendrix")
     conn.execute_command("HSET", "h2", "t1", "James", "t2", "Brown")
-    
+
     # In dialect 2, both documents are returned ("James" in t1 and "Brown" in any field)
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t1:James Brown', 'GROUPBY', '2', '@t1', '@t2', 'DIALECT', 1)
     env.assertEqual(res[0], 1)
@@ -239,9 +239,7 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
 
 def test_dialect_info(env):
   conn = getConnectionByEnv(env)
-  config = ("_" if env.isCluster() else "") + "FT.CONFIG SET DEFAULT_DIALECT 1"
-  env.expect(config).ok()
-  info = env.cmd('INFO', 'MODULES')
+  env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')

@@ -428,11 +428,6 @@ def testMultiEmptyBlankOrNone(env):
 
     env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
 
-def getFtConfigCmd(env):
-    if not env.isCluster():
-        return "FT.CONFIG"
-    else:
-        return "_FT.CONFIG"
 
 def testconfigMultiTextOffsetDelta(env):
     """ test default ft.config `MULTI_TEXT_SLOP` """
@@ -445,7 +440,7 @@ def testconfigMultiTextOffsetDelta(env):
     env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
-    env.expect(getFtConfigCmd(env), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
+    env.expect(config_cmd(), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
 
 
     # MULTI_TEXT_SLOP = 100 (Default)
@@ -454,7 +449,7 @@ def testconfigMultiTextOffsetDelta(env):
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  103   ,  203         ,  303
 
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -472,7 +467,7 @@ def testconfigMultiTextOffsetDeltaSlop101():
 
     # MULTI_TEXT_SLOP = 101
     conn = getConnectionByEnv(env)
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
@@ -502,7 +497,7 @@ def testconfigMultiTextOffsetDeltaSlop0():
 
     # MULTI_TEXT_SLOP = 0
     conn = getConnectionByEnv(env)
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]

@@ -19,6 +19,7 @@ env:
                     'ubuntu:focal',
                     'ubuntu:bionic',
                     'rockylinux:8',
+                    'rockylinux:9',
                     'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2',

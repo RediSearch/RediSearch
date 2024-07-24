@@ -558,7 +558,7 @@ class TestAggregate():
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
         # SEARCH should succeed
-        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', -1).ok()
         rv = self.env.cmd('ft.search', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(4531, len(rv))
@@ -567,18 +567,18 @@ class TestAggregate():
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(2266, len(rv))
         # AGGREGATE should fail
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
         self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
 
         # force global limit on aggregate
         num = 10
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', num).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', num).ok()
         rv = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertEqual(num + 1, len(rv))
 
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
-        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', -1).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', 1000000).ok()
 
     def testMultiSortByStepsError(self):
         self.env.expect('ft.aggregate', 'games', '*',
@@ -931,8 +931,8 @@ def testMaxAggResults(env):
 
 @skip(cluster=True)
 def testMaxAggInf(env):
-    env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
-    env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
+    env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', -1).ok()
+    env.expect(config_cmd(), 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
 
 def testLoadPosition(env):
     conn = getConnectionByEnv(env)

@@ -69,9 +69,9 @@ def compare_optimized_to_not(env, query, params, msg=None):
 
 @skip(cluster=True)
 def testOptimizer(env):
-    env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
-    env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-    env.cmd('FT.CONFIG', 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
+    env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
+    env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+    env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -81,7 +81,7 @@ def testOptimizer(env):
         conn.execute_command('hset', i, 't', 'foo', 'tag', 'foo', 'n', i % 100)
         conn.execute_command('hset', i + 1, 't', 'bar', 'tag', 'bar', 'n', i % 100)
 
-    numeric_info = conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    numeric_info = conn.execute_command(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
     params = ['NOCONTENT', 'WITHOUTCOUNT']
 
@@ -348,8 +348,8 @@ def testOptimizer(env):
 
 @skip(cluster=True)
 def testWOLimit(env):
-    env.cmd('ft.config', 'set', 'timeout', '0')
-    env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+    env.cmd(config_cmd(), 'set', 'timeout', '0')
+    env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT', 'tag', 'TAG')
@@ -360,7 +360,7 @@ def testWOLimit(env):
         for j in range(5):
             conn.execute_command('hset', i + j, 't', words[j], 'tag', words[j], 'n', i + j)
 
-    numeric_info = conn.execute_command('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    numeric_info = conn.execute_command(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
     params = ['NOCONTENT', 'WITHOUTCOUNT']
 

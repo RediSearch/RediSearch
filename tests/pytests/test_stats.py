@@ -33,7 +33,7 @@ def runTestWithSeed(env, s=None):
     loop_count = int(count / cleaning_loops)
 
     ### test increasing integers
-    env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+    env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_index_info(env, idx, 0, 0)
@@ -45,10 +45,10 @@ def runTestWithSeed(env, s=None):
     # 2 bytes for the actual number (4096-4099)
 
     for i in range(count):
-        # write only 4 different values to get a range tree with a root node 
+        # write only 4 different values to get a range tree with a root node
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
-    
+
     # Expected inverted index size total: 606 bytes
     # 2 * (buffer size + inverted index structure size)
     # 2 * (207 + 96) = 606
@@ -85,7 +85,7 @@ def runTestWithSeed(env, s=None):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
 
-    # Test only the number of records, because the memory size depends on 
+    # Test only the number of records, because the memory size depends on
     # the random values.
     check_index_info(env, idx, count, None)
 
@@ -147,7 +147,7 @@ def testMemoryAfterDrop(env):
     pl = env.getConnection().pipeline()
 
     env.cmd('FLUSHALL')
-    env.cmd('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.cmd(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -180,7 +180,7 @@ def testIssue1497(env):
 
     env.cmd('FLUSHALL')
     waitForRdbSaveToFinish(env)
-    env.cmd('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.cmd(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
     res = env.cmd('ft.info', 'idx')
@@ -209,7 +209,7 @@ def testMemoryAfterDrop_numeric(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -241,7 +241,7 @@ def testMemoryAfterDrop_geo(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'g', 'GEO').ok()
@@ -273,7 +273,7 @@ def testMemoryAfterDrop_text(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 't', 'TEXT').ok()
@@ -304,7 +304,7 @@ def testMemoryAfterDrop_tag(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'tg', 'TAG').ok()

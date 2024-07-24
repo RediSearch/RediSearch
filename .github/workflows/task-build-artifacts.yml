@@ -132,11 +132,13 @@ jobs:
       - name: Build and Pack RediSearch OSS
         env:
           REDISEARCH_MT_BUILD: 0
+          COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1
           LITE: 1
+          COORD: 0
         run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
