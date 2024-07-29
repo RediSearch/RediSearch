@@ -20,8 +20,13 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
+  check-format:
+    needs: [docs-only]
+    if: ${{ needs.docs-only.outputs.only-docs-changed == 'false' }}
+    uses: ./.github/workflows/task-check-format.yml
+
   basic-test:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-redis-tag, check-format]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
@@ -31,13 +36,13 @@ jobs:
     secrets: inherit
 
   coverage:
-    needs: docs-only
+    needs: [docs-only, check-format]
     if: ${{ needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
   sanitize:
-    needs: docs-only
+    needs: [docs-only, check-format]
     if: ${{ needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
@@ -47,6 +52,7 @@ jobs:
   pr-validation:
     needs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
+      - check-format
       - get-latest-redis-tag
       - basic-test
       - coverage

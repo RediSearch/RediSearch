@@ -604,6 +604,16 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+check-format:
+	$(SHOW)./check-format.sh
+
+format:
+	$(SHOW)FIX=1 ./check-format.sh
+
+.PHONY: check-format format
+
+#----------------------------------------------------------------------------------------------
+
 docker:
 	$(SHOW)$(MAKE) -C build/docker
 ifeq ($(VERIFY),1)
