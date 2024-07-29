@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict
+from common import getConnectionByEnv, index_info, to_dict, skip
 
 
 
@@ -286,7 +286,7 @@ def test_multiple_index_failures(env):
 
 
 ###################### JSON failures ######################
-
+@skip(no_json=True)
 def test_vector_indexing_with_json(env):
   con = getConnectionByEnv(env)
   # Create a vector index.

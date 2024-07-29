@@ -208,7 +208,7 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1, 'doc1', '1', ['t', 'foo']])
 
 @no_msan
-def testIssue2104(env):
+def testIssue2104Hash(env):
   # 'AS' attribute does not work in functions
   conn = getConnectionByEnv(env)
 
@@ -230,9 +230,13 @@ def testIssue2104(env):
 
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
+      
+@skip(msan=True, no_json=True)
+def testIssue2104JSON(env):
+  # 'AS' attribute does not work in functions
+  conn = getConnectionByEnv(env)
 
-  # json
-  env.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
+  env.cmd('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
                                                                         '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
   env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
   env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
@@ -256,7 +260,7 @@ def testIssue2104(env):
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
       .equal([1, ['a', '3.14', 'avg', '3.14']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def test_MOD1266(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
@@ -362,7 +366,7 @@ def test_MOD_1517(env):
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
              'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def test_MOD1544(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
@@ -755,6 +759,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertEqual(cursor ,0)
 
+@skip(no_json=True)
 def test_as_startswith_as(env):
     conn = getConnectionByEnv(env)
 
