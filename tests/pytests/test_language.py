@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from common import getConnectionByEnv, waitForIndex, config_cmd
+from common import getConnectionByEnv, waitForIndex, config_cmd, skip
 from RLTest import Env
 from common import index_info
 import time
@@ -86,6 +86,7 @@ def testHashIndexLanguage(env):
             'LANGUAGE', 'any_invalid_language', 'LANGUAGE_FIELD', '__lang',
             'SCHEMA', 'word', 'TEXT', ).error()
 
+@skip(no_json=True)
 def testJsonIndexLanguage(env):
     conn = getConnectionByEnv(env)
 
@@ -355,6 +356,7 @@ def testHashIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
+@skip(no_json=True)
 def testJsonIndexLanguageField(env):
     conn = getConnectionByEnv(env)
 

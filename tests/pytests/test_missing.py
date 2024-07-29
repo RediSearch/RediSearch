@@ -468,7 +468,7 @@ def HashMissingTest(env, conn):
         MissingTestTwoMissingFields(env, conn, idx, ftype, field1, field2, val1, val2, False)
         env.flush()
 
-def testMissing():
+def testMissingHash():
     """Tests the missing values indexing feature thoroughly."""
 
     env = DialectEnv()
@@ -480,6 +480,17 @@ def testMissing():
 
         # Test missing fields indexing on hash documents
         HashMissingTest(env, conn)
+
+@skip(no_json=True)        
+def testMissingJSON():
+    """Tests the missing values indexing feature thoroughly."""
+
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+    MAX_DIALECT = set_max_dialect(env)
+
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
 
         # Test missing fields indexing on JSON documents
         JSONMissingTest(env, conn)

@@ -72,27 +72,46 @@ def buildExpireDocsResults(isSortable, isJson):
 
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2")
-def testExpireDocs(env):
+def testExpireDocsHash(env):
 
-    for isJson in [False, True]:
-        expected_results = buildExpireDocsResults(False, isJson)
-        expireDocs(env, False, # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-                expected_results, isJson)
+    expected_results = buildExpireDocsResults(False, False)
+    # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
+    expireDocs(env, False, expected_results, False)
+        
+# Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
+@skip(cluster=True, redis_less_than="7.2", no_json=True)
+def testExpireDocsJson(env):
+    expected_results = buildExpireDocsResults(False, True)
+    # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
+    expireDocs(env, False, expected_results, True)
 
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2")
-def testExpireDocsSortable(env):
+def testExpireDocsSortableHash(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE
     '''
 
-    for isJson in [False, True]:
-        expected_results = buildExpireDocsResults(True, isJson)
-        expireDocs(env, True,  # With SORTABLE -
-               # The documents data exists in the index.
-               # Since we are not trying to load the document in the sorter, it is not discarded from the results,
-               # but it is marked as deleted and we reply with None.
-               expected_results, isJson)
+    expected_results = buildExpireDocsResults(True, False)
+    expireDocs(env, True, expected_results, False)
+            # With SORTABLE -
+            # The documents data exists in the index.
+            # Since we are not trying to load the document in the sorter, it is not discarded from the results,
+            # but it is marked as deleted and we reply with None.
+
+# Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
+@skip(cluster=True, redis_less_than="7.2", no_json=True)
+def testExpireDocsSortableJSON(env):
+    '''
+    Same as test `testExpireDocs` only with SORTABLE
+    '''
+
+    expected_results = buildExpireDocsResults(True, True)
+    expireDocs(env, True, expected_results, True)
+            # With SORTABLE -
+            # The documents data exists in the index.
+            # Since we are not trying to load the document in the sorter, it is not discarded from the results,
+            # but it is marked as deleted and we reply with None.
 
 
 #TODO: DvirDu: I think this test should be broken down to smaller tests, due to the complexity of the test and the number of cases it covers it is hard to debug

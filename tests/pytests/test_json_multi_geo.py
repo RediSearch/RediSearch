@@ -104,7 +104,7 @@ def checkInfo(env, idx, num_docs, inverted_sz_mb):
     env.assertEqual(int(info['num_docs']), num_docs)
     env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb)
 
-@skip(cluster=True)
+@skip(cluster=True, no_json=True)
 def testBasic(env):
     """ Test multi GEO values (an array of GEO values or multiple GEO values) """
 
@@ -184,7 +184,7 @@ def testBasic(env):
     forceInvokeGC(env, 'idx1')
     checkInfo(env, 'idx1', 0, 0)
 
-
+@skip(no_json=True)
 def testMultiNonGeo(env):
     """
     test multiple GEO values which include some non-geo values at root level (null, numeric, text with illegal coordinates, bool, array, object)
@@ -214,6 +214,7 @@ def testMultiNonGeo(env):
     env.expect('FT.SEARCH', 'idx2', '@root:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:2:'])
 
 
+@skip(no_json=True)
 def testMultiNonGeoNested(env):
     """
     test multiple GEO values which include some non-geo values at inner level (null, numeric, text with illegal coordinates, bool, array, object)
@@ -240,7 +241,7 @@ def testMultiNonGeoNested(env):
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-@skip(cluster=True)
+@skip(cluster=True, no_json=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi GEO values """
 
@@ -311,7 +312,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-
+@skip(no_json=True)
 def testMultiGeoReturn(env):
     """ test RETURN with multiple GEO values """
 
@@ -323,6 +324,7 @@ def testMultiGeoReturn(env):
     env.flush()
     checkMultiGeoReturn(env, [res1, res2, res3], False, True)
 
+@skip(no_json=True)
 def testMultiGeoReturnBWC(env):
     """ test backward compatibility of RETURN with multiple GEO values """
     res1 = [1, 'doc:1', ['arr_1', '29.7,34.9']]
