@@ -13,5 +13,7 @@ jobs:
                 fetch-depth: 0 # required for changed-files action to work
           - name: Install python formatters
             run: pip install -r .py-formatters-requirmenets.txt
+          - name: clang-format version
+            run: clang-format --version
           - name: Check code format
             run: ./check-format.sh
