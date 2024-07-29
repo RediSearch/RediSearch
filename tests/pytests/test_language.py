@@ -86,7 +86,7 @@ def testHashIndexLanguage(env):
             'LANGUAGE', 'any_invalid_language', 'LANGUAGE_FIELD', '__lang',
             'SCHEMA', 'word', 'TEXT', ).error()
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testJsonIndexLanguage(env):
     conn = getConnectionByEnv(env)
 
@@ -356,7 +356,7 @@ def testHashIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testJsonIndexLanguageField(env):
     conn = getConnectionByEnv(env)
 

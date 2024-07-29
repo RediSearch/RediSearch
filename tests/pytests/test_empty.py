@@ -405,7 +405,7 @@ def testEmptyTag():
         env.assertEqual(int(res[0]), 500)
         env.flush()
     
-@skip(NOJSON=True)   
+@skip(no_json=True)   
 def testEmptyTagJSON():
     env = DialectEnv()
     conn = getConnectionByEnv(env)
@@ -720,7 +720,7 @@ def testEmptyText():
         env.flush()
 
       
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testEmptyTextJSON():
     env = DialectEnv()
     MAX_DIALECT = set_max_dialect(env)

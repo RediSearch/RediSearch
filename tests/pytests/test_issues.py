@@ -200,7 +200,7 @@ def testIssue2104Hash(env):
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
       
-@skip(msan=True, NOJSON=True)
+@skip(msan=True, no_json=True)
 def testIssue2104JSON(env):
   # 'AS' attribute does not work in functions
   conn = getConnectionByEnv(env)
@@ -229,7 +229,7 @@ def testIssue2104JSON(env):
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
       .equal([1, ['a', '3.14', 'avg', '3.14']])
 
-@skip(msan=True, NOJSON=True)
+@skip(msan=True, no_json=True)
 def test_MOD1266(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
@@ -335,7 +335,7 @@ def test_MOD_1517(env):
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
              'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
 
-@skip(msan=True, NOJSON=True)
+@skip(msan=True, no_json=True)
 def test_MOD1544(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
@@ -723,7 +723,7 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertEqual(cursor ,0)
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def test_as_startswith_as(env):
     conn = getConnectionByEnv(env)
 

@@ -79,13 +79,11 @@ def testExpireDocsHash(env):
     expireDocs(env, False, expected_results, False)
         
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
-@skip(cluster=True, redis_less_than="7.2", NOJSON=True)
+@skip(cluster=True, redis_less_than="7.2", no_json=True)
 def testExpireDocsJson(env):
-
-    for isJson in [False, True]:
-        expected_results = buildExpireDocsResults(False, True)
-        # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-        expireDocs(env, False, expected_results, True)
+    expected_results = buildExpireDocsResults(False, True)
+    # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
+    expireDocs(env, False, expected_results, True)
 
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2")
@@ -102,7 +100,7 @@ def testExpireDocsSortableHash(env):
             # but it is marked as deleted and we reply with None.
 
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
-@skip(cluster=True, redis_less_than="7.2", NOJSON=True)
+@skip(cluster=True, redis_less_than="7.2", no_json=True)
 def testExpireDocsSortableJSON(env):
     '''
     Same as test `testExpireDocs` only with SORTABLE

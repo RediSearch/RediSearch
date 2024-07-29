@@ -686,7 +686,7 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0])
 
-@skip(msan=True, NOJSON=True)
+@skip(msan=True, no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx1',
@@ -705,7 +705,7 @@ def testIdxFieldJson(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testFilterStartWith(env):
     conn = getConnectionByEnv(env)
 
@@ -719,7 +719,7 @@ def testFilterStartWith(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testFilterWithOperator(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
@@ -733,7 +733,7 @@ def testFilterWithOperator(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:foo', ['$', '{"name":"foo","num":5}']])
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testFilterWithNot(env):
     conn = getConnectionByEnv(env)
     # check NOT on a non existing value return 1 result

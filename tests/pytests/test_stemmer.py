@@ -70,7 +70,7 @@ def testHashMinStemLen(env):
         res = env.cmd('FT.SEARCH', 'idx_es', word, 'LANGUAGE', 'spanish')
         env.assertEqual(res[0], 3)
 
-@skip(NOJSON=True)
+@skip(no_json=True)
 def testJsonMinStemLen(env):
 
     ########################################################
