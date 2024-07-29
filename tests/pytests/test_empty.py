@@ -721,7 +721,9 @@ def testEmptyText():
 
       
 @skip(NOJSON=True)
-def testEmptyTextJSON(env):
+def testEmptyTextJSON():
+    env = DialectEnv()
+    MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env.set_dialect(dialect)
       # ---------------------------------- JSON ----------------------------------
