@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict
+from common import getConnectionByEnv, index_info, to_dict, skip
 
 
 
@@ -241,7 +241,7 @@ def test_partial_doc_index_failures(env):
     env.assertEqual(info['field statistics'][1], excepted_numeric_stats)
 
 ###################### JSON failures ######################
-
+@skip(no_json=True)
 def test_vector_indexing_with_json(env):
   con = getConnectionByEnv(env)
   # Create a vector index.

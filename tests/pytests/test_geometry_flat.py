@@ -66,6 +66,7 @@ def testSanitySearchPointWithin(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+@skip(no_json=True)
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT').ok()
@@ -79,6 +80,7 @@ def testSanitySearchJsonWithin(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+@skip(no_json=True)
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT $.name as name TEXT').ok()
@@ -133,7 +135,7 @@ def test_MOD_7126(env):
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@skip(asan=True)
+@skip(asan=True, no_json=True)
 def testWKTIngestError(env):
   ''' Test ingest error '''
 
@@ -188,7 +190,7 @@ def testWKTIngestError(env):
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@skip(asan=True)
+@skip(asan=True, no_json=True)
 def testWKTQueryError(env):
   ''' Test query error '''
   conn = getConnectionByEnv(env)

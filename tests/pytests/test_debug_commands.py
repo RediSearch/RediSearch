@@ -268,7 +268,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'WORKERS', 'n_threads').equal(self.workers_count)
 
 
-@skip(cluster=True)
+@skip(cluster=True, no_json=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
     # Had we used this test in the TestDebugCommands env, a background indexing would have been triggered, and

@@ -753,6 +753,7 @@ def test_profile_child_itrerators_array():
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
+@skip(no_json=True)
 def testExpandErrorsResp3():
   env = Env(protocol=3)
   # On JSON
@@ -772,6 +773,7 @@ def testExpandErrorsResp3():
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with JSON')
 
+@skip(no_json=True)
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
@@ -789,6 +791,7 @@ def testExpandErrorsResp2():
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with RESP3')
 
+@skip(no_json=True)
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
   env = Env(protocol=3)
@@ -1044,6 +1047,7 @@ def testExpandHash():
   env.assertEqual(res, exp_string)
 
 
+@skip(no_json=True)
 def testExpandJsonVector():
   ''' Test returning values for VECTOR in expanded format (raw RESP3 instead of stringified JSON) '''
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')

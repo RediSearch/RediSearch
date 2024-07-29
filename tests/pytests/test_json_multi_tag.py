@@ -3,7 +3,7 @@ from common import *
 import json
 from json_multi_text_content import *
 
-
+@skip(no_json=True)
 def testMultiTagReturnSimple(env):
     """ test multiple TAG values (array of strings) """
     conn = getConnectionByEnv(env)
@@ -28,6 +28,7 @@ def testMultiTagReturnSimple(env):
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
 
+@skip(no_json=True)
 def testMultiTagBool(env):
     """ test multiple TAG values (array of Boolean) """
 
@@ -51,6 +52,7 @@ def testMultiTagBool(env):
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
     env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
 
+@skip(no_json=True)
 def testMultiTag(env):
     """ test multiple TAG values at root level (array of strings) """
 
@@ -75,6 +77,7 @@ def testMultiTag(env):
 
     searchMultiTagCategory(env)
 
+@skip(no_json=True)
 def testMultiTagNested(env):
     """ test multiple TAG values at inner level (array of strings) """
 
@@ -153,6 +156,7 @@ def searchMultiTagAuthor(env):
 
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:{programming}', 'NOCONTENT').equal([1, 'doc:1'])
 
+@skip(no_json=True)
 def testMultiNonText(env):
     """
     test multiple TAG values which include some non-text values at root level (null, number, bool, array, object)
@@ -181,6 +185,7 @@ def testMultiNonText(env):
     env.expect('FT.SEARCH', 'idx1', '@root:{third}', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:{third}', 'NOCONTENT').equal([1, 'doc:2:'])
 
+@skip(no_json=True)
 def testMultiNonTextNested(env):
     """
     test multiple TAG values which include some non-text values at inner level (null, number, bool, array, object)
@@ -289,6 +294,7 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
     res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
+@skip(no_json=True)
 def testMultiTagReturn(env):
     """ test RETURN with multiple TAG values """
 
@@ -303,6 +309,7 @@ def testMultiTagReturn(env):
     env.flush()
     checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, True)
 
+@skip(no_json=True)
 def testMultiTagReturnBWC(env):
     """ test backward compatibility of RETURN with multiple TAG values """
     res1 = [1, 'doc:1', ['arr_1', 'AL']]
