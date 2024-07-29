@@ -406,7 +406,8 @@ def testEmptyTag():
         env.flush()
     
 @skip(NOJSON=True)   
-def testEmptyTagJSON(env):
+def testEmptyTagJSON():
+    env = DialectEnv()
     conn = getConnectionByEnv(env)
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):

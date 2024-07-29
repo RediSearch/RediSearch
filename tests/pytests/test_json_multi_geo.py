@@ -255,7 +255,6 @@ def testDebugDump(env):
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 
-@skip(NOJSON=True)
 def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     """ Helper function for RETURN with multiple GEO values """
 

@@ -305,7 +305,6 @@ def testInvertedIndexMultipleBlocks(env):
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
-@skip(NOJSON=True)
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
     conn = getConnectionByEnv(env)
