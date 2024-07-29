@@ -126,7 +126,7 @@ def testSearchUpdatedContent(env):
 # TODO: Check arrays
 # TODO: Check Object/Map
 
-@skip(NOJSON=True)
+@skip()
 def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
@@ -137,7 +137,7 @@ def testHandleUnindexedTypes(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                         '$.string', 'AS', 'string', 'TEXT',
                         '$.null', 'AS', 'nil', 'TEXT',
-                        '$.boolT', 'AS', 'boolT', 'TEXT',
+                        '$.boolT', 'AS', 'boolT', 'TAG',
                         '$.boolN', 'AS', 'boolN', 'NUMERIC',
                         '$.int', 'AS', 'int', 'NUMERIC',
                         '$.flt', 'AS', 'flt', 'NUMERIC',
@@ -149,7 +149,8 @@ def testHandleUnindexedTypes(env):
                         '$.vector', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'
                         ).ok()
     waitForIndex(env, 'idx')
-    # FIXME: Why does the following search return zero results?
+    print(env.cmd('ft.info', 'idx'))
+# FIXME: Why does the following search return zero results?
     env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
         .equal([1, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
 
