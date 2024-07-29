@@ -92,6 +92,7 @@ doc_non_numeric_content = r'''{
 }
 '''
 
+@skip(NOJSON=True)
 def testBasic(env):
     """ Test multi numeric values (an array of numeric values or multiple numeric values) """
 
@@ -132,7 +133,7 @@ def testBasic(env):
     env.expect('FT.SEARCH', 'idx4', '@seq1:[0 1]     @seq2:[10e19 10e21]', 'NOCONTENT').equal([0])
 
 
-
+@skip(NOJSON=True)
 def testMultiNonNumeric(env):
     """
     test multiple NUMERIC values which include some non-numeric values at root level (null, text, bool, array, object)
@@ -161,6 +162,7 @@ def testMultiNonNumeric(env):
     env.expect('FT.SEARCH', 'idx1', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:2:'])
 
+@skip(NOJSON=True)
 def testMultiNonNumericNested(env):
     """
     test multiple NUMERIC values which include some non-numeric values at inner level (null, text, bool, array, object)
@@ -188,6 +190,7 @@ def testMultiNonNumericNested(env):
     env.expect('FT.SEARCH', 'idx2', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
 
 
+@skip(NOJSON=True)
 def testRange(env):
     """ Test multi numeric ranges """
 
@@ -249,7 +252,7 @@ def testRange(env):
                 env.assertEqual(toSortedFlatList(res), [1, lastdoc],
                                 message = '[{}]'.format(lastdoc))
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testDebugDump(env):
     """ Test FT.DEBUG DUMP_INVIDX and NUMIDX_SUMMARY with multi numeric values """
 
@@ -263,7 +266,7 @@ def testDebugDump(env):
                                                                       'lastDocId', 2, 'revisionId', 0,
                                                                       'emptyLeaves', 0, 'RootMaxDepth', 0])
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testInvertedIndexMultipleBlocks(env):
     """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
     conn = getConnectionByEnv(env)
@@ -302,6 +305,7 @@ def testInvertedIndexMultipleBlocks(env):
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
+@skip(NOJSON=True)
 def checkInfoAndGC(env, idx, doc_num, create, delete):
     """ Helper function for testInfoAndGC """
     conn = getConnectionByEnv(env)
@@ -336,7 +340,7 @@ def printSeed(env):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testInfoAndGC(env):
     """ Test cleanup of numeric ranges """
     if env.env == 'existing-env':
@@ -455,13 +459,16 @@ def checkSortByBWC(env, is_flat_arr):
     for i in range(2, len(res)):
         checkLess(int(res[i]), int(res[i - 1]))
 
+@skip(NOJSON=True)
 def testSortByBWC(env):
     """ Test sorting multi numeric values with flat array """
     checkSortByBWC(env, True)
 
+@skip(NOJSON=True)
 def testSortByArrBWC(env):
     """ Test backward compatibility of sorting multi numeric values with array """
     checkSortByBWC(env, False)
+
 
 def checkSortBy(env, is_flat_arr):
     """ Helper function for testing of sorting multi numeric values """
@@ -481,10 +488,12 @@ def checkSortBy(env, is_flat_arr):
     for i in range(2, len(res)):
         env.assertLess(int(res[i]), int(res[i - 1]))
 
+@skip(NOJSON=True)
 def testSortBy(env):
     """ Test sorting multi numeric values with flat array """
     checkSortBy(env, True)
 
+@skip(NOJSON=True)
 def testSortByArr(env):
     """ Test sorting multi numeric values with array """
     checkSortBy(env, False)
@@ -492,6 +501,7 @@ def testSortByArr(env):
 def keep_dict_keys(dict, keys):
         return {k:v for k,v in dict.items() if k in keys}
 
+@skip(NOJSON=True)
 def testInfoStats(env):
     """ Check that stats of single value are equivalent to multi value"""
 
@@ -521,6 +531,7 @@ def testInfoStats(env):
     info_multi = keep_dict_keys(index_info(env, 'idx:multi'), interesting_attr)
     env.assertEqual(info_single, info_multi)
 
+@skip(NOJSON=True)
 def testInfoStatsAndSearchAsSingle(env):
     """ Check that search results and relevant stats are the same for single values and equivalent multi values """
 
@@ -570,7 +581,7 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
     if env.env == 'existing-env':
@@ -609,7 +620,7 @@ def testConsecutiveValues(env):
 
     env.assertEqual(summary1, summary2)
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testDebugRangeTree(env):
     """ Test debug of range tree """
     if env.env == 'existing-env':
@@ -698,7 +709,7 @@ def checkUpdateNumRecords(env, is_json):
     info = index_info(env, 'idx')
     env.assertEqual(info['num_records'], 0)
 
-@skip(cluster=True)
+@skip(cluster=True, NOJSON=True)
 def testUpdateNumRecordsJson(env):
     """ Test update of `num_records` when using JSON """
     checkUpdateNumRecords(env, True)
@@ -764,7 +775,7 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-
+@skip(NOJSON=True)
 def testMultiNumericReturn(env):
     """ test RETURN with multiple NUMERIC values """
 
@@ -776,6 +787,7 @@ def testMultiNumericReturn(env):
     env.flush()
     checkMultiNumericReturn(env, [res1, res2, res3], False, True)
 
+@skip(NOJSON=True)
 def testMultiNumericReturnBWC(env):
     """ test backward compatibility of RETURN with multiple NUMERIC values """
     res1 = [1, 'doc:1', ['arr_1', '2']]
