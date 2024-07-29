@@ -149,7 +149,6 @@ def testHandleUnindexedTypes(env):
                         '$.vector', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'
                         ).ok()
     waitForIndex(env, 'idx')
-    print(env.cmd('ft.info', 'idx'))
 # FIXME: Why does the following search return zero results?
     env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
         .equal([1, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
