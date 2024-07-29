@@ -44,9 +44,8 @@ extern "C" {
  *
  * 4. The index is much simpler and more compressed: We do not store frequencies, offset vectors of
  * field flags.
- *    The index contains only document ids encoded as deltas. This means that an entry in a tag index
- * is usually
- *    one or two bytes long. This makes them very memory efficient and fast.
+ *    The index contains only document ids encoded as deltas. This means that an entry in a tag
+ * index is usually one or two bytes long. This makes them very memory efficient and fast.
  *
  * ## Creating a tag field
  *
@@ -101,9 +100,9 @@ extern "C" {
  *
  */
 typedef struct {
-  uint32_t uniqueId;
-  TrieMap *values;
-  TrieMap *suffix;
+    uint32_t uniqueId;
+    TrieMap *values;
+    TrieMap *suffix;
 } TagIndex;
 
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
@@ -123,8 +122,8 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
-  array_foreach(s, tmpv, { rm_free(tmpv); });
-  array_free(s);
+    array_foreach(s, tmpv, { rm_free(tmpv); });
+    array_free(s);
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -144,9 +143,9 @@ TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, i
  * a new index is created.
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
-*/
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create, size_t *sz);
+ */
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create,
+                                         size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
@@ -157,9 +156,9 @@ extern RedisModuleType *TagIndexType;
 int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
 /*
-* Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
-* IndexSpec `sp`.
-*/
+ * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
+ * IndexSpec `sp`.
+ */
 size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs);
 
 #ifdef __cplusplus

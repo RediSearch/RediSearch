@@ -27,75 +27,75 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 typedef enum {
-  QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
-  QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
-  QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
-  QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
-  QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
-  QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
-  QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
+    QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
+    QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
+    QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
+    QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
+    QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
+    QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
+    QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
 
-  /**
-   * Do not create the root result processor. Only process those components
-   * which process fully-formed, fully-scored results. This also means
-   * that a scorer is not created. It will also not initialize the
-   * first step or the initial lookup table
-   */
-  QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
+    /**
+     * Do not create the root result processor. Only process those components
+     * which process fully-formed, fully-scored results. This also means
+     * that a scorer is not created. It will also not initialize the
+     * first step or the initial lookup table
+     */
+    QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
 
-  /**
-   * Add the ability to run the query in a multi threaded environment
-   */
-  QEXEC_F_RUN_IN_BACKGROUND = 0x100,
+    /**
+     * Add the ability to run the query in a multi threaded environment
+     */
+    QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
-  /* The inverse of IS_EXTENDED. The two cannot coexist together */
-  QEXEC_F_IS_SEARCH = 0x200,
+    /* The inverse of IS_EXTENDED. The two cannot coexist together */
+    QEXEC_F_IS_SEARCH = 0x200,
 
-  /* Highlight/summarize options are active */
-  QEXEC_F_SEND_HIGHLIGHT = 0x400,
+    /* Highlight/summarize options are active */
+    QEXEC_F_SEND_HIGHLIGHT = 0x400,
 
-  /* Do not emit any rows, only the number of query results */
-  QEXEC_F_NOROWS = 0x800,
+    /* Do not emit any rows, only the number of query results */
+    QEXEC_F_NOROWS = 0x800,
 
-  /* Do not stringify result values. Send them in their proper types */
-  QEXEC_F_TYPED = 0x1000,
+    /* Do not stringify result values. Send them in their proper types */
+    QEXEC_F_TYPED = 0x1000,
 
-  /* Send raw document IDs alongside key names. Used for debugging */
-  QEXEC_F_SENDRAWIDS = 0x2000,
+    /* Send raw document IDs alongside key names. Used for debugging */
+    QEXEC_F_SENDRAWIDS = 0x2000,
 
-  /* Flag for scorer function to create explanation strings */
-  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000,
+    /* Flag for scorer function to create explanation strings */
+    QEXEC_F_SEND_SCOREEXPLAIN = 0x4000,
 
-  /* Profile command */
-  QEXEC_F_PROFILE = 0x8000,
-  QEXEC_F_PROFILE_LIMITED = 0x10000,
+    /* Profile command */
+    QEXEC_F_PROFILE = 0x8000,
+    QEXEC_F_PROFILE_LIMITED = 0x10000,
 
-  /* FT.AGGREGATE load all fields */
-  QEXEC_AGG_LOAD_ALL = 0x20000,
+    /* FT.AGGREGATE load all fields */
+    QEXEC_AGG_LOAD_ALL = 0x20000,
 
-  /* Optimize query */
-  QEXEC_OPTIMIZE = 0x40000,
+    /* Optimize query */
+    QEXEC_OPTIMIZE = 0x40000,
 
-  // Compound values are expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_EXPAND = 0x80000,
+    // Compound values are expanded (RESP3 w/JSON)
+    QEXEC_FORMAT_EXPAND = 0x80000,
 
-  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_DEFAULT = 0x100000,
+    // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
+    QEXEC_FORMAT_DEFAULT = 0x100000,
 
-  // Set the score of the doc to an RLookupKey in the result
-  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
+    // Set the score of the doc to an RLookupKey in the result
+    QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
 
 } QEFlags;
 
-#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
-#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
-#define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
-#define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
-#define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
-#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
-#define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
-#define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
+#define IsCount(r)            ((r)->reqflags & QEXEC_F_NOROWS)
+#define IsSearch(r)           ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsProfile(r)          ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsOptimized(r)        ((r)->reqflags & QEXEC_OPTIMIZE)
+#define IsFormatExpand(r)     ((r)->reqflags & QEXEC_FORMAT_EXPAND)
+#define IsWildcard(r)         ((r)->ast.root->type == QN_WILDCARD)
+#define HasScorer(r)          ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasLoader(r)          ((r)->stateflags & QEXEC_S_HAS_LOAD)
+#define IsScorerNeeded(r)     ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
@@ -109,91 +109,90 @@ typedef enum {
 typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
 
 typedef enum {
-  /* Pipeline has a loader */
-  QEXEC_S_HAS_LOAD = 0x01,
-  /* Received EOF from iterator */
-  QEXEC_S_ITERDONE = 0x02,
+    /* Pipeline has a loader */
+    QEXEC_S_HAS_LOAD = 0x01,
+    /* Received EOF from iterator */
+    QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
 typedef struct AREQ {
-  /* plan containing the logical sequence of steps */
-  AGGPlan ap;
+    /* plan containing the logical sequence of steps */
+    AGGPlan ap;
 
-  /* Arguments converted to sds. Received on input */
-  sds *args;
-  size_t nargs;
+    /* Arguments converted to sds. Received on input */
+    sds *args;
+    size_t nargs;
 
-  /** Search query string */
-  const char *query;
+    /** Search query string */
+    const char *query;
 
-  /** Fields to be output and otherwise processed */
-  FieldList outFields;
+    /** Fields to be output and otherwise processed */
+    FieldList outFields;
 
-  /** Options controlling search behavior */
-  RSSearchOptions searchopts;
+    /** Options controlling search behavior */
+    RSSearchOptions searchopts;
 
-  /** Parsed query tree */
-  QueryAST ast;
+    /** Parsed query tree */
+    QueryAST ast;
 
-  /** Root iterator. This is owned by the request */
-  IndexIterator *rootiter;
+    /** Root iterator. This is owned by the request */
+    IndexIterator *rootiter;
 
-  /** Context, owned by request */
-  RedisSearchCtx *sctx;
+    /** Context, owned by request */
+    RedisSearchCtx *sctx;
 
-  /** Resumable context */
-  ConcurrentSearchCtx conc;
+    /** Resumable context */
+    ConcurrentSearchCtx conc;
 
-  /** Context for iterating over the queries themselves */
-  QueryIterator qiter;
+    /** Context for iterating over the queries themselves */
+    QueryIterator qiter;
 
-  /** Flags controlling query output */
-  uint32_t reqflags;
+    /** Flags controlling query output */
+    uint32_t reqflags;
 
-  /** Flags indicating current execution state */
-  uint32_t stateflags;
+    /** Flags indicating current execution state */
+    uint32_t stateflags;
 
-  struct timespec timeoutTime;
+    struct timespec timeoutTime;
 
-  int protocol; // RESP2/3
+    int protocol; // RESP2/3
 
-  /*
-  // Dialect version used on this request
-  unsigned int dialectVersion;
-  // Query timeout in milliseconds
-  long long reqTimeout;
-  RSTimeoutPolicy timeoutPolicy;
-  // reply with time on profile
-  int printProfileClock;
-  */
+    /*
+    // Dialect version used on this request
+    unsigned int dialectVersion;
+    // Query timeout in milliseconds
+    long long reqTimeout;
+    RSTimeoutPolicy timeoutPolicy;
+    // reply with time on profile
+    int printProfileClock;
+    */
 
-  RequestConfig reqConfig;
+    RequestConfig reqConfig;
 
-  /** Cursor settings */
-  unsigned cursorMaxIdle;
-  unsigned cursorChunkSize;
+    /** Cursor settings */
+    unsigned cursorMaxIdle;
+    unsigned cursorChunkSize;
 
+    /** Profile variables */
+    clock_t initClock;         // Time of start. Reset for each cursor call
+    clock_t totalTime;         // Total time. Used to accumulate cursors times
+    clock_t parseTime;         // Time for parsing the query
+    clock_t pipelineBuildTime; // Time for creating the pipeline
 
-  /** Profile variables */
-  clock_t initClock;         // Time of start. Reset for each cursor call
-  clock_t totalTime;         // Total time. Used to accumulate cursors times
-  clock_t parseTime;         // Time for parsing the query
-  clock_t pipelineBuildTime; // Time for creating the pipeline
+    const char **requiredFields;
 
-  const char** requiredFields;
+    struct QOptimizer *optimizer; // Hold parameters for query optimizer
 
-  struct QOptimizer *optimizer;        // Hold parameters for query optimizer
+    // Currently we need both because maxSearchResults limits the OFFSET also in
+    // FT.AGGREGATE execution.
+    size_t maxSearchResults;
+    size_t maxAggregateResults;
 
-  // Currently we need both because maxSearchResults limits the OFFSET also in
-  // FT.AGGREGATE execution.
-  size_t maxSearchResults;
-  size_t maxAggregateResults;
+    // Cursor id, if this is a cursor
+    uint64_t cursor_id;
 
-  // Cursor id, if this is a cursor
-  uint64_t cursor_id;
-
-  // Profiling function
-  profiler_func profile;
+    // Profiling function
+    profiler_func profile;
 
 } AREQ;
 
@@ -323,7 +322,8 @@ void AREQ_Free(AREQ *req);
  * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
  * and must be freed manually.
  */
-int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
+int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status,
+                     bool coord);
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -336,7 +336,6 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise
  */
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
-
 
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);

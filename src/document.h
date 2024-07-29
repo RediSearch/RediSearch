@@ -43,58 +43,58 @@ extern "C" {
  */
 
 typedef enum {
-  // Newline
-  FLD_VAR_T_RMS = 0x01,
-  FLD_VAR_T_CSTR = 0x02,
-  FLD_VAR_T_NUM = 0x04,
-  FLD_VAR_T_GEO = 0x08,
-  FLD_VAR_T_ARRAY = 0x10,
-  FLD_VAR_T_BLOB_ARRAY = 0x20,
-  FLD_VAR_T_GEOMETRY = 0x40,
-  FLD_VAR_T_NULL = 0x80,
+    // Newline
+    FLD_VAR_T_RMS = 0x01,
+    FLD_VAR_T_CSTR = 0x02,
+    FLD_VAR_T_NUM = 0x04,
+    FLD_VAR_T_GEO = 0x08,
+    FLD_VAR_T_ARRAY = 0x10,
+    FLD_VAR_T_BLOB_ARRAY = 0x20,
+    FLD_VAR_T_GEOMETRY = 0x40,
+    FLD_VAR_T_NULL = 0x80,
 } FieldVarType;
 
-typedef struct DocumentField{
-  const char *name;  // Can either be char or RMString
-  const char *path;
-  union {
-    // TODO: consider removing RMS altogether
-    RedisModuleString *text;
-    struct {
-      char *strval;
-      size_t strlen;
+typedef struct DocumentField {
+    const char *name; // Can either be char or RMString
+    const char *path;
+    union {
+        // TODO: consider removing RMS altogether
+        RedisModuleString *text;
+        struct {
+            char *strval;
+            size_t strlen;
+        };
+        struct {
+            char *blobArr;
+            size_t blobSize;
+            size_t blobArrLen;
+        };
+        double numval;
+        arrayof(double) arrNumval;
+        struct {
+            double lon, lat;
+        };
+        struct {
+            char **multiVal;
+            size_t arrayLen; // for multiVal TODO: use arr.h
+        };
     };
-    struct {
-      char *blobArr;
-      size_t blobSize;
-      size_t blobArrLen;
-    };
-    double numval;
-    arrayof(double) arrNumval;
-    struct {
-      double lon, lat;
-    };
-    struct {
-      char **multiVal;
-      size_t arrayLen; // for multiVal TODO: use arr.h
-    };
-  };
-  RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
-  FieldVarType unionType;
-  FieldType indexAs;
+    RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
+    FieldVarType unionType;
+    FieldType indexAs;
 } DocumentField;
 
 typedef struct Document {
-  RedisModuleString *docKey;
-  DocumentField *fields;
-  uint32_t numFields;
-  RSLanguage language;
-  float score;
-  t_docId docId;
-  const char *payload;
-  size_t payloadSize;
-  uint32_t flags;
-  DocumentType type;
+    RedisModuleString *docKey;
+    DocumentField *fields;
+    uint32_t numFields;
+    RSLanguage language;
+    float score;
+    t_docId docId;
+    const char *payload;
+    size_t payloadSize;
+    uint32_t flags;
+    DocumentType type;
 } Document;
 
 /**
@@ -114,9 +114,9 @@ typedef struct Document {
  */
 #define DOCUMENT_F_OWNSTRINGS 0x02
 
-#define UNDERSCORE_KEY "__key"
-#define UNDERSCORE_SCORE "__score"
-#define UNDERSCORE_PAYLOAD "__payload"
+#define UNDERSCORE_KEY      "__key"
+#define UNDERSCORE_SCORE    "__score"
+#define UNDERSCORE_PAYLOAD  "__payload"
 #define UNDERSCORE_LANGUAGE "__language"
 
 struct RSAddDocumentCtx;
@@ -124,18 +124,18 @@ struct RSAddDocumentCtx;
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
 
 typedef struct {
-  uint32_t options;            // DOCUMENT_ADD_XXX
-  RSLanguage language;         // Language document should be indexed as
-  RedisModuleString *payload;  // Arbitrary payload provided on return with WITHPAYLOADS
-  arrayof(RedisModuleString *) fieldsArray;  // Field, Value, Field Value
-  size_t numFieldElems;                      // Number of elements
-  double score;                              // Score of the document
-  const char *evalExpr;         // Only add the document if this expression evaluates to true.
-  DocumentAddCompleted donecb;  // Callback to invoke when operation is done
+    uint32_t options;           // DOCUMENT_ADD_XXX
+    RSLanguage language;        // Language document should be indexed as
+    RedisModuleString *payload; // Arbitrary payload provided on return with WITHPAYLOADS
+    arrayof(RedisModuleString *) fieldsArray; // Field, Value, Field Value
+    size_t numFieldElems;                     // Number of elements
+    double score;                             // Score of the document
+    const char *evalExpr;        // Only add the document if this expression evaluates to true.
+    DocumentAddCompleted donecb; // Callback to invoke when operation is done
 
-  RedisModuleString *keyStr;       // key name for HSET
-  RedisModuleString *scoreStr;     // score string for HSET
-  RedisModuleString *languageStr;  // Language string for HSET
+    RedisModuleString *keyStr;      // key name for HSET
+    RedisModuleString *scoreStr;    // score string for HSET
+    RedisModuleString *languageStr; // Language string for HSET
 } AddDocumentOptions;
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
@@ -151,14 +151,13 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
 /**
  * Load Document Field with a numeric value.
  */
-void Document_AddNumericField(Document *d, const char *fieldname,
-                              double val, uint32_t typemask);
+void Document_AddNumericField(Document *d, const char *fieldname, double val, uint32_t typemask);
 
 /**
  * Load Document Field with a longitude and latitude values.
  */
-void Document_AddGeoField(Document *d, const char *fieldname,
-                          double lon, double lat, uint32_t typemask);
+void Document_AddGeoField(Document *d, const char *fieldname, double lon, double lat,
+                          uint32_t typemask);
 
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
@@ -169,7 +168,8 @@ void Document_AddGeoField(Document *d, const char *fieldname,
  * of the data within the document, call Document_Detach on the document (after
  * calling this function).
  */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang,
+                   DocumentType type);
 
 /**
  * Make the document the owner of the strings it contains
@@ -193,8 +193,8 @@ void Document_Clear(Document *doc);
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError *status);
 
 /**
  * Load all the fields into the document.
@@ -207,7 +207,7 @@ void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 /**
  * Print contents of document to screen
  */
-void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
+void Document_Dump(const Document *doc); // LCOV_EXCL_LINE debug
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
@@ -224,10 +224,10 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx);
  */
 void Document_Free(Document *doc);
 
-#define DOCUMENT_ADD_REPLACE 0x01
-#define DOCUMENT_ADD_PARTIAL 0x02
-#define DOCUMENT_ADD_NOSAVE 0x04
-#define DOCUMENT_ADD_NOCREATE 0x08  // Don't create document if not exist (replace ONLY)
+#define DOCUMENT_ADD_REPLACE  0x01
+#define DOCUMENT_ADD_PARTIAL  0x02
+#define DOCUMENT_ADD_NOSAVE   0x04
+#define DOCUMENT_ADD_NOCREATE 0x08 // Don't create document if not exist (replace ONLY)
 
 struct ForwardIndex;
 struct FieldIndexerData;
@@ -257,49 +257,49 @@ struct DocumentIndexer;
 
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
-  struct RSAddDocumentCtx *next;  // Next context in the queue
-  Document *doc;                   // Document which is being indexed
-  RedisSearchCtx *sctx;
+    struct RSAddDocumentCtx *next; // Next context in the queue
+    Document *doc;                 // Document which is being indexed
+    RedisSearchCtx *sctx;
 
-  IndexSpec *spec;
-  char *specName;
-  size_t specNameLen;
-  uint64_t specId;
+    IndexSpec *spec;
+    char *specName;
+    size_t specNameLen;
+    uint64_t specId;
 
-  // Forward index. This contains all the terms found in the document
-  struct ForwardIndex *fwIdx;
+    // Forward index. This contains all the terms found in the document
+    struct ForwardIndex *fwIdx;
 
-  struct DocumentIndexer *indexer;
+    struct DocumentIndexer *indexer;
 
-  // Sorting vector for the document. If the document has sortable fields, they
-  // are added to here as well
-  RSSortingVector *sv;
+    // Sorting vector for the document. If the document has sortable fields, they
+    // are added to here as well
+    RSSortingVector *sv;
 
-  // Byte offsets for highlighting. If term offsets are stored, this contains
-  // the field byte offset for each term.
-  RSByteOffsets *byteOffsets;
-  ByteOffsetWriter offsetsWriter;
+    // Byte offsets for highlighting. If term offsets are stored, this contains
+    // the field byte offset for each term.
+    RSByteOffsets *byteOffsets;
+    ByteOffsetWriter offsetsWriter;
 
-  // Information about each field in the document. This is read from the spec
-  // and cached, so that we can look it up without holding the GIL
-  FieldSpec *fspecs;
-  RSTokenizer *tokenizer;
+    // Information about each field in the document. This is read from the spec
+    // and cached, so that we can look it up without holding the GIL
+    FieldSpec *fspecs;
+    RSTokenizer *tokenizer;
 
-  // Old document data. Contains sortables
-  RSDocumentMetadata *oldMd;
+    // Old document data. Contains sortables
+    RSDocumentMetadata *oldMd;
 
-  // New flags to assign to the document
-  RSDocumentFlags docFlags;
+    // New flags to assign to the document
+    RSDocumentFlags docFlags;
 
-  // Scratch space used by per-type field preprocessors (see the source)
-  struct FieldIndexerData *fdatas;
-  QueryError status;     // Error message is placed here if there is an error during processing
-  uint32_t totalTokens;  // Number of tokens, used for offset vector
-  uint32_t specFlags;    // Cached index flags
-  uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
-  uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
-  DocumentAddCompleted donecb;
-  void *donecbData;
+    // Scratch space used by per-type field preprocessors (see the source)
+    struct FieldIndexerData *fdatas;
+    QueryError status;    // Error message is placed here if there is an error during processing
+    uint32_t totalTokens; // Number of tokens, used for offset vector
+    uint32_t specFlags;   // Cached index flags
+    uint8_t options;      // Indexing options - i.e. DOCUMENT_ADD_xxx
+    uint8_t stateFlags;   // Indexing state, ACTX_F_xxx
+    DocumentAddCompleted donecb;
+    void *donecbData;
 } RSAddDocumentCtx;
 
 /**

@@ -9,8 +9,8 @@
 
 #include <stdlib.h>
 
-typedef struct { 
-    int idx, val; 
+typedef struct {
+    int idx, val;
 } sparseVectorEntry;
 
 // sparseVector is a crude implementation of a sparse vector for our needs

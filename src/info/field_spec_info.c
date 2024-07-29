@@ -31,9 +31,7 @@ void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute) {
 }
 
 // Sets the index error of the field spec.
-void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
-    info->error = error;
-}
+void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) { info->error = error; }
 
 // IO and cluster traits
 
@@ -58,10 +56,10 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
     RedisModule_Assert(info);
     RedisModule_Assert(other);
-    if(!info->identifier) {
+    if (!info->identifier) {
         info->identifier = other->identifier;
     }
-    if(!info->attribute) {
+    if (!info->attribute) {
         info->attribute = other->attribute;
     }
     IndexError_OpPlusEquals(&info->error, &other->error);
@@ -72,20 +70,23 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     FieldSpecInfo info = {0};
     RedisModule_Assert(reply);
     // Validate the reply type - array or map.
-    RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
+    RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP ||
+                       (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
     // Make sure the reply is a map, regardless of the protocol.
-    MRReply_ArrayToMap((MRReply*)reply);
+    MRReply_ArrayToMap((MRReply *)reply);
 
     MRReply *identifier = MRReply_MapElement(reply, "identifier");
     RedisModule_Assert(identifier);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
+    RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING ||
+                       MRReply_Type(identifier) == MR_REPLY_STATUS);
     info.identifier = MRReply_String(identifier, NULL);
 
     MRReply *attribute = MRReply_MapElement(reply, "attribute");
     RedisModule_Assert(attribute);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(attribute) == MR_REPLY_STRING || MRReply_Type(attribute) == MR_REPLY_STATUS);
+    RedisModule_Assert(MRReply_Type(attribute) == MR_REPLY_STRING ||
+                       MRReply_Type(attribute) == MR_REPLY_STATUS);
     info.attribute = MRReply_String(attribute, NULL);
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);

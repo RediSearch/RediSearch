@@ -14,9 +14,9 @@
 #include <redismodule.h>
 
 /* Define the allcation functions before including arr.h */
-#define array_alloc_fn rm_malloc
+#define array_alloc_fn   rm_malloc
 #define array_realloc_fn rm_realloc
-#define array_free_fn rm_free
+#define array_free_fn    rm_free
 
 #include "arr.h"
 

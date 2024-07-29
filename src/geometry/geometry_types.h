@@ -12,30 +12,28 @@ typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
 
 typedef enum {
-  GEOMETRY_LIB_TYPE_NONE = 0,
-  GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,
-  GEOMETRY_LIB_TYPE_S2 = 2,
-  GEOMETRY_LIB_TYPE__NUM,
+    GEOMETRY_LIB_TYPE_NONE = 0,
+    GEOMETRY_LIB_TYPE_BOOST_GEOMETRY = 1,
+    GEOMETRY_LIB_TYPE_S2 = 2,
+    GEOMETRY_LIB_TYPE__NUM,
 } GEOMETRY_LIB_TYPE; // TODO: GEOMETRY Not uppercase
 
 typedef enum {
-  GEOMETRY_FORMAT_NONE = 0,
-  GEOMETRY_FORMAT_WKT = 1,
-  GEOMETRY_FORMAT_GEOJSON = 2,
+    GEOMETRY_FORMAT_NONE = 0,
+    GEOMETRY_FORMAT_WKT = 1,
+    GEOMETRY_FORMAT_GEOJSON = 2,
 } GEOMETRY_FORMAT; // TODO: GEOMETRY Not uppercase
 
-#define X(variant) \
-  GEOMETRY_COORDS_##variant,
+#define X(variant) GEOMETRY_COORDS_##variant,
 typedef enum {
-  GEO_VARIANTS(X)
-  GEOMETRY_COORDS__NUM,
+    GEO_VARIANTS(X) GEOMETRY_COORDS__NUM,
 } GEOMETRY_COORDS;
 #undef X
 
 typedef enum QueryType {
-  UNKNOWN_QUERY,
-  CONTAINS,
-  WITHIN,
-  DISJOINT,
-  INTERSECTS,
+    UNKNOWN_QUERY,
+    CONTAINS,
+    WITHIN,
+    DISJOINT,
+    INTERSECTS,
 } QueryType;

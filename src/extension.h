@@ -19,16 +19,16 @@ void Extensions_Free();
 
 /* Context for saving a scoring function and its private data and free */
 typedef struct {
-  RSScoringFunction sf;
-  RSFreeFunction ff;
-  void *privdata;
+    RSScoringFunction sf;
+    RSFreeFunction ff;
+    void *privdata;
 } ExtScoringFunctionCtx;
 
 /* Context for saving the a token expander and its free / privdata */
 typedef struct {
-  RSQueryTokenExpander exp;
-  RSFreeFunction ff;
-  void *privdata;
+    RSQueryTokenExpander exp;
+    RSFreeFunction ff;
+    void *privdata;
 } ExtQueryExpanderCtx;
 
 /* Get a scoring function by name. Returns NULL if no such scoring function exists */

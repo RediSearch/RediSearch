@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "redisearch.h"
@@ -17,21 +16,21 @@
 extern "C" {
 #endif
 
-#define NF_INFINITY (1.0 / 0.0)
+#define NF_INFINITY          (1.0 / 0.0)
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
 typedef struct NumericFilter {
-  char *fieldName;          // name of numeric field
-  double min;               // beginning of range
-  double max;               // end of range
-  int inclusiveMin;         // range includes min value
-  int inclusiveMax;         // range includes max val
-  const void *geoFilter;    // geo filter
+    char *fieldName;       // name of numeric field
+    double min;            // beginning of range
+    double max;            // end of range
+    int inclusiveMin;      // range includes min value
+    int inclusiveMax;      // range includes max val
+    const void *geoFilter; // geo filter
 
-  // used by optimizer
-  bool asc;                 // order of SORTBY asc/desc
-  size_t limit;             // minimum number of result needed
-  size_t offset;            // record number of documents in iterated ranges. used to skip them
+    // used by optimizer
+    bool asc;      // order of SORTBY asc/desc
+    size_t limit;  // minimum number of result needed
+    size_t offset; // record number of documents in iterated ranges. used to skip them
 } NumericFilter;
 
 #define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
@@ -42,8 +41,8 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
-int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
-                     int sign, QueryError *status);
+int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin, int sign,
+                     QueryError *status);
 
 /*
 A numeric index allows indexing of documents by numeric ranges, and intersection
@@ -51,15 +50,15 @@ of them with fulltext indexes.
 */
 static inline int NumericFilter_Match(const NumericFilter *f, double score) {
 
-  int rc = 0;
-  // match min - -inf or x >/>= score
-  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
+    int rc = 0;
+    // match min - -inf or x >/>= score
+    int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
 
-  if (matchMin) {
-    // match max - +inf or x </<= score
-    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
-  }
-  return rc;
+    if (matchMin) {
+        // match max - +inf or x </<= score
+        rc = (f->inclusiveMax ? score <= f->max : score < f->max);
+    }
+    return rc;
 }
 
 #ifdef __cplusplus

@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "hiredis/hiredis.h"
@@ -19,50 +18,50 @@
  * TODO: Not all of these are "real" states
  */
 typedef enum {
-  /* initial state - new connection or disconnected connection due to error */
-  MRConn_Disconnected,
+    /* initial state - new connection or disconnected connection due to error */
+    MRConn_Disconnected,
 
-  /* Connection is trying to connect */
-  MRConn_Connecting,
+    /* Connection is trying to connect */
+    MRConn_Connecting,
 
-  MRConn_ReAuth,
+    MRConn_ReAuth,
 
-  /* Connected, authenticated and active */
-  MRConn_Connected,
+    /* Connected, authenticated and active */
+    MRConn_Connected,
 
-  /* Connection should be freed */
-  MRConn_Freeing
+    /* Connection should be freed */
+    MRConn_Freeing
 } MRConnState;
 
 static inline const char *MRConnState_Str(MRConnState state) {
-  switch (state) {
+    switch (state) {
     case MRConn_Disconnected:
-      return "Disconnected";
+        return "Disconnected";
     case MRConn_Connecting:
-      return "Connecting";
+        return "Connecting";
     case MRConn_ReAuth:
-      return "Re-Authenticating";
+        return "Re-Authenticating";
     case MRConn_Connected:
-      return "Connected";
+        return "Connected";
     case MRConn_Freeing:
-      return "Freeing";
+        return "Freeing";
     default:
-      return "<UNKNOWN STATE (CRASHES AHEAD!!!!)";
-  }
+        return "<UNKNOWN STATE (CRASHES AHEAD!!!!)";
+    }
 }
 
 typedef struct {
-  MREndpoint ep;
-  redisAsyncContext *conn;
-  MRConnState state;
-  void *timer;
-  int protocol; // 0 (undetermined), 2, or 3
+    MREndpoint ep;
+    redisAsyncContext *conn;
+    MRConnState state;
+    void *timer;
+    int protocol; // 0 (undetermined), 2, or 3
 } MRConn;
 
 /* A pool indexes connections by the node id */
 typedef struct {
-  dict *map;
-  int nodeConns;
+    dict *map;
+    int nodeConns;
 } MRConnManager;
 
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);

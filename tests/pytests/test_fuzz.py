@@ -1,18 +1,20 @@
 import random
 import time
-from includes import *
-from common import waitForIndex
 from functools import reduce
 
+from common import waitForIndex
+from includes import *
 
 _tokens = {}
 _docs = {}
 _docId = 1
 _vocab_size = 10000
 
+
 def _random_token(env):
 
-    return 'tok%d' % random.randrange(1, _vocab_size)
+    return "tok%d" % random.randrange(1, _vocab_size)
+
 
 def generate_random_doc(env, num_tokens=100):
     global _docId
@@ -32,41 +34,52 @@ def generate_random_doc(env, num_tokens=100):
 
     return _docId - 1, tokens
 
+
 def createIndex(env, r):
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
-    waitForIndex(r, 'idx')
+    r.expect("ft.create", "idx", "ON", "HASH", "schema", "txt", "text").ok()
+    waitForIndex(r, "idx")
 
     for i in range(1000):
         did, tokens = generate_random_doc(env)
 
-        r.execute_command('ft.add', 'idx', did,
-                          1.0, 'fields', 'txt', ' '.join(tokens))
+        r.execute_command("ft.add", "idx", did, 1.0, "fields", "txt", " ".join(tokens))
 
     # print r.execute_command('ft.info', 'idx')
+
 
 def compareResults(env, r, num_unions=2, toks_per_union=7):
 
     # generate N unions  of M tokens
-    unions = [[_random_token(env) for _ in range(toks_per_union)]
-              for _ in range(num_unions)]
+    unions = [
+        [_random_token(env) for _ in range(toks_per_union)] for _ in range(num_unions)
+    ]
 
     # get the documents for each union
-    union_docs = [reduce(lambda x, y: x.union(y), [_tokens.get(t, set()) for t in u], set())
-                  for u in unions]
+    union_docs = [
+        reduce(lambda x, y: x.union(y), [_tokens.get(t, set()) for t in u], set())
+        for u in unions
+    ]
     # intersect the result to get the actual search result for an
     # intersection of all unions
     result = reduce(lambda x, y: x.intersection(y), union_docs)
 
     # format the equivalent search query for the same tokens
-    q = ''.join(('(%s)' % '|'.join(toks) for toks in unions))
-    args = ['ft.search', 'idx', q, 'nocontent', 'limit', 0, 100]
+    q = "".join(("(%s)" % "|".join(toks) for toks in unions))
+    args = ["ft.search", "idx", q, "nocontent", "limit", 0, 100]
     # print args
 
-    qr = set((int(x) for x in r.execute_command('ft.search', 'idx',
-                                                q, 'nocontent', 'limit', 0, 100)[1:]))
+    qr = set(
+        (
+            int(x)
+            for x in r.execute_command(
+                "ft.search", "idx", q, "nocontent", "limit", 0, 100
+            )[1:]
+        )
+    )
 
     # print py2sorted(result), '<=>', py2sorted(qr)
     return result.difference(qr)
+
 
 def testFuzzy(env):
 

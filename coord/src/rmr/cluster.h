@@ -20,11 +20,11 @@ typedef uint16_t mr_slot_t;
  * key, we select the slot based on the hash function, and then look for the shard in the cluster's
  * shard array */
 typedef struct {
-  mr_slot_t startSlot;
-  mr_slot_t endSlot;
-  size_t numNodes;
-  size_t capNodes;
-  MRClusterNode *nodes;
+    mr_slot_t startSlot;
+    mr_slot_t endSlot;
+    size_t numNodes;
+    size_t capNodes;
+    MRClusterNode *nodes;
 } MRClusterShard;
 
 /* Create a new cluster shard to be added to a topology */
@@ -35,18 +35,18 @@ void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n);
 #define MRHASHFUNC_CRC16_STR "CRC16"
 
 typedef enum {
-  MRHashFunc_None = 0,
-  MRHashFunc_CRC12,
-  MRHashFunc_CRC16,
+    MRHashFunc_None = 0,
+    MRHashFunc_CRC12,
+    MRHashFunc_CRC16,
 } MRHashFunc;
 
 /* A topology is the mapping of slots to shards and nodes */
 typedef struct MRClusterTopology {
-  size_t numSlots;
-  MRHashFunc hashFunc;
-  size_t numShards;
-  size_t capShards;
-  MRClusterShard *shards;
+    size_t numSlots;
+    MRHashFunc hashFunc;
+    size_t numShards;
+    size_t capShards;
+    MRClusterShard *shards;
 } MRClusterTopology;
 
 MRClusterTopology *MR_NewTopology(size_t numShards, size_t numSlots, MRHashFunc hashFunc);
@@ -58,10 +58,10 @@ void MRClusterNode_Free(MRClusterNode *n);
 
 /* A cluster has nodes and connections that can be used by the engine to send requests */
 typedef struct {
-  /* The connection manager holds a connection to each node, indexed by node id */
-  MRConnManager mgr;
-  /* The latest topology of the cluster */
-  MRClusterTopology *topo;
+    /* The connection manager holds a connection to each node, indexed by node id */
+    MRConnManager mgr;
+    /* The latest topology of the cluster */
+    MRClusterTopology *topo;
 } MRCluster;
 
 int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);

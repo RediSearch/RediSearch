@@ -4,15 +4,14 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 /* A single endpoint in the cluster */
 typedef struct MREndpoint {
-  char *host;
-  int port;
-  char *unixSock;
-  char *auth;
+    char *host;
+    int port;
+    char *unixSock;
+    char *auth;
 } MREndpoint;
 
 /* Parse a TCP address into an endpoint, in the format of host:port */

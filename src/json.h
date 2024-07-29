@@ -22,21 +22,19 @@ extern int japi_ver;
 
 struct DocumentField;
 
-typedef enum {
-  ITERABLE_ITER = 0,
-  ITERABLE_ARRAY = 1
-} JSONIterableType;
+typedef enum { ITERABLE_ITER = 0, ITERABLE_ARRAY = 1 } JSONIterableType;
 
-// An adapter for iterator operations, such as `next`, over an underlying container/collection or iterator
+// An adapter for iterator operations, such as `next`, over an underlying container/collection or
+// iterator
 typedef struct {
-  JSONIterableType type;
-  union {
-    JSONResultsIterator iter;
-    struct {
-      RedisJSON arr;
-      size_t index;
-    } array;
-  };
+    JSONIterableType type;
+    union {
+        JSONResultsIterator iter;
+        struct {
+            RedisJSON arr;
+            size_t index;
+        } array;
+    };
 } JSONIterable;
 
 RedisJSON JSONIterable_Next(JSONIterable *iterable);
@@ -55,12 +53,12 @@ void pathFree(JSONPath jsonpath);
 int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
 
-#define JSONParse_error(status, err_msg, path, fieldName, indexName)                                    \
-    do {                                                                                                \
-      QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                  \
-                             "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                   \
-                             path, fieldName, indexName);                                               \
-      RedisModule_FreeString(RSDummyContext, err_msg);                                                  \
+#define JSONParse_error(status, err_msg, path, fieldName, indexName)                               \
+    do {                                                                                           \
+        QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                           \
+                               "Invalid JSONPath '%s' in attribute '%s' in index '%s'", path,      \
+                               fieldName, indexName);                                              \
+        RedisModule_FreeString(RSDummyContext, err_msg);                                           \
     } while (0)
 
 #ifdef __cplusplus

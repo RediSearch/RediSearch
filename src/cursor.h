@@ -17,30 +17,30 @@
 struct CursorList;
 
 typedef struct Cursor {
-  /**
-   * The cursor is holding a weak reference to spec. When read cursor is called
-   * we will try to promote the reference to a strong reference. if the promotion fails -
-   *  it means that the index was dropped. The cursor is no longer valid and should be freed.
-   */
-  WeakRef spec_ref;
+    /**
+     * The cursor is holding a weak reference to spec. When read cursor is called
+     * we will try to promote the reference to a strong reference. if the promotion fails -
+     *  it means that the index was dropped. The cursor is no longer valid and should be freed.
+     */
+    WeakRef spec_ref;
 
-  /** Execution state. Opaque to the cursor - managed by consumer */
-  AREQ *execState;
+    /** Execution state. Opaque to the cursor - managed by consumer */
+    AREQ *execState;
 
-  /** Time when this cursor will no longer be valid, in nanos */
-  uint64_t nextTimeoutNs;
+    /** Time when this cursor will no longer be valid, in nanos */
+    uint64_t nextTimeoutNs;
 
-  /** ID of this cursor */
-  uint64_t id;
+    /** ID of this cursor */
+    uint64_t id;
 
-  /** Initial timeout interval */
-  unsigned timeoutIntervalMs;
+    /** Initial timeout interval */
+    unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
-  int pos;
+    /** Position within idle list */
+    int pos;
 
-  /** Is it an internal coordinator cursor or a user cursor*/
-  bool is_coord;
+    /** Is it an internal coordinator cursor or a user cursor*/
+    bool is_coord;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -49,34 +49,34 @@ KHASH_MAP_INIT_INT64(cursors, Cursor *);
  * between different specs.
  */
 typedef struct CursorList {
-  /** Cursor lookup by ID */
-  khash_t(cursors) * lookup;
+    /** Cursor lookup by ID */
+    khash_t(cursors) * lookup;
 
-  /** List of idle cursors */
-  Array idle;
+    /** List of idle cursors */
+    Array idle;
 
-  pthread_mutex_t lock;
+    pthread_mutex_t lock;
 
-  /**
-   * Counter - this serves two purposes:
-   * 1) When counter % n == 0, a GC sweep is performed
-   * 2) Used to calculate a monotonically incrementing cursor ID.
-   */
-  uint32_t counter;
+    /**
+     * Counter - this serves two purposes:
+     * 1) When counter % n == 0, a GC sweep is performed
+     * 2) Used to calculate a monotonically incrementing cursor ID.
+     */
+    uint32_t counter;
 
-  /**
-   * Last time GC was performed.
-   */
-  uint64_t lastCollect;
+    /**
+     * Last time GC was performed.
+     */
+    uint64_t lastCollect;
 
-  /**
-   * Next timeout - set to the lowest entry.
-   * This is used as a hint to avoid excessive sweeps.
-   */
-  uint64_t nextIdleTimeoutNs;
+    /**
+     * Next timeout - set to the lowest entry.
+     * This is used as a hint to avoid excessive sweeps.
+     */
+    uint64_t nextIdleTimeoutNs;
 
-  /** Is it an internal coordinator cursor or a user cursor */
-  bool is_coord;
+    /** Is it an internal coordinator cursor or a user cursor */
+    bool is_coord;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
@@ -86,7 +86,7 @@ extern CursorList g_CursorsList;
 extern CursorList g_CursorsListCoord;
 
 static inline CursorList *GetGlobalCursor(uint64_t cid) {
-  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+    return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
 }
 
 /**
@@ -137,14 +137,14 @@ void CursorList_Empty(CursorList *cl);
 void CursorList_Expire(CursorList *cl);
 
 #define RSCURSORS_DEFAULT_CAPACITY 128
-#define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
-#define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
+#define RSCURSORS_SWEEP_INTERVAL   500                /* GC Every 500 requests */
+#define RSCURSORS_SWEEP_THROTTLE   (1 * (1000000000)) /* Throttle, in NS */
 
 /**
  * Check if the cursor has a reference to a spec.
  */
 static inline bool cursor_HasSpecWeakRef(const Cursor *cursor) {
-  return cursor->spec_ref.rm != NULL;
+    return cursor->spec_ref.rm != NULL;
 }
 
 /**
@@ -183,22 +183,24 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 int Cursors_CollectIdle(CursorList *cl);
 
 typedef struct CursorsInfoStats {
-  size_t total;
-  size_t total_idle;
+    size_t total;
+    size_t total_idle;
 } CursorsInfoStats;
 
 /**
  * Return the stats for the `INFO` command
-*/
+ */
 CursorsInfoStats Cursors_GetInfoStats(void);
 
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
  */
-void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply);
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec,
+                         RedisModule_Reply *reply);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec,
+                                RedisModuleInfoCtx *ctx);
 #endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)

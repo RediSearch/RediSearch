@@ -33,31 +33,32 @@ typedef uint64_t t_fieldMask;
 
 struct RSSortingVector;
 
-#define REDISEARCH_ERR 1
-#define REDISEARCH_OK 0
+#define REDISEARCH_ERR           1
+#define REDISEARCH_OK            0
 #define REDISEARCH_UNINITIALIZED -1
-#define BAD_POINTER ((void *)0xBAAAAAAD)
+#define BAD_POINTER              ((void *)0xBAAAAAAD)
 
-#define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
-do {                                                                                    \
-  RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
-  RedisModule_ReplyWithString(ctx, str);                                                \
-  RedisModule_FreeString(ctx, str);                                                     \
-} while (0)
+#define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                                 \
+    do {                                                                                           \
+        RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);            \
+        RedisModule_ReplyWithString(ctx, str);                                                     \
+        RedisModule_FreeString(ctx, str);                                                          \
+    } while (0)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef enum {
-  DocumentType_Hash,
-  DocumentType_Json,
-  DocumentType_Unsupported,
+    DocumentType_Hash,
+    DocumentType_Json,
+    DocumentType_Unsupported,
 } DocumentType;
 
 #define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
-#define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
+#define SpecRuleTypeName(spec)                                                                     \
+    ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
 #define RS_IsMock (!RedisModule_CreateTimer)
 
@@ -65,19 +66,21 @@ typedef enum {
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
  * extracted from each result or document */
 typedef struct {
-  char *data;
-  size_t len;
+    char *data;
+    size_t len;
 } RSPayload;
 
 /* Internally used document flags */
 typedef enum {
-  Document_DefaultFlags = 0x00,
-  Document_Deleted = 0x01,
-  Document_HasPayload = 0x02,
-  Document_HasSortVector = 0x04,
-  Document_HasOffsetVector = 0x08,
-  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
-                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
+    Document_DefaultFlags = 0x00,
+    Document_Deleted = 0x01,
+    Document_HasPayload = 0x02,
+    Document_HasSortVector = 0x04,
+    Document_HasOffsetVector = 0x08,
+    Document_FailedToOpen =
+        0x10, // Document was failed to opened by a loader (might expired) but not yet marked as
+              // deleted. This is an optimization to avoid attempting opening the document for
+              // loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
@@ -91,35 +94,35 @@ typedef enum {
  * Score is the original user score as inserted to the index
  */
 typedef struct RSDocumentMetadata_s {
-  t_docId id;
+    t_docId id;
 
-  /* The actual key of the document, not the internal incremental id */
-  char *keyPtr;
+    /* The actual key of the document, not the internal incremental id */
+    char *keyPtr;
 
-  /* The a-priory document score as given by the user on insertion */
-  float score;
+    /* The a-priory document score as given by the user on insertion */
+    float score;
 
-  /* The maximum frequency of any term in the index, used to normalize frequencies */
-  uint32_t maxFreq : 24;
+    /* The maximum frequency of any term in the index, used to normalize frequencies */
+    uint32_t maxFreq : 24;
 
-  /* Document flags  */
-  RSDocumentFlags flags : 8;
+    /* Document flags  */
+    RSDocumentFlags flags : 8;
 
-  /* The total weighted number of tokens in the document, weighted by field weights */
-  uint32_t len : 24;
+    /* The total weighted number of tokens in the document, weighted by field weights */
+    uint32_t len : 24;
 
-  // Type of source document. Hash or JSON.
-  DocumentType type : 8;
+    // Type of source document. Hash or JSON.
+    DocumentType type : 8;
 
-  uint16_t ref_count;
+    uint16_t ref_count;
 
-  struct RSSortingVector *sortVector;
-  /* Offsets of all terms in the document (in bytes). Used by highlighter */
-  struct RSByteOffsets *byteOffsets;
-  DLLIST2_node llnode;
+    struct RSSortingVector *sortVector;
+    /* Offsets of all terms in the document (in bytes). Used by highlighter */
+    struct RSByteOffsets *byteOffsets;
+    DLLIST2_node llnode;
 
-  /* Optional user payload */
-  RSPayload *payload;
+    /* Optional user payload */
+    RSPayload *payload;
 
 } RSDocumentMetadata;
 
@@ -135,16 +138,16 @@ typedef uint32_t RSTokenFlags;
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
  * tokens */
 typedef struct {
-  /* The token string - which may or may not be NULL terminated */
-  char *str;
-  /* The token length */
-  size_t len;
+    /* The token string - which may or may not be NULL terminated */
+    char *str;
+    /* The token length */
+    size_t len;
 
-  /* Is this token an expansion? */
-  uint8_t expanded : 1;
+    /* Is this token an expansion? */
+    uint8_t expanded : 1;
 
-  /* Extension set token flags - up to 31 bits */
-  RSTokenFlags flags : 31;
+    /* Extension set token flags - up to 31 bits */
+    RSTokenFlags flags : 31;
 } RSToken;
 
 struct QueryAST;
@@ -153,43 +156,44 @@ struct QueryAST;
  * data */
 typedef struct RSQueryExpanderCtx {
 
-  /* Opaque query object used internally by the engine, and should not be accessed */
-  struct QueryAST *qast;
+    /* Opaque query object used internally by the engine, and should not be accessed */
+    struct QueryAST *qast;
 
-  struct RedisSearchCtx *handle;
+    struct RedisSearchCtx *handle;
 
-  /* Opaque query node object used internally by the engine, and should not be accessed */
-  struct RSQueryNode **currentNode;
+    /* Opaque query node object used internally by the engine, and should not be accessed */
+    struct RSQueryNode **currentNode;
 
-  /* Error object. Can be used to signal an error to the user */
-  struct QueryError *status;
+    /* Error object. Can be used to signal an error to the user */
+    struct QueryError *status;
 
-  /* Private data of the extension, set on extension initialization or during expansion. If a Free
-   * callback is provided, it will be used automatically to free this data */
-  void *privdata;
+    /* Private data of the extension, set on extension initialization or during expansion. If a Free
+     * callback is provided, it will be used automatically to free this data */
+    void *privdata;
 
-  /* The language of the query. Defaults to "english" */
-  RSLanguage language;
+    /* The language of the query. Defaults to "english" */
+    RSLanguage language;
 
-  /* ExpandToken allows the user to add an expansion of the token in the query, that will be
-   * union-merged with the given token in query time. str is the expanded string, len is its
-   * length, and flags is a 32 bit flag mask that can be used by the extension to set private
-   * information on the token
-   * */
-  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
-                      RSTokenFlags flags);
+    /* ExpandToken allows the user to add an expansion of the token in the query, that will be
+     * union-merged with the given token in query time. str is the expanded string, len is its
+     * length, and flags is a 32 bit flag mask that can be used by the extension to set private
+     * information on the token
+     * */
+    void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+                        RSTokenFlags flags);
 
-  /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
-   * with num its len, each member of it is a null terminated string. If replace is set to 1, we
-   * replace the original token with the new phrase. If exact is 1 the expanded phrase is an exact
-   * match phrase
-   */
-  void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
-                                RSTokenFlags flags, int replace, int exact);
+    /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
+     * with num its len, each member of it is a null terminated string. If replace is set to 1, we
+     * replace the original token with the new phrase. If exact is 1 the expanded phrase is an exact
+     * match phrase
+     */
+    void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
+                                  RSTokenFlags flags, int replace, int exact);
 
-  /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
-   */
-  void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
+    /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per
+     * token)
+     */
+    void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
 
 } RSQueryExpanderCtx;
 
@@ -200,21 +204,21 @@ typedef void (*RSFreeFunction)(void *);
 
 /* A single term being evaluated in query time */
 typedef struct {
-  /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
-  /* Inverse document frequency of the term in the index. See
-   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
-  double idf;
+    /* The term string, not necessarily NULL terminated, hence the length is given as well */
+    char *str;
+    /* The term length */
+    size_t len;
+    /* Inverse document frequency of the term in the index. See
+     * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
+    double idf;
 
-  /* Each term in the query gets an incremental id */
-  int id;
-  /* Flags given by the engine or by the query expander */
-  RSTokenFlags flags;
+    /* Each term in the query gets an incremental id */
+    int id;
+    /* Flags given by the engine or by the query expander */
+    RSTokenFlags flags;
 
-  /* Inverse document frequency of the term in the index for computing BM25 */
-  double bm25_idf;
+    /* Inverse document frequency of the term in the index for computing BM25 */
+    double bm25_idf;
 } RSQueryTerm;
 
 /**************************************
@@ -228,62 +232,63 @@ typedef struct {
 /* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
  * by iterating over it with RSOffsetVector_Iterate */
 typedef struct RSOffsetVector {
-  char *data;
-  uint32_t len;
+    char *data;
+    uint32_t len;
 } RSOffsetVector;
 
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
-  void *ctx;
-  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
-  void (*Rewind)(void *ctx);
-  void (*Free)(void *ctx);
+    void *ctx;
+    uint32_t (*Next)(void *ctx, RSQueryTerm **term);
+    void (*Rewind)(void *ctx);
+    void (*Free)(void *ctx);
 } RSOffsetIterator;
 
 /* RSIndexRecord represents a single record of a document inside a term in the inverted index */
 typedef struct {
 
-  /* The term that brought up this record */
-  RSQueryTerm *term;
+    /* The term that brought up this record */
+    RSQueryTerm *term;
 
-  /* The encoded offsets in which the term appeared in the document */
-  RSOffsetVector offsets;
+    /* The encoded offsets in which the term appeared in the document */
+    RSOffsetVector offsets;
 
 } RSTermRecord;
 
 /* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
  * records */
 typedef struct {
-  char dummy;
+    char dummy;
 } RSVirtualRecord;
 
 typedef struct {
-  double value;
+    double value;
 } RSNumericRecord;
 
 typedef enum {
-  RSResultType_Union = 0x1,
-  RSResultType_Intersection = 0x2,
-  RSResultType_Term = 0x4,
-  RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10,
-  RSResultType_Metric = 0x20,
-  RSResultType_HybridMetric = 0x40,
+    RSResultType_Union = 0x1,
+    RSResultType_Intersection = 0x2,
+    RSResultType_Term = 0x4,
+    RSResultType_Virtual = 0x8,
+    RSResultType_Numeric = 0x10,
+    RSResultType_Metric = 0x20,
+    RSResultType_HybridMetric = 0x40,
 } RSResultType;
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
+#define RS_RESULT_AGGREGATE                                                                        \
+    (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
 typedef struct {
-  /* The number of child records */
-  int numChildren;
-  /* The capacity of the records array. Has no use for extensions */
-  int childrenCap;
-  /* An array of recods */
-  struct RSIndexResult **children;
+    /* The number of child records */
+    int numChildren;
+    /* The capacity of the records array. Has no use for extensions */
+    int childrenCap;
+    /* An array of recods */
+    struct RSIndexResult **children;
 
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
+    // A map of the aggregate type of the underlying results
+    uint32_t typeMask;
 } RSAggregateResult;
 
 // Forward declaration of needed structs
@@ -292,60 +297,61 @@ struct RSValue;
 
 // Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
 // A result processor will write the value into the key if the result passed the AST.
-typedef struct RSYieldableMetric{
-  struct RLookupKey *key;
-  struct RSValue *value;
+typedef struct RSYieldableMetric {
+    struct RLookupKey *key;
+    struct RSValue *value;
 } RSYieldableMetric;
 
 #pragma pack(16)
 
 typedef struct RSIndexResult {
 
-  /******************************************************************************
-   * IMPORTANT: The order of the following 4 variables must remain the same, and all
-   * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redundant memcpy
-   *******************************************************************************/
-  /* The docId of the result */
-  t_docId docId;
-  const RSDocumentMetadata *dmd;
+    /******************************************************************************
+     * IMPORTANT: The order of the following 4 variables must remain the same, and all
+     * their type aliases must remain uint32_t. The record is decoded by casting it
+     * to an array of 4 uint32_t integers to avoid redundant memcpy
+     *******************************************************************************/
+    /* The docId of the result */
+    t_docId docId;
+    const RSDocumentMetadata *dmd;
 
-  /* the total frequency of all the records in this result */
-  uint32_t freq;
+    /* the total frequency of all the records in this result */
+    uint32_t freq;
 
-  /* The aggregate field mask of all the records in this result */
-  t_fieldMask fieldMask;
+    /* The aggregate field mask of all the records in this result */
+    t_fieldMask fieldMask;
 
-  /* For term records only. This is used as an optimization, allowing the result to be loaded
-   * directly into memory */
-  uint32_t offsetsSz;
+    /* For term records only. This is used as an optimization, allowing the result to be loaded
+     * directly into memory */
+    uint32_t offsetsSz;
 
-  /*******************************************************************************
-   * END OF the "magic 4 uints" section
-   ********************************************************************************/
+    /*******************************************************************************
+     * END OF the "magic 4 uints" section
+     ********************************************************************************/
 
-  union {
-    // Aggregate record
-    RSAggregateResult agg;
-    // Term record
-    RSTermRecord term;
-    // virtual record with no values
-    RSVirtualRecord virt;
-    // numeric record with float value
-    RSNumericRecord num;
-  };
+    union {
+        // Aggregate record
+        RSAggregateResult agg;
+        // Term record
+        RSTermRecord term;
+        // virtual record with no values
+        RSVirtualRecord virt;
+        // numeric record with float value
+        RSNumericRecord num;
+    };
 
-  RSResultType type;
+    RSResultType type;
 
-  // Holds an array of metrics yielded by the different iterators in the AST
-  RSYieldableMetric *metrics;
+    // Holds an array of metrics yielded by the different iterators in the AST
+    RSYieldableMetric *metrics;
 
-  // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
-  // want
-  int isCopy;
+    // we mark copied results so we can treat them a bit differently on deletion, and pool them if
+    // we want
+    int isCopy;
 
-  /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
-  double weight;
+    /* Relative weight for scoring calculations. This is derived from the result's iterator weight
+     */
+    double weight;
 } RSIndexResult;
 
 #pragma pack()
@@ -364,31 +370,31 @@ int RSIndexResult_IsAggregate(const RSIndexResult *r);
 #define RS_SCORE_FILTEROUT (-1.0 / 0.0)
 
 typedef struct {
-  size_t numDocs;
-  size_t numTerms;
-  double avgDocLen;
+    size_t numDocs;
+    size_t numTerms;
+    double avgDocLen;
 } RSIndexStats;
 
 /* The context given to a scoring function. It includes the payload set by the user or expander,
  * the
  * private data set by the extensionm and callback functions */
 typedef struct {
-  /* Private data set by the extension on initialization time, or during scoring */
-  void *extdata;
+    /* Private data set by the extension on initialization time, or during scoring */
+    void *extdata;
 
-  /* Payload set by the client or by the query expander */
-  const void *qdata;
-  size_t qdatalen;
+    /* Payload set by the client or by the query expander */
+    const void *qdata;
+    size_t qdatalen;
 
-  /* Index statistics to be used by scoring functions */
-  RSIndexStats indexStats;
+    /* Index statistics to be used by scoring functions */
+    RSIndexStats indexStats;
 
-  /** Flags controlling scoring function */
-  void *scrExp;  // scoreflags
+    /** Flags controlling scoring function */
+    void *scrExp; // scoreflags
 
-  /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
-   * that can be used to factor the result score */
-  int (*GetSlop)(const RSIndexResult *res);
+    /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
+     * that can be used to factor the result score */
+    int (*GetSlop)(const RSIndexResult *res);
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
@@ -398,10 +404,10 @@ typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSInde
 /* The extension registeration context, containing the callbacks avaliable to the extension for
  * registering query expanders and scorers. */
 typedef struct RSExtensionCtx {
-  int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,
+    int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,
+                                   void *privdata);
+    int (*RegisterQueryExpander)(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
                                  void *privdata);
-  int (*RegisterQueryExpander)(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-                               void *privdata);
 } RSExtensionCtx;
 
 /* An extension initialization function  */

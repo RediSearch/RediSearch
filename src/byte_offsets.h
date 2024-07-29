@@ -12,23 +12,23 @@
 #include "rmalloc.h"
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {
-  // ID this belongs to.
-  uint16_t fieldId;
+    // ID this belongs to.
+    uint16_t fieldId;
 
-  // The position of the first token for this field.
-  uint32_t firstTokPos;
+    // The position of the first token for this field.
+    uint32_t firstTokPos;
 
-  // Position of last token for this field
-  uint32_t lastTokPos;
+    // Position of last token for this field
+    uint32_t lastTokPos;
 } RSByteOffsetField;
 
 typedef struct RSByteOffsets {
-  // By-Byte offsets
-  RSOffsetVector offsets;
-  // List of field-id <-> position mapping
-  RSByteOffsetField *fields;
-  // How many fields
-  uint8_t numFields;
+    // By-Byte offsets
+    RSOffsetVector offsets;
+    // List of field-id <-> position mapping
+    RSByteOffsetField *fields;
+    // How many fields
+    uint8_t numFields;
 } RSByteOffsets;
 
 RSByteOffsets *NewByteOffsets();
@@ -53,27 +53,23 @@ typedef VarintVectorWriter ByteOffsetWriter;
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets);
 
-static inline void ByteOffsetWriter_Init(ByteOffsetWriter *w) {
-  VVW_Init(w, 16);
-}
+static inline void ByteOffsetWriter_Init(ByteOffsetWriter *w) { VVW_Init(w, 16); }
 
-static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
-  VVW_Cleanup(w);
-}
+static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) { VVW_Cleanup(w); }
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
-  VVW_Write(w, offset);
+    VVW_Write(w, offset);
 }
 
 /**
  * Iterator which yields the byte offset for a given position
  */
 typedef struct {
-  BufferReader rdr;
-  Buffer buf;
-  uint32_t lastValue;
-  uint32_t curPos;
-  uint32_t endPos;
+    BufferReader rdr;
+    Buffer buf;
+    uint32_t lastValue;
+    uint32_t curPos;
+    uint32_t endPos;
 } RSByteOffsetIterator;
 
 #define RSBYTEOFFSET_EOF ((uint32_t)-1)

@@ -1,5 +1,4 @@
-
-doc1_content = r'''{
+doc1_content = r"""{
     "name": "wonderbar",
     "category": ["mathematics and computer science", "logic", "programming", "database"],
     "books": [ 
@@ -46,9 +45,9 @@ doc1_content = r'''{
             ]
         }
     ]}
-'''
+"""
 
-doc2_content = r'''{
+doc2_content = r"""{
     "name": "foo",
     "category": ["database", "high performance"],
     "books": [ 
@@ -71,9 +70,9 @@ doc2_content = r'''{
             ]
         }
     ]}
-'''
+"""
 
-doc3_content = r'''{
+doc3_content = r"""{
     "name": "bar",
     "category": ["performance", "cloud"],
     "books": [ 
@@ -96,9 +95,9 @@ doc3_content = r'''{
             ]
         }
     ]}
-'''
+"""
 
-doc4_content = r'''{
+doc4_content = r"""{
     "name": "rebar",
     "category": ["general"],
     "books": [ 
@@ -107,9 +106,9 @@ doc4_content = r'''{
             "authors": "Redis Ltd."
         }
     ]}
-'''
+"""
 
-doc_non_text_content = r'''{
+doc_non_text_content = r"""{
     "attr1": ["first", "second", null, "third", null , "null", null],
     "attr2": "third",
     "attr3": [null, null],
@@ -121,4 +120,4 @@ doc_non_text_content = r'''{
     "attr9": ["first", "second", null, "third", null, ["recursi", "on"] ],
     "attr10": ["first", "second", null, "third", null, ["recursi", 50071] ]
 }
-'''
+"""

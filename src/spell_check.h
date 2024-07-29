@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef SRC_SPELL_CHECK_H_
 #define SRC_SPELL_CHECK_H_
 
@@ -17,23 +16,23 @@
 #define SPELL_CHECK_FOUND_TERM_IN_INDEX "term exists in index"
 
 typedef struct RS_Suggestion {
-  double score;
-  char *suggestion;
-  size_t len;
+    double score;
+    char *suggestion;
+    size_t len;
 } RS_Suggestion;
 
 typedef struct RS_Suggestions {
-  Trie *suggestionsTrie;
+    Trie *suggestionsTrie;
 } RS_Suggestions;
 
 typedef struct SpellCheckCtx {
-  RedisSearchCtx *sctx;
-  const char **includeDict;
-  const char **excludeDict;
-  long long distance;
-  bool fullScoreInfo;
-  size_t results;
-  RedisModule_Reply *reply;
+    RedisSearchCtx *sctx;
+    const char **includeDict;
+    const char **excludeDict;
+    long long distance;
+    bool fullScoreInfo;
+    size_t results;
+    RedisModule_Reply *reply;
 } SpellCheckCtx;
 
 RS_Suggestions *RS_SuggestionsCreate();

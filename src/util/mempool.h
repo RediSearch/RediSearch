@@ -24,10 +24,10 @@ typedef void (*mempool_free_fn)(void *);
 typedef struct mempool_t mempool_t;
 
 typedef struct {
-  mempool_alloc_fn alloc;
-  mempool_free_fn free;
-  size_t initialCap;  // Initial size of the pool
-  size_t maxCap;      // maxmimum size of the pool
+    mempool_alloc_fn alloc;
+    mempool_free_fn free;
+    size_t initialCap; // Initial size of the pool
+    size_t maxCap;     // maxmimum size of the pool
 } mempool_options;
 
 /* Create a new memory pool */

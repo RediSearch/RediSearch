@@ -22,21 +22,21 @@ extern "C" {
 #endif
 // Retrieves the pointer and length for the document's key.
 static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
-  if (len) {
-    *len = sdslen(dmd->keyPtr);
-  }
-  return dmd->keyPtr;
+    if (len) {
+        *len = sdslen(dmd->keyPtr);
+    }
+    return dmd->keyPtr;
 }
 
 // Convenience function to create a RedisModuleString from the document's key
 static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *dmd,
                                                      RedisModuleCtx *ctx) {
-  return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
+    return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
 }
 
 /* Map between external id an incremental id */
 typedef struct {
-  TrieMap *tm;
+    TrieMap *tm;
 } DocIdMap;
 
 DocIdMap NewDocIdMap();
@@ -60,32 +60,32 @@ void DocIdMap_Free(DocIdMap *m);
  * same key. This may result in document duplication in results  */
 
 typedef struct {
-  DLLIST2 lroot;
+    DLLIST2 lroot;
 } DMDChain;
 
 typedef struct {
-  size_t size;
-  t_docId maxSize;          // the maximum size this table is allowed to grow to
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
+    size_t size;
+    t_docId maxSize; // the maximum size this table is allowed to grow to
+    t_docId maxDocId;
+    size_t cap;
+    size_t memsize;
+    size_t sortablesSize;
 
-  DMDChain *buckets;
-  DocIdMap dim;             // Mapping between document name to internal id
+    DMDChain *buckets;
+    DocIdMap dim; // Mapping between document name to internal id
 } DocTable;
 
-#define DOCTABLE_FOREACH(dt, code)                                           \
-  for (size_t i = 0; i < dt->cap; ++i) {                                     \
-    DMDChain *chain = &dt->buckets[i];                                       \
-    if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                   \
-      continue;                                                              \
-    }                                                                        \
-    DLLIST2_FOREACH(it, &chain->lroot) {                                     \
-      RSDocumentMetadata *dmd = DLLIST_ITEM(it, RSDocumentMetadata, llnode); \
-      code;                                                                  \
-    }                                                                        \
-  }
+#define DOCTABLE_FOREACH(dt, code)                                                                 \
+    for (size_t i = 0; i < dt->cap; ++i) {                                                         \
+        DMDChain *chain = &dt->buckets[i];                                                         \
+        if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                                     \
+            continue;                                                                              \
+        }                                                                                          \
+        DLLIST2_FOREACH(it, &chain->lroot) {                                                       \
+            RSDocumentMetadata *dmd = DLLIST_ITEM(it, RSDocumentMetadata, llnode);                 \
+            code;                                                                                  \
+        }                                                                                          \
+    }
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
@@ -131,13 +131,13 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
-#define STRVARS_FROM_RSTRING(r) \
-  size_t n;                     \
-  const char *s = RedisModule_StringPtrLen(r, &n);
+#define STRVARS_FROM_RSTRING(r)                                                                    \
+    size_t n;                                                                                      \
+    const char *s = RedisModule_StringPtrLen(r, &n);
 
 static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
+    STRVARS_FROM_RSTRING(r);
+    return DocTable_GetId(dt, s, n);
 }
 
 /* Free the table and all the keys of documents */
@@ -145,22 +145,22 @@ void DocTable_Free(DocTable *t);
 
 int DocTable_Delete(DocTable *t, const char *key, size_t n);
 static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Delete(t, s, n);
+    STRVARS_FROM_RSTRING(r);
+    return DocTable_Delete(t, s, n);
 }
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
 static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Pop(t, s, n);
+    STRVARS_FROM_RSTRING(r);
+    return DocTable_Pop(t, s, n);
 }
 
 static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, key, strlen(key));
-  if (id == 0) {
-    return NULL;
-  }
-  return DocTable_Borrow(dt, id);
+    t_docId id = DocTable_GetId(dt, key, strlen(key));
+    if (id == 0) {
+        return NULL;
+    }
+    return DocTable_Borrow(dt, id);
 }
 
 /* Change name of document hash in the same spec without reindexing */
@@ -172,10 +172,10 @@ void DMD_Free(const RSDocumentMetadata *);
 
 /* Decrement the refcount of the DMD object, freeing it if we're the last reference */
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
-  RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
-    DMD_Free(dmd);
-  }
+    RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
+    if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
+        DMD_Free(dmd);
+    }
 }
 
 /* Save the table to RDB. Called from the owning index */

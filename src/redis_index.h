@@ -23,8 +23,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, bool *outIsNew, RedisModuleKey **keyp);
-#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew) \
-  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
+#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew)                                 \
+    Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
 void Redis_CloseReader(IndexReader *r);
 
 /*
@@ -33,12 +33,12 @@ void Redis_CloseReader(IndexReader *r);
  */
 const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 
-#define TERM_KEY_FORMAT "ft:%s/%.*s"
-#define TERM_KEY_PREFIX "ft:"
-#define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
+#define TERM_KEY_FORMAT       "ft:%s/%.*s"
+#define TERM_KEY_PREFIX       "ft:"
+#define SKIPINDEX_KEY_FORMAT  "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
 
-#define INVERTED_INDEX_ENCVER 1
+#define INVERTED_INDEX_ENCVER         1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);

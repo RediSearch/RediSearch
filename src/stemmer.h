@@ -14,22 +14,22 @@ extern "C" {
 
 typedef enum { SnowballStemmer } StemmerType;
 
-#define STEM_PREFIX '+'
+#define STEM_PREFIX           '+'
 #define STEMMER_EXPANDER_NAME "stem"
 
 /* Abstract "interface" for a pluggable stemmer, ensuring we can use multiple
  * stemmer libs */
 typedef struct stemmer {
-  void *ctx;
-  const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
-  void (*Free)(struct stemmer *);
+    void *ctx;
+    const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
+    void (*Free)(struct stemmer *);
 
-  // Attempts to reset the stemmer using the given language and type. Returns 0
-  // if this stemmer cannot be reused.
-  int (*Reset)(struct stemmer *, StemmerType type, RSLanguage language);
+    // Attempts to reset the stemmer using the given language and type. Returns 0
+    // if this stemmer cannot be reused.
+    int (*Reset)(struct stemmer *, StemmerType type, RSLanguage language);
 
-  RSLanguage language;
-  StemmerType type;  // Type of stemmer
+    RSLanguage language;
+    StemmerType type; // Type of stemmer
 } Stemmer;
 
 Stemmer *NewStemmer(StemmerType type, RSLanguage language);

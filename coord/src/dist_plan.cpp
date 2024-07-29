@@ -11,86 +11,89 @@
 #include <algorithm>
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
-  return gstp->reducers[array_len(gstp->reducers) - 1].alias;
+    return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
 static const char *stripAtPrefix(const char *s) {
-  while (*s && *s == '@') {
-    s++;
-  }
-  return s;
+    while (*s && *s == '@') {
+        s++;
+    }
+    return s;
 }
 
 struct ReducerDistCtx {
-  AGGPlan *localPlan;
-  AGGPlan *remotePlan;
-  PLN_GroupStep *localGroup;
-  PLN_GroupStep *remoteGroup;
-  PLN_Reducer *srcReducer;
+    AGGPlan *localPlan;
+    AGGPlan *remotePlan;
+    PLN_GroupStep *localGroup;
+    PLN_GroupStep *remoteGroup;
+    PLN_Reducer *srcReducer;
 
-  /**
-   * If a reduce distributor needs to add another step, place it here so we
-   * can skip this step as not being an old local step
-   */
-  PLN_BaseStep *currentLocal;
+    /**
+     * If a reduce distributor needs to add another step, place it here so we
+     * can skip this step as not being an old local step
+     */
+    PLN_BaseStep *currentLocal;
 
-  // Keep a list of steps added; so they can be removed upon error
-  std::vector<PLN_BaseStep *> addedLocalSteps;   // To pop from local plan..
-  std::vector<PLN_BaseStep *> addedRemoteSteps;  // To pop from remote plan
-  BlkAlloc *alloc;
+    // Keep a list of steps added; so they can be removed upon error
+    std::vector<PLN_BaseStep *> addedLocalSteps;  // To pop from local plan..
+    std::vector<PLN_BaseStep *> addedRemoteSteps; // To pop from remote plan
+    BlkAlloc *alloc;
 
-  ArgsCursor *copyArgs(ArgsCursor *args) {
-    // Because args are only in temporary storage
-    size_t allocsz = sizeof(void *) * args->argc;
-    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, size_t(32)));
-    memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
-    args->objs = arr;
-    return args;
-  }
-
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
-    if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
-      return false;
+    ArgsCursor *copyArgs(ArgsCursor *args) {
+        // Because args are only in temporary storage
+        size_t allocsz = sizeof(void *) * args->argc;
+        void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, size_t(32)));
+        memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
+        args->objs = arr;
+        return args;
     }
-    if (alias) {
-      *alias = getLastAlias(gstp);
+
+    bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
+             ArgsCursor *cargs) {
+        if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
+            return false;
+        }
+        if (alias) {
+            *alias = getLastAlias(gstp);
+        }
+        return true;
     }
-    return true;
-  }
 
-  template <typename... T>
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
-           T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor *cargs = copyArgs(&args);
-    return add(gstp, name, alias, status, cargs);
-  }
-
-  template <typename... T>
-  bool addLocal(const char *name, QueryError *status, T... uargs) {
-    return add(localGroup, name, NULL, status, uargs...);
-  }
-  template <typename... T>
-  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor tmp = args;
-    // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX ERROR if the client
-    // sends, for example, a query with COUNT and AVG, which we send to the shards as COUNT, COUNT and SUM. In this case,
-    // we don't want or need to add the same reducer twice.
-    auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
-    if (existing) {
-      if (alias) *alias = existing->alias;
-      return true;
-    } else {
-      ArgsCursor *cargs = copyArgs(&args);
-      return add(remoteGroup, name, alias, status, cargs);
+    template <typename... T>
+    bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
+             T... uargs) {
+        ArgsCursorCXX args(uargs...);
+        ArgsCursor *cargs = copyArgs(&args);
+        return add(gstp, name, alias, status, cargs);
     }
-  }
 
-  const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
-    return stripAtPrefix(s);
-  }
+    template <typename... T>
+    bool addLocal(const char *name, QueryError *status, T... uargs) {
+        return add(localGroup, name, NULL, status, uargs...);
+    }
+    template <typename... T>
+    bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
+        ArgsCursorCXX args(uargs...);
+        ArgsCursor tmp = args;
+        // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX
+        // ERROR if the client sends, for example, a query with COUNT and AVG, which we send to the
+        // shards as COUNT, COUNT and SUM. In this case, we don't want or need to add the same
+        // reducer twice.
+        auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
+        if (existing) {
+            if (alias)
+                *alias = existing->alias;
+            return true;
+        } else {
+            ArgsCursor *cargs = copyArgs(&args);
+            return add(remoteGroup, name, alias, status, cargs);
+        }
+    }
+
+    const char *srcarg(size_t n) const {
+        auto *s = (const char *)srcReducer->args.objs[n];
+        return stripAtPrefix(s);
+    }
 };
 
 typedef int (*reducerDistributionFunc)(ReducerDistCtx *rdctx, QueryError *status);
@@ -98,41 +101,41 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
-  PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
-  PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
+    PLN_GroupStep *gr = (PLN_GroupStep *)step;
+    PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
+    PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
 
-  size_t nreducers = array_len(gr->reducers);
-  grLocal->reducers = array_new(PLN_Reducer, nreducers);
-  grRemote->reducers = array_new(PLN_Reducer, nreducers);
+    size_t nreducers = array_len(gr->reducers);
+    grLocal->reducers = array_new(PLN_Reducer, nreducers);
+    grRemote->reducers = array_new(PLN_Reducer, nreducers);
 
-  // Add new local step
-  AGPLN_AddAfter(origPlan, step, &grLocal->base);  // Add the new local step
-  AGPLN_PopStep(origPlan, step);
+    // Add new local step
+    AGPLN_AddAfter(origPlan, step, &grLocal->base); // Add the new local step
+    AGPLN_PopStep(origPlan, step);
 
-  ReducerDistCtx rdctx;
-  rdctx.alloc = &dstp->alloc;
-  rdctx.localPlan = origPlan;
-  rdctx.remotePlan = remote;
-  rdctx.localGroup = grLocal;
-  rdctx.remoteGroup = grRemote;
-  rdctx.currentLocal = &grLocal->base;
+    ReducerDistCtx rdctx;
+    rdctx.alloc = &dstp->alloc;
+    rdctx.localPlan = origPlan;
+    rdctx.remotePlan = remote;
+    rdctx.localGroup = grLocal;
+    rdctx.remoteGroup = grRemote;
+    rdctx.currentLocal = &grLocal->base;
 
-  for (size_t ii = 0; ii < nreducers; ii++) {
-    rdctx.srcReducer = gr->reducers + ii;
-    reducerDistributionFunc fn = getDistributionFunc(gr->reducers[ii].name);
-    if (!fn || fn(&rdctx, status) != REDISMODULE_OK) {
-      goto cleanup;
+    for (size_t ii = 0; ii < nreducers; ii++) {
+        rdctx.srcReducer = gr->reducers + ii;
+        reducerDistributionFunc fn = getDistributionFunc(gr->reducers[ii].name);
+        if (!fn || fn(&rdctx, status) != REDISMODULE_OK) {
+            goto cleanup;
+        }
     }
-  }
 
-  // Once we're sure we want to discard the local group step and replace it with
-  // our own
-  array_ensure_append(dstp->oldSteps, &step, 1, PLN_GroupStep *);
+    // Once we're sure we want to discard the local group step and replace it with
+    // our own
+    array_ensure_append(dstp->oldSteps, &step, 1, PLN_GroupStep *);
 
-  // Add remote step
-  AGPLN_AddStep(remote, &grRemote->base);
-  return;
+    // Add remote step
+    AGPLN_AddStep(remote, &grRemote->base);
+    return;
 
 cleanup:
     // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
@@ -143,13 +146,13 @@ cleanup:
 
     // Clear any added steps..
     for (auto stp : rdctx.addedRemoteSteps) {
-      AGPLN_PopStep(remote, stp);
-      stp->dtor(stp);
+        AGPLN_PopStep(remote, stp);
+        stp->dtor(stp);
     }
 
     for (auto stp : rdctx.addedLocalSteps) {
-      AGPLN_PopStep(origPlan, stp);
-      stp->dtor(stp);
+        AGPLN_PopStep(origPlan, stp);
+        stp->dtor(stp);
     }
 }
 
@@ -158,181 +161,179 @@ cleanup:
  * source
  */
 static PLN_BaseStep *moveStep(AGGPlan *dst, AGGPlan *src, PLN_BaseStep *step) {
-  PLN_BaseStep *next = PLN_NEXT_STEP(step);
-  assert(next != step);
-  AGPLN_PopStep(src, step);
-  AGPLN_AddStep(dst, step);
-  return next;
+    PLN_BaseStep *next = PLN_NEXT_STEP(step);
+    assert(next != step);
+    AGPLN_PopStep(src, step);
+    AGPLN_AddStep(dst, step);
+    return next;
 }
 
 static void freeDistStep(PLN_BaseStep *bstp) {
-  PLN_DistributeStep *dstp = (PLN_DistributeStep *)bstp;
-  if (dstp->plan) {
-    AGPLN_FreeSteps(dstp->plan);
-    rm_free(dstp->plan);
-    dstp->plan = NULL;
-  }
-  if (dstp->serialized) {
-    auto &v = *dstp->serialized;
-    for (auto s : v) {
-      rm_free((void *)s);
+    PLN_DistributeStep *dstp = (PLN_DistributeStep *)bstp;
+    if (dstp->plan) {
+        AGPLN_FreeSteps(dstp->plan);
+        rm_free(dstp->plan);
+        dstp->plan = NULL;
     }
-    delete &v;
-  }
-  if (dstp->oldSteps) {
-    for (size_t ii = 0; ii < array_len(dstp->oldSteps); ++ii) {
-      dstp->oldSteps[ii]->base.dtor(&dstp->oldSteps[ii]->base);
+    if (dstp->serialized) {
+        auto &v = *dstp->serialized;
+        for (auto s : v) {
+            rm_free((void *)s);
+        }
+        delete &v;
     }
-    array_free(dstp->oldSteps);
-  }
-  BlkAlloc_FreeAll(&dstp->alloc, NULL, NULL, 0);
-  RLookup_Cleanup(&dstp->lk);
-  rm_free(dstp);
+    if (dstp->oldSteps) {
+        for (size_t ii = 0; ii < array_len(dstp->oldSteps); ++ii) {
+            dstp->oldSteps[ii]->base.dtor(&dstp->oldSteps[ii]->base);
+        }
+        array_free(dstp->oldSteps);
+    }
+    BlkAlloc_FreeAll(&dstp->alloc, NULL, NULL, 0);
+    RLookup_Cleanup(&dstp->lk);
+    rm_free(dstp);
 }
 
-static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
-  return &((PLN_DistributeStep *)bstp)->lk;
-}
+static RLookup *distStepGetLookup(PLN_BaseStep *bstp) { return &((PLN_DistributeStep *)bstp)->lk; }
 
-#define CHECK_ARG_COUNT(N)                                                               \
-  if (src->args.argc != N) {                                                             \
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
-                           src->name);                                                   \
-    return REDISMODULE_ERR;                                                              \
-  }
+#define CHECK_ARG_COUNT(N)                                                                         \
+    if (src->args.argc != N) {                                                                     \
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s",       \
+                               src->name);                                                         \
+        return REDISMODULE_ERR;                                                                    \
+    }
 
 /* Distribute COUNT into remote count and local SUM */
 static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
-  if (rdctx->srcReducer->args.argc != 0) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
-    return REDISMODULE_ERR;
-  }
-  const char *countAlias;
-  if (!rdctx->addRemote("COUNT", &countAlias, status, "0")) {
-    return REDISMODULE_ERR;
-  }
-  if (!rdctx->addLocal("SUM", status, "1", countAlias, "AS", rdctx->srcReducer->alias)) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+    if (rdctx->srcReducer->args.argc != 0) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
+        return REDISMODULE_ERR;
+    }
+    const char *countAlias;
+    if (!rdctx->addRemote("COUNT", &countAlias, status, "0")) {
+        return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal("SUM", status, "1", countAlias, "AS", rdctx->srcReducer->alias)) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
 }
 
 /* Generic function to distribute an aggregator with a single argument as itself. This is the most
  * common case */
 static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
-  // MAX must have a single argument
-  PLN_Reducer *src = rdctx->srcReducer;
-  CHECK_ARG_COUNT(1);
+    // MAX must have a single argument
+    PLN_Reducer *src = rdctx->srcReducer;
+    CHECK_ARG_COUNT(1);
 
-  const char *alias;
-  if (!rdctx->addRemote(src->name, &alias, status, "1", rdctx->srcarg(0))) {
-    return REDISMODULE_ERR;
-  }
-  if (!rdctx->addLocal(src->name, status, "1", alias, "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+    const char *alias;
+    if (!rdctx->addRemote(src->name, &alias, status, "1", rdctx->srcarg(0))) {
+        return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal(src->name, status, "1", alias, "AS", src->alias)) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
 }
 
 #define RANDOM_SAMPLE_SIZE 500
 
-#define STRINGIFY_(a) STRINGIFY__(a)
-#define STRINGIFY__(a) #a
+#define STRINGIFY_(a)          STRINGIFY__(a)
+#define STRINGIFY__(a)         #a
 #define RANDOM_SAMPLE_SIZE_STR STRINGIFY_(RANDOM_SAMPLE_SIZE)
 
 /* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
-  PLN_Reducer *src = rdctx->srcReducer;
-  CHECK_ARG_COUNT(2);
-  const char *alias = NULL;
+    PLN_Reducer *src = rdctx->srcReducer;
+    CHECK_ARG_COUNT(2);
+    const char *alias = NULL;
 
-  if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
-                        RANDOM_SAMPLE_SIZE_STR)) {
-    return REDISMODULE_ERR;
-  }
+    if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
+                          RANDOM_SAMPLE_SIZE_STR)) {
+        return REDISMODULE_ERR;
+    }
 
-  if (!rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
+    if (!rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS", src->alias)) {
+        return REDISMODULE_ERR;
+    }
 
-  return REDISMODULE_OK;
+    return REDISMODULE_OK;
 }
 
 /* Distribute STDDEV into remote RANDOM_SAMPLE and local STDDEV */
 static int distributeStdDev(ReducerDistCtx *rdctx, QueryError *status) {
-  PLN_Reducer *src = rdctx->srcReducer;
-  const char *alias = NULL;
-  CHECK_ARG_COUNT(1);
-  if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
-                        RANDOM_SAMPLE_SIZE_STR)) {
-    return REDISMODULE_ERR;
-  }
-  if (!rdctx->addLocal("STDDEV", status, "1", alias, "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+    PLN_Reducer *src = rdctx->srcReducer;
+    const char *alias = NULL;
+    CHECK_ARG_COUNT(1);
+    if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
+                          RANDOM_SAMPLE_SIZE_STR)) {
+        return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal("STDDEV", status, "1", alias, "AS", src->alias)) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
 }
 
 /* Distribute COUNT_DISTINCTISH into HLL and MERGE_HLL */
 static int distributeCountDistinctish(ReducerDistCtx *rdctx, QueryError *status) {
-  PLN_Reducer *src = rdctx->srcReducer;
-  CHECK_ARG_COUNT(1);
-  const char *alias;
-  if (!rdctx->addRemote("HLL", &alias, status, "1", rdctx->srcarg(0))) {
-    return REDISMODULE_ERR;
-  }
-  if (!rdctx->addLocal("HLL_SUM", status, "1", alias, "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+    PLN_Reducer *src = rdctx->srcReducer;
+    CHECK_ARG_COUNT(1);
+    const char *alias;
+    if (!rdctx->addRemote("HLL", &alias, status, "1", rdctx->srcarg(0))) {
+        return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal("HLL_SUM", status, "1", alias, "AS", src->alias)) {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
 }
 
 static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
-  PLN_Reducer *src = rdctx->srcReducer;
-  PLN_GroupStep *local = rdctx->localGroup, *remote = rdctx->remoteGroup;
-  CHECK_ARG_COUNT(1);
+    PLN_Reducer *src = rdctx->srcReducer;
+    PLN_GroupStep *local = rdctx->localGroup, *remote = rdctx->remoteGroup;
+    CHECK_ARG_COUNT(1);
 
-  // COUNT to know how many results
-  const char *remoteCountAlias;
-  if (!rdctx->addRemote("COUNT", &remoteCountAlias, status, "0")) {
-    return REDISMODULE_ERR;
-  }
+    // COUNT to know how many results
+    const char *remoteCountAlias;
+    if (!rdctx->addRemote("COUNT", &remoteCountAlias, status, "0")) {
+        return REDISMODULE_ERR;
+    }
 
-  const char *remoteSumAlias;
-  if (!rdctx->addRemote("SUM", &remoteSumAlias, status, "1", rdctx->srcarg(0))) {
-    return REDISMODULE_ERR;
-  }
+    const char *remoteSumAlias;
+    if (!rdctx->addRemote("SUM", &remoteSumAlias, status, "1", rdctx->srcarg(0))) {
+        return REDISMODULE_ERR;
+    }
 
-  // These are the two numbers, the sum and the count...
-  const char *localCountSumAlias;
-  const char *localSumSumAlias;
-  if (!rdctx->add(local, "SUM", &localCountSumAlias, status, "1", remoteCountAlias)) {
-    return REDISMODULE_ERR;
-  }
-  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
-  if (!rdctx->add(local, "SUM", &localSumSumAlias, status, "1", remoteSumAlias)) {
-    return REDISMODULE_ERR;
-  }
-  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
-  std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  char *expr = rm_strdup(ss.c_str());
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  applyStep->shouldFreeRaw = 1;
-  applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
-                             // are not allowed to override aliases
-  applyStep->base.alias = rm_strdup(src->alias);
+    // These are the two numbers, the sum and the count...
+    const char *localCountSumAlias;
+    const char *localSumSumAlias;
+    if (!rdctx->add(local, "SUM", &localCountSumAlias, status, "1", remoteCountAlias)) {
+        return REDISMODULE_ERR;
+    }
+    array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
+    if (!rdctx->add(local, "SUM", &localSumSumAlias, status, "1", remoteSumAlias)) {
+        return REDISMODULE_ERR;
+    }
+    array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
+    std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
+    char *expr = rm_strdup(ss.c_str());
+    PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
+    applyStep->shouldFreeRaw = 1;
+    applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't
+                               // because reducers are not allowed to override aliases
+    applyStep->base.alias = rm_strdup(src->alias);
 
-  assert(rdctx->currentLocal);
-  AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
-  rdctx->currentLocal = PLN_NEXT_STEP(rdctx->currentLocal);
-  rdctx->addedLocalSteps.push_back(&applyStep->base);
-  return REDISMODULE_OK;
+    assert(rdctx->currentLocal);
+    AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
+    rdctx->currentLocal = PLN_NEXT_STEP(rdctx->currentLocal);
+    rdctx->addedLocalSteps.push_back(&applyStep->base);
+    return REDISMODULE_OK;
 }
 
 // Registry of available distribution functions
 static struct {
-  const char *key;
-  reducerDistributionFunc func;
+    const char *key;
+    reducerDistributionFunc func;
 } reducerDistributors_g[] = {
     {"COUNT", distributeCount},
     {"SUM", distributeSingleArgSelf},
@@ -344,244 +345,250 @@ static struct {
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
 
-    {NULL, NULL}  // sentinel value
+    {NULL, NULL} // sentinel value
 
 };
 
 reducerDistributionFunc getDistributionFunc(const char *key) {
-  for (int i = 0; reducerDistributors_g[i].key != NULL; i++) {
-    if (!strcasecmp(key, reducerDistributors_g[i].key)) {
-      return reducerDistributors_g[i].func;
+    for (int i = 0; reducerDistributors_g[i].key != NULL; i++) {
+        if (!strcasecmp(key, reducerDistributors_g[i].key)) {
+            return reducerDistributors_g[i].func;
+        }
     }
-  }
 
-  return NULL;
+    return NULL;
 }
 
 static void finalize_distribution(AGGPlan *src, AGGPlan *remote, PLN_DistributeStep *dstp);
 
 int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
-  AGGPlan *remote = (AGGPlan *)rm_malloc(sizeof(*remote));
-  AGPLN_Init(remote);
+    AGGPlan *remote = (AGGPlan *)rm_malloc(sizeof(*remote));
+    AGPLN_Init(remote);
 
-  auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
-  bool hadArrange = false;
+    auto current = const_cast<PLN_BaseStep *>(AGPLN_FindStep(src, NULL, NULL, PLN_T_ROOT));
+    bool hadArrange = false;
 
-  PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
-  dstp->base.type = PLN_T_DISTRIBUTE;
-  dstp->plan = remote;
-  dstp->serialized = new std::vector<const char *>();
-  dstp->base.dtor = freeDistStep;
-  dstp->base.getLookup = distStepGetLookup;
-  BlkAlloc_Init(&dstp->alloc);
+    PLN_DistributeStep *dstp = (PLN_DistributeStep *)rm_calloc(1, sizeof(*dstp));
+    dstp->base.type = PLN_T_DISTRIBUTE;
+    dstp->plan = remote;
+    dstp->serialized = new std::vector<const char *>();
+    dstp->base.dtor = freeDistStep;
+    dstp->base.getLookup = distStepGetLookup;
+    BlkAlloc_Init(&dstp->alloc);
 
-  while (current != PLN_END_STEP(src)) {
-    switch (current->type) {
-      case PLN_T_ROOT:
-        current = PLN_NEXT_STEP(current);
-        break;
-      case PLN_T_FILTER:
-        ///////////////// Part of non-breaking solution for MOD-5267. ///////////////////////////////
-        // TODO: remove, and enable (or verify that) a FILTER step can implicitly load missing keys
-        //       that are part of the index schema.
-        if (!hadArrange) {
-          // Step 1: parse the filter expression and extract the required keys
-          PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
-          RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
-          if (tmpExpr == NULL) {
-            goto error;
-          }
-          RLookup filter_keys;
-          RLookup_Init(&filter_keys, NULL);
-          filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-          ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
-          if (QueryError_HasError(status)) {
-            RLookup_Cleanup(&filter_keys);
-            ExprAST_Free(tmpExpr);
-            goto error;
-          }
-          // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
-          //         this step will be optimized out.
-          if (filter_keys.rowlen) {
-            PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
-            load->base.type = PLN_T_LOAD;
-            load->base.dtor = [](PLN_BaseStep *stp) {
-              PLN_LoadStep *load = (PLN_LoadStep *)stp;
-              for (size_t ii = 0; ii < load->args.argc; ++ii) {
-                rm_free(load->args.objs[ii]);
-              }
-              rm_free(load->args.objs);
-              rm_free(stp);
-            };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
-            size_t argc = 0;
-            for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
-              argv[argc++] = rm_strndup(kk->name, kk->name_len);
+    while (current != PLN_END_STEP(src)) {
+        switch (current->type) {
+        case PLN_T_ROOT:
+            current = PLN_NEXT_STEP(current);
+            break;
+        case PLN_T_FILTER:
+            ///////////////// Part of non-breaking solution for MOD-5267.
+            //////////////////////////////////
+            // TODO: remove, and enable (or verify that) a FILTER step can implicitly load missing
+            // keys
+            //       that are part of the index schema.
+            if (!hadArrange) {
+                // Step 1: parse the filter expression and extract the required keys
+                PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
+                RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
+                if (tmpExpr == NULL) {
+                    goto error;
+                }
+                RLookup filter_keys;
+                RLookup_Init(&filter_keys, NULL);
+                filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+                ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
+                if (QueryError_HasError(status)) {
+                    RLookup_Cleanup(&filter_keys);
+                    ExprAST_Free(tmpExpr);
+                    goto error;
+                }
+                // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or
+                // sortable),
+                //         this step will be optimized out.
+                if (filter_keys.rowlen) {
+                    PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
+                    load->base.type = PLN_T_LOAD;
+                    load->base.dtor = [](PLN_BaseStep *stp) {
+                        PLN_LoadStep *load = (PLN_LoadStep *)stp;
+                        for (size_t ii = 0; ii < load->args.argc; ++ii) {
+                            rm_free(load->args.objs[ii]);
+                        }
+                        rm_free(load->args.objs);
+                        rm_free(stp);
+                    };
+                    const char **argv =
+                        (const char **)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
+                    size_t argc = 0;
+                    for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
+                        argv[argc++] = rm_strndup(kk->name, kk->name_len);
+                    }
+                    ArgsCursor_InitCString(&load->args, argv, argc);
+                    AGPLN_AddStep(remote, &load->base);
+                }
+                // Step 3: cleanup
+                RLookup_Cleanup(&filter_keys);
+                ExprAST_Free(tmpExpr);
             }
-            ArgsCursor_InitCString(&load->args, argv, argc);
-            AGPLN_AddStep(remote, &load->base);
-          }
-          // Step 3: cleanup
-          RLookup_Cleanup(&filter_keys);
-          ExprAST_Free(tmpExpr);
+            ///////////////// End of non-breaking MOD-5267 solution
+            ////////////////////////////////////////
+            // If we had an arrange step, it was split into a remote and local steps, and we must
+            // have the filter step locally, otherwise we will move the filter step into in between
+            // the remote and local arrange steps, which is logically incorrect.
+            // Otherwise (if there was no arrange step), we can move the filter step from local to
+            // remote
+            current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
+            break;
+        case PLN_T_LOAD:
+        case PLN_T_APPLY: {
+            current = moveStep(remote, src, current);
+            break;
         }
-        ///////////////// End of non-breaking MOD-5267 solution /////////////////////////////////////
-        // If we had an arrange step, it was split into a remote and local steps, and we must
-        // have the filter step locally, otherwise we will move the filter step into in between
-        // the remote and local arrange steps, which is logically incorrect.
-        // Otherwise (if there was no arrange step), we can move the filter step from local to remote
-        current = hadArrange ? PLN_NEXT_STEP(current) : moveStep(remote, src, current);
-        break;
-      case PLN_T_LOAD:
-      case PLN_T_APPLY: {
-        current = moveStep(remote, src, current);
-        break;
-      }
-      case PLN_T_ARRANGE: {
-        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
-        // If we already had an arrange step, or this arrange step should only run local,
-        // we shouldn't distribute the next arrange steps.
-        if (!hadArrange && !astp->runLocal) {
-          PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
+        case PLN_T_ARRANGE: {
+            PLN_ArrangeStep *astp = (PLN_ArrangeStep *)current;
+            // If we already had an arrange step, or this arrange step should only run local,
+            // we shouldn't distribute the next arrange steps.
+            if (!hadArrange && !astp->runLocal) {
+                PLN_ArrangeStep *newStp = (PLN_ArrangeStep *)rm_calloc(1, sizeof(*newStp));
 
-          *newStp = *astp;
-          AGPLN_AddStep(remote, &newStp->base);
-          if (astp->sortKeys) {
-            newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
-            for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-              array_append(newStp->sortKeys, astp->sortKeys[ii]);
+                *newStp = *astp;
+                AGPLN_AddStep(remote, &newStp->base);
+                if (astp->sortKeys) {
+                    newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
+                    for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
+                        array_append(newStp->sortKeys, astp->sortKeys[ii]);
+                    }
+                }
             }
-          }
+            hadArrange = true;
+            // whether we pushed an arrange step to the remote or not, we still need to move on
+            current = PLN_NEXT_STEP(current);
+            break;
         }
-        hadArrange = true;
-        // whether we pushed an arrange step to the remote or not, we still need to move on
-        current = PLN_NEXT_STEP(current);
-        break;
-      }
-      case PLN_T_GROUP:
-        // If we had an arrange step, we must have the group step locally
-        if (!hadArrange) {
-          distributeGroupStep(src, remote, current, dstp, status);
-          if (QueryError_HasError(status)) {
-            goto error;
-          }
+        case PLN_T_GROUP:
+            // If we had an arrange step, we must have the group step locally
+            if (!hadArrange) {
+                distributeGroupStep(src, remote, current, dstp, status);
+                if (QueryError_HasError(status)) {
+                    goto error;
+                }
+            }
+            // After the group step, the rest of the steps are local only.
+        default:
+            goto loop_break;
         }
-        // After the group step, the rest of the steps are local only.
-      default:
-        goto loop_break;
     }
-  }
 loop_break:
 
-  finalize_distribution(src, remote, dstp);
-  return REDISMODULE_OK;
+    finalize_distribution(src, remote, dstp);
+    return REDISMODULE_OK;
 
 error:
-  freeDistStep((PLN_BaseStep *)dstp);
-  return REDISMODULE_ERR;
+    freeDistStep((PLN_BaseStep *)dstp);
+    return REDISMODULE_ERR;
 }
 
 // We have splitted the logic plan into a remote and local plans. Now we need to make final
 // preparations and setups for the plans and the distributed step.
 static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_DistributeStep *dstp) {
-  RLookup_Init(&dstp->lk, nullptr);
+    RLookup_Init(&dstp->lk, nullptr);
 
-  // Find the bottom-most step with the current lookup and progress onwards
-  PLN_BaseStep *lastLkStep = DLLIST_ITEM(remote->steps.prev, PLN_BaseStep, llnodePln);
+    // Find the bottom-most step with the current lookup and progress onwards
+    PLN_BaseStep *lastLkStep = DLLIST_ITEM(remote->steps.prev, PLN_BaseStep, llnodePln);
 
-  while (&lastLkStep->llnodePln != &remote->steps) {
-    if (lastLkStep->getLookup && lastLkStep->getLookup(lastLkStep)) {
-      break;
+    while (&lastLkStep->llnodePln != &remote->steps) {
+        if (lastLkStep->getLookup && lastLkStep->getLookup(lastLkStep)) {
+            break;
+        }
+        lastLkStep = PLN_PREV_STEP(lastLkStep);
     }
-    lastLkStep = PLN_PREV_STEP(lastLkStep);
-  }
 
-  /**
-   * Start iterating over the remote steps, beginning from the most recent
-   * lookup-containing step. Gather the names of aliases that this step will
-   * produce and place inside the result set. This is later used to associate
-   * it with the "missing" keys in the local step.
-   */
-  RLookup *lookup = &dstp->lk;
-  for (DLLIST_node *nn = &lastLkStep->llnodePln; nn != &remote->steps; nn = nn->next) {
-    PLN_BaseStep *cur = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    switch (cur->type) {
-      case PLN_T_LOAD: {
-        PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
-        for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
-          const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey(lookup, s, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    /**
+     * Start iterating over the remote steps, beginning from the most recent
+     * lookup-containing step. Gather the names of aliases that this step will
+     * produce and place inside the result set. This is later used to associate
+     * it with the "missing" keys in the local step.
+     */
+    RLookup *lookup = &dstp->lk;
+    for (DLLIST_node *nn = &lastLkStep->llnodePln; nn != &remote->steps; nn = nn->next) {
+        PLN_BaseStep *cur = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+        switch (cur->type) {
+        case PLN_T_LOAD: {
+            PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
+            for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
+                const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
+                RLookup_GetKey(lookup, s, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+            }
+            break;
         }
-        break;
-      }
-      case PLN_T_GROUP: {
-        PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          const char *propname = stripAtPrefix(gstp->properties[ii]);
-          RLookup_GetKey(lookup, propname, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+        case PLN_T_GROUP: {
+            PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
+            for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+                const char *propname = stripAtPrefix(gstp->properties[ii]);
+                RLookup_GetKey(lookup, propname, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+            }
+            for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
+                PLN_Reducer *r = gstp->reducers + ii;
+                // Register the aliases they are registered under as well
+                RLookup_GetKey(lookup, r->alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+            }
+            break;
         }
-        for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
-          PLN_Reducer *r = gstp->reducers + ii;
-          // Register the aliases they are registered under as well
-          RLookup_GetKey(lookup, r->alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+        case PLN_T_APPLY: {
+            PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)cur;
+            RLookup_GetKey(lookup, mstp->base.alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+            break;
         }
-        break;
-      }
-      case PLN_T_APPLY: {
-        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)cur;
-        RLookup_GetKey(lookup, mstp->base.alias, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-        break;
-      }
-      case PLN_T_FILTER:
-      case PLN_T_DISTRIBUTE:
-      case PLN_T_ARRANGE:
-      default:
-        break;
+        case PLN_T_FILTER:
+        case PLN_T_DISTRIBUTE:
+        case PLN_T_ARRANGE:
+        default:
+            break;
+        }
     }
-  }
 
-  AGPLN_PopStep(local, &local->firstStep_s.base);
-  AGPLN_Prepend(local, &dstp->base);
-  auto tmp = (char **)AGPLN_Serialize(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < array_len(tmp); ++ii) {
-    v.push_back(tmp[ii]);
-  }
-  array_free(tmp);
+    AGPLN_PopStep(local, &local->firstStep_s.base);
+    AGPLN_Prepend(local, &dstp->base);
+    auto tmp = (char **)AGPLN_Serialize(dstp->plan);
+    auto &v = *dstp->serialized;
+    for (size_t ii = 0; ii < array_len(tmp); ++ii) {
+        v.push_back(tmp[ii]);
+    }
+    array_free(tmp);
 }
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
-  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
-  assert(dstp);
+    auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+    assert(dstp);
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
-  int rc = AREQ_BuildPipeline(r, status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-  if (rc != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-
-  std::vector<const RLookupKey *> loadFields;
-  for (RLookupKey *kk = dstp->lk.head; kk != NULL; kk = kk->next) {
-    if (kk->flags & RLOOKUP_F_UNRESOLVED) {
-      loadFields.push_back(kk);
+    dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    int rc = AREQ_BuildPipeline(r, status);
+    dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+    if (rc != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
     }
-  }
 
-  auto &ser_args = *dstp->serialized;
-  if (!loadFields.empty()) {
-    ser_args.push_back(rm_strndup("LOAD", 4));
-    char *ldsze;
-    rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
-    ser_args.push_back(ldsze);
-    for (auto kk : loadFields) {
-      ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+    std::vector<const RLookupKey *> loadFields;
+    for (RLookupKey *kk = dstp->lk.head; kk != NULL; kk = kk->next) {
+        if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+            loadFields.push_back(kk);
+        }
     }
-  }
 
-  us->lookup = &dstp->lk;
-  us->serialized = ser_args.data();
-  us->nserialized = ser_args.size();
-  return REDISMODULE_OK;
+    auto &ser_args = *dstp->serialized;
+    if (!loadFields.empty()) {
+        ser_args.push_back(rm_strndup("LOAD", 4));
+        char *ldsze;
+        rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
+        ser_args.push_back(ldsze);
+        for (auto kk : loadFields) {
+            ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+        }
+    }
+
+    us->lookup = &dstp->lk;
+    us->serialized = ser_args.data();
+    us->nserialized = ser_args.size();
+    return REDISMODULE_OK;
 }

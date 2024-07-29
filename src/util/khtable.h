@@ -30,60 +30,60 @@
  * that it may be accessed (See Compare function below)
  */
 typedef struct KHTableEntry {
-  struct KHTableEntry *next;
+    struct KHTableEntry *next;
 } KHTableEntry;
 
 typedef struct {
-  // Compare two entries and see if they match
-  // The `item` is an entry previously returned via `Alloc`.
-  // s and n are the key data and length. h is the hash itself.
-  // This function is used when retrieving items from the table, and also when
-  // inserting new items - to check for duplicates.
-  //
-  // It is assumed that the `item` is part of a larger user structure, and that
-  // you have a way to retrieve the actual key/length from the item.
-  //
-  // Note that the hash is provided for convenience, in the event that the user
-  // structure also maintains the hash (rather than recomputing on demand). In
-  // this case, the hash can also be compared with the existing hash, and if
-  // they don't match, the actual string comparison can be bypassed.
-  //
-  // Should return 0 if the key matches, and nonzero otherwise
-  int (*Compare)(const KHTableEntry *item, const void *s, size_t n, uint32_t h);
+    // Compare two entries and see if they match
+    // The `item` is an entry previously returned via `Alloc`.
+    // s and n are the key data and length. h is the hash itself.
+    // This function is used when retrieving items from the table, and also when
+    // inserting new items - to check for duplicates.
+    //
+    // It is assumed that the `item` is part of a larger user structure, and that
+    // you have a way to retrieve the actual key/length from the item.
+    //
+    // Note that the hash is provided for convenience, in the event that the user
+    // structure also maintains the hash (rather than recomputing on demand). In
+    // this case, the hash can also be compared with the existing hash, and if
+    // they don't match, the actual string comparison can be bypassed.
+    //
+    // Should return 0 if the key matches, and nonzero otherwise
+    int (*Compare)(const KHTableEntry *item, const void *s, size_t n, uint32_t h);
 
-  // Retrieve the hash from the entry. This should extract the key and key length
-  // from the entry and return the hash. Note that you may also cache the hash
-  // value in the entry if you so desire.
-  uint32_t (*Hash)(const KHTableEntry *ent);
+    // Retrieve the hash from the entry. This should extract the key and key length
+    // from the entry and return the hash. Note that you may also cache the hash
+    // value in the entry if you so desire.
+    uint32_t (*Hash)(const KHTableEntry *ent);
 
-  // Allocate memory for a new entry. This is called via KHTable_GetEntry, and
-  // should allocate enough memory for the entry and the encompassing user
-  // structure.
-  //
-  // The pointer passed is the `ctx` argument to KHTable_Init().
-  // Note that there is no API to free an individual item.
-  KHTableEntry *(*Alloc)(void *);
+    // Allocate memory for a new entry. This is called via KHTable_GetEntry, and
+    // should allocate enough memory for the entry and the encompassing user
+    // structure.
+    //
+    // The pointer passed is the `ctx` argument to KHTable_Init().
+    // Note that there is no API to free an individual item.
+    KHTableEntry *(*Alloc)(void *);
 
-  // Print a textual representation of the entry to the given file. This is
-  // used when printing the hash table. This function can be NULL
-  void (*Print)(const KHTableEntry *ent, FILE *fp);
+    // Print a textual representation of the entry to the given file. This is
+    // used when printing the hash table. This function can be NULL
+    void (*Print)(const KHTableEntry *ent, FILE *fp);
 } KHTableProcs;
 
 typedef struct KHTable {
-  // Context (`ctx`) - usually an allocator of some sort
-  void *alloc;
+    // Context (`ctx`) - usually an allocator of some sort
+    void *alloc;
 
-  // Buckets for the table
-  KHTableEntry **buckets;
+    // Buckets for the table
+    KHTableEntry **buckets;
 
-  // Number of buckets
-  size_t numBuckets;
+    // Number of buckets
+    size_t numBuckets;
 
-  // Number of items
-  size_t numItems;
+    // Number of items
+    size_t numItems;
 
-  // Item handling functions
-  KHTableProcs procs;
+    // Item handling functions
+    KHTableProcs procs;
 } KHTable;
 
 /**
@@ -134,9 +134,9 @@ KHTableEntry *KHTable_GetEntry(KHTable *table, const void *s, size_t n, uint32_t
 void KHTable_Dump(const KHTable *table, FILE *fp);
 
 typedef struct {
-  KHTable *ht;
-  size_t curBucket;
-  KHTableEntry *cur;
+    KHTable *ht;
+    size_t curBucket;
+    KHTableEntry *cur;
 } KHTableIterator;
 
 void KHTableIter_Init(KHTable *ht, KHTableIterator *iter);

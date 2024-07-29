@@ -10,6 +10,7 @@
 
 /* Return 1 both nodes have the same host */
 int MRNode_IsSameHost(MRClusterNode *n, MRClusterNode *other) {
-  if (!n || !other) return 0;
-  return strcasecmp(n->endpoint.host, other->endpoint.host) == 0;
+    if (!n || !other)
+        return 0;
+    return strcasecmp(n->endpoint.host, other->endpoint.host) == 0;
 }

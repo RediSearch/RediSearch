@@ -19,50 +19,50 @@ extern "C" {
 typedef struct AGGPlan AGGPlan, AggregatePlan;
 
 typedef enum {
-  PLN_T_INVALID = 0,
-  PLN_T_ROOT = 1,
-  PLN_T_GROUP,
-  PLN_T_DISTRIBUTE,
-  PLN_T_FILTER,
-  PLN_T_APPLY,
-  PLN_T_ARRANGE,
-  PLN_T_LOAD,
-  PLN_T__MAX
+    PLN_T_INVALID = 0,
+    PLN_T_ROOT = 1,
+    PLN_T_GROUP,
+    PLN_T_DISTRIBUTE,
+    PLN_T_FILTER,
+    PLN_T_APPLY,
+    PLN_T_ARRANGE,
+    PLN_T_LOAD,
+    PLN_T__MAX
 } PLN_StepType;
 
 #define PLANTYPE_ANY_REDUCER (PLN_T__MAX + 1)
 
 typedef enum {
-  PLN_F_ALIAS = 0x01,  // Plan step has an alias
+    PLN_F_ALIAS = 0x01, // Plan step has an alias
 
-  // Plan step is a reducer. This does not mean it uses a reduce function, but
-  // rather that it fundamentally modifies the rows.
-  PLN_F_REDUCER = 0x02,
+    // Plan step is a reducer. This does not mean it uses a reduce function, but
+    // rather that it fundamentally modifies the rows.
+    PLN_F_REDUCER = 0x02,
 
-  // Plan to load all fields by RPLoader
-  PLN_F_LOAD_ALL = 0x04,
+    // Plan to load all fields by RPLoader
+    PLN_F_LOAD_ALL = 0x04,
 } PlanFlags;
 
 typedef struct PLN_BaseStep {
-  DLLIST_node llnodePln;  // Linked list node for previous/next
+    DLLIST_node llnodePln; // Linked list node for previous/next
 
-  PLN_StepType type : 32;
-  uint32_t flags;  // PLN_F_XXX
+    PLN_StepType type : 32;
+    uint32_t flags; // PLN_F_XXX
 
-  const char *alias;
-  // Called to destroy step-specific data
-  void (*dtor)(struct PLN_BaseStep *);
+    const char *alias;
+    // Called to destroy step-specific data
+    void (*dtor)(struct PLN_BaseStep *);
 
-  // Called to yield the lookup structure for the given step. If this object
-  // does not have a lookup, can be set to NULL.
-  RLookup *(*getLookup)(struct PLN_BaseStep *);
+    // Called to yield the lookup structure for the given step. If this object
+    // does not have a lookup, can be set to NULL.
+    RLookup *(*getLookup)(struct PLN_BaseStep *);
 
-  // Type specific stuff goes here..
+    // Type specific stuff goes here..
 } PLN_BaseStep;
 
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
-#define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
+#define PLN_END_STEP(plan)  DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
 
 /**
  * JUNCTION/REDUCTION POINTS
@@ -76,54 +76,54 @@ typedef struct PLN_BaseStep {
  * First step. This contains the lookup used for the initial document keys.
  */
 typedef struct {
-  PLN_BaseStep base;
-  RLookup lookup;
+    PLN_BaseStep base;
+    RLookup lookup;
 } PLN_FirstStep;
 
 typedef struct {
-  PLN_BaseStep base;
-  const char *rawExpr;
-  RSExpr *parsedExpr;
-  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
-  bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
+    PLN_BaseStep base;
+    const char *rawExpr;
+    RSExpr *parsedExpr;
+    bool shouldFreeRaw; // Whether we own the raw expression, used on coordinator only
+    bool noOverride;    // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
 typedef struct {
-  PLN_BaseStep base;
-  const RLookupKey **sortkeysLK;  // simple array
-  const char **sortKeys;          // array_*
-  uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
-  bool isLimited;                 // Flag if `LIMIT` keyword was used.
-  bool runLocal;                  // Indicator that this step should run only local (not in shards)
-  uint64_t offset;                // Seek results. If 0, then no paging is applied
-  uint64_t limit;                 // Number of rows to output
+    PLN_BaseStep base;
+    const RLookupKey **sortkeysLK; // simple array
+    const char **sortKeys;         // array_*
+    uint64_t sortAscMap;           // Mapping of ascending/descending. Bitwise
+    bool isLimited;                // Flag if `LIMIT` keyword was used.
+    bool runLocal;                 // Indicator that this step should run only local (not in shards)
+    uint64_t offset;               // Seek results. If 0, then no paging is applied
+    uint64_t limit;                // Number of rows to output
 } PLN_ArrangeStep;
 
 /** LOAD covers any fields not implicitly found within the document */
 typedef struct {
-  PLN_BaseStep base;
-  ArgsCursor args;
-  const RLookupKey **keys;
-  size_t nkeys;
+    PLN_BaseStep base;
+    ArgsCursor args;
+    const RLookupKey **keys;
+    size_t nkeys;
 } PLN_LoadStep;
 
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
-  PLN_BaseStep base;
-  RLookup lookup;
+    PLN_BaseStep base;
+    RLookup lookup;
 
-  const char **properties;
-  size_t nproperties;
+    const char **properties;
+    size_t nproperties;
 
-  /* Group step single reducer, a function and its args */
-  struct PLN_Reducer {
-    const char *name;  // Name of function
-    char *alias;       // Output key
-    bool isHidden;     // If the output key is hidden. Used by the coordinator
-    ArgsCursor args;
-  } * reducers;
-  int idx;
+    /* Group step single reducer, a function and its args */
+    struct PLN_Reducer {
+        const char *name; // Name of function
+        char *alias;      // Output key
+        bool isHidden;    // If the output key is hidden. Used by the coordinator
+        ArgsCursor args;
+    } *reducers;
+    int idx;
 } PLN_GroupStep;
 
 /**
@@ -160,10 +160,10 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {
-  DLLIST steps;
-  PLN_ArrangeStep *arrangement;
-  PLN_FirstStep firstStep_s;  // Storage for initial plan
-  uint64_t steptypes;         // Mask of step-types contained in plan
+    DLLIST steps;
+    PLN_ArrangeStep *arrangement;
+    PLN_FirstStep firstStep_s; // Storage for initial plan
+    uint64_t steptypes;        // Mask of step-types contained in plan
 };
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
@@ -231,17 +231,17 @@ const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin
                                    const PLN_BaseStep *end, PLN_StepType type);
 
 typedef enum {
-  // Get the root lookup, stopping at stp if provided
-  AGPLN_GETLOOKUP_FIRST,
+    // Get the root lookup, stopping at stp if provided
+    AGPLN_GETLOOKUP_FIRST,
 
-  // Gets the previous lookup in respect to stp
-  AGPLN_GETLOOKUP_PREV,
+    // Gets the previous lookup in respect to stp
+    AGPLN_GETLOOKUP_PREV,
 
-  // Get the last lookup, stopping at bstp
-  AGPLN_GETLOOKUP_LAST,
+    // Get the last lookup, stopping at bstp
+    AGPLN_GETLOOKUP_LAST,
 
-  // Get the next lookup, starting from bstp
-  AGPLN_GETLOOKUP_NEXT
+    // Get the next lookup, starting from bstp
+    AGPLN_GETLOOKUP_NEXT
 } AGPLNGetLookupMode;
 /**
  * Get the lookup provided the given mode
@@ -261,13 +261,13 @@ void AGPLN_Dump(const AGGPlan *pln);
  * a new 'Lookup' table)
  */
 static inline int PLN_IsReduce(const PLN_BaseStep *pln) {
-  switch (pln->type) {
+    switch (pln->type) {
     case PLN_T_ROOT:
     case PLN_T_GROUP:
-      return 1;
+        return 1;
     default:
-      return 0;
-  }
+        return 0;
+    }
 }
 
 #ifdef __cplusplus

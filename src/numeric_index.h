@@ -25,8 +25,8 @@ extern "C" {
 #define NR_CARD_CHECK 10
 
 typedef struct {
-  double value;
-  size_t appearances;
+    double value;
+    size_t appearances;
 } CardinalityValue;
 
 /* A numeric range is a node in a numeric range tree, representing a range of
@@ -38,54 +38,54 @@ typedef struct {
  * split by finding the median value.
  */
 typedef struct {
-  double minVal;
-  double maxVal;
+    double minVal;
+    double maxVal;
 
-  double unique_sum;
+    double unique_sum;
 
-  size_t invertedIndexSize;
+    size_t invertedIndexSize;
 
-  u_int16_t card;
-  u_int16_t cardCheck;
-  uint32_t splitCard;
-  CardinalityValue *values;
-  InvertedIndex *entries;
+    u_int16_t card;
+    u_int16_t cardCheck;
+    uint32_t splitCard;
+    CardinalityValue *values;
+    InvertedIndex *entries;
 } NumericRange;
 
 /* NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a
  * leaf or not */
 typedef struct rtNode {
-  double value;
-  int maxDepth;
-  struct rtNode *left;
-  struct rtNode *right;
+    double value;
+    int maxDepth;
+    struct rtNode *left;
+    struct rtNode *right;
 
-  NumericRange *range;
+    NumericRange *range;
 } NumericRangeNode;
 
 typedef struct {
-  int sz;
-  int numRecords;
-  int changed;
-  int numRanges;
+    int sz;
+    int numRecords;
+    int changed;
+    int numRanges;
 } NRN_AddRv;
 
 typedef struct {
-  NumericRangeNode **nodesStack;
+    NumericRangeNode **nodesStack;
 } NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
 typedef struct {
-  NumericRangeNode *root;
-  size_t numRanges;
-  size_t numEntries;
-  t_docId lastDocId;
+    NumericRangeNode *root;
+    size_t numRanges;
+    size_t numEntries;
+    t_docId lastDocId;
 
-  uint32_t revisionId;
+    uint32_t revisionId;
 
-  uint32_t uniqueId;
+    uint32_t uniqueId;
 
-  size_t emptyLeaves;
+    size_t emptyLeaves;
 
 } NumericRangeTree;
 
@@ -95,7 +95,8 @@ struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
                                               const NumericFilter *f, int skipMulti);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config);
+                                               ConcurrentSearchCtx *csx, FieldType forType,
+                                               IteratorsConfig *config);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -158,8 +159,8 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
 #ifdef _DEBUG
 static inline void PRINT_INDENT(int indent) {
-  for (int i = 0; i < indent; ++i)
-    printf("  ");
+    for (int i = 0; i < indent; ++i)
+        printf("  ");
 }
 
 void NumericRangeNode_Dump(NumericRangeNode *n, int indent);

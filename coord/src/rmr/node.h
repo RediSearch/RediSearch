@@ -4,18 +4,17 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "rmr/common.h"
 #include "rmr/endpoint.h"
 
-typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2} MRNodeFlags;
+typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2 } MRNodeFlags;
 
 typedef struct {
-  MREndpoint endpoint;
-  const char *id;
-  MRNodeFlags flags;
+    MREndpoint endpoint;
+    const char *id;
+    MRNodeFlags flags;
 } MRClusterNode;
 
 /* Return 1 both nodes have the same host */

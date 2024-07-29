@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "query_error.h"
@@ -34,29 +33,29 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
 //---------------------------------------------------------------------------------------------
 
 typedef struct {
-  const char *type;  // HASH, JSON, etc.
-  const char **prefixes;
-  int nprefixes;
-  char *filter_exp_str;
-  char *lang_field;
-  char *score_field;
-  char *payload_field;
-  char *lang_default;
-  char *score_default;
+    const char *type; // HASH, JSON, etc.
+    const char **prefixes;
+    int nprefixes;
+    char *filter_exp_str;
+    char *lang_field;
+    char *score_field;
+    char *payload_field;
+    char *lang_default;
+    char *score_default;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
-  DocumentType type;
-  arrayof(sds) prefixes;
-  char *filter_exp_str;
-  struct RSExpr *filter_exp;
-  char **filter_fields;
-  int *filter_fields_index;
-  char *lang_field;
-  char *score_field;
-  char *payload_field;
-  double score_default;
-  RSLanguage lang_default;
+    DocumentType type;
+    arrayof(sds) prefixes;
+    char *filter_exp_str;
+    struct RSExpr *filter_exp;
+    char **filter_fields;
+    int *filter_fields_index;
+    char *lang_field;
+    char *score_field;
+    char *payload_field;
+    double score_default;
+    RSLanguage lang_default;
 } SchemaRule;
 
 /*
@@ -72,12 +71,12 @@ void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonKey, const char *keyName);
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
+                               const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonKey, const char *keyName);
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
+                            const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
@@ -96,8 +95,8 @@ void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef spec);
 void SchemaPrefixes_RemoveSpec(StrongRef spec);
 
 typedef struct {
-  char *prefix;
-  arrayof(StrongRef) index_specs;
+    char *prefix;
+    arrayof(StrongRef) index_specs;
 } SchemaPrefixNode;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

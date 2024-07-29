@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "aggregate/aggregate_plan.h"
@@ -15,28 +14,28 @@ extern "C" {
 #endif
 
 typedef struct PLN_DistributeStep {
-  PLN_BaseStep base;
-  RLookup lk;
-  AGGPlan *plan;
-  PLN_GroupStep **oldSteps;  // Old step which this distribute breaks down
+    PLN_BaseStep base;
+    RLookup lk;
+    AGGPlan *plan;
+    PLN_GroupStep **oldSteps; // Old step which this distribute breaks down
 #ifdef __cplusplus
-  typedef std::vector<const char *> SerializedArray;
-  SerializedArray *serialized;
+    typedef std::vector<const char *> SerializedArray;
+    SerializedArray *serialized;
 #else
-  void *serialized;
+    void *serialized;
 #endif
-  BlkAlloc alloc;
+    BlkAlloc alloc;
 } PLN_DistributeStep;
 
 int AGGPLN_Distribute(AGGPlan *src, QueryError *status);
 
 typedef struct {
-  // Arguments to upstream FT.AGGREGATE
-  const char **serialized;
-  // Length of those arguments
-  size_t nserialized;
-  // The lookup structure containing the fields that are to be received from upstream
-  RLookup *lookup;
+    // Arguments to upstream FT.AGGREGATE
+    const char **serialized;
+    // Length of those arguments
+    size_t nserialized;
+    // The lookup structure containing the fields that are to be received from upstream
+    RLookup *lookup;
 } AREQDIST_UpstreamInfo;
 
 /**

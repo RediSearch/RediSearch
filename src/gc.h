@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef SRC_GC_H_
 #define SRC_GC_H_
 
@@ -22,34 +21,34 @@ extern "C" {
 #define GC_THREAD_POOL_SIZE 1
 
 typedef struct GCCallbacks {
-  int  (*periodicCallback)(void* gcCtx);
-  void (*renderStats)(RedisModule_Reply* reply, void* gc);
-  void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
-  void (*onDelete)(void* ctx);
-  void (*onTerm)(void* ctx);
-  struct timespec (*getInterval)(void* ctx);
+    int (*periodicCallback)(void *gcCtx);
+    void (*renderStats)(RedisModule_Reply *reply, void *gc);
+    void (*renderStatsForInfo)(RedisModuleInfoCtx *ctx, void *gc);
+    void (*onDelete)(void *ctx);
+    void (*onTerm)(void *ctx);
+    struct timespec (*getInterval)(void *ctx);
 } GCCallbacks;
 
 typedef struct GCContext {
-  void* gcCtx;
-  RedisModuleTimerID timerID; // Guarded by the GIL
-  GCCallbacks callbacks;
+    void *gcCtx;
+    RedisModuleTimerID timerID; // Guarded by the GIL
+    GCCallbacks callbacks;
 } GCContext;
 
-GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
+GCContext *GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 // Start the GC periodic. Next run will be added to the job-queue after the interval
-void GCContext_Start(GCContext* gc);
+void GCContext_Start(GCContext *gc);
 // Start the GC periodic. Next run will be added to the job-queue immediately
-void GCContext_StartNow(GCContext* gc);
-void GCContext_StopMock(GCContext* gc);
-void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
+void GCContext_StartNow(GCContext *gc);
+void GCContext_StopMock(GCContext *gc);
+void GCContext_RenderStats(GCContext *gc, RedisModule_Reply *ctx);
 #ifdef FTINFO_FOR_INFO_MODULES
-void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
+void GCContext_RenderStatsForInfo(GCContext *gc, RedisModuleInfoCtx *ctx);
 #endif
-void GCContext_OnDelete(GCContext* gc);
-void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
-void GCContext_ForceBGInvoke(GCContext* gc);
-void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
+void GCContext_OnDelete(GCContext *gc);
+void GCContext_ForceInvoke(GCContext *gc, RedisModuleBlockedClient *bc);
+void GCContext_ForceBGInvoke(GCContext *gc);
+void GCContext_WaitForAllOperations(RedisModuleBlockedClient *bc);
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();

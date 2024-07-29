@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "redisearch.h"
@@ -18,32 +17,32 @@
 #include "query_node.h"
 
 typedef struct geoIndex {
-  RedisSearchCtx *ctx;
-  const FieldSpec *sp;
+    RedisSearchCtx *ctx;
+    const FieldSpec *sp;
 } GeoIndex;
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
 
-typedef enum {  // Placeholder for bad/invalid unit
-  GEO_DISTANCE_INVALID = -1,
-#define X_GEO_DISTANCE(X) \
-  X(KM, "km")             \
-  X(M, "m")               \
-  X(FT, "ft")             \
-  X(MI, "mi")
+typedef enum { // Placeholder for bad/invalid unit
+    GEO_DISTANCE_INVALID = -1,
+#define X_GEO_DISTANCE(X)                                                                          \
+    X(KM, "km")                                                                                    \
+    X(M, "m")                                                                                      \
+    X(FT, "ft")                                                                                    \
+    X(MI, "mi")
 
 #define X(c, unused) GEO_DISTANCE_##c,
-  X_GEO_DISTANCE(X)
+    X_GEO_DISTANCE(X)
 #undef X
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const char *property;
-  double lat;
-  double lon;
-  double radius;
-  GeoDistance unitType;
-  NumericFilter **numericFilters;
+    const char *property;
+    double lat;
+    double lon;
+    double radius;
+    GeoDistance unitType;
+    NumericFilter **numericFilters;
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
@@ -63,7 +62,8 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config);
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf,
+                                   ConcurrentSearchCtx *csx, IteratorsConfig *config);
 
 /*****************************************************************************/
 

@@ -20,17 +20,17 @@ extern "C" {
 typedef uint16_t t_len;
 
 #define TRIE_INITIAL_STRING_LEN 256
-#define TRIE_MAX_PREFIX 100
-#define TRIENODE_TERMINAL 0x1
-#define TRIENODE_DELETED 0x2
+#define TRIE_MAX_PREFIX         100
+#define TRIENODE_TERMINAL       0x1
+#define TRIENODE_DELETED        0x2
 
-#define TRIENODE_SORTED_NONE 0
+#define TRIENODE_SORTED_NONE  0
 #define TRIENODE_SORTED_SCORE 1
-#define TRIENODE_SORTED_LEX 2
+#define TRIENODE_SORTED_LEX   2
 
 typedef enum {
-  Trie_Sort_Lex = 0,
-  Trie_Sort_Score = 1,
+    Trie_Sort_Lex = 0,
+    Trie_Sort_Score = 1,
 } TrieSortMode;
 
 typedef void (*TrieFreeCallback)(void *node);
@@ -38,8 +38,8 @@ struct timespec;
 
 #pragma pack(1)
 typedef struct {
-  uint32_t len;  // 4G payload is more than enough!!!!
-  char data[];   // this means the data will not take an extra pointer.
+    uint32_t len; // 4G payload is more than enough!!!!
+    char data[];  // this means the data will not take an extra pointer.
 } TriePayload;
 #pragma pack()
 
@@ -55,28 +55,28 @@ size_t __triePayload_Sizeof(uint32_t len);
  * trie.
  */
 typedef struct {
-  // the string length of this node. can be 0
-  t_len len;
-  // the number of child nodes
-  t_len numChildren;
+    // the string length of this node. can be 0
+    t_len len;
+    // the number of child nodes
+    t_len numChildren;
 
-  uint8_t flags : 2;
-  TrieSortMode sortMode : 1;
+    uint8_t flags : 2;
+    TrieSortMode sortMode : 1;
 
-  // the node's score. Non termn
-  float score;
+    // the node's score. Non termn
+    float score;
 
-  // the maximal score of any descendant of this node, used to optimize
-  // traversal
-  float maxChildScore;
+    // the maximal score of any descendant of this node, used to optimize
+    // traversal
+    float maxChildScore;
 
-  // the payload of terminal node. could be NULL if it's not terminal
-  TriePayload *payload;
+    // the payload of terminal node. could be NULL if it's not terminal
+    TriePayload *payload;
 
-  // the string of the current node
-  rune str[];
-  // ... here come the first letters of each child childRunes[]
-  // ... now come the children, to be accessed with __trieNode_children
+    // the string of the current node
+    rune str[];
+    // ... here come the first letters of each child childRunes[]
+    // ... now come the children, to be accessed with __trieNode_children
 } TrieNode;
 #pragma pack()
 
@@ -94,10 +94,11 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for memory saving reasons */
-#define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+#define __trieNode_children(n)                                                                     \
+    ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
 
-#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
+#define __trieNode_childKey(n, c)                                                                  \
+    (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
@@ -115,15 +116,15 @@ TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len,
 TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
-  ADD_REPLACE,
-  ADD_INCR,
+    ADD_REPLACE,
+    ADD_INCR,
 } TrieAddOp;
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
  * splitting */
-int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op, TrieFreeCallback freecb);
+int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload, float score,
+                 TrieAddOp op, TrieFreeCallback freecb);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -147,11 +148,11 @@ void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb);
 
 /* trie iterator stack node. for internal use only */
 typedef struct {
-  int state;
-  TrieNode *n;
-  t_len stringOffset;
-  t_len childOffset;
-  int isSkipped;
+    int state;
+    TrieNode *n;
+    t_len stringOffset;
+    t_len childOffset;
+    int isSkipped;
 } stackNode;
 
 typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
@@ -164,24 +165,24 @@ typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
 
 typedef void (*StackPopCallback)(void *ctx, int num);
 
-#define ITERSTATE_SELF 0
+#define ITERSTATE_SELF     0
 #define ITERSTATE_CHILDREN 1
-#define ITERSTATE_MATCH 2
+#define ITERSTATE_MATCH    2
 
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[TRIE_INITIAL_STRING_LEN + 1];
-  t_len bufOffset;
+    rune buf[TRIE_INITIAL_STRING_LEN + 1];
+    t_len bufOffset;
 
-  stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
-  t_len stackOffset;
-  StepFilter filter;
-  float minScore;
-  int nodesConsumed;
-  int nodesSkipped;
-  StackPopCallback popCallback;
-  void *ctx;
+    stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
+    t_len stackOffset;
+    StepFilter filter;
+    float minScore;
+    int nodesConsumed;
+    int nodesSkipped;
+    StackPopCallback popCallback;
+    void *ctx;
 } TrieIterator;
 
 /* push a new trie iterator stack node  */
@@ -257,8 +258,8 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includ
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout);
 
-void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout);
+void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr, TrieRangeCallback callback,
+                              void *ctx, struct timespec *timeout);
 
 #ifdef __cplusplus
 }

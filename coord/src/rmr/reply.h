@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "resp3.h"
@@ -13,22 +12,22 @@
 
 #include <stdlib.h>
 
-#define MR_REPLY_STRING 1
-#define MR_REPLY_ARRAY 2
+#define MR_REPLY_STRING  1
+#define MR_REPLY_ARRAY   2
 #define MR_REPLY_INTEGER 3
-#define MR_REPLY_NIL 4
-#define MR_REPLY_STATUS 5
-#define MR_REPLY_ERROR 6
+#define MR_REPLY_NIL     4
+#define MR_REPLY_STATUS  5
+#define MR_REPLY_ERROR   6
 
 #define MR_REPLY_DOUBLE 7
-#define MR_REPLY_BOOL 8
-#define MR_REPLY_MAP 9
-#define MR_REPLY_SET 10
+#define MR_REPLY_BOOL   8
+#define MR_REPLY_MAP    9
+#define MR_REPLY_SET    10
 
-#define MR_REPLY_ATTR 11
-#define MR_REPLY_PUSH 12
+#define MR_REPLY_ATTR   11
+#define MR_REPLY_PUSH   12
 #define MR_REPLY_BIGNUM 13
-#define MR_REPLY_VERB 14
+#define MR_REPLY_VERB   14
 
 struct redisReply;
 typedef struct redisReply MRReply;

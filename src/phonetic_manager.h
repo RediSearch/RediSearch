@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef SRC_PHONETIC_MANAGER_H_
 #define SRC_PHONETIC_MANAGER_H_
 
@@ -13,11 +12,11 @@
 #define PHONETIC_PREFIX '<'
 
 typedef struct {
-  char* algorithm;
-  //RSLanguage language; // not currently used
+    char *algorithm;
+    // RSLanguage language; // not currently used
 } PhoneticManagerCtx;
 
-void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
-                                     char** primary, char** secondary);
+void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx *ctx, const char *term, size_t len,
+                                     char **primary, char **secondary);
 
 #endif /* SRC_PHONETIC_MANAGER_H_ */

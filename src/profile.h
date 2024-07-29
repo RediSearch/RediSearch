@@ -11,13 +11,13 @@
 
 #define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
 
-#define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
-#define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
+#define printProfileType(vtype)       RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
+#define printProfileTime(vtime)       RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))
-#define printProfileNumBatches(hybrid_reader) \
-  RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
-#define printProfileOptimizationType(oi) \
-  RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
+#define printProfileNumBatches(hybrid_reader)                                                      \
+    RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
+#define printProfileOptimizationType(oi)                                                           \
+    RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
@@ -27,19 +27,18 @@ void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout);
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
                  PrintProfileConfig *config);
 
-#define PROFILE_STR "Profile"
-#define PROFILE_SHARDS_STR "Shards"
+#define PROFILE_STR             "Profile"
+#define PROFILE_SHARDS_STR      "Shards"
 #define PROFILE_COORDINATOR_STR "Coordinator"
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
 typedef struct {
-  AREQ *req;
-  bool timedout;
+    AREQ *req;
+    bool timedout;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
 typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);
 
-void Profile_PrintInFormat(RedisModule_Reply *reply,
-                           ProfilePrinterCB shards_cb, void *shards_ctx,
+void Profile_PrintInFormat(RedisModule_Reply *reply, ProfilePrinterCB shards_cb, void *shards_ctx,
                            ProfilePrinterCB coordinator_cb, void *coordinator_ctx);

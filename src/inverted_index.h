@@ -23,32 +23,32 @@ extern "C" {
 #endif
 
 // The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE            100
 #define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
 extern uint64_t TotalIIBlocks;
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
-  t_docId firstId;
-  t_docId lastId;
-  Buffer buf;
-  uint16_t numEntries;  // Number of entries (i.e., docs)
+    t_docId firstId;
+    t_docId lastId;
+    Buffer buf;
+    uint16_t numEntries; // Number of entries (i.e., docs)
 } IndexBlock;
 
 typedef struct InvertedIndex {
-  IndexBlock *blocks; // Array containing the inverted index blocks
-  uint32_t size;      // Number of blocks
-  IndexFlags flags;
-  t_docId lastId;
-  uint32_t numDocs;   // Number of documents in the index
-  uint32_t gcMarker;
-  // The following union must remain at the end as memory is not allocated for it
-  // if not required (see function `NewInvertedIndex`)
-  union {
-    t_fieldMask fieldMask;
-    uint64_t numEntries;
-  };
+    IndexBlock *blocks; // Array containing the inverted index blocks
+    uint32_t size;      // Number of blocks
+    IndexFlags flags;
+    t_docId lastId;
+    uint32_t numDocs; // Number of documents in the index
+    uint32_t gcMarker;
+    // The following union must remain at the end as memory is not allocated for it
+    // if not required (see function `NewInvertedIndex`)
+    union {
+        t_fieldMask fieldMask;
+        uint64_t numEntries;
+    };
 } InvertedIndex;
 
 /**
@@ -57,12 +57,12 @@ typedef struct InvertedIndex {
  * configuration information to help the decoder determine whether to filter
  * the entry */
 typedef struct {
-  void *ptr;
-  t_fieldMask num;
+    void *ptr;
+    t_fieldMask num;
 
-  // used by profile
-  double rangeMin;
-  double rangeMax;
+    // used by profile
+    double rangeMin;
+    double rangeMax;
 } IndexDecoderCtx;
 
 /**
@@ -71,39 +71,39 @@ typedef struct {
 typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
 
 typedef struct {
-  size_t bytesBeforFix;
-  size_t bytesAfterFix;
-  size_t bytesCollected;    /** out: Number of bytes collected */
-  size_t docsCollected;     /** out: Number of documents collected */
-  size_t entriesCollected;  /** out: Number of entries collected */
-  size_t limit;          /** in: how many index blocks to scan at once */
+    size_t bytesBeforFix;
+    size_t bytesAfterFix;
+    size_t bytesCollected;   /** out: Number of bytes collected */
+    size_t docsCollected;    /** out: Number of documents collected */
+    size_t entriesCollected; /** out: Number of entries collected */
+    size_t limit;            /** in: how many index blocks to scan at once */
 
-  /** in: Callback to invoke when a document is collected */
-  void (*RepairCallback)(const RSIndexResult *, const IndexBlock *, void *);
-  /** argument to pass to callback */
-  void *arg;
+    /** in: Callback to invoke when a document is collected */
+    void (*RepairCallback)(const RSIndexResult *, const IndexBlock *, void *);
+    /** argument to pass to callback */
+    void *arg;
 } IndexRepairParams;
 
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
-  int useFieldMask = flags & Index_StoreFieldFlags;
-  int useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask & useNumEntries));
-  // Avoid some of the allocation if not needed
-  return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+    int useFieldMask = flags & Index_StoreFieldFlags;
+    int useNumEntries = flags & Index_StoreNumeric;
+    RedisModule_Assert(!(useFieldMask & useNumEntries));
+    // Avoid some of the allocation if not needed
+    return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex)
+                                           : sizeof(InvertedIndex) - sizeof(t_fieldMask);
 }
 
 // Create a new inverted index object, with the given flag.
 // If initBlock is 1, we create the first block.
-// out parameter memsize must be not NULL, the total of allocated memory 
+// out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
 
 /* Add a new block to the index with a given document id as the initial id
-  * Returns the new block
-  * in/out parameter memsize must be not NULL, because the size (bytes) of the
-  * new block is added to it
-*/
+ * Returns the new block
+ * in/out parameter memsize must be not NULL, because the size (bytes) of the
+ * new block is added to it
+ */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
@@ -136,8 +136,8 @@ typedef int (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct 
                            t_docId to, RSIndexResult *res);
 
 typedef struct {
-  IndexDecoder decoder;
-  IndexSeeker seeker;
+    IndexDecoder decoder;
+    IndexSeeker seeker;
 } IndexDecoderProcs;
 
 /* Get the decoder for the index based on the index flags. This is used to externally inject the
@@ -146,42 +146,42 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
-  const IndexSpec *sp;
+    const IndexSpec *sp;
 
-  // the underlying data buffer
-  BufferReader br;
+    // the underlying data buffer
+    BufferReader br;
 
-  InvertedIndex *idx;
-  // last docId, used for delta encoding/decoding
-  t_docId lastId;
-  // same docId, used for detecting same doc (with multi values)
-  t_docId sameId;
-  // Whether to skip multi values from the same doc
-  int skipMulti;
-  uint32_t currentBlock;
+    InvertedIndex *idx;
+    // last docId, used for delta encoding/decoding
+    t_docId lastId;
+    // same docId, used for detecting same doc (with multi values)
+    t_docId sameId;
+    // Whether to skip multi values from the same doc
+    int skipMulti;
+    uint32_t currentBlock;
 
-  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
-   * filtering field masks, the pointer for numeric filtering */
-  IndexDecoderCtx decoderCtx;
-  /* The decoding function for reading the index */
-  IndexDecoderProcs decoders;
+    /* The decoder's filtering context. It may be a number or a pointer. The number is used for
+     * filtering field masks, the pointer for numeric filtering */
+    IndexDecoderCtx decoderCtx;
+    /* The decoding function for reading the index */
+    IndexDecoderProcs decoders;
 
-  /* The number of records read */
-  size_t len;
+    /* The number of records read */
+    size_t len;
 
-  /* The record we are decoding into */
-  RSIndexResult *record;
+    /* The record we are decoding into */
+    RSIndexResult *record;
 
-  int atEnd_;
+    int atEnd_;
 
-  // If present, this pointer is updated when the end has been reached. This is
-  // an optimization to avoid calling IR_HasNext() each time
-  uint8_t *isValidP;
+    // If present, this pointer is updated when the end has been reached. This is
+    // an optimization to avoid calling IR_HasNext() each time
+    uint8_t *isValidP;
 
-  /* This marker lets us know whether the garbage collector has visited this index while the reading
-   * thread was asleep, and reset the state in a deeper way
-   */
-  uint32_t gcMarker;
+    /* This marker lets us know whether the garbage collector has visited this index while the
+     * reading thread was asleep, and reset the state in a deeper way
+     */
+    uint32_t gcMarker;
 } IndexReader;
 
 // On Reopen callback for term index
@@ -270,13 +270,13 @@ IndexIterator *NewReadIterator(IndexReader *ir);
 int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
+    return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
 }
 
 // IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
 // IDF computation).
 static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
+    return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 #ifdef _DEBUG
