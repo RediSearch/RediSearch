@@ -6,5 +6,7 @@ CLANG_FMT_TESTS="$(find ./tests/ -type d \( -path ./tests/unit/build \) -prune -
 if [[ $FIX == 1 ]]; then
     clang-format --verbose -style=file -i $CLANG_FMT_SRCS $CLANG_FMT_TESTS
 else
+    isort --check --gitignore tests/pytests
+    black --check --verbose --exclude .log tests/pytests
     clang-format -style=file -Werror --dry-run $CLANG_FMT_SRCS $CLANG_FMT_TESTS
 fi
