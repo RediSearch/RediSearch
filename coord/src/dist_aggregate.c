@@ -548,6 +548,10 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, "ADDSCORES");
   }
 
+  if (RMUtil_ArgIndex("VERBATIM", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
+    array_append(tmparr, "VERBATIM");
+  }
+
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
     array_append(tmparr, us->serialized[ii]);
   }
