@@ -1,5 +1,5 @@
 
-get_filename_component(root ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
+get_filename_component(root ../../../.. ABSOLUTE)
 message("# coord/rmr: root: " ${root})
 
 file(GLOB RMR_SRC
@@ -7,8 +7,8 @@ file(GLOB RMR_SRC
     redise_parser/*.c)
 
 include_directories(
-	${PROJECT_SOURCE_DIR}/src
 	${root}/src
+	${root}/src/coord/src
 	${root}/deps/libuv
 	${root}/deps/libuv/include)
 

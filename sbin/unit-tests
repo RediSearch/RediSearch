@@ -145,7 +145,7 @@ fi
 $READIES/bin/sep1
 echo "# Running coordinator unit tests"
 TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
-cd $ROOT/coord/tests/unit
+cd $ROOT/src/coord/tests/unit
 if [[ -z $TEST ]]; then
 	if [[ $NOP != 1 ]]; then
 		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do

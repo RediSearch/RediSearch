@@ -1,7 +1,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(root ../.. ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
@@ -102,9 +102,10 @@ macro(MODULE_TARGET TYPE)
 		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
     endif()
 
+	message("root " ${root})
     add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
-		src/build-info/info-${MODULE_NAME_SUFFIX}.c)
+			${root}/src/coord/src/build-info/info-${MODULE_NAME_SUFFIX}.c)
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
 

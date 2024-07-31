@@ -1,8 +1,8 @@
 
-get_filename_component(root ${CMAKE_CURRENT_SOURCE_DIR}/../../../.. ABSOLUTE)
+get_filename_component(root ../../../../.. ABSOLUTE)
 message("# coord/rmr/test: root: " ${root})
 
-include_directories(..)
+include_directories(${root}/src/coord/src/rmr)
 
 function(RMRTEST name)
     add_executable(${name} ${name}.c init-rm.c)
