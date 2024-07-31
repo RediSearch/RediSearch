@@ -15,32 +15,32 @@
 extern "C" {
 #endif
 
-#define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
-  if (argc < minargs || argc > maxargs) {                                                     \
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
-    return EXPR_EVAL_ERR;                                                                     \
-  }
+#define VALIDATE_ARGS(fname, minargs, maxargs, err)                                                \
+    if (argc < minargs || argc > maxargs) {                                                        \
+        QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'");  \
+        return EXPR_EVAL_ERR;                                                                      \
+    }
 
-#define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
-  {                                                                                            \
-    RSValue *dref = RSValue_Dereference(args[idx]);                                            \
-    if (!verifier(dref, varg)) {                                                               \
-                                                                                               \
-      QueryError_SetErrorFmt(                                                                  \
-          err, QUERY_EPARSEARGS,                                                               \
-          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
-          idx, fname, #verifier, #varg);                                                       \
-      return EXPR_EVAL_ERR;                                                                    \
-    }                                                                                          \
-  }
+#define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                     \
+    {                                                                                              \
+        RSValue *dref = RSValue_Dereference(args[idx]);                                            \
+        if (!verifier(dref, varg)) {                                                               \
+                                                                                                   \
+            QueryError_SetErrorFmt(                                                                \
+                err, QUERY_EPARSEARGS,                                                             \
+                "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.",        \
+                dref->t, idx, fname, #verifier, #varg);                                            \
+            return EXPR_EVAL_ERR;                                                                  \
+        }                                                                                          \
+    }
 
 #define VALIDATE_ARG__TYPE(arg, t_) ((arg)->t == t_)
-#define VALIDATE_ARG_TYPE(fname, args, idx, t) \
-  VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
+#define VALIDATE_ARG_TYPE(fname, args, idx, t)                                                     \
+    VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
 
 #define VALIDATE_ARG__STRING(arg, unused) RSValue_IsString(arg)
-#define VALIDATE_ARG_ISSTRING(fname, args, idx) \
-  VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
+#define VALIDATE_ARG_ISSTRING(fname, args, idx)                                                    \
+    VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__STRING, 0)
 
 struct ExprEval;
 
@@ -61,15 +61,15 @@ typedef int (*RSFunction)(struct ExprEval *e, RSValue *result, RSValue **args, s
                           QueryError *err);
 
 typedef struct {
-  size_t len;
-  size_t cap;
-  struct RSFunctionInfo {
-    RSFunction f;
-    const char *name;
-    RSValueType retType;
-    unsigned minargs;
-    int maxargs;
-  } * funcs;
+    size_t len;
+    size_t cap;
+    struct RSFunctionInfo {
+        RSFunction f;
+        const char *name;
+        RSValueType retType;
+        unsigned minargs;
+        int maxargs;
+    } *funcs;
 } RSFunctionRegistry;
 
 typedef struct RSFunctionInfo RSFunctionInfo;

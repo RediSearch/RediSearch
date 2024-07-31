@@ -1,13 +1,15 @@
-from includes import *
 from common import *
+from includes import *
 from RLTest import Env
 
-def test_and_or_v1():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye moon').equal(r'''
+def test_and_or_v1():
+    env = Env(moduleArgs="DEFAULT_DIALECT 1")
+    conn = getConnectionByEnv(env)
+    env.expect("FT.CREATE", "idx", "SCHEMA", "t", "TEXT", "SORTABLE").ok()
+
+    env.expect("FT.EXPLAIN", "idx", "hello world | goodbye moon").equal(
+        r"""
 UNION {
   INTERSECT {
     UNION {
@@ -31,9 +33,13 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", 'hello world | "goodbye" moon').equal(
+        r"""
 INTERSECT {
   UNION {
     INTERSECT {
@@ -53,9 +59,13 @@ INTERSECT {
     +moon(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", 'hello world | goodbye "moon"').equal(
+        r"""
 INTERSECT {
   UNION {
     INTERSECT {
@@ -76,9 +86,13 @@ INTERSECT {
   }
   moon
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", '"hello" "world" | "goodbye" "moon"').equal(
+        r"""
 INTERSECT {
   hello
   UNION {
@@ -87,9 +101,17 @@ INTERSECT {
   }
   moon
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")',
+    ).equal(
+        r"""
 UNION {
   INTERSECT {
     hello
@@ -114,14 +136,19 @@ UNION {
     werld
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_and_or_v2():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
+    env.expect("FT.CREATE", "idx", "SCHEMA", "t", "TEXT", "SORTABLE").ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye moon').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", "hello world | goodbye moon").equal(
+        r"""
 UNION {
   INTERSECT {
     UNION {
@@ -145,9 +172,13 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | "goodbye" moon').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", 'hello world | "goodbye" moon').equal(
+        r"""
 UNION {
   INTERSECT {
     UNION {
@@ -169,9 +200,13 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello world | goodbye "moon"').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", 'hello world | goodbye "moon"').equal(
+        r"""
 UNION {
   INTERSECT {
     UNION {
@@ -194,9 +229,13 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", '"hello" "world" | "goodbye" "moon"').equal(
+        r"""
 UNION {
   INTERSECT {
     EXACT {
@@ -215,9 +254,17 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")',
+    ).equal(
+        r"""
 UNION {
   INTERSECT {
     EXACT {
@@ -262,14 +309,39 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_modifier_v1():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env = Env(moduleArgs="DEFAULT_DIALECT 1")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t1",
+        "TEXT",
+        "NOSTEM",
+        "t2",
+        "TEXT",
+        "SORTABLE",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello world @t2:howdy").equal(
+        r"""
 INTERSECT {
   @t1:INTERSECT {
     @t1:UNION {
@@ -287,9 +359,13 @@ INTERSECT {
     @t2:howdi(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", "@t1:(hello|world|mars)").equal(
+        r"""
 @t1:UNION {
   @t1:UNION {
     @t1:hello
@@ -305,21 +381,66 @@ INTERSECT {
     @t1:mar(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)').res)
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello world").equal(
+        env.expect("FT.EXPLAIN", "idx", "@t1:(hello world)").res
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world').res)
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello=>{$weight:5} world").equal(
+        env.expect("FT.EXPLAIN", "idx", "@t1:(hello=>{$weight:5}) world").res
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
-    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "@t1:hello world=>[KNN 10 @v $B]",
+        "PARAMS",
+        2,
+        "B",
+        "#blob#",
+    ).error().contains("Syntax error")
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "@t1:(hello world)=>[KNN 10 @v $B]",
+        "PARAMS",
+        2,
+        "B",
+        "#blob#",
+    ).error().contains("Syntax error")
+
 
 def test_modifier_v2(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'NOSTEM', 't2', 'TEXT', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t1",
+        "TEXT",
+        "NOSTEM",
+        "t2",
+        "TEXT",
+        "SORTABLE",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello world @t2:howdy").equal(
+        r"""
 INTERSECT {
   @t1:UNION {
     @t1:hello
@@ -335,9 +456,13 @@ INTERSECT {
     @t2:howdi(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal('''
+    env.expect("FT.EXPLAIN", "idx", "@t1:(hello|world|mars)").equal(
+        """
 @t1:UNION {
   @t1:UNION {
     @t1:hello
@@ -353,27 +478,82 @@ INTERSECT {
     @t1:mar(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello) world').res)
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello=>{$weight:5} world').equal(env.expect('FT.EXPLAIN', 'idx', '@t1:(hello=>{$weight:5}) world').res)
-    env.expect('FT.EXPLAIN', 'idx', '@t1:hello world=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').error().contains('Syntax error')
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello world").equal(
+        env.expect("FT.EXPLAIN", "idx", "@t1:(hello) world").res
+    )
+    env.expect("FT.EXPLAIN", "idx", "@t1:hello=>{$weight:5} world").equal(
+        env.expect("FT.EXPLAIN", "idx", "@t1:(hello=>{$weight:5}) world").res
+    )
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "@t1:hello world=>[KNN 10 @v $B]",
+        "PARAMS",
+        2,
+        "B",
+        "#blob#",
+    ).error().contains("Syntax error")
 
-    env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "@t1:(hello world)=>[KNN 10 @v $B]",
+        "PARAMS",
+        2,
+        "B",
+        "#blob#",
+    ).equal(
+        r"""
 VECTOR {
   @t1:INTERSECT {
     @t1:hello
     @t1:world
   }
 } => {K=10 nearest vectors to `$B` in vector index associated with field @v, yields distance as `__v_score`}
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_filters_v1():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env = Env(moduleArgs="DEFAULT_DIALECT 1")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t",
+        "TEXT",
+        "t2",
+        "TAG",
+        "n",
+        "NUMERIC",
+        "g",
+        "GEO",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])",
+    ).equal(
+        r"""
 INTERSECT {
   UNION {
     INTERSECT {
@@ -407,14 +587,45 @@ INTERSECT {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_filters_v2():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t",
+        "TEXT",
+        "t2",
+        "TAG",
+        "n",
+        "NUMERIC",
+        "g",
+        "GEO",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
+    env.expect(
+        "FT.EXPLAIN",
+        "idx",
+        "very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])",
+    ).equal(
+        r"""
 UNION {
   INTERSECT {
     UNION {
@@ -448,14 +659,43 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_combinations_v1():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env = Env(moduleArgs="DEFAULT_DIALECT 1")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t",
+        "TEXT",
+        "t2",
+        "TAG",
+        "n",
+        "NUMERIC",
+        "g",
+        "GEO",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello | "world" again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 INTERSECT {
   UNION {
     UNION {
@@ -469,9 +709,15 @@ INTERSECT {
     +again(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello | -"world" again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 UNION {
   UNION {
     hello
@@ -484,9 +730,15 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello ~-"world" ~again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 INTERSECT {
   UNION {
     hello
@@ -501,14 +753,43 @@ INTERSECT {
     again
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def test_combinations_v2():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "SCHEMA",
+        "t",
+        "TEXT",
+        "t2",
+        "TAG",
+        "n",
+        "NUMERIC",
+        "g",
+        "GEO",
+        "v",
+        "VECTOR",
+        "FLAT",
+        "6",
+        "TYPE",
+        "FLOAT32",
+        "DIM",
+        "2",
+        "DISTANCE_METRIC",
+        "L2",
+    ).ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello | "world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello | "world" again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 UNION {
   UNION {
     hello
@@ -524,9 +805,15 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello | -"world" again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello | -"world" again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 UNION {
   UNION {
     hello
@@ -544,9 +831,15 @@ UNION {
     }
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
 
-    env.expect('FT.EXPLAIN', 'idx', 'hello ~-"world" ~again', 'PARAMS', 2, 'B', '#blob#').equal(r'''
+    env.expect(
+        "FT.EXPLAIN", "idx", 'hello ~-"world" ~again', "PARAMS", 2, "B", "#blob#"
+    ).equal(
+        r"""
 INTERSECT {
   UNION {
     hello
@@ -563,72 +856,111 @@ INTERSECT {
     again
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )
+
 
 def nest_exp(modifier, term, is_and, i):
     if i == 1:
-        return '(@' + modifier + ':' + term + str(i) + ')'
-    return '(' + term + str(i) + (' ' if is_and else '|') + nest_exp(modifier, term, is_and, i - 1) + ')'
+        return "(@" + modifier + ":" + term + str(i) + ")"
+    return (
+        "("
+        + term
+        + str(i)
+        + (" " if is_and else "|")
+        + nest_exp(modifier, term, is_and, i - 1)
+        + ")"
+    )
+
 
 def testUnsupportedNesting(env):
     nest_level = 200
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
+    env.expect("FT.CREATE", "idx", "SCHEMA", "mod", "TEXT").ok()
 
-    and_exp = nest_exp('mod', 'a', True, nest_level)
-    or_exp = nest_exp('mod', 'a', False, nest_level)
+    and_exp = nest_exp("mod", "a", True, nest_level)
+    or_exp = nest_exp("mod", "a", False, nest_level)
     # env.debugPrint(and_exp, force=TEST_DEBUG)
     # env.debugPrint(or_exp, force=TEST_DEBUG)
-    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
-    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
-    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
-    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
+    env.expect("ft.search", "idx", and_exp, "DIALECT", 1).error().contains(
+        "Syntax error at offset"
+    )
+    env.expect("ft.search", "idx", and_exp, "DIALECT", 2).error().contains(
+        "Parser stack overflow."
+    )
+    env.expect("ft.search", "idx", or_exp, "DIALECT", 1).error().contains(
+        "Syntax error at offset"
+    )
+    env.expect("ft.search", "idx", or_exp, "DIALECT", 2).error().contains(
+        "Parser stack overflow."
+    )
+
 
 def testSupportedNesting_v1():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env = Env(moduleArgs="DEFAULT_DIALECT 1")
     nest_level = 30
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
+    env.expect("FT.CREATE", "idx", "SCHEMA", "mod", "TEXT").ok()
 
-    and_exp = nest_exp('mod', 'a', True, nest_level)
-    or_exp = nest_exp('mod', 'a', False, nest_level)
+    and_exp = nest_exp("mod", "a", True, nest_level)
+    or_exp = nest_exp("mod", "a", False, nest_level)
     # env.debugPrint(and_exp, force=TEST_DEBUG)
     # env.debugPrint(or_exp, force=TEST_DEBUG)
-    env.expect('ft.search', 'idx', and_exp).equal([0])
-    env.expect('ft.search', 'idx', or_exp).equal([0])
+    env.expect("ft.search", "idx", and_exp).equal([0])
+    env.expect("ft.search", "idx", or_exp).equal([0])
+
 
 def testSupportedNesting_v2():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     nest_level = 84
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'mod', 'TEXT').ok()
+    env.expect("FT.CREATE", "idx", "SCHEMA", "mod", "TEXT").ok()
 
-    and_exp = nest_exp('mod', 'a', True, nest_level)
-    or_exp = nest_exp('mod', 'a', False, nest_level)
+    and_exp = nest_exp("mod", "a", True, nest_level)
+    or_exp = nest_exp("mod", "a", False, nest_level)
     # env.debugPrint(and_exp, force=TEST_DEBUG)
     # env.debugPrint(or_exp, force=TEST_DEBUG)
-    env.expect('ft.search', 'idx', and_exp).equal([0])
-    env.expect('ft.search', 'idx', or_exp).equal([0])
+    env.expect("ft.search", "idx", and_exp).equal([0])
+    env.expect("ft.search", "idx", or_exp).equal([0])
+
 
 def testLongUnionList(env):
-    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT').ok()
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG').ok()
+    env.expect("FT.CREATE", "idx1", "SCHEMA", "n", "NUMERIC", "t", "TEXT").ok()
+    env.expect("FT.CREATE", "idx2", "SCHEMA", "n", "NUMERIC", "t", "TAG").ok()
     conn = getConnectionByEnv(env)
     num_args = 300
-    for i in range(1, num_args+1):
-        conn.execute_command('HSET', f'doc{i}', 't', f't{i}', 'n', i)
-    arg = '|'.join([f't{i}' for i in range(1, num_args+1)])
-    env.expect('ft.search', 'idx1', f'@t:({arg})', 'SORTBY', 'n', 'NOCONTENT').equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
-    env.expect('ft.search', 'idx2', f'@t:{{{arg}}}', 'SORTBY', 'n', 'NOCONTENT').equal([num_args, *[f'doc{i}' for i in range(1, 11)]])
+    for i in range(1, num_args + 1):
+        conn.execute_command("HSET", f"doc{i}", "t", f"t{i}", "n", i)
+    arg = "|".join([f"t{i}" for i in range(1, num_args + 1)])
+    env.expect("ft.search", "idx1", f"@t:({arg})", "SORTBY", "n", "NOCONTENT").equal(
+        [num_args, *[f"doc{i}" for i in range(1, 11)]]
+    )
+    env.expect("ft.search", "idx2", f"@t:{{{arg}}}", "SORTBY", "n", "NOCONTENT").equal(
+        [num_args, *[f"doc{i}" for i in range(1, 11)]]
+    )
 
     # Make sure we get a single union node of all the args, and not a deep tree
-    exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
+    exact_arg = "|".join([f'"t{i}"' for i in range(1, num_args + 1)])
     dialect = env.cmd(config_cmd(), "GET", "DEFAULT_DIALECT")[0][1]
-    if (dialect == 1):
-      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
-    elif (dialect == 2):
-      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:EXACT {{\n    @t:t{i}\n  }}' for i in range(1, num_args+1)]) + '\n}\n')
+    if dialect == 1:
+        env.expect("FT.EXPLAIN", "idx1", f"@t:({exact_arg})").equal(
+            "@t:UNION {\n"
+            + "\n".join([f"  @t:t{i}" for i in range(1, num_args + 1)])
+            + "\n}\n"
+        )
+    elif dialect == 2:
+        env.expect("FT.EXPLAIN", "idx1", f"@t:({exact_arg})").equal(
+            "@t:UNION {\n"
+            + "\n".join(
+                [f"  @t:EXACT {{\n    @t:t{i}\n  }}" for i in range(1, num_args + 1)]
+            )
+            + "\n}\n"
+        )
+
 
 def testModifierList(env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
-    env.expect('FT.EXPLAIN', 'idx', '@t1|t2:(text value)').equal(r'''
+    env.expect("FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "t2", "TEXT").ok()
+    env.expect("FT.EXPLAIN", "idx", "@t1|t2:(text value)").equal(
+        r"""
 @t1|t2:INTERSECT {
   @t1|t2:UNION {
     @t1|t2:text
@@ -640,4 +972,7 @@ def testModifierList(env):
     @t1|t2:valu(expanded)
   }
 }
-'''[1:])
+"""[
+            1:
+        ]
+    )

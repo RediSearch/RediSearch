@@ -47,8 +47,8 @@ void ReadIterator_Free(IndexIterator *it);
 
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit, double weight,
+                                QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
 void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));
 
@@ -57,7 +57,7 @@ void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));
  * maxSlop is set and inOrder is 1, we assert that the terms are in
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersectIterator(IndexIterator **its, size_t num, DocTable *t,
-                                   t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
+                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
 
 /* Add an iterator to an intersect iterator */
 void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
@@ -67,7 +67,8 @@ void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
 void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc);
 
 /* Create a NOT iterator by wrapping another index iterator */
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout);
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight,
+                              struct timespec timeout);
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */

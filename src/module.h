@@ -34,14 +34,14 @@ extern RedisModuleCtx *RSDummyContext;
 /** Indicates that RediSearch_Init was called */
 extern int RS_Initialized;
 
-#define RS_AutoMemory(ctx)                      \
-do {                                            \
-  RS_LOG_ASSERT(ctx != RSDummyContext, "");     \
-  RedisModule_AutoMemory(ctx);                  \
-} while (0)
+#define RS_AutoMemory(ctx)                                                                         \
+    do {                                                                                           \
+        RS_LOG_ASSERT(ctx != RSDummyContext, "");                                                  \
+        RedisModule_AutoMemory(ctx);                                                               \
+    } while (0)
 
-#define RedisModule_ReplyWithLiteral(ctx, literal) \
-  RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
+#define RedisModule_ReplyWithLiteral(ctx, literal)                                                 \
+    RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #ifdef __cplusplus
 }

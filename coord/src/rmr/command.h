@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "hiredis/sds.h"
@@ -17,32 +16,32 @@ typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
 typedef struct {
-  /* The command args starting from the command itself */
-  char **strs;
-  size_t *lens;
+    /* The command args starting from the command itself */
+    char **strs;
+    size_t *lens;
 
-  /* Number of arguments */
-  uint32_t num;
+    /* Number of arguments */
+    uint32_t num;
 
-  /* if not -1, this value indicate to which slot the command should be sent */
-  int16_t targetSlot;
+    /* if not -1, this value indicate to which slot the command should be sent */
+    int16_t targetSlot;
 
-  /* 0 (undetermined), 2, or 3 */
-  unsigned char protocol;
+    /* 0 (undetermined), 2, or 3 */
+    unsigned char protocol;
 
-  /* Whether the user asked for a cursor */
-  bool forCursor;
+    /* Whether the user asked for a cursor */
+    bool forCursor;
 
-  /* Whether the command is for profiling */
-  bool forProfiling;
+    /* Whether the command is for profiling */
+    bool forProfiling;
 
-  /* Whether the command chain is depleted - don't resend */
-  bool depleted;
+    /* Whether the command chain is depleted - don't resend */
+    bool depleted;
 
-  // Root command for current response
-  MRRootCommand rootCommand;
+    // Root command for current response
+    MRRootCommand rootCommand;
 
-  sds cmd;
+    sds cmd;
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
@@ -57,11 +56,11 @@ MRCommand MR_NewCommand(int argc, ...);
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
 static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t idx, size_t *len) {
-  // assert(idx < cmd->num);
-  if (len) {
-    *len = cmd->lens[idx];
-  }
-  return cmd->strs[idx];
+    // assert(idx < cmd->num);
+    if (len) {
+        *len = cmd->lens[idx];
+    }
+    return cmd->strs[idx];
 }
 
 /** Copy from an argument of an existing command */

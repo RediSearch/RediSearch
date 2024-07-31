@@ -20,62 +20,62 @@ extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
 typedef enum {
-  _null_cmd,
-  hset_cmd,
-  hmset_cmd,
-  hsetnx_cmd,
-  hincrby_cmd,
-  hincrbyfloat_cmd,
-  hdel_cmd,
-  del_cmd,
-  set_cmd,
-  rename_from_cmd,
-  rename_to_cmd,
-  trimmed_cmd,
-  restore_cmd,
-  expired_cmd,
-  hexpired_cmd,
-  evicted_cmd,
-  change_cmd,
-  loaded_cmd,
-  copy_to_cmd,
+    _null_cmd,
+    hset_cmd,
+    hmset_cmd,
+    hsetnx_cmd,
+    hincrby_cmd,
+    hincrbyfloat_cmd,
+    hdel_cmd,
+    del_cmd,
+    set_cmd,
+    rename_from_cmd,
+    rename_to_cmd,
+    trimmed_cmd,
+    restore_cmd,
+    expired_cmd,
+    hexpired_cmd,
+    evicted_cmd,
+    change_cmd,
+    loaded_cmd,
+    copy_to_cmd,
 } RedisCmd;
 
 static void freeHashFields() {
-  if (hashFields != NULL) {
-    for (size_t i = 0; hashFields[i] != NULL; ++i) {
-      RedisModule_FreeString(RSDummyContext, hashFields[i]);
+    if (hashFields != NULL) {
+        for (size_t i = 0; hashFields[i] != NULL; ++i) {
+            RedisModule_FreeString(RSDummyContext, hashFields[i]);
+        }
+        rm_free(hashFields);
+        hashFields = NULL;
     }
-    rm_free(hashFields);
-    hashFields = NULL;
-  }
 }
 
 int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                              RedisModuleString *key) {
 
-#define CHECK_CACHED_EVENT(E) \
-  if (event == E##_event) {   \
-    redisCommand = E##_cmd;   \
-  }
+#define CHECK_CACHED_EVENT(E)                                                                      \
+    if (event == E##_event) {                                                                      \
+        redisCommand = E##_cmd;                                                                    \
+    }
 
-#define CHECK_AND_CACHE_EVENT(E) \
-  if (!strcmp(event, #E)) {      \
-    redisCommand = E##_cmd;      \
-    E##_event = event;           \
-  }
+#define CHECK_AND_CACHE_EVENT(E)                                                                   \
+    if (!strcmp(event, #E)) {                                                                      \
+        redisCommand = E##_cmd;                                                                    \
+        E##_event = event;                                                                         \
+    }
 
-  int redisCommand = 0;
-  RedisModuleKey *kp;
-  DocumentType kType;
+    int redisCommand = 0;
+    RedisModuleKey *kp;
+    DocumentType kType;
 
-  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
-                    *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
-                    *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0, *hexpired_event = 0;
+    static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
+                      *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
+                      *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
+                      *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
+                      *loaded_event = 0, *copy_to_event = 0, *hexpired_event = 0;
 
-  // clang-format off
+    // clang-format off
 
        CHECK_CACHED_EVENT(hset)
   else CHECK_CACHED_EVENT(hmset)

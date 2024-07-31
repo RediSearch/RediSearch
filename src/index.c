@@ -38,72 +38,69 @@ static t_docId II_LastDocId(void *ctx);
 #define CURRENT_RECORD(ii) (ii)->base.current
 
 int cmpMinId(const void *e1, const void *e2, const void *udata) {
-  const IndexIterator *it1 = e1, *it2 = e2;
-  if (it1->minId < it2->minId) {
-    return 1;
-  } else if (it1->minId > it2->minId) {
-    return -1;
-  }
-  return 0;
+    const IndexIterator *it1 = e1, *it2 = e2;
+    if (it1->minId < it2->minId) {
+        return 1;
+    } else if (it1->minId > it2->minId) {
+        return -1;
+    }
+    return 0;
 }
 
 typedef struct {
-  IndexIterator base;
-  /**
-   * We maintain two iterator arrays. One is the original iterator list, and
-   * the other is the list of currently active iterators. When an iterator
-   * reaches EOF, it is set to NULL in the `its` list, but is still retained in
-   * the `origits` list, for the purpose of supporting things like Rewind() and
-   * Free()
-   */
-  IndexIterator **its;
-  IndexIterator **origits;
-  uint32_t num;
-  uint32_t norig;
-  uint32_t currIt;
-  t_docId minDocId;
-  heap_t *heapMinId;
+    IndexIterator base;
+    /**
+     * We maintain two iterator arrays. One is the original iterator list, and
+     * the other is the list of currently active iterators. When an iterator
+     * reaches EOF, it is set to NULL in the `its` list, but is still retained in
+     * the `origits` list, for the purpose of supporting things like Rewind() and
+     * Free()
+     */
+    IndexIterator **its;
+    IndexIterator **origits;
+    uint32_t num;
+    uint32_t norig;
+    uint32_t currIt;
+    t_docId minDocId;
+    heap_t *heapMinId;
 
-  // If set to 1, we exit skips after the first hit found and not merge further results
-  int quickExit;
-  size_t nexpected;
-  double weight;
-  uint64_t len;
+    // If set to 1, we exit skips after the first hit found and not merge further results
+    int quickExit;
+    size_t nexpected;
+    double weight;
+    uint64_t len;
 
-  // type of query node UNION,GEO,NUMERIC...
-  QueryNodeType origType;
-  // original string for fuzzy or prefix unions
-  const char *qstr;
+    // type of query node UNION,GEO,NUMERIC...
+    QueryNodeType origType;
+    // original string for fuzzy or prefix unions
+    const char *qstr;
 } UnionIterator;
 
 static void resetMinIdHeap(UnionIterator *ui) {
-  heap_t *hp = ui->heapMinId;
-  heap_clear(hp);
+    heap_t *hp = ui->heapMinId;
+    heap_clear(hp);
 
-  for (int i = 0; i < ui->num; i++) {
-    heap_offerx(hp, ui->its[i]);
-  }
-  RS_LOG_ASSERT(heap_count(hp) == ui->num,
-                "count should be equal to number of iterators");
+    for (int i = 0; i < ui->num; i++) {
+        heap_offerx(hp, ui->its[i]);
+    }
+    RS_LOG_ASSERT(heap_count(hp) == ui->num, "count should be equal to number of iterators");
 }
 
 static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
-  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
 }
 
-static inline t_docId UI_LastDocId(void *ctx) {
-  return ((UnionIterator *)ctx)->minDocId;
-}
+static inline t_docId UI_LastDocId(void *ctx) { return ((UnionIterator *)ctx)->minDocId; }
 
 static void UI_SyncIterList(UnionIterator *ui) {
-  ui->num = ui->norig;
-  memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->norig);
-  for (size_t ii = 0; ii < ui->num; ++ii) {
-    ui->its[ii]->minId = 0;
-  }
-  if (ui->heapMinId) {
-    resetMinIdHeap(ui);
-  }
+    ui->num = ui->norig;
+    memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->norig);
+    for (size_t ii = 0; ii < ui->num; ++ii) {
+        ui->its[ii]->minId = 0;
+    }
+    if (ui->heapMinId) {
+        resetMinIdHeap(ui);
+    }
 }
 
 /**
@@ -111,248 +108,248 @@ static void UI_SyncIterList(UnionIterator *ui) {
  * reads will no longer iterate over it
  */
 static size_t UI_RemoveExhausted(UnionIterator *it, size_t badix) {
-  // e.g. assume we have 10 entries, and we want to remove index 8, which means
-  // one more valid entry at the end. This means we use
-  // source: its + 8 + 1
-  // destination: its + 8
-  // number: it->len (10) - (8) - 1 == 1
-  memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));
-  it->num--;
-  // Repeat the same index again, because we have a new iterator at the same
-  // position
-  return badix - 1;
+    // e.g. assume we have 10 entries, and we want to remove index 8, which means
+    // one more valid entry at the end. This means we use
+    // source: its + 8 + 1
+    // destination: its + 8
+    // number: it->len (10) - (8) - 1 == 1
+    memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));
+    it->num--;
+    // Repeat the same index again, because we have a new iterator at the same
+    // position
+    return badix - 1;
 }
 
 static void UI_Abort(void *ctx) {
-  UnionIterator *it = ctx;
-  IITER_SET_EOF(&it->base);
-  for (int i = 0; i < it->num; i++) {
-    if (it->its[i]) {
-      it->its[i]->Abort(it->its[i]->ctx);
+    UnionIterator *it = ctx;
+    IITER_SET_EOF(&it->base);
+    for (int i = 0; i < it->num; i++) {
+        if (it->its[i]) {
+            it->its[i]->Abort(it->its[i]->ctx);
+        }
     }
-  }
 }
 
 static void UI_Rewind(void *ctx) {
-  UnionIterator *ui = ctx;
-  IITER_CLEAR_EOF(&ui->base);
-  ui->minDocId = 0;
-  CURRENT_RECORD(ui)->docId = 0;
+    UnionIterator *ui = ctx;
+    IITER_CLEAR_EOF(&ui->base);
+    ui->minDocId = 0;
+    CURRENT_RECORD(ui)->docId = 0;
 
-  UI_SyncIterList(ui);
+    UI_SyncIterList(ui);
 
-  // rewind all child iterators
-  for (size_t i = 0; i < ui->num; i++) {
-    ui->its[i]->minId = 0;
-    ui->its[i]->Rewind(ui->its[i]->ctx);
-  }
+    // rewind all child iterators
+    for (size_t i = 0; i < ui->num; i++) {
+        ui->its[i]->minId = 0;
+        ui->its[i]->Rewind(ui->its[i]->ctx);
+    }
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config) {
-  // create union context
-  UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
-  ctx->origits = its;
-  ctx->weight = weight;
-  ctx->origType = type;
-  ctx->num = num;
-  ctx->norig = num;
-  IITER_CLEAR_EOF(&ctx->base);
-  CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
-  ctx->len = 0;
-  ctx->quickExit = quickExit;
-  ctx->its = rm_calloc(ctx->num, sizeof(*ctx->its));
-  ctx->nexpected = 0;
-  ctx->currIt = 0;
-  ctx->heapMinId = NULL;
-  ctx->qstr = qstr;
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit, double weight,
+                                QueryNodeType type, const char *qstr, IteratorsConfig *config) {
+    // create union context
+    UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
+    ctx->origits = its;
+    ctx->weight = weight;
+    ctx->origType = type;
+    ctx->num = num;
+    ctx->norig = num;
+    IITER_CLEAR_EOF(&ctx->base);
+    CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
+    ctx->len = 0;
+    ctx->quickExit = quickExit;
+    ctx->its = rm_calloc(ctx->num, sizeof(*ctx->its));
+    ctx->nexpected = 0;
+    ctx->currIt = 0;
+    ctx->heapMinId = NULL;
+    ctx->qstr = qstr;
 
-  // bind the union iterator calls
-  IndexIterator *it = &ctx->base;
-  it->ctx = ctx;
-  it->type = UNION_ITERATOR;
-  it->NumEstimated = UI_NumEstimated;
-  it->LastDocId = UI_LastDocId;
-  it->Read = UI_ReadSorted;
-  it->SkipTo = UI_SkipTo;
-  it->HasNext = NULL;
-  it->Free = UnionIterator_Free;
-  it->Len = UI_Len;
-  it->Abort = UI_Abort;
-  it->Rewind = UI_Rewind;
-  UI_SyncIterList(ctx);
+    // bind the union iterator calls
+    IndexIterator *it = &ctx->base;
+    it->ctx = ctx;
+    it->type = UNION_ITERATOR;
+    it->NumEstimated = UI_NumEstimated;
+    it->LastDocId = UI_LastDocId;
+    it->Read = UI_ReadSorted;
+    it->SkipTo = UI_SkipTo;
+    it->HasNext = NULL;
+    it->Free = UnionIterator_Free;
+    it->Len = UI_Len;
+    it->Abort = UI_Abort;
+    it->Rewind = UI_Rewind;
+    UI_SyncIterList(ctx);
 
-  for (size_t i = 0; i < num; ++i) {
-    ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
-  }
+    for (size_t i = 0; i < num; ++i) {
+        ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
+    }
 
-  if (ctx->norig > config->minUnionIterHeap) {
-    it->Read = UI_ReadSortedHigh;
-    it->SkipTo = UI_SkipToHigh;
-    ctx->heapMinId = rm_malloc(heap_sizeof(num));
-    heap_init(ctx->heapMinId, cmpMinId, NULL, num);
-    resetMinIdHeap(ctx);
-  }
+    if (ctx->norig > config->minUnionIterHeap) {
+        it->Read = UI_ReadSortedHigh;
+        it->SkipTo = UI_SkipToHigh;
+        ctx->heapMinId = rm_malloc(heap_sizeof(num));
+        heap_init(ctx->heapMinId, cmpMinId, NULL, num);
+        resetMinIdHeap(ctx);
+    }
 
-  return it;
+    return it;
 }
 
 void UI_Foreach(IndexIterator *index_it, void (*callback)(IndexReader *it)) {
-  UnionIterator *ui = index_it->ctx;
-  for (int i = 0; i < ui->num; ++i) {
-    IndexIterator *it = ui->its[i];
-    callback(it->ctx);
-  }
+    UnionIterator *ui = index_it->ctx;
+    for (int i = 0; i < ui->num; ++i) {
+        IndexIterator *it = ui->its[i];
+        callback(it->ctx);
+    }
 }
 
 static size_t UI_NumEstimated(void *ctx) {
-  UnionIterator *ui = ctx;
-  return ui->nexpected;
+    UnionIterator *ui = ctx;
+    return ui->nexpected;
 }
 
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
-  UnionIterator *ui = ctx;
-  int rc = INDEXREAD_OK;
-  RSIndexResult *res = NULL;
-  while (ui->currIt < ui->num) {
-    rc = ui->origits[ui->currIt]->Read(ui->origits[ui->currIt]->ctx, &res);
-    if (rc == INDEXREAD_OK) {
-      *hit = res;
-      return rc;
+    UnionIterator *ui = ctx;
+    int rc = INDEXREAD_OK;
+    RSIndexResult *res = NULL;
+    while (ui->currIt < ui->num) {
+        rc = ui->origits[ui->currIt]->Read(ui->origits[ui->currIt]->ctx, &res);
+        if (rc == INDEXREAD_OK) {
+            *hit = res;
+            return rc;
+        }
+        ++ui->currIt;
     }
-    ++ui->currIt;
-  }
-  return INDEXREAD_EOF;
+    return INDEXREAD_EOF;
 }
 
 static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
-  UnionIterator *ui = ctx;
-  // nothing to do
-  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
+    UnionIterator *ui = ctx;
+    // nothing to do
+    if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+        IITER_SET_EOF(&ui->base);
+        return INDEXREAD_EOF;
+    }
 
-  int numActive = 0;
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+    int numActive = 0;
+    AggregateResult_Reset(CURRENT_RECORD(ui));
 
-  do {
+    do {
 
-    // find the minimal iterator
-    t_docId minDocId = UINT64_MAX;
-    IndexIterator *minIt = NULL;
-    numActive = 0;
-    int rc = INDEXREAD_EOF;
-    unsigned nits = ui->num;
+        // find the minimal iterator
+        t_docId minDocId = UINT64_MAX;
+        IndexIterator *minIt = NULL;
+        numActive = 0;
+        int rc = INDEXREAD_EOF;
+        unsigned nits = ui->num;
 
-    for (unsigned i = 0; i < nits; i++) {
-      IndexIterator *it = ui->its[i];
-      RSIndexResult *res = IITER_CURRENT_RECORD(it);
-      rc = INDEXREAD_OK;
-      // if this hit is behind the min id - read the next entry
-      // printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
-      while (it->minId <= ui->minDocId && rc != INDEXREAD_EOF) {
-        rc = INDEXREAD_NOTFOUND;
-        // read while we're not at the end and perhaps the flags do not match
-        while (rc == INDEXREAD_NOTFOUND) {
-          rc = it->Read(it->ctx, &res);
-          if (res) {
-            it->minId = res->docId;
-          }
+        for (unsigned i = 0; i < nits; i++) {
+            IndexIterator *it = ui->its[i];
+            RSIndexResult *res = IITER_CURRENT_RECORD(it);
+            rc = INDEXREAD_OK;
+            // if this hit is behind the min id - read the next entry
+            // printf("ui->docIds[%d]: %d, ui->minDocId: %d\n", i, ui->docIds[i], ui->minDocId);
+            while (it->minId <= ui->minDocId && rc != INDEXREAD_EOF) {
+                rc = INDEXREAD_NOTFOUND;
+                // read while we're not at the end and perhaps the flags do not match
+                while (rc == INDEXREAD_NOTFOUND) {
+                    rc = it->Read(it->ctx, &res);
+                    if (res) {
+                        it->minId = res->docId;
+                    }
+                }
+            }
+
+            if (rc != INDEXREAD_EOF) {
+                numActive++;
+            } else {
+                // Remove this from the active list
+                i = UI_RemoveExhausted(ui, i);
+                nits = ui->num;
+                continue;
+            }
+
+            if (rc == INDEXREAD_OK && res->docId <= minDocId) {
+                minDocId = res->docId;
+                minIt = it;
+            }
         }
-      }
 
-      if (rc != INDEXREAD_EOF) {
-        numActive++;
-      } else {
-        // Remove this from the active list
-        i = UI_RemoveExhausted(ui, i);
-        nits = ui->num;
-        continue;
-      }
+        // take the minimum entry and collect all results matching to it
+        if (minIt) {
+            UI_SkipTo(ui, minIt->minId, hit);
+            // return INDEXREAD_OK;
+            ui->minDocId = minIt->minId;
+            ui->len++;
+            return INDEXREAD_OK;
+        }
 
-      if (rc == INDEXREAD_OK && res->docId <= minDocId) {
-        minDocId = res->docId;
-        minIt = it;
-      }
-    }
+    } while (numActive > 0);
+    IITER_SET_EOF(&ui->base);
 
-    // take the minimum entry and collect all results matching to it
-    if (minIt) {
-      UI_SkipTo(ui, minIt->minId, hit);
-      // return INDEXREAD_OK;
-      ui->minDocId = minIt->minId;
-      ui->len++;
-      return INDEXREAD_OK;
-    }
-
-  } while (numActive > 0);
-  IITER_SET_EOF(&ui->base);
-
-  return INDEXREAD_EOF;
+    return INDEXREAD_EOF;
 }
 
 // UI_Read for iterator with high count of children
 static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
-  UnionIterator *ui = ctx;
-  IndexIterator *it = NULL;
-  RSIndexResult *res;
-  heap_t *hp = ui->heapMinId;
+    UnionIterator *ui = ctx;
+    IndexIterator *it = NULL;
+    RSIndexResult *res;
+    heap_t *hp = ui->heapMinId;
 
-  // nothing to do
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
-  AggregateResult_Reset(CURRENT_RECORD(ui));
-  t_docId nextValidId = ui->minDocId + 1;
-
-  /*
-   * A min-heap maintains all sub-iterators which are not EOF.
-   * In a loop, the iterator in heap root is checked. If it is valid, it is used,
-   * otherwise, Read() is called on sub-iterator and it is returned into the heap
-   * for future calls.
-   */
-  while (heap_count(hp)) {
-    it = heap_peek(hp);
-    res = IITER_CURRENT_RECORD(it);
-    if (it->minId >= nextValidId && it->minId != 0) {
-      // valid result since id at root of min-heap is higher than union min id
-      break;
+    // nothing to do
+    if (!IITER_HAS_NEXT(&ui->base)) {
+        IITER_SET_EOF(&ui->base);
+        return INDEXREAD_EOF;
     }
-    // read the next result and if valid, return the iterator into the heap
-    int rc = it->SkipTo(it->ctx, nextValidId, &res);
+    AggregateResult_Reset(CURRENT_RECORD(ui));
+    t_docId nextValidId = ui->minDocId + 1;
 
-    // refresh heap with iterator with updated minId
-    if (rc == INDEXREAD_EOF) {
-      heap_poll(hp);
+    /*
+     * A min-heap maintains all sub-iterators which are not EOF.
+     * In a loop, the iterator in heap root is checked. If it is valid, it is used,
+     * otherwise, Read() is called on sub-iterator and it is returned into the heap
+     * for future calls.
+     */
+    while (heap_count(hp)) {
+        it = heap_peek(hp);
+        res = IITER_CURRENT_RECORD(it);
+        if (it->minId >= nextValidId && it->minId != 0) {
+            // valid result since id at root of min-heap is higher than union min id
+            break;
+        }
+        // read the next result and if valid, return the iterator into the heap
+        int rc = it->SkipTo(it->ctx, nextValidId, &res);
+
+        // refresh heap with iterator with updated minId
+        if (rc == INDEXREAD_EOF) {
+            heap_poll(hp);
+        } else {
+            it->minId = res->docId;
+            heap_replace(hp, it);
+            // after SkipTo, try test again for validity
+            if (ui->quickExit && it->minId == nextValidId) {
+                break;
+            }
+        }
+    }
+
+    if (!heap_count(hp)) {
+        IITER_SET_EOF(&ui->base);
+        return INDEXREAD_EOF;
+    }
+
+    ui->minDocId = it->minId;
+
+    // On quickExit we just return one result.
+    // Otherwise, we collect all the results that equal to the root of the heap.
+    if (ui->quickExit) {
+        AggregateResult_AddChild(CURRENT_RECORD(ui), res);
     } else {
-      it->minId = res->docId;
-      heap_replace(hp, it);
-      // after SkipTo, try test again for validity
-      if (ui->quickExit && it->minId == nextValidId) {
-        break;
-      }
+        heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
     }
-  }
 
-  if (!heap_count(hp)) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
-
-  ui->minDocId = it->minId;
-
-  // On quickExit we just return one result.
-  // Otherwise, we collect all the results that equal to the root of the heap.
-  if (ui->quickExit) {
-    AggregateResult_AddChild(CURRENT_RECORD(ui), res);
-  } else {
-    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
-  }
-
-  *hit = CURRENT_RECORD(ui);
-  return INDEXREAD_OK;
+    *hit = CURRENT_RECORD(ui);
+    return INDEXREAD_OK;
 }
 
 /**
@@ -365,759 +362,775 @@ if
 at EOF
 */
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  UnionIterator *ui = ctx;
+    UnionIterator *ui = ctx;
 
-  if (docId == 0) {
-    return UI_ReadSorted(ctx, hit);
-  }
-
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    return INDEXREAD_EOF;
-  }
-
-  // reset the current hitf
-  AggregateResult_Reset(CURRENT_RECORD(ui));
-  CURRENT_RECORD(ui)->weight = ui->weight;
-  int numActive = 0;
-  int found = 0;
-  int rc = INDEXREAD_EOF;
-  unsigned num = ui->num;
-  const int quickExit = ui->quickExit;
-  t_docId minDocId = UINT32_MAX;
-  IndexIterator *it;
-  RSIndexResult *res;
-  RSIndexResult *minResult = NULL;
-  // skip all iterators to docId
-  for (unsigned i = 0; i < num; i++) {
-    it = ui->its[i];
-    // this happens for non existent words
-    res = NULL;
-    // If the requested docId is larger than the last read id from the iterator,
-    // we need to read an entry from the iterator, seeking to this docId
-    if (it->minId < docId) {
-      if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
-        i = UI_RemoveExhausted(ui, i);
-        num = ui->num;
-        continue;
-      }
-      if (res) {
-        it->minId = res->docId;
-      }
-    } else {
-      // if the iterator is ahead of docId - we avoid reading the entry
-      // in this case, we are either past or at the requested docId, no need to actually read
-      rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-      res = IITER_CURRENT_RECORD(it);
+    if (docId == 0) {
+        return UI_ReadSorted(ctx, hit);
     }
 
-    // if we've read successfully, update the minimal docId we've found
-    if (it->minId && rc != INDEXREAD_EOF) {
-      if (it->minId < minDocId || !minResult) {
-        minResult = res;
-        minDocId = it->minId;
-      }
-      // sminDocId = MIN(ui->docIds[i], minDocId);
+    if (!IITER_HAS_NEXT(&ui->base)) {
+        return INDEXREAD_EOF;
     }
 
-    // we found a hit - continue to all results matching the same docId
-    if (rc == INDEXREAD_OK) {
+    // reset the current hitf
+    AggregateResult_Reset(CURRENT_RECORD(ui));
+    CURRENT_RECORD(ui)->weight = ui->weight;
+    int numActive = 0;
+    int found = 0;
+    int rc = INDEXREAD_EOF;
+    unsigned num = ui->num;
+    const int quickExit = ui->quickExit;
+    t_docId minDocId = UINT32_MAX;
+    IndexIterator *it;
+    RSIndexResult *res;
+    RSIndexResult *minResult = NULL;
+    // skip all iterators to docId
+    for (unsigned i = 0; i < num; i++) {
+        it = ui->its[i];
+        // this happens for non existent words
+        res = NULL;
+        // If the requested docId is larger than the last read id from the iterator,
+        // we need to read an entry from the iterator, seeking to this docId
+        if (it->minId < docId) {
+            if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
+                i = UI_RemoveExhausted(ui, i);
+                num = ui->num;
+                continue;
+            }
+            if (res) {
+                it->minId = res->docId;
+            }
+        } else {
+            // if the iterator is ahead of docId - we avoid reading the entry
+            // in this case, we are either past or at the requested docId, no need to actually read
+            rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+            res = IITER_CURRENT_RECORD(it);
+        }
 
-      // add the result to the aggregate result we are holding
-      if (hit) {
-        AggregateResult_AddChild(CURRENT_RECORD(ui), res ? res : IITER_CURRENT_RECORD(it));
-      }
-      ui->minDocId = it->minId;
-      ++found;
+        // if we've read successfully, update the minimal docId we've found
+        if (it->minId && rc != INDEXREAD_EOF) {
+            if (it->minId < minDocId || !minResult) {
+                minResult = res;
+                minDocId = it->minId;
+            }
+            // sminDocId = MIN(ui->docIds[i], minDocId);
+        }
+
+        // we found a hit - continue to all results matching the same docId
+        if (rc == INDEXREAD_OK) {
+
+            // add the result to the aggregate result we are holding
+            if (hit) {
+                AggregateResult_AddChild(CURRENT_RECORD(ui), res ? res : IITER_CURRENT_RECORD(it));
+            }
+            ui->minDocId = it->minId;
+            ++found;
+        }
+        ++numActive;
+        // If we've found a single entry and we are iterating in quick exit mode - exit now
+        if (found && quickExit)
+            break;
     }
-    ++numActive;
-    // If we've found a single entry and we are iterating in quick exit mode - exit now
-    if (found && quickExit) break;
-  }
 
-  // all iterators are at the end
-  if (numActive == 0) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
+    // all iterators are at the end
+    if (numActive == 0) {
+        IITER_SET_EOF(&ui->base);
+        return INDEXREAD_EOF;
+    }
 
-  // copy our aggregate to the upstream hit
-  *hit = CURRENT_RECORD(ui);
-  if (found > 0) {
-    return INDEXREAD_OK;
-  }
-  if (minResult) {
-    *hit = minResult;
-    AggregateResult_AddChild(CURRENT_RECORD(ui), minResult);
-  }
-  // not found...
-  ui->minDocId = minDocId;
-  return INDEXREAD_NOTFOUND;
+    // copy our aggregate to the upstream hit
+    *hit = CURRENT_RECORD(ui);
+    if (found > 0) {
+        return INDEXREAD_OK;
+    }
+    if (minResult) {
+        *hit = minResult;
+        AggregateResult_AddChild(CURRENT_RECORD(ui), minResult);
+    }
+    // not found...
+    ui->minDocId = minDocId;
+    return INDEXREAD_NOTFOUND;
 }
 
 // UI_SkipTo for iterator with high count of children
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
-  UnionIterator *ui = ctx;
+    UnionIterator *ui = ctx;
 
-  if (docId == 0) {
-    return UI_ReadSorted(ctx, hit);
-  }
-
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    return INDEXREAD_EOF;
-  }
-
-  AggregateResult_Reset(CURRENT_RECORD(ui));
-  CURRENT_RECORD(ui)->weight = ui->weight;
-  int rc = INDEXREAD_EOF;
-  IndexIterator *it = NULL;
-  RSIndexResult *res;
-  heap_t *hp = ui->heapMinId;
-
-  while (heap_count(hp)) {
-    it = heap_peek(hp);
-    if (it->minId >= docId) {
-      // if the iterator is at or ahead of docId - we avoid reading the entry
-      // in this case, we are either past or at the requested docId, no need to actually read
-      break;
+    if (docId == 0) {
+        return UI_ReadSorted(ctx, hit);
     }
 
-    rc = it->SkipTo(it->ctx, docId, &res);
-    if (rc == INDEXREAD_EOF) {
-      heap_poll(hp); // return value was already received from heap_peak
-      // iterator is not returned to heap
-      continue;
+    if (!IITER_HAS_NEXT(&ui->base)) {
+        return INDEXREAD_EOF;
     }
-    RS_LOG_ASSERT(res, "should not be NULL");
 
-    // refresh heap with iterator with updated minId
-    it->minId = res->docId;
-    heap_replace(hp, it);
-    if (ui->quickExit && it->minId == docId) {
-      break;
+    AggregateResult_Reset(CURRENT_RECORD(ui));
+    CURRENT_RECORD(ui)->weight = ui->weight;
+    int rc = INDEXREAD_EOF;
+    IndexIterator *it = NULL;
+    RSIndexResult *res;
+    heap_t *hp = ui->heapMinId;
+
+    while (heap_count(hp)) {
+        it = heap_peek(hp);
+        if (it->minId >= docId) {
+            // if the iterator is at or ahead of docId - we avoid reading the entry
+            // in this case, we are either past or at the requested docId, no need to actually read
+            break;
+        }
+
+        rc = it->SkipTo(it->ctx, docId, &res);
+        if (rc == INDEXREAD_EOF) {
+            heap_poll(hp); // return value was already received from heap_peak
+            // iterator is not returned to heap
+            continue;
+        }
+        RS_LOG_ASSERT(res, "should not be NULL");
+
+        // refresh heap with iterator with updated minId
+        it->minId = res->docId;
+        heap_replace(hp, it);
+        if (ui->quickExit && it->minId == docId) {
+            break;
+        }
     }
-  }
 
-  if (heap_count(hp) == 0) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
+    if (heap_count(hp) == 0) {
+        IITER_SET_EOF(&ui->base);
+        return INDEXREAD_EOF;
+    }
 
-  rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+    rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 
-  // On quickExit we just return one result.
-  // Otherwise, we collect all the results that equal to the root of the heap.
-  if (ui->quickExit) {
-    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
-  } else {
-    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
-  }
+    // On quickExit we just return one result.
+    // Otherwise, we collect all the results that equal to the root of the heap.
+    if (ui->quickExit) {
+        AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+    } else {
+        heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
+    }
 
-  ui->minDocId = it->minId;
-  *hit = CURRENT_RECORD(ui);
-  return rc;
+    ui->minDocId = it->minId;
+    *hit = CURRENT_RECORD(ui);
+    return rc;
 }
 
 void UnionIterator_Free(IndexIterator *itbase) {
-  if (itbase == NULL) return;
+    if (itbase == NULL)
+        return;
 
-  UnionIterator *ui = itbase->ctx;
-  for (int i = 0; i < ui->norig; i++) {
-    IndexIterator *it = ui->origits[i];
-    if (it) {
-      it->Free(it);
+    UnionIterator *ui = itbase->ctx;
+    for (int i = 0; i < ui->norig; i++) {
+        IndexIterator *it = ui->origits[i];
+        if (it) {
+            it->Free(it);
+        }
     }
-  }
 
-  IndexResult_Free(CURRENT_RECORD(ui));
-  if (ui->heapMinId) heap_free(ui->heapMinId);
-  rm_free(ui->its);
-  rm_free(ui->origits);
-  rm_free(ui);
+    IndexResult_Free(CURRENT_RECORD(ui));
+    if (ui->heapMinId)
+        heap_free(ui->heapMinId);
+    rm_free(ui->its);
+    rm_free(ui->origits);
+    rm_free(ui);
 }
 
-static size_t UI_Len(void *ctx) {
-  return ((UnionIterator *)ctx)->len;
-}
+static size_t UI_Len(void *ctx) { return ((UnionIterator *)ctx)->len; }
 
 void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc) {
-  RS_LOG_ASSERT(iter->type == UNION_ITERATOR, "trim applies to union iterators only");
-  UnionIterator *ui = (UnionIterator *)iter;
-  if (ui->norig <= 2) { // nothing to trim
-    return;
-  }
-
-  size_t curTotal = 0;
-  int i;
-  if (offset == 0) {
-    if (asc) {
-      for (i = 1; i < ui->num; ++i) {
-        IndexIterator *it = ui->origits[i];
-        curTotal += it->NumEstimated(it->ctx);
-        if (curTotal > limit) {
-          ui->num = i + 1;
-          memset(ui->its + ui->num, 0, ui->norig - ui->num);
-          break;
-        }
-      }
-    } else {  //desc
-      for (i = ui->num - 2; i > 0; --i) {
-        IndexIterator *it = ui->origits[i];
-        curTotal += it->NumEstimated(it->ctx);
-        if (curTotal > limit) {
-          ui->num -= i;
-          memmove(ui->its, ui->its + i, ui->num);
-          memset(ui->its + ui->num, 0, ui->norig - ui->num);
-          break;
-        }
-      }
+    RS_LOG_ASSERT(iter->type == UNION_ITERATOR, "trim applies to union iterators only");
+    UnionIterator *ui = (UnionIterator *)iter;
+    if (ui->norig <= 2) { // nothing to trim
+        return;
     }
-  } else {
-    UI_SyncIterList(ui);
-    // todo:
-  }
-  iter->Read = UI_ReadUnsorted;
+
+    size_t curTotal = 0;
+    int i;
+    if (offset == 0) {
+        if (asc) {
+            for (i = 1; i < ui->num; ++i) {
+                IndexIterator *it = ui->origits[i];
+                curTotal += it->NumEstimated(it->ctx);
+                if (curTotal > limit) {
+                    ui->num = i + 1;
+                    memset(ui->its + ui->num, 0, ui->norig - ui->num);
+                    break;
+                }
+            }
+        } else { // desc
+            for (i = ui->num - 2; i > 0; --i) {
+                IndexIterator *it = ui->origits[i];
+                curTotal += it->NumEstimated(it->ctx);
+                if (curTotal > limit) {
+                    ui->num -= i;
+                    memmove(ui->its, ui->its + i, ui->num);
+                    memset(ui->its + ui->num, 0, ui->norig - ui->num);
+                    break;
+                }
+            }
+        }
+    } else {
+        UI_SyncIterList(ui);
+        // todo:
+    }
+    iter->Read = UI_ReadUnsorted;
 }
 
 /* The context used by the intersection methods during iterating an intersect
  * iterator */
 typedef struct {
-  IndexIterator base;
-  IndexIterator **its;
-  t_docId *docIds;
-  int *rcs;
-  unsigned num;
-  size_t len;
-  int maxSlop;
-  int inOrder;
-  // the last read docId from any child
-  t_docId lastDocId;
-  // the last id that was found on all children
-  t_docId lastFoundId;
+    IndexIterator base;
+    IndexIterator **its;
+    t_docId *docIds;
+    int *rcs;
+    unsigned num;
+    size_t len;
+    int maxSlop;
+    int inOrder;
+    // the last read docId from any child
+    t_docId lastDocId;
+    // the last id that was found on all children
+    t_docId lastFoundId;
 
-  // RSIndexResult *result;
-  DocTable *docTable;
-  t_fieldMask fieldMask;
-  double weight;
-  size_t nexpected;
+    // RSIndexResult *result;
+    DocTable *docTable;
+    t_fieldMask fieldMask;
+    double weight;
+    size_t nexpected;
 } IntersectIterator;
 
 void IntersectIterator_Free(IndexIterator *it) {
-  if (it == NULL) return;
-  IntersectIterator *ui = it->ctx;
-  for (int i = 0; i < ui->num; i++) {
-    if (ui->its[i] != NULL) {
-      ui->its[i]->Free(ui->its[i]);
+    if (it == NULL)
+        return;
+    IntersectIterator *ui = it->ctx;
+    for (int i = 0; i < ui->num; i++) {
+        if (ui->its[i] != NULL) {
+            ui->its[i]->Free(ui->its[i]);
+        }
     }
-  }
 
-  rm_free(ui->docIds);
-  rm_free(ui->its);
-  IndexResult_Free(it->current);
-  rm_free(it);
+    rm_free(ui->docIds);
+    rm_free(ui->its);
+    IndexResult_Free(it->current);
+    rm_free(it);
 }
 
 static void II_Abort(void *ctx) {
-  IntersectIterator *it = ctx;
-  it->base.isValid = 0;
-  for (int i = 0; i < it->num; i++) {
-    if (it->its[i]) {
-      it->its[i]->Abort(it->its[i]->ctx);
+    IntersectIterator *it = ctx;
+    it->base.isValid = 0;
+    for (int i = 0; i < it->num; i++) {
+        if (it->its[i]) {
+            it->its[i]->Abort(it->its[i]->ctx);
+        }
     }
-  }
 }
 
 static void II_Rewind(void *ctx) {
-  IntersectIterator *ii = ctx;
-  ii->base.isValid = 1;
-  ii->lastDocId = 0;
+    IntersectIterator *ii = ctx;
+    ii->base.isValid = 1;
+    ii->lastDocId = 0;
 
-  // rewind all child iterators
-  for (int i = 0; i < ii->num; i++) {
-    ii->docIds[i] = 0;
-    if (ii->its[i]) {
-      ii->its[i]->Rewind(ii->its[i]->ctx);
+    // rewind all child iterators
+    for (int i = 0; i < ii->num; i++) {
+        ii->docIds[i] = 0;
+        if (ii->its[i]) {
+            ii->its[i]->Rewind(ii->its[i]->ctx);
+        }
     }
-  }
 }
 
 typedef int (*CompareFunc)(const void *a, const void *b);
 static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
-  if (!*it1 && !*it2) return 0;
-  if (!*it1) return -1;
-  if (!*it2) return 1;
+    if (!*it1 && !*it2)
+        return 0;
+    if (!*it1)
+        return -1;
+    if (!*it2)
+        return 1;
 
-  double factor1 = 1;
-  double factor2 = 1;
-  enum iteratorType it_1_type = (*it1)->type;
-  enum iteratorType it_2_type = (*it2)->type;
+    double factor1 = 1;
+    double factor2 = 1;
+    enum iteratorType it_1_type = (*it1)->type;
+    enum iteratorType it_2_type = (*it2)->type;
 
-  /*
-   * on INTERSECT iterator, we divide the estimate by the number of children
-   * since we skip as soon as a number is not in all iterators */
-  if (it_1_type == INTERSECT_ITERATOR) {
-    factor1 = 1 / MAX(1, ((IntersectIterator *)*it1)->num);
-  } else if (it_1_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
-    factor1 = ((UnionIterator *)*it1)->num;
-  }
-  if (it_2_type == INTERSECT_ITERATOR) {
-    factor2 = 1 / MAX(1, ((IntersectIterator *)*it2)->num);
-  } else if (it_2_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
-    factor2 = ((UnionIterator *)*it2)->num;
-  }
+    /*
+     * on INTERSECT iterator, we divide the estimate by the number of children
+     * since we skip as soon as a number is not in all iterators */
+    if (it_1_type == INTERSECT_ITERATOR) {
+        factor1 = 1 / MAX(1, ((IntersectIterator *)*it1)->num);
+    } else if (it_1_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
+        factor1 = ((UnionIterator *)*it1)->num;
+    }
+    if (it_2_type == INTERSECT_ITERATOR) {
+        factor2 = 1 / MAX(1, ((IntersectIterator *)*it2)->num);
+    } else if (it_2_type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
+        factor2 = ((UnionIterator *)*it2)->num;
+    }
 
-  return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
+    return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 -
+                 (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }
 
 static void II_SortChildren(IntersectIterator *ctx) {
-  /**
-   * 1. Go through all the iterators, ensuring none of them is NULL
-   *    (replace with empty if indeed NULL)
-   */
-  IndexIterator **its = rm_malloc(sizeof(IndexIterator *) * ctx->num);
-  size_t itsSize = 0;
-  for (size_t i = 0; i < ctx->num; ++i) {
-    IndexIterator *curit = ctx->its[i];
+    /**
+     * 1. Go through all the iterators, ensuring none of them is NULL
+     *    (replace with empty if indeed NULL)
+     */
+    IndexIterator **its = rm_malloc(sizeof(IndexIterator *) * ctx->num);
+    size_t itsSize = 0;
+    for (size_t i = 0; i < ctx->num; ++i) {
+        IndexIterator *curit = ctx->its[i];
 
-    if (!curit) {
-      // If the current iterator is empty, then the entire
-      // query will fail; just free all the iterators and call it good
-      if (its) {
-        rm_free(its);
-      }
-      ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
-      return;
+        if (!curit) {
+            // If the current iterator is empty, then the entire
+            // query will fail; just free all the iterators and call it good
+            if (its) {
+                rm_free(its);
+            }
+            ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
+            return;
+        }
+
+        size_t amount = IITER_NUM_ESTIMATED(curit);
+        if (amount < ctx->nexpected) {
+            ctx->nexpected = amount;
+        }
+
+        its[itsSize++] = curit;
     }
 
-    size_t amount = IITER_NUM_ESTIMATED(curit);
-    if (amount < ctx->nexpected) {
-      ctx->nexpected = amount;
-    }
-
-    its[itsSize++] = curit;
-  }
-
-  rm_free(ctx->its);
-  ctx->its = its;
-  ctx->num = itsSize;
+    rm_free(ctx->its);
+    ctx->its = its;
+    ctx->num = itsSize;
 }
 
 void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter) {
-  RS_LOG_ASSERT(parentIter->type == INTERSECT_ITERATOR, "add applies to intersect iterators only");
-  IntersectIterator *ii = (IntersectIterator *)parentIter;
-  ii->num++;
-  ii->its = rm_realloc(ii->its, ii->num);
-  ii->its[ii->num - 1] = childIter;
+    RS_LOG_ASSERT(parentIter->type == INTERSECT_ITERATOR,
+                  "add applies to intersect iterators only");
+    IntersectIterator *ii = (IntersectIterator *)parentIter;
+    ii->num++;
+    ii->its = rm_realloc(ii->its, ii->num);
+    ii->its[ii->num - 1] = childIter;
 }
 
 IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *dt,
-                                   t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
-  // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
-  IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
-  ctx->lastDocId = 0;
-  ctx->lastFoundId = 0;
-  ctx->len = 0;
-  ctx->maxSlop = maxSlop;
-  ctx->inOrder = inOrder;
-  ctx->fieldMask = fieldMask;
-  ctx->weight = weight;
-  ctx->docIds = rm_calloc(num, sizeof(t_docId));
-  ctx->docTable = dt;
-  ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
+                                    t_fieldMask fieldMask, int maxSlop, int inOrder,
+                                    double weight) {
+    // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
+    IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
+    ctx->lastDocId = 0;
+    ctx->lastFoundId = 0;
+    ctx->len = 0;
+    ctx->maxSlop = maxSlop;
+    ctx->inOrder = inOrder;
+    ctx->fieldMask = fieldMask;
+    ctx->weight = weight;
+    ctx->docIds = rm_calloc(num, sizeof(t_docId));
+    ctx->docTable = dt;
+    ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
 
-  ctx->base.isValid = 1;
-  ctx->base.current = NewIntersectResult(num, weight);
-  ctx->its = its_;
-  ctx->num = num;
+    ctx->base.isValid = 1;
+    ctx->base.current = NewIntersectResult(num, weight);
+    ctx->its = its_;
+    ctx->num = num;
 
-  // Sort children iterators from low count to high count which reduces the number of iterations.
-  if (!ctx->inOrder) {
-    qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
-  }
+    // Sort children iterators from low count to high count which reduces the number of iterations.
+    if (!ctx->inOrder) {
+        qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
+    }
 
-  // bind the iterator calls
-  IndexIterator *it = &ctx->base;
-  it->ctx = ctx;
-  it->type = INTERSECT_ITERATOR;
-  it->LastDocId = II_LastDocId;
-  it->NumEstimated = II_NumEstimated;
-  it->Read = II_ReadSorted;
-  it->SkipTo = II_SkipTo;
-  it->Len = II_Len;
-  it->Free = IntersectIterator_Free;
-  it->Abort = II_Abort;
-  it->Rewind = II_Rewind;
-  it->HasNext = NULL;
-  II_SortChildren(ctx);
-  return it;
+    // bind the iterator calls
+    IndexIterator *it = &ctx->base;
+    it->ctx = ctx;
+    it->type = INTERSECT_ITERATOR;
+    it->LastDocId = II_LastDocId;
+    it->NumEstimated = II_NumEstimated;
+    it->Read = II_ReadSorted;
+    it->SkipTo = II_SkipTo;
+    it->Len = II_Len;
+    it->Free = IntersectIterator_Free;
+    it->Abort = II_Abort;
+    it->Rewind = II_Rewind;
+    it->HasNext = NULL;
+    II_SortChildren(ctx);
+    return it;
 }
 
 static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  /* A seek with docId 0 is equivalent to a read */
-  if (docId == 0) {
-    return II_ReadSorted(ctx, hit);
-  }
-  IntersectIterator *ic = ctx;
-  AggregateResult_Reset(ic->base.current);
-  int nfound = 0;
+    /* A seek with docId 0 is equivalent to a read */
+    if (docId == 0) {
+        return II_ReadSorted(ctx, hit);
+    }
+    IntersectIterator *ic = ctx;
+    AggregateResult_Reset(ic->base.current);
+    int nfound = 0;
 
-  int rc = INDEXREAD_EOF;
-  // skip all iterators to docId
-  for (int i = 0; i < ic->num; i++) {
-    IndexIterator *it = ic->its[i];
+    int rc = INDEXREAD_EOF;
+    // skip all iterators to docId
+    for (int i = 0; i < ic->num; i++) {
+        IndexIterator *it = ic->its[i];
 
-    if (!it || !IITER_HAS_NEXT(it)) return INDEXREAD_EOF;
+        if (!it || !IITER_HAS_NEXT(it))
+            return INDEXREAD_EOF;
 
-    RSIndexResult *res = IITER_CURRENT_RECORD(it);
-    rc = INDEXREAD_OK;
+        RSIndexResult *res = IITER_CURRENT_RECORD(it);
+        rc = INDEXREAD_OK;
 
-    // only read if we are not already at the seek to position
-    if (ic->docIds[i] != docId) {
-      rc = it->SkipTo(it->ctx, docId, &res);
-      if (rc != INDEXREAD_EOF) {
-        if (res) docId = ic->docIds[i] = res->docId;
-      }
+        // only read if we are not already at the seek to position
+        if (ic->docIds[i] != docId) {
+            rc = it->SkipTo(it->ctx, docId, &res);
+            if (rc != INDEXREAD_EOF) {
+                if (res)
+                    docId = ic->docIds[i] = res->docId;
+            }
+        }
+
+        if (rc == INDEXREAD_EOF) {
+            // we are at the end!
+            ic->base.isValid = 0;
+            return rc;
+        } else if (rc == INDEXREAD_OK) {
+            // YAY! found!
+            if (res && res->docId == docId) {
+                AggregateResult_AddChild(ic->base.current, res);
+            }
+            ic->lastDocId = docId;
+
+            ++nfound;
+        } else if (ic->docIds[i] > ic->lastDocId) {
+            ic->lastDocId = ic->docIds[i];
+            break;
+        }
     }
 
-    if (rc == INDEXREAD_EOF) {
-      // we are at the end!
-      ic->base.isValid = 0;
-      return rc;
-    } else if (rc == INDEXREAD_OK) {
-      // YAY! found!
-      if (res && res->docId == docId) {
-        AggregateResult_AddChild(ic->base.current, res);
-      }
-      ic->lastDocId = docId;
+    // unless we got an EOF - we put the current record into hit
 
-      ++nfound;
-    } else if (ic->docIds[i] > ic->lastDocId) {
-      ic->lastDocId = ic->docIds[i];
-      break;
+    // if the requested id was found on all children - we return OK
+    if (nfound == ic->num) {
+        // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
+
+        // Update the last found id
+        // if maxSlop == -1 there is no need to verify maxSlop and inorder, otherwise lets verify
+        if (ic->maxSlop == -1 ||
+            IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
+            ic->lastFoundId = ic->base.current->docId;
+            ic->lastDocId++;
+            if (hit)
+                *hit = ic->base.current;
+            return INDEXREAD_OK;
+        }
     }
-  }
 
-  // unless we got an EOF - we put the current record into hit
+    // Not found - but we need to read the next valid result into hit
+    rc = II_ReadSorted(ic, hit);
+    // this might have brought us to our end, in which case we just terminate
+    if (rc == INDEXREAD_EOF)
+        return INDEXREAD_EOF;
 
-  // if the requested id was found on all children - we return OK
-  if (nfound == ic->num) {
-    // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
-
-    // Update the last found id
-    // if maxSlop == -1 there is no need to verify maxSlop and inorder, otherwise lets verify
-    if (ic->maxSlop == -1 ||
-        IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
-      ic->lastFoundId = ic->base.current->docId;
-      ic->lastDocId++;
-      if (hit) *hit = ic->base.current;
-      return INDEXREAD_OK;
-    }
-  }
-
-  // Not found - but we need to read the next valid result into hit
-  rc = II_ReadSorted(ic, hit);
-  // this might have brought us to our end, in which case we just terminate
-  if (rc == INDEXREAD_EOF) return INDEXREAD_EOF;
-
-  // otherwise - not found
-  return INDEXREAD_NOTFOUND;
+    // otherwise - not found
+    return INDEXREAD_NOTFOUND;
 }
 
 static size_t II_NumEstimated(void *ctx) {
-  IntersectIterator *ic = ctx;
-  return ic->nexpected;
+    IntersectIterator *ic = ctx;
+    return ic->nexpected;
 }
 
 static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
-  IntersectIterator *ic = ctx;
-  if (ic->num == 0) return INDEXREAD_EOF;
+    IntersectIterator *ic = ctx;
+    if (ic->num == 0)
+        return INDEXREAD_EOF;
 
-  int nh = 0;
-  int i = 0;
+    int nh = 0;
+    int i = 0;
 
-  do {
-    nh = 0;
-    AggregateResult_Reset(ic->base.current);
+    do {
+        nh = 0;
+        AggregateResult_Reset(ic->base.current);
 
-    for (i = 0; i < ic->num; i++) {
-      IndexIterator *it = ic->its[i];
+        for (i = 0; i < ic->num; i++) {
+            IndexIterator *it = ic->its[i];
 
-      if (!it) goto eof;
+            if (!it)
+                goto eof;
 
-      RSIndexResult *h = IITER_CURRENT_RECORD(it);
-      // skip to the next
-      int rc = INDEXREAD_OK;
-      if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
+            RSIndexResult *h = IITER_CURRENT_RECORD(it);
+            // skip to the next
+            int rc = INDEXREAD_OK;
+            if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
 
-        if (i == 0 && ic->docIds[i] >= ic->lastDocId) {
-          rc = it->Read(it->ctx, &h);
-        } else {
-          rc = it->SkipTo(it->ctx, ic->lastDocId, &h);
+                if (i == 0 && ic->docIds[i] >= ic->lastDocId) {
+                    rc = it->Read(it->ctx, &h);
+                } else {
+                    rc = it->SkipTo(it->ctx, ic->lastDocId, &h);
+                }
+                // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic,
+                // ic->lastDocId, i,
+                //        h->docId, it->LastDocId(it->ctx), rc);
+
+                if (rc == INDEXREAD_EOF)
+                    goto eof;
+                ic->docIds[i] = h->docId;
+            }
+
+            if (ic->docIds[i] > ic->lastDocId) {
+                ic->lastDocId = ic->docIds[i];
+                break;
+            }
+            if (rc == INDEXREAD_OK) {
+                ++nh;
+                AggregateResult_AddChild(ic->base.current, h);
+            } else {
+                ic->lastDocId++;
+            }
         }
-        // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, ic->lastDocId, i,
-        //        h->docId, it->LastDocId(it->ctx), rc);
 
-        if (rc == INDEXREAD_EOF) goto eof;
-        ic->docIds[i] = h->docId;
-      }
+        if (nh == ic->num) {
+            // printf("II %p HIT @ %d\n", ic, ic->current->docId);
+            // sum up all hits
+            if (hit != NULL) {
+                *hit = ic->base.current;
+            }
+            // Update the last valid found id
+            ic->lastFoundId = ic->base.current->docId;
 
-      if (ic->docIds[i] > ic->lastDocId) {
-        ic->lastDocId = ic->docIds[i];
-        break;
-      }
-      if (rc == INDEXREAD_OK) {
-        ++nh;
-        AggregateResult_AddChild(ic->base.current, h);
-      } else {
-        ic->lastDocId++;
-      }
-    }
+            // advance the doc id so next time we'll read a new record
+            ic->lastDocId++;
 
-    if (nh == ic->num) {
-      // printf("II %p HIT @ %d\n", ic, ic->current->docId);
-      // sum up all hits
-      if (hit != NULL) {
-        *hit = ic->base.current;
-      }
-      // Update the last valid found id
-      ic->lastFoundId = ic->base.current->docId;
+            // // make sure the flags are matching.
+            if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
+                // printf("Field masks don't match!\n");
+                continue;
+            }
 
-      // advance the doc id so next time we'll read a new record
-      ic->lastDocId++;
+            // If we need to match slop and order, we do it now, and possibly skip the result
+            if (ic->maxSlop >= 0) {
+                // printf("Checking SLOP... (%d)\n", ic->maxSlop);
+                if (!IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
+                    // printf("Not within range!\n");
+                    continue;
+                }
+            }
 
-      // // make sure the flags are matching.
-      if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
-        // printf("Field masks don't match!\n");
-        continue;
-      }
+            //      for(size_t i = 0 ; i < array_len(ic->testers) ; ++i){
+            //        if(!ic->testers[i]->TextCriteria(ic->testers[i]->ctx, ic->lastFoundId)){
+            //          continue;
+            //        }
+            //      }
 
-      // If we need to match slop and order, we do it now, and possibly skip the result
-      if (ic->maxSlop >= 0) {
-        // printf("Checking SLOP... (%d)\n", ic->maxSlop);
-        if (!IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
-          // printf("Not within range!\n");
-          continue;
+            ic->len++;
+            // printf("Returning OK\n");
+            return INDEXREAD_OK;
         }
-      }
-
-      //      for(size_t i = 0 ; i < array_len(ic->testers) ; ++i){
-      //        if(!ic->testers[i]->TextCriteria(ic->testers[i]->ctx, ic->lastFoundId)){
-      //          continue;
-      //        }
-      //      }
-
-      ic->len++;
-      // printf("Returning OK\n");
-      return INDEXREAD_OK;
-    }
-  } while (1);
+    } while (1);
 eof:
-  ic->base.isValid = 0;
-  return INDEXREAD_EOF;
+    ic->base.isValid = 0;
+    return INDEXREAD_EOF;
 }
 
 static t_docId II_LastDocId(void *ctx) {
-  // return last FOUND id, not last read id form any child
-  return ((IntersectIterator *)ctx)->lastFoundId;
+    // return last FOUND id, not last read id form any child
+    return ((IntersectIterator *)ctx)->lastFoundId;
 }
 
-static size_t II_Len(void *ctx) {
-  return ((IntersectIterator *)ctx)->len;
-}
+static size_t II_Len(void *ctx) { return ((IntersectIterator *)ctx)->len; }
 
 /* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND
  * for hits */
 typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
-  t_docId lastDocId;
-  t_docId maxDocId;
-  size_t len;
-  double weight;
-  TimeoutCtx timeoutCtx;
+    IndexIterator base;
+    IndexIterator *child;
+    t_docId lastDocId;
+    t_docId maxDocId;
+    size_t len;
+    double weight;
+    TimeoutCtx timeoutCtx;
 } NotIterator, NotContext;
 
 static void NI_Abort(void *ctx) {
-  NotContext *nc = ctx;
-  nc->base.isValid = 0;
-  nc->child->Abort(nc->child->ctx);
+    NotContext *nc = ctx;
+    nc->base.isValid = 0;
+    nc->child->Abort(nc->child->ctx);
 }
 
 static void NI_Rewind(void *ctx) {
-  NotContext *nc = ctx;
-  nc->lastDocId = 0;
-  nc->base.current->docId = 0;
-  nc->base.isValid = 1;
-  nc->child->Rewind(nc->child->ctx);
+    NotContext *nc = ctx;
+    nc->lastDocId = 0;
+    nc->base.current->docId = 0;
+    nc->base.isValid = 1;
+    nc->child->Rewind(nc->child->ctx);
 }
 
 static void NI_Free(IndexIterator *it) {
 
-  NotContext *nc = it->ctx;
-  nc->child->Free(nc->child);
+    NotContext *nc = it->ctx;
+    nc->child->Free(nc->child);
 
-  IndexResult_Free(nc->base.current);
-  rm_free(it);
+    IndexResult_Free(nc->base.current);
+    rm_free(it);
 }
 
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end
  * - return OK */
 static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  NotContext *nc = ctx;
+    NotContext *nc = ctx;
 
-  // do not skip beyond max doc id
-  if (docId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  }
+    // do not skip beyond max doc id
+    if (docId > nc->maxDocId) {
+        IITER_SET_EOF(&nc->base);
+        return INDEXREAD_EOF;
+    }
 
-  // Get the child's last read docId
-  // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
-  // might not be be updated (ex. NUMERIC filter) (PR-2440)
-  t_docId childId = 0;
-  if (nc->lastDocId != 0) {
-    childId = nc->child->LastDocId(nc->child->ctx);
-  }
+    // Get the child's last read docId
+    // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
+    // might not be be updated (ex. NUMERIC filter) (PR-2440)
+    t_docId childId = 0;
+    if (nc->lastDocId != 0) {
+        childId = nc->child->LastDocId(nc->child->ctx);
+    }
 
-  // If the child is ahead of the skipto id, it means the child doesn't have this id.
-  // So we are okay!
-  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
-  }
+    // If the child is ahead of the skipto id, it means the child doesn't have this id.
+    // So we are okay!
+    if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
+        goto ok;
+    }
 
-  // If the child docId is the one we are looking for, it's an anti match!
-  if (childId == docId) {
+    // If the child docId is the one we are looking for, it's an anti match!
+    if (childId == docId) {
+        nc->base.current->docId = docId;
+        nc->lastDocId = docId;
+        *hit = nc->base.current;
+        return INDEXREAD_NOTFOUND;
+    }
+
+    // read the next entry from the child
+    int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
+
+    // OK means not found
+    if (rc == INDEXREAD_OK) {
+        return INDEXREAD_NOTFOUND;
+    }
+
+ok:
+    // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
     nc->base.current->docId = docId;
     nc->lastDocId = docId;
     *hit = nc->base.current;
-    return INDEXREAD_NOTFOUND;
-  }
-
-  // read the next entry from the child
-  int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
-
-  // OK means not found
-  if (rc == INDEXREAD_OK) {
-    return INDEXREAD_NOTFOUND;
-  }
-
-ok:
-  // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
-  nc->base.current->docId = docId;
-  nc->lastDocId = docId;
-  *hit = nc->base.current;
-  return INDEXREAD_OK;
+    return INDEXREAD_OK;
 }
 
 static size_t NI_NumEstimated(void *ctx) {
-  NotContext *nc = ctx;
-  return nc->maxDocId;
+    NotContext *nc = ctx;
+    return nc->maxDocId;
 }
 
 /* Read from a NOT iterator. This is applicable only if the only or leftmost node of a query is a
  * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
 static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
-  NotContext *nc = ctx;
-  if (nc->lastDocId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  }
+    NotContext *nc = ctx;
+    if (nc->lastDocId > nc->maxDocId) {
+        IITER_SET_EOF(&nc->base);
+        return INDEXREAD_EOF;
+    }
 
-  RSIndexResult *cr = NULL;
-  // if we have a child, get the latest result from the child
-  cr = IITER_CURRENT_RECORD(nc->child);
+    RSIndexResult *cr = NULL;
+    // if we have a child, get the latest result from the child
+    cr = IITER_CURRENT_RECORD(nc->child);
 
-  if (cr == NULL || cr->docId == 0) {
-    nc->child->Read(nc->child->ctx, &cr);
-  }
+    if (cr == NULL || cr->docId == 0) {
+        nc->child->Read(nc->child->ctx, &cr);
+    }
 
-  // advance our reader by one, and let's test if it's a valid value or not
-  nc->base.current->docId++;
-
-  // If we don't have a child result, or the child result is ahead of the current counter,
-  // we just increment our virtual result's id until we hit the child result's
-  // in which case we'll read from the child and bypass it by one.
-  if (cr == NULL || cr->docId > nc->base.current->docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
-  }
-
-  while (cr->docId == nc->base.current->docId) {
-    // advance our docId to the next possible id
+    // advance our reader by one, and let's test if it's a valid value or not
     nc->base.current->docId++;
 
-    // read the next entry from the child
-    if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
-      break;
+    // If we don't have a child result, or the child result is ahead of the current counter,
+    // we just increment our virtual result's id until we hit the child result's
+    // in which case we'll read from the child and bypass it by one.
+    if (cr == NULL || cr->docId > nc->base.current->docId || !IITER_HAS_NEXT(nc->child)) {
+        goto ok;
     }
 
-    // Check for timeout with low granularity (MOD-5512)
-    if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
-      IITER_SET_EOF(&nc->base);
-      return INDEXREAD_TIMEOUT;
+    while (cr->docId == nc->base.current->docId) {
+        // advance our docId to the next possible id
+        nc->base.current->docId++;
+
+        // read the next entry from the child
+        if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
+            break;
+        }
+
+        // Check for timeout with low granularity (MOD-5512)
+        if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
+            IITER_SET_EOF(&nc->base);
+            return INDEXREAD_TIMEOUT;
+        }
     }
-  }
-  nc->timeoutCtx.counter = 0;
+    nc->timeoutCtx.counter = 0;
 
 ok:
-  // make sure we did not overflow
-  if (nc->base.current->docId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  }
+    // make sure we did not overflow
+    if (nc->base.current->docId > nc->maxDocId) {
+        IITER_SET_EOF(&nc->base);
+        return INDEXREAD_EOF;
+    }
 
-  // Set the next entry and return ok
-  nc->lastDocId = nc->base.current->docId;
-  if (hit) *hit = nc->base.current;
-  ++nc->len;
+    // Set the next entry and return ok
+    nc->lastDocId = nc->base.current->docId;
+    if (hit)
+        *hit = nc->base.current;
+    ++nc->len;
 
-  return INDEXREAD_OK;
+    return INDEXREAD_OK;
 }
 
 /* We always have next, in case anyone asks... ;) */
 static int NI_HasNext(void *ctx) {
-  NotContext *nc = ctx;
+    NotContext *nc = ctx;
 
-  return nc->lastDocId <= nc->maxDocId;
+    return nc->lastDocId <= nc->maxDocId;
 }
 
 /* Our len is the child's len? TBD it might be better to just return 0 */
 static size_t NI_Len(void *ctx) {
-  NotContext *nc = ctx;
-  return nc->len;
+    NotContext *nc = ctx;
+    return nc->len;
 }
 
 /* Last docId */
 static t_docId NI_LastDocId(void *ctx) {
-  NotContext *nc = ctx;
+    NotContext *nc = ctx;
 
-  return nc->lastDocId;
+    return nc->lastDocId;
 }
 
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout) {
-  NotContext *nc = rm_malloc(sizeof(*nc));
-  nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  nc->base.current->docId = 0;
-  nc->child = it ? it : NewEmptyIterator();
-  nc->lastDocId = 0;
-  nc->maxDocId = maxDocId;
-  nc->len = 0;
-  nc->weight = weight;
-  nc->base.isValid = 1;
-  nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight,
+                              struct timespec timeout) {
+    NotContext *nc = rm_malloc(sizeof(*nc));
+    nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+    nc->base.current->docId = 0;
+    nc->child = it ? it : NewEmptyIterator();
+    nc->lastDocId = 0;
+    nc->maxDocId = maxDocId;
+    nc->len = 0;
+    nc->weight = weight;
+    nc->base.isValid = 1;
+    nc->timeoutCtx = (TimeoutCtx){.timeout = timeout, .counter = 0};
 
-  IndexIterator *ret = &nc->base;
-  ret->ctx = nc;
-  ret->type = NOT_ITERATOR;
-  ret->NumEstimated = NI_NumEstimated;
-  ret->Free = NI_Free;
-  ret->HasNext = NI_HasNext;
-  ret->LastDocId = NI_LastDocId;
-  ret->Len = NI_Len;
-  ret->Read = NI_ReadSorted;
-  ret->SkipTo = NI_SkipTo;
-  ret->Abort = NI_Abort;
-  ret->Rewind = NI_Rewind;
+    IndexIterator *ret = &nc->base;
+    ret->ctx = nc;
+    ret->type = NOT_ITERATOR;
+    ret->NumEstimated = NI_NumEstimated;
+    ret->Free = NI_Free;
+    ret->HasNext = NI_HasNext;
+    ret->LastDocId = NI_LastDocId;
+    ret->Len = NI_Len;
+    ret->Read = NI_ReadSorted;
+    ret->SkipTo = NI_SkipTo;
+    ret->Abort = NI_Abort;
+    ret->Rewind = NI_Rewind;
 
-  return ret;
+    return ret;
 }
 
 /**********************************************************
@@ -1125,179 +1138,179 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
  **********************************************************/
 
 typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
-  RSIndexResult *virt;
-  t_fieldMask fieldMask;
-  t_docId lastDocId;
-  t_docId maxDocId;
-  t_docId nextRealId;
-  double weight;
+    IndexIterator base;
+    IndexIterator *child;
+    RSIndexResult *virt;
+    t_fieldMask fieldMask;
+    t_docId lastDocId;
+    t_docId maxDocId;
+    t_docId nextRealId;
+    double weight;
 } OptionalMatchContext, OptionalIterator;
 
 static void OI_Free(IndexIterator *it) {
-  OptionalMatchContext *nc = it->ctx;
-  if (nc->child) {
-    nc->child->Free(nc->child);
-  }
-  IndexResult_Free(nc->virt);
-  rm_free(it);
+    OptionalMatchContext *nc = it->ctx;
+    if (nc->child) {
+        nc->child->Free(nc->child);
+    }
+    IndexResult_Free(nc->virt);
+    rm_free(it);
 }
 
 static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  OptionalMatchContext *nc = ctx;
-  //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nc->nextRealId,
-  //  nc->maxDocId, nc->lastDocId);
+    OptionalMatchContext *nc = ctx;
+    //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nc->nextRealId,
+    //  nc->maxDocId, nc->lastDocId);
 
-  int found = 0;
+    int found = 0;
 
-  // Set the current ID
-  nc->lastDocId = docId;
+    // Set the current ID
+    nc->lastDocId = docId;
 
-  if (nc->lastDocId > nc->maxDocId) {
-    return INDEXREAD_EOF;
-  }
+    if (nc->lastDocId > nc->maxDocId) {
+        return INDEXREAD_EOF;
+    }
 
-  if (!nc->child) {
-    nc->virt->docId = docId;
-    nc->base.current = nc->virt;
+    if (!nc->child) {
+        nc->virt->docId = docId;
+        nc->base.current = nc->virt;
+        return INDEXREAD_OK;
+    }
+
+    if (docId == 0) {
+        return nc->base.Read(ctx, hit);
+    }
+
+    if (docId == nc->nextRealId) {
+        // Edge case -- match on the docid we just looked for
+        found = 1;
+        // reset current pointer since this might have been a prior
+        // virt return
+        nc->base.current = nc->child->current;
+
+    } else if (docId > nc->nextRealId) {
+        int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
+        if (rc == INDEXREAD_OK) {
+            found = 1;
+        }
+        if (nc->base.current) {
+            nc->nextRealId = nc->base.current->docId;
+        }
+    }
+
+    if (found) {
+        // Has a real hit
+        RSIndexResult *r = nc->base.current;
+        r->weight = nc->weight;
+    } else {
+        nc->virt->docId = docId;
+        nc->virt->weight = 0;
+        nc->base.current = nc->virt;
+    }
+
+    *hit = nc->base.current;
     return INDEXREAD_OK;
-  }
-
-  if (docId == 0) {
-    return nc->base.Read(ctx, hit);
-  }
-
-  if (docId == nc->nextRealId) {
-    // Edge case -- match on the docid we just looked for
-    found = 1;
-    // reset current pointer since this might have been a prior
-    // virt return
-    nc->base.current = nc->child->current;
-
-  } else if (docId > nc->nextRealId) {
-    int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
-    if (rc == INDEXREAD_OK) {
-      found = 1;
-    }
-    if (nc->base.current) {
-      nc->nextRealId = nc->base.current->docId;
-    }
-  }
-
-  if (found) {
-    // Has a real hit
-    RSIndexResult *r = nc->base.current;
-    r->weight = nc->weight;
-  } else {
-    nc->virt->docId = docId;
-    nc->virt->weight = 0;
-    nc->base.current = nc->virt;
-  }
-
-  *hit = nc->base.current;
-  return INDEXREAD_OK;
 }
 
 static size_t OI_NumEstimated(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  return nc->maxDocId;
+    OptionalMatchContext *nc = ctx;
+    return nc->maxDocId;
 }
 
 /* Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
  * our child */
 static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
-  OptionalMatchContext *nc = ctx;
-  if (nc->lastDocId >= nc->maxDocId) {
-    return INDEXREAD_EOF;
-  }
-
-  // Increase the size by one
-  nc->lastDocId++;
-
-  if (nc->lastDocId > nc->nextRealId) {
-    int rc = nc->child->Read(nc->child->ctx, &nc->base.current);
-    if (rc == INDEXREAD_EOF) {
-      nc->nextRealId = nc->maxDocId + 1;
-    } else {
-      nc->nextRealId = nc->base.current->docId;
+    OptionalMatchContext *nc = ctx;
+    if (nc->lastDocId >= nc->maxDocId) {
+        return INDEXREAD_EOF;
     }
-  }
 
-  if (nc->lastDocId != nc->nextRealId) {
-    nc->base.current = nc->virt;
-    nc->base.current->weight = 0;
-  } else {
-    nc->base.current = nc->child->current;
-    nc->base.current->weight = nc->weight;
-  }
+    // Increase the size by one
+    nc->lastDocId++;
 
-  nc->base.current->docId = nc->lastDocId;
-  *hit = nc->base.current;
-  return INDEXREAD_OK;
+    if (nc->lastDocId > nc->nextRealId) {
+        int rc = nc->child->Read(nc->child->ctx, &nc->base.current);
+        if (rc == INDEXREAD_EOF) {
+            nc->nextRealId = nc->maxDocId + 1;
+        } else {
+            nc->nextRealId = nc->base.current->docId;
+        }
+    }
+
+    if (nc->lastDocId != nc->nextRealId) {
+        nc->base.current = nc->virt;
+        nc->base.current->weight = 0;
+    } else {
+        nc->base.current = nc->child->current;
+        nc->base.current->weight = nc->weight;
+    }
+
+    nc->base.current->docId = nc->lastDocId;
+    *hit = nc->base.current;
+    return INDEXREAD_OK;
 }
 
 /* We always have next, in case anyone asks... ;) */
 static int OI_HasNext(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  return (nc->lastDocId <= nc->maxDocId);
+    OptionalMatchContext *nc = ctx;
+    return (nc->lastDocId <= nc->maxDocId);
 }
 
 static void OI_Abort(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  if (nc->child) {
-    nc->child->Abort(nc->child->ctx);
-  }
+    OptionalMatchContext *nc = ctx;
+    if (nc->child) {
+        nc->child->Abort(nc->child->ctx);
+    }
 }
 
 /* Our len is the child's len? TBD it might be better to just return 0 */
 static size_t OI_Len(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  return nc->child ? nc->child->Len(nc->child->ctx) : 0;
+    OptionalMatchContext *nc = ctx;
+    return nc->child ? nc->child->Len(nc->child->ctx) : 0;
 }
 
 /* Last docId */
 static t_docId OI_LastDocId(void *ctx) {
-  OptionalMatchContext *nc = ctx;
+    OptionalMatchContext *nc = ctx;
 
-  return nc->lastDocId;
+    return nc->lastDocId;
 }
 
 static void OI_Rewind(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  nc->lastDocId = 0;
-  nc->virt->docId = 0;
-  nc->nextRealId = 0;
-  if (nc->child) {
-    nc->child->Rewind(nc->child->ctx);
-  }
+    OptionalMatchContext *nc = ctx;
+    nc->lastDocId = 0;
+    nc->virt->docId = 0;
+    nc->nextRealId = 0;
+    if (nc->child) {
+        nc->child->Rewind(nc->child->ctx);
+    }
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-  OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
-  nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  nc->virt->freq = 1;
-  nc->base.current = nc->virt;
-  nc->child = it ? it : NewEmptyIterator();
-  nc->lastDocId = 0;
-  nc->maxDocId = maxDocId;
-  nc->weight = weight;
-  nc->nextRealId = 0;
+    OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
+    nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+    nc->virt->freq = 1;
+    nc->base.current = nc->virt;
+    nc->child = it ? it : NewEmptyIterator();
+    nc->lastDocId = 0;
+    nc->maxDocId = maxDocId;
+    nc->weight = weight;
+    nc->nextRealId = 0;
 
-  IndexIterator *ret = &nc->base;
-  ret->ctx = nc;
-  ret->type = OPTIONAL_ITERATOR;
-  ret->NumEstimated = OI_NumEstimated;
-  ret->Free = OI_Free;
-  ret->HasNext = OI_HasNext;
-  ret->LastDocId = OI_LastDocId;
-  ret->Len = OI_Len;
-  ret->Read = OI_ReadSorted;
-  ret->SkipTo = OI_SkipTo;
-  ret->Abort = OI_Abort;
-  ret->Rewind = OI_Rewind;
+    IndexIterator *ret = &nc->base;
+    ret->ctx = nc;
+    ret->type = OPTIONAL_ITERATOR;
+    ret->NumEstimated = OI_NumEstimated;
+    ret->Free = OI_Free;
+    ret->HasNext = OI_HasNext;
+    ret->LastDocId = OI_LastDocId;
+    ret->Len = OI_Len;
+    ret->Read = OI_ReadSorted;
+    ret->SkipTo = OI_SkipTo;
+    ret->Abort = OI_Abort;
+    ret->Rewind = OI_Rewind;
 
-  return ret;
+    return ret;
 }
 
 /* Wildcard iterator, matching ALL documents in the index. This is used for one thing only -
@@ -1307,135 +1320,125 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
  * all
  * the incremental document ids, and matches every skip within its range. */
 typedef struct {
-  IndexIterator base;
-  t_docId topId;
-  t_docId current;
-  t_docId numDocs;
+    IndexIterator base;
+    t_docId topId;
+    t_docId current;
+    t_docId numDocs;
 } WildcardIterator, WildcardIteratorCtx;
 
 /* Free a wildcard iterator */
 static void WI_Free(IndexIterator *it) {
 
-  WildcardIteratorCtx *nc = it->ctx;
-  IndexResult_Free(CURRENT_RECORD(nc));
-  rm_free(it);
+    WildcardIteratorCtx *nc = it->ctx;
+    IndexResult_Free(CURRENT_RECORD(nc));
+    rm_free(it);
 }
 
 /* Read reads the next consecutive id, unless we're at the end */
 static int WI_Read(void *ctx, RSIndexResult **hit) {
-  WildcardIteratorCtx *nc = ctx;
-  CURRENT_RECORD(nc)->docId = ++nc->current;
-  if (nc->current > nc->topId) {
-    return INDEXREAD_EOF;
-  }
-  if (hit) {
-    *hit = CURRENT_RECORD(nc);
-  }
-  return INDEXREAD_OK;
+    WildcardIteratorCtx *nc = ctx;
+    CURRENT_RECORD(nc)->docId = ++nc->current;
+    if (nc->current > nc->topId) {
+        return INDEXREAD_EOF;
+    }
+    if (hit) {
+        *hit = CURRENT_RECORD(nc);
+    }
+    return INDEXREAD_OK;
 }
 
 /* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has
  * no
  * meaning */
 static int WI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  // printf("WI_Skipto %d\n", docId);
-  WildcardIteratorCtx *nc = ctx;
+    // printf("WI_Skipto %d\n", docId);
+    WildcardIteratorCtx *nc = ctx;
 
-  if (nc->current > nc->topId) return INDEXREAD_EOF;
+    if (nc->current > nc->topId)
+        return INDEXREAD_EOF;
 
-  if (docId == 0) return WI_Read(ctx, hit);
+    if (docId == 0)
+        return WI_Read(ctx, hit);
 
-  nc->current = docId;
-  CURRENT_RECORD(nc)->docId = docId;
-  if (hit) {
-    *hit = CURRENT_RECORD(nc);
-  }
-  return INDEXREAD_OK;
+    nc->current = docId;
+    CURRENT_RECORD(nc)->docId = docId;
+    if (hit) {
+        *hit = CURRENT_RECORD(nc);
+    }
+    return INDEXREAD_OK;
 }
 
 static void WI_Abort(void *ctx) {
-  WildcardIteratorCtx *nc = ctx;
-  nc->current = nc->topId + 1;
+    WildcardIteratorCtx *nc = ctx;
+    nc->current = nc->topId + 1;
 }
 
 /* We always have next, in case anyone asks... ;) */
 static int WI_HasNext(void *ctx) {
-  WildcardIteratorCtx *nc = ctx;
+    WildcardIteratorCtx *nc = ctx;
 
-  return nc->current <= nc->topId;
+    return nc->current <= nc->topId;
 }
 
 /* Our len is the len of the index... */
 static size_t WI_Len(void *ctx) {
-  WildcardIteratorCtx *nc = ctx;
-  return nc->topId;
+    WildcardIteratorCtx *nc = ctx;
+    return nc->topId;
 }
 
 /* Last docId */
 static t_docId WI_LastDocId(void *ctx) {
-  WildcardIteratorCtx *nc = ctx;
+    WildcardIteratorCtx *nc = ctx;
 
-  return nc->current;
+    return nc->current;
 }
 
 static void WI_Rewind(void *p) {
-  WildcardIteratorCtx *ctx = p;
-  ctx->current = 0;
+    WildcardIteratorCtx *ctx = p;
+    ctx->current = 0;
 }
 
 static size_t WI_NumEstimated(void *p) {
-  WildcardIteratorCtx *ctx = p;
-  return ctx->numDocs;
+    WildcardIteratorCtx *ctx = p;
+    return ctx->numDocs;
 }
 
 /* Create a new wildcard iterator */
 IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
-  WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
-  c->current = 0;
-  c->topId = maxId;
-  c->numDocs = numDocs;
+    WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
+    c->current = 0;
+    c->topId = maxId;
+    c->numDocs = numDocs;
 
-  CURRENT_RECORD(c) = NewVirtualResult(1, RS_FIELDMASK_ALL);
-  CURRENT_RECORD(c)->freq = 1;
+    CURRENT_RECORD(c) = NewVirtualResult(1, RS_FIELDMASK_ALL);
+    CURRENT_RECORD(c)->freq = 1;
 
-  IndexIterator *ret = &c->base;
-  ret->ctx = c;
-  ret->type = WILDCARD_ITERATOR;
-  ret->Free = WI_Free;
-  ret->HasNext = WI_HasNext;
-  ret->LastDocId = WI_LastDocId;
-  ret->Len = WI_Len;
-  ret->Read = WI_Read;
-  ret->SkipTo = WI_SkipTo;
-  ret->Abort = WI_Abort;
-  ret->Rewind = WI_Rewind;
-  ret->NumEstimated = WI_NumEstimated;
-  return ret;
+    IndexIterator *ret = &c->base;
+    ret->ctx = c;
+    ret->type = WILDCARD_ITERATOR;
+    ret->Free = WI_Free;
+    ret->HasNext = WI_HasNext;
+    ret->LastDocId = WI_LastDocId;
+    ret->Len = WI_Len;
+    ret->Read = WI_Read;
+    ret->SkipTo = WI_SkipTo;
+    ret->Abort = WI_Abort;
+    ret->Rewind = WI_Rewind;
+    ret->NumEstimated = WI_NumEstimated;
+    return ret;
 }
 
-static int EOI_Read(void *p, RSIndexResult **e) {
-  return INDEXREAD_EOF;
-}
+static int EOI_Read(void *p, RSIndexResult **e) { return INDEXREAD_EOF; }
 static void EOI_Free(struct indexIterator *self) {
-  // Nothing
+    // Nothing
 }
-static size_t EOI_NumEstimated(void *ctx) {
-  return 0;
-}
-static size_t EOI_Len(void *ctx) {
-  return 0;
-}
-static t_docId EOI_LastDocId(void *ctx) {
-  return 0;
-}
+static size_t EOI_NumEstimated(void *ctx) { return 0; }
+static size_t EOI_Len(void *ctx) { return 0; }
+static t_docId EOI_LastDocId(void *ctx) { return 0; }
 
-static int EOI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  return INDEXREAD_EOF;
-}
-static void EOI_Abort(void *ctx) {
-}
-static void EOI_Rewind(void *ctx) {
-}
+static int EOI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) { return INDEXREAD_EOF; }
+static void EOI_Abort(void *ctx) {}
+static void EOI_Rewind(void *ctx) {}
 
 static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .Free = EOI_Free,
@@ -1447,32 +1450,29 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .Rewind = EOI_Rewind,
                                     .type = EMPTY_ITERATOR};
 
-IndexIterator *NewEmptyIterator(void) {
-  return &eofIterator;
-}
+IndexIterator *NewEmptyIterator(void) { return &eofIterator; }
 
 // LCOV_EXCL_START unused
 const char *IndexIterator_GetTypeString(const IndexIterator *it) {
-  if (it->Free == UnionIterator_Free) {
-    return "UNION";
-  } else if (it->Free == IntersectIterator_Free) {
-    return "INTERSECTION";
-  } else if (it->Free == OI_Free) {
-    return "OPTIONAL";
-  } else if (it->Free == WI_Free) {
-    return "WILDCARD";
-  } else if (it->Free == NI_Free) {
-    return "NOT";
-  } else if (it->Free == ReadIterator_Free) {
-    return "IIDX";
-  } else if (it == &eofIterator) {
-    return "EMPTY";
-  } else {
-    return "Unknown";
-  }
+    if (it->Free == UnionIterator_Free) {
+        return "UNION";
+    } else if (it->Free == IntersectIterator_Free) {
+        return "INTERSECTION";
+    } else if (it->Free == OI_Free) {
+        return "OPTIONAL";
+    } else if (it->Free == WI_Free) {
+        return "WILDCARD";
+    } else if (it->Free == NI_Free) {
+        return "NOT";
+    } else if (it->Free == ReadIterator_Free) {
+        return "IIDX";
+    } else if (it == &eofIterator) {
+        return "EMPTY";
+    } else {
+        return "Unknown";
+    }
 }
 // LCOV_EXCL_STOP
-
 
 /**********************************************************
  * Profile printing functions
@@ -1481,46 +1481,48 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it) {
 /* Profile iterator, used for profiling. PI is added between all iterator
  */
 typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
-  size_t counter;
-  clock_t cpuTime;
-  int eof;
+    IndexIterator base;
+    IndexIterator *child;
+    size_t counter;
+    clock_t cpuTime;
+    int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
-  ProfileIterator *pi = ctx;
-  pi->counter++;
-  clock_t begin = clock();
-  int ret = pi->child->Read(pi->child->ctx, e);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
-  pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
-  return ret;
+    ProfileIterator *pi = ctx;
+    pi->counter++;
+    clock_t begin = clock();
+    int ret = pi->child->Read(pi->child->ctx, e);
+    if (ret == INDEXREAD_EOF)
+        pi->eof = 1;
+    pi->base.current = pi->child->current;
+    pi->cpuTime += clock() - begin;
+    return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  ProfileIterator *pi = ctx;
-  pi->counter++;
-  clock_t begin = clock();
-  int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
-  pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
-  return ret;
+    ProfileIterator *pi = ctx;
+    pi->counter++;
+    clock_t begin = clock();
+    int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
+    if (ret == INDEXREAD_EOF)
+        pi->eof = 1;
+    pi->base.current = pi->child->current;
+    pi->cpuTime += clock() - begin;
+    return ret;
 }
 
 static void PI_Free(IndexIterator *it) {
-  ProfileIterator *pi = (ProfileIterator *)it;
-  pi->child->Free(pi->child);
-  rm_free(it);
+    ProfileIterator *pi = (ProfileIterator *)it;
+    pi->child->Free(pi->child);
+    rm_free(it);
 }
 
-#define PROFILE_ITERATOR_FUNC_SIGN(func, rettype)     \
-static rettype PI_##func(void *ctx) {                 \
-  ProfileIterator *pi = ctx;                          \
-  return pi->child->func(pi->child->ctx);             \
-}
+#define PROFILE_ITERATOR_FUNC_SIGN(func, rettype)                                                  \
+    static rettype PI_##func(void *ctx) {                                                          \
+        ProfileIterator *pi = ctx;                                                                 \
+        return pi->child->func(pi->child->ctx);                                                    \
+    }
 
 PROFILE_ITERATOR_FUNC_SIGN(Abort, void);
 PROFILE_ITERATOR_FUNC_SIGN(Len, size_t);
@@ -1529,282 +1531,341 @@ PROFILE_ITERATOR_FUNC_SIGN(LastDocId, t_docId);
 PROFILE_ITERATOR_FUNC_SIGN(NumEstimated, size_t);
 
 static int PI_HasNext(void *ctx) {
-  ProfileIterator *pi = ctx;
-  return IITER_HAS_NEXT(pi->child);
+    ProfileIterator *pi = ctx;
+    return IITER_HAS_NEXT(pi->child);
 }
 
 /* Create a new wildcard iterator */
 IndexIterator *NewProfileIterator(IndexIterator *child) {
-  ProfileIteratorCtx *pc = rm_calloc(1, sizeof(*pc));
-  pc->child = child;
-  pc->counter = 0;
-  pc->cpuTime = 0;
-  pc->eof = 0;
+    ProfileIteratorCtx *pc = rm_calloc(1, sizeof(*pc));
+    pc->child = child;
+    pc->counter = 0;
+    pc->cpuTime = 0;
+    pc->eof = 0;
 
-  IndexIterator *ret = &pc->base;
-  ret->ctx = pc;
-  ret->type = PROFILE_ITERATOR;
-  ret->Free = PI_Free;
-  ret->HasNext = PI_HasNext;
-  ret->LastDocId = PI_LastDocId;
-  ret->Len = PI_Len;
-  ret->Read = PI_Read;
-  ret->SkipTo = PI_SkipTo;
-  ret->Abort = PI_Abort;
-  ret->Rewind = PI_Rewind;
-  ret->NumEstimated = PI_NumEstimated;
-  return ret;
+    IndexIterator *ret = &pc->base;
+    ret->ctx = pc;
+    ret->type = PROFILE_ITERATOR;
+    ret->Free = PI_Free;
+    ret->HasNext = PI_HasNext;
+    ret->LastDocId = PI_LastDocId;
+    ret->Len = PI_Len;
+    ret->Read = PI_Read;
+    ret->SkipTo = PI_SkipTo;
+    ret->Abort = PI_Abort;
+    ret->Rewind = PI_Rewind;
+    ret->NumEstimated = PI_NumEstimated;
+    return ret;
 }
 
-#define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
-                                                  IndexIterator *root,        \
-                                                  size_t counter,             \
-                                                  double cpuTime,             \
-                                                  int depth,                  \
-                                                  int limited,                \
-                                                  PrintProfileConfig *config)
+#define PRINT_PROFILE_FUNC(name)                                                                   \
+    static void name(RedisModule_Reply *reply, IndexIterator *root, size_t counter,                \
+                     double cpuTime, int depth, int limited, PrintProfileConfig *config)
 
 PRINT_PROFILE_FUNC(printUnionIt) {
-  UnionIterator *ui = (UnionIterator *)root;
-  int printFull = !limited  || (ui->origType & QN_UNION);
+    UnionIterator *ui = (UnionIterator *)root;
+    int printFull = !limited || (ui->origType & QN_UNION);
 
-  RedisModule_Reply_Map(reply);
+    RedisModule_Reply_Map(reply);
 
-  printProfileType("UNION");
+    printProfileType("UNION");
 
-  RedisModule_Reply_SimpleString(reply, "Query type");
-  char *unionTypeStr;
-  switch (ui->origType) {
-  case QN_GEO : unionTypeStr = "GEO"; break;
-  case QN_GEOMETRY : unionTypeStr = "GEOSHAPE"; break;
-  case QN_TAG : unionTypeStr = "TAG"; break;
-  case QN_UNION : unionTypeStr = "UNION"; break;
-  case QN_FUZZY : unionTypeStr = "FUZZY"; break;
-  case QN_PREFIX : unionTypeStr = "PREFIX"; break;
-  case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
-  case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
-  case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
-  default:
-    RS_LOG_ASSERT(0, "Invalid type for union");
-    break;
-  }
-  if (!ui->qstr) {
-    RedisModule_Reply_SimpleString(reply, unionTypeStr);
-  } else {
-    const char *qstr = ui->qstr;
-    if (isUnsafeForSimpleString(qstr)) qstr = escapeSimpleString(qstr);
-    RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
-    if (qstr != ui->qstr) rm_free((char*)qstr);
-  }
+    RedisModule_Reply_SimpleString(reply, "Query type");
+    char *unionTypeStr;
+    switch (ui->origType) {
+    case QN_GEO:
+        unionTypeStr = "GEO";
+        break;
+    case QN_GEOMETRY:
+        unionTypeStr = "GEOSHAPE";
+        break;
+    case QN_TAG:
+        unionTypeStr = "TAG";
+        break;
+    case QN_UNION:
+        unionTypeStr = "UNION";
+        break;
+    case QN_FUZZY:
+        unionTypeStr = "FUZZY";
+        break;
+    case QN_PREFIX:
+        unionTypeStr = "PREFIX";
+        break;
+    case QN_NUMERIC:
+        unionTypeStr = "NUMERIC";
+        break;
+    case QN_LEXRANGE:
+        unionTypeStr = "LEXRANGE";
+        break;
+    case QN_WILDCARD_QUERY:
+        unionTypeStr = "WILDCARD";
+        break;
+    default:
+        RS_LOG_ASSERT(0, "Invalid type for union");
+        break;
+    }
+    if (!ui->qstr) {
+        RedisModule_Reply_SimpleString(reply, unionTypeStr);
+    } else {
+        const char *qstr = ui->qstr;
+        if (isUnsafeForSimpleString(qstr))
+            qstr = escapeSimpleString(qstr);
+        RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
+        if (qstr != ui->qstr)
+            rm_free((char *)qstr);
+    }
 
-  if (config->printProfileClock) {
-    printProfileTime(cpuTime);
-  }
+    if (config->printProfileClock) {
+        printProfileTime(cpuTime);
+    }
 
-  printProfileCounter(counter);
+    printProfileCounter(counter);
 
-  // if MAXPREFIXEXPANSIONS reached
-  if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
-    RedisModule_Reply_SimpleString(reply, "Warning");
-    RedisModule_Reply_SimpleString(reply, "Max prefix expansion reached");
-  }
+    // if MAXPREFIXEXPANSIONS reached
+    if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
+        RedisModule_Reply_SimpleString(reply, "Warning");
+        RedisModule_Reply_SimpleString(reply, "Max prefix expansion reached");
+    }
 
-  RedisModule_Reply_SimpleString(reply, "Child iterators");
-  if (printFull) {
-    RedisModule_Reply_Array(reply);
-      for (int i = 0; i < ui->norig; i++) {
-        printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
-      }
-    RedisModule_Reply_ArrayEnd(reply);
-  } else {
-    RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %d", ui->norig);
-  }
+    RedisModule_Reply_SimpleString(reply, "Child iterators");
+    if (printFull) {
+        RedisModule_Reply_Array(reply);
+        for (int i = 0; i < ui->norig; i++) {
+            printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
+        }
+        RedisModule_Reply_ArrayEnd(reply);
+    } else {
+        RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %d",
+                                        ui->norig);
+    }
 
-  RedisModule_Reply_MapEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
-  IntersectIterator *ii = (IntersectIterator *)root;
+    IntersectIterator *ii = (IntersectIterator *)root;
 
-  RedisModule_Reply_Map(reply);
+    RedisModule_Reply_Map(reply);
 
-  printProfileType("INTERSECT");
+    printProfileType("INTERSECT");
 
-  if (config->printProfileClock) {
-    printProfileTime(cpuTime);
-  }
-
-  printProfileCounter(counter);
-
-  RedisModule_ReplyKV_Array(reply, "Child iterators");
-    for (int i = 0; i < ii->num; i++) {
-      if (ii->its[i]) {
-        printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
-      } else {
-        RedisModule_Reply_Null(reply);
-      }
+    if (config->printProfileClock) {
+        printProfileTime(cpuTime);
     }
-  RedisModule_Reply_ArrayEnd(reply);
 
-  RedisModule_Reply_MapEnd(reply);
+    printProfileCounter(counter);
+
+    RedisModule_ReplyKV_Array(reply, "Child iterators");
+    for (int i = 0; i < ii->num; i++) {
+        if (ii->its[i]) {
+            printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
+        } else {
+            RedisModule_Reply_Null(reply);
+        }
+    }
+    RedisModule_Reply_ArrayEnd(reply);
+
+    RedisModule_Reply_MapEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
-  MetricIterator *mi = (MetricIterator *)root;
+    MetricIterator *mi = (MetricIterator *)root;
 
-  RedisModule_Reply_Map(reply);
+    RedisModule_Reply_Map(reply);
 
-  switch (mi->type) {
+    switch (mi->type) {
     case VECTOR_DISTANCE: {
-      printProfileType("METRIC - VECTOR DISTANCE");
-      break;
+        printProfileType("METRIC - VECTOR DISTANCE");
+        break;
     }
     default: {
-      RS_LOG_ASSERT(0, "Invalid type for metric");
-      break;
+        RS_LOG_ASSERT(0, "Invalid type for metric");
+        break;
     }
-  }
+    }
 
-  if (config->printProfileClock) {
-    printProfileTime(cpuTime);
-  }
+    if (config->printProfileClock) {
+        printProfileTime(cpuTime);
+    }
 
-  printProfileCounter(counter);
+    printProfileCounter(counter);
 
-  RedisModule_Reply_MapEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
 }
 
-void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
-                  int depth, int limited, PrintProfileConfig *config, IndexIterator *child, const char *text) {
-  size_t nlen = 0;
-  RedisModule_Reply_Map(reply);
+void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+                               double cpuTime, int depth, int limited, PrintProfileConfig *config,
+                               IndexIterator *child, const char *text) {
+    size_t nlen = 0;
+    RedisModule_Reply_Map(reply);
     printProfileType(text);
     if (config->printProfileClock) {
-      printProfileTime(cpuTime);
+        printProfileTime(cpuTime);
     }
     printProfileCounter(counter);
 
     if (root->type == HYBRID_ITERATOR) {
-      HybridIterator *hi = root->ctx;
-      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
-          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
-        printProfileNumBatches(hi);
-      }
+        HybridIterator *hi = root->ctx;
+        if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
+            hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
+            printProfileNumBatches(hi);
+        }
     }
 
     if (root->type == OPTIMUS_ITERATOR) {
-      OptimizerIterator *oi = root->ctx;
-      printProfileOptimizationType(oi);
+        OptimizerIterator *oi = root->ctx;
+        printProfileOptimizationType(oi);
     }
 
     if (child) {
-      RedisModule_Reply_SimpleString(reply, "Child iterator");
-      printIteratorProfile(reply, child, 0, 0, depth + 1, limited, config);
+        RedisModule_Reply_SimpleString(reply, "Child iterator");
+        printIteratorProfile(reply, child, 0, 0, depth + 1, limited, config);
     }
-  RedisModule_Reply_MapEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
 }
 
-#define PRINT_PROFILE_SINGLE_NO_CHILD(name, text)                                      \
-  PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
-      NULL, (text));                                                                   \
-  }
+#define PRINT_PROFILE_SINGLE_NO_CHILD(name, text)                                                  \
+    PRINT_PROFILE_FUNC(name) {                                                                     \
+        PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, NULL,   \
+                                  (text));                                                         \
+    }
 
-#define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
-  PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
-      ((IterType *)(root))->child, (text));                                            \
-  }
+#define PRINT_PROFILE_SINGLE(name, IterType, text)                                                 \
+    PRINT_PROFILE_FUNC(name) {                                                                     \
+        PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config,         \
+                                  ((IterType *)(root))->child, (text));                            \
+    }
 
-PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
-PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
-PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
+PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt, "WILDCARD");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt, "ID-LIST");
+PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt, "EMPTY");
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "NOT");
 PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator, "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
-  ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
-    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
+    ProfileIterator *pi = (ProfileIterator *)root;
+    printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
+                         (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
-  if (root == NULL) return;
+    if (root == NULL)
+        return;
 
-  // protect against limit of 7 reply layers
-  if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
-    RedisModule_Reply_Null(reply);
-    return;
-  }
+    // protect against limit of 7 reply layers
+    if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
+        RedisModule_Reply_Null(reply);
+        return;
+    }
 
-  switch (root->type) {
+    switch (root->type) {
     // Reader
-    case READ_ITERATOR:       { printReadIt(reply, root, counter, cpuTime, config);                       break; }
+    case READ_ITERATOR: {
+        printReadIt(reply, root, counter, cpuTime, config);
+        break;
+    }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counter, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR: {
+        printUnionIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case INTERSECT_ITERATOR: {
+        printIntersectIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(reply, root, counter, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
-    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                break; }
-    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
-  }
+    case NOT_ITERATOR: {
+        printNotIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case OPTIONAL_ITERATOR: {
+        printOptionalIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case WILDCARD_ITERATOR: {
+        printWildcardIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case EMPTY_ITERATOR: {
+        printEmptyIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case ID_LIST_ITERATOR: {
+        printIdListIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case PROFILE_ITERATOR: {
+        printProfileIt(reply, root, 0, 0, depth, limited, config);
+        break;
+    }
+    case HYBRID_ITERATOR: {
+        printHybridIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case METRIC_ITERATOR: {
+        printMetricIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case OPTIMUS_ITERATOR: {
+        printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);
+        break;
+    }
+    case MAX_ITERATOR: {
+        RS_LOG_ASSERT(0, "nope");
+        break;
+    }
+    }
 }
 
 /** Add Profile iterator before any iterator in the tree */
 void Profile_AddIters(IndexIterator **root) {
-  UnionIterator *ui;
-  IntersectIterator *ini;
+    UnionIterator *ui;
+    IntersectIterator *ini;
 
-  if (*root == NULL) return;
+    if (*root == NULL)
+        return;
 
-  // Add profile iterator before child iterators
-  switch((*root)->type) {
+    // Add profile iterator before child iterators
+    switch ((*root)->type) {
     case NOT_ITERATOR:
-      Profile_AddIters(&((NotIterator *)((*root)->ctx))->child);
-      break;
+        Profile_AddIters(&((NotIterator *)((*root)->ctx))->child);
+        break;
     case OPTIONAL_ITERATOR:
-      Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
-      break;
+        Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
+        break;
     case HYBRID_ITERATOR:
-      Profile_AddIters(&((HybridIterator *)((*root)->ctx))->child);
-      break;
+        Profile_AddIters(&((HybridIterator *)((*root)->ctx))->child);
+        break;
     case OPTIMUS_ITERATOR:
-      Profile_AddIters(&((OptimizerIterator *)((*root)->ctx))->child);
-      break;
+        Profile_AddIters(&((OptimizerIterator *)((*root)->ctx))->child);
+        break;
     case UNION_ITERATOR:
-      ui = (*root)->ctx;
-      for (int i = 0; i < ui->norig; i++) {
-        Profile_AddIters(&(ui->origits[i]));
-      }
-      UI_SyncIterList(ui);
-      break;
+        ui = (*root)->ctx;
+        for (int i = 0; i < ui->norig; i++) {
+            Profile_AddIters(&(ui->origits[i]));
+        }
+        UI_SyncIterList(ui);
+        break;
     case INTERSECT_ITERATOR:
-      ini = (*root)->ctx;
-      for (int i = 0; i < ini->num; i++) {
-        Profile_AddIters(&(ini->its[i]));
-      }
-      break;
+        ini = (*root)->ctx;
+        for (int i = 0; i < ini->num; i++) {
+            Profile_AddIters(&(ini->its[i]));
+        }
+        break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
     case METRIC_ITERATOR:
-      break;
+        break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
-      RS_LOG_ASSERT(0, "Error");
-  }
+        RS_LOG_ASSERT(0, "Error");
+    }
 
-  // Create a profile iterator and update outparam pointer
-  *root = NewProfileIterator(*root);
+    // Create a profile iterator and update outparam pointer
+    *root = NewProfileIterator(*root);
 }

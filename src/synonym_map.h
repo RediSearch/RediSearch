@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef SRC_SYNONYM_MAP_H_
 #define SRC_SYNONYM_MAP_H_
 
@@ -22,18 +21,18 @@
  *  ids - array of synonyms group ids that the term is belong to
  */
 typedef struct {
-  char* term;
-  char** groupIds;
+    char *term;
+    char **groupIds;
 } TermData;
 
 /**
  * The synonym map data structure
  */
 typedef struct SynonymMap_s {
-  uint32_t ref_count;
-  dict* h_table;
-  bool is_read_only;
-  struct SynonymMap_s* read_only_copy;
+    uint32_t ref_count;
+    dict *h_table;
+    bool is_read_only;
+    struct SynonymMap_s *read_only_copy;
 } SynonymMap;
 
 /**
@@ -41,12 +40,12 @@ typedef struct SynonymMap_s {
  * If is_read_only is true then it will only be possible to read from
  * this synonym map, Any attemp to write to it will result in assert failure.
  */
-SynonymMap* SynonymMap_New(bool is_read_only);
+SynonymMap *SynonymMap_New(bool is_read_only);
 
 /**
  * Free the given SynonymMap internal and structure
  */
-void SynonymMap_Free(SynonymMap* smap);
+void SynonymMap_Free(SynonymMap *smap);
 
 /**
  * Updating an already existing synonym group
@@ -55,7 +54,8 @@ void SynonymMap_Free(SynonymMap* smap);
  * size - RedisModuleString array size
  * id - the synoym group id to update
  */
-void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId);
+void SynonymMap_UpdateRedisStr(SynonymMap *smap, RedisModuleString **synonyms, size_t size,
+                               const char *groupId);
 
 /**
  * Add new synonym group
@@ -63,7 +63,7 @@ void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, s
  * synonyms - char* array contains the terms to add to the synonym map
  * size - char* array size
  */
-void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size);
+void SynonymMap_Add(SynonymMap *smap, const char *groupId, const char **synonyms, size_t size);
 
 /**
  * Updating an already existing synonym group
@@ -72,7 +72,7 @@ void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms
  * size - char* array size
  * id - the synoym group id to update
  */
-void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId);
+void SynonymMap_Update(SynonymMap *smap, const char **synonyms, size_t size, const char *groupId);
 
 /**
  * Return all the ids of a given term
@@ -80,14 +80,14 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
  * synonym - the term to search for
  * len - term len
  */
-TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len);
+TermData *SynonymMap_GetIdsBySynonym(SynonymMap *smap, const char *synonym, size_t len);
 
 /**
  * Return array of all terms and the group ids they belong to
  * smap - the synonym map
  * size - a pointer to size_t to retrieve the result size
  */
-TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size);
+TermData **SynonymMap_DumpAllTerms(SynonymMap *smap, size_t *size);
 
 /**
  * Return an str representation of the given id
@@ -96,7 +96,7 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size);
  * len - the buff len
  * return the size of the str writen to buff
  */
-size_t SynonymMap_IdToStr(uint32_t id, char* buff, size_t len);
+size_t SynonymMap_IdToStr(uint32_t id, char *buff, size_t len);
 
 /**
  * Retun a read only copy of the given smap.
@@ -106,22 +106,22 @@ size_t SynonymMap_IdToStr(uint32_t id, char* buff, size_t len);
  * read only copy it will create a new one. The old read only copy will be freed when all the
  * indexers will finish using it.
  */
-SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
+SynonymMap *SynonymMap_GetReadOnlyCopy(SynonymMap *smap);
 
 /**
  * Macro for using SynonymMap_GetIdsBySynonym with NULL terminated string
  */
-#define SynonymMap_GetIdsBySynonym_cstr(smap, synonym) \
-  SynonymMap_GetIdsBySynonym(smap, synonym, strlen(synonym))
+#define SynonymMap_GetIdsBySynonym_cstr(smap, synonym)                                             \
+    SynonymMap_GetIdsBySynonym(smap, synonym, strlen(synonym))
 
 /**
  * Save the given smap to an rdb
  */
-void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
+void SynonymMap_RdbSave(RedisModuleIO *rdb, void *value);
 
 /**
  * Loadin smap from an rdb
  */
-void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
+void *SynonymMap_RdbLoad(RedisModuleIO *rdb, int encver);
 
 #endif /* SRC_SYNONYM_MAP_H_ */

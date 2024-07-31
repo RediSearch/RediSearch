@@ -21,8 +21,8 @@ void RediSearch_LockRelease();
 
 void RediSearch_LockDestory();
 
-#define RWLOCK_ACQUIRE_READ() RediSearch_LockRead()
+#define RWLOCK_ACQUIRE_READ()  RediSearch_LockRead()
 #define RWLOCK_ACQUIRE_WRITE() RediSearch_LockWrite()
-#define RWLOCK_RELEASE() RediSearch_LockRelease()
+#define RWLOCK_RELEASE()       RediSearch_LockRelease()
 
 #endif /* SRC_RWLOCK_H_ */

@@ -7,62 +7,62 @@ struct AREQ;
 
 // decision table
 /**********************************************************
-* NUM * TEXT  *     with SORTBY       *    w/o SORTBY     *
-***********************************************************
-*  Y  *   Y   *    Q_OPT_HYBRID       *      (note1)      *
-***********************************************************
-*  Y  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
-***********************************************************
-*  N  *   Y   *    Q_OPT_HYBRID       *     Q_OPT_NONE    *
-***********************************************************
-*  N  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
-**********************************************************/
+ * NUM * TEXT  *     with SORTBY       *    w/o SORTBY     *
+ ***********************************************************
+ *  Y  *   Y   *    Q_OPT_HYBRID       *      (note1)      *
+ ***********************************************************
+ *  Y  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
+ ***********************************************************
+ *  N  *   Y   *    Q_OPT_HYBRID       *     Q_OPT_NONE    *
+ ***********************************************************
+ *  N  *   N   *  Q_OPT_PARTIAL_RANGE  *  Q_OPT_NO_SORTER  *
+ **********************************************************/
 // note1: potential for filter or no sorter
 
 typedef enum {
-  // No optimization
-  Q_OPT_NONE = -1,
+    // No optimization
+    Q_OPT_NONE = -1,
 
-  // Optimization was not assigned
-  Q_OPT_UNDECIDED = 0,
+    // Optimization was not assigned
+    Q_OPT_UNDECIDED = 0,
 
-  // Reduce numeric range. No additional filter
-  Q_OPT_PARTIAL_RANGE = 1,
+    // Reduce numeric range. No additional filter
+    Q_OPT_PARTIAL_RANGE = 1,
 
-  // If there is no sorting, remove sorter (similar to FT.AGGREGATE)
-  Q_OPT_NO_SORTER = 2,
+    // If there is no sorting, remove sorter (similar to FT.AGGREGATE)
+    Q_OPT_NO_SORTER = 2,
 
-  // Attempt reduced numeric range.
-  // Additional filter might reduce number of matches.
-  // May require additional iteration or change of optimization
-  Q_OPT_HYBRID = 3,
+    // Attempt reduced numeric range.
+    // Additional filter might reduce number of matches.
+    // May require additional iteration or change of optimization
+    Q_OPT_HYBRID = 3,
 
-  // Use `FILTER` result processor instead of numeric range
-  Q_OPT_FILTER = 4,
+    // Use `FILTER` result processor instead of numeric range
+    Q_OPT_FILTER = 4,
 
-  // sortby other field. currently no optimization
-  // Q_OPT_SORTBY_OTHER
+    // sortby other field. currently no optimization
+    // Q_OPT_SORTBY_OTHER
 } Q_Optimize_Type;
 
 typedef enum {
-  SCORER_TYPE_NONE = 0,
-  SCORER_TYPE_TERM = 1,
-  SCORER_TYPE_DOC = 2,
+    SCORER_TYPE_NONE = 0,
+    SCORER_TYPE_TERM = 1,
+    SCORER_TYPE_DOC = 2,
 } ScorerType;
 
 typedef struct QOptimizer {
-    Q_Optimize_Type type;       // type of optimization
+    Q_Optimize_Type type; // type of optimization
 
-    size_t limit;               // number of required results
+    size_t limit; // number of required results
 
-    bool scorerReq;             // does the query require a scorer (WITHSCORES does not count)
-    ScorerType scorerType;      // 
+    bool scorerReq;        // does the query require a scorer (WITHSCORES does not count)
+    ScorerType scorerType; //
 
-    const char *fieldName;      // name of sortby field
-    const FieldSpec *field;     // spec of sortby field
-    QueryNode *sortbyNode;      // pointer to QueryNode
-    NumericFilter *nf;          // filter with required parameters
-    bool asc;                   // ASC/DESC order of sortby
+    const char *fieldName;  // name of sortby field
+    const FieldSpec *field; // spec of sortby field
+    QueryNode *sortbyNode;  // pointer to QueryNode
+    NumericFilter *nf;      // filter with required parameters
+    bool asc;               // ASC/DESC order of sortby
 
     IndexIterator *numIter;
     IndexIterator *root;

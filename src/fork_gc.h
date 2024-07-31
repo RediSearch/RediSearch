@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef SRC_FORK_GC_H_
 #define SRC_FORK_GC_H_
 
@@ -17,72 +16,72 @@ extern "C" {
 #endif
 
 typedef struct {
-  // total bytes collected by the GC
-  size_t totalCollected;
-  // number of cycle ran
-  size_t numCycles;
+    // total bytes collected by the GC
+    size_t totalCollected;
+    // number of cycle ran
+    size_t numCycles;
 
-  long long totalMSRun;
-  long long lastRunTimeMs;
+    long long totalMSRun;
+    long long lastRunTimeMs;
 
-  uint64_t gcNumericNodesMissed;
-  uint64_t gcBlocksDenied;
+    uint64_t gcNumericNodesMissed;
+    uint64_t gcBlocksDenied;
 } ForkGCStats;
 
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
 
-  // owner of the gc
-  WeakRef index;
+    // owner of the gc
+    WeakRef index;
 
-  RedisModuleCtx *ctx;
+    RedisModuleCtx *ctx;
 
-  // statistics for reporting
-  ForkGCStats stats;
+    // statistics for reporting
+    ForkGCStats stats;
 
-  int pipefd[2];
-  volatile uint32_t pauseState;
-  volatile uint32_t execState;
+    int pipefd[2];
+    volatile uint32_t pauseState;
+    volatile uint32_t execState;
 
-  struct timespec retryInterval;
-  volatile size_t deletedDocsFromLastRun;
+    struct timespec retryInterval;
+    volatile size_t deletedDocsFromLastRun;
 
-  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
-  // This value is updated during the periodic callback execution.
-  int cleanNumericEmptyNodes;
+    // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
+    // This value is updated during the periodic callback execution.
+    int cleanNumericEmptyNodes;
 } ForkGC;
 
 ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
-  // Normal "open" state. No pausing will happen
-  FGC_PAUSED_UNPAUSED = 0x00,
-  // Prevent invoking the child. The child is not invoked until this flag is
-  // cleared
-  FGC_PAUSED_CHILD = 0x01,
-  // Prevent the parent reading from the child. The results from the child are
-  // not read until this flag is cleared.
-  FGC_PAUSED_PARENT = 0x02
+    // Normal "open" state. No pausing will happen
+    FGC_PAUSED_UNPAUSED = 0x00,
+    // Prevent invoking the child. The child is not invoked until this flag is
+    // cleared
+    FGC_PAUSED_CHILD = 0x01,
+    // Prevent the parent reading from the child. The results from the child are
+    // not read until this flag is cleared.
+    FGC_PAUSED_PARENT = 0x02
 } FGCPauseFlags;
 
 typedef enum {
-  // Idle, "normal" state
-  FGC_STATE_IDLE = 0,
+    // Idle, "normal" state
+    FGC_STATE_IDLE = 0,
 
-  // Set when the PAUSED_CHILD flag is set, indicates that we are
-  // awaiting this flag to be cleared.
-  FGC_STATE_WAIT_FORK,
+    // Set when the PAUSED_CHILD flag is set, indicates that we are
+    // awaiting this flag to be cleared.
+    FGC_STATE_WAIT_FORK,
 
-  // Set when the child has been launched, but before the first results have
-  // been applied.
-  FGC_STATE_SCANNING,
+    // Set when the child has been launched, but before the first results have
+    // been applied.
+    FGC_STATE_SCANNING,
 
-  // Set when the PAUSED_PARENT flag is set. The results will not be
-  // scanned until the PAUSED_PARENT flag is unset
-  FGC_STATE_WAIT_APPLY,
+    // Set when the PAUSED_PARENT flag is set. The results will not be
+    // scanned until the PAUSED_PARENT flag is unset
+    FGC_STATE_WAIT_APPLY,
 
-  // Set when results are being applied from the child to the parent
-  FGC_STATE_APPLYING
+    // Set when results are being applied from the child to the parent
+    FGC_STATE_APPLYING
 } FGCState;
 
 /**
@@ -94,7 +93,8 @@ typedef enum {
  * must call FGC_ForkAndWaitBeforeApply or FGC_Apply to allow the GC to
  * resume functioning
  */
-//TODO: I'm not sure this one is necessary, we already wait before we call the callback. (in cbWrapper)
+// TODO: I'm not sure this one is necessary, we already wait before we call the callback. (in
+// cbWrapper)
 void FGC_WaitBeforeFork(ForkGC *gc);
 
 /**
@@ -111,9 +111,9 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
 void FGC_Apply(ForkGC *gc);
 
 typedef struct InfoGCStats {
-  size_t totalCollectedBytes; // Total bytes collected by the GCs
-  size_t totalCycles;         // Total number of cycles ran
-  size_t totalTime;           // In ms
+    size_t totalCollectedBytes; // Total bytes collected by the GCs
+    size_t totalCycles;         // Total number of cycles ran
+    size_t totalTime;           // In ms
 } InfoGCStats;
 
 #ifdef __cplusplus

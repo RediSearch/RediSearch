@@ -20,8 +20,8 @@ typedef struct GeometryQuery {
 
 void GeometryQuery_Free(GeometryQuery *geomq);
 
-GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec,
-                                 RedisModuleKey **idxKey, const FieldSpec *fs);
+GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec, RedisModuleKey **idxKey,
+                                 const FieldSpec *fs);
 
 RedisModuleString *fmtRedisGeometryIndexKey(RedisSearchCtx *ctx, const char *field);
 

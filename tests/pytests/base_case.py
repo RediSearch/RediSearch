@@ -1,16 +1,17 @@
-from rmtest2 import BaseModuleTestCase
-import redis
 import os
+
+import redis
+from rmtest2 import BaseModuleTestCase
 
 
 class FTBaseCaseMethods(object):
     def ftcreate(self, idx, *args):
-        return self.execute_command('ft.create', idx, *args)
+        return self.execute_command("ft.create", idx, *args)
 
     def search(self, idx, *args):
         if not isinstance(idx, basestring):
             raise Exception("OOPS!")
-        return self.cmd('ft.search', idx, *args)
+        return self.cmd("ft.search", idx, *args)
 
     def ftexists(self, idx, doc):
         try:
@@ -21,10 +22,10 @@ class FTBaseCaseMethods(object):
             return False
 
     def ftget(self, idx, doc):
-        return self.execute_command('ft.get', idx, doc)
+        return self.execute_command("ft.get", idx, doc)
 
     def ftadd(self, idx, docid, weight=1.0, **fields):
-        cmd = ['FT.ADD', idx, docid, weight, 'FIELDS']
+        cmd = ["FT.ADD", idx, docid, weight, "FIELDS"]
         for k, v in fields.items():
             cmd += [k, v]
         return self.cmd(*cmd)
@@ -34,6 +35,6 @@ class BaseSearchTestCase(BaseModuleTestCase, FTBaseCaseMethods):
     @classmethod
     def get_module_args(cls):
         rv = super(BaseSearchTestCase, cls).get_module_args()
-        if os.environ.get('GC_POLICY_FORK'):
-            rv += ['GC_POLICY', 'FORK']
+        if os.environ.get("GC_POLICY_FORK"):
+            rv += ["GC_POLICY", "FORK"]
         return rv

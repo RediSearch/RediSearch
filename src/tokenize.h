@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #ifndef __TOKENIZE_H__
 #define __TOKENIZE_H__
 
@@ -24,32 +23,32 @@ typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
 
 /* Represents a token found in a document */
 typedef struct {
-  // Normalized string
-  const char *tok;
+    // Normalized string
+    const char *tok;
 
-  // token string length
-  uint32_t tokLen;
+    // token string length
+    uint32_t tokLen;
 
-  // Token needs to be copied. Don't rely on `raw` pointer.
-  uint32_t flags;
+    // Token needs to be copied. Don't rely on `raw` pointer.
+    uint32_t flags;
 
-  // Stem. May be NULL
-  const char *stem;
+    // Stem. May be NULL
+    const char *stem;
 
-  char *phoneticsPrimary;
+    char *phoneticsPrimary;
 
-  // stem length
-  uint32_t stemLen;
+    // stem length
+    uint32_t stemLen;
 
-  // Raw token as present in the source document.
-  // Only relevant if TOKENIZE_NOMODIFY is set.
-  const char *raw;
+    // Raw token as present in the source document.
+    // Only relevant if TOKENIZE_NOMODIFY is set.
+    const char *raw;
 
-  // Length of raw token
-  uint32_t rawLen;
+    // Length of raw token
+    uint32_t rawLen;
 
-  // position in the document - this is written to the inverted index
-  uint32_t pos;
+    // position in the document - this is written to the inverted index
+    uint32_t pos;
 } Token;
 
 #define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
@@ -60,20 +59,21 @@ typedef char *(*NormalizeFunc)(char *, size_t *);
 #define STEM_TOKEN_FACTOR 0.2
 
 typedef struct {
-  char *text;
-  size_t len;
-  StopWordList *stopwords;
-  uint32_t lastOffset;
-  uint32_t options;
+    char *text;
+    size_t len;
+    StopWordList *stopwords;
+    uint32_t lastOffset;
+    uint32_t options;
 } TokenizerCtx;
 
 typedef struct RSTokenizer {
-  TokenizerCtx ctx;
-  // read the next token. Return its position or 0 if we can't read anymore
-  uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
-  void (*Free)(struct RSTokenizer *self);
-  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
-  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+    TokenizerCtx ctx;
+    // read the next token. Return its position or 0 if we can't read anymore
+    uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
+    void (*Free)(struct RSTokenizer *self);
+    void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
+    void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords,
+                  uint32_t opts);
 } RSTokenizer;
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);

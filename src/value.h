@@ -34,107 +34,106 @@ extern "C" {
 
 // Enumeration of possible value types
 typedef enum {
-  // This is the NULL/Empty value
-  RSValue_Undef = 0,
+    // This is the NULL/Empty value
+    RSValue_Undef = 0,
 
-  RSValue_Number = 1,
-  RSValue_String = 3,
-  RSValue_Null = 4,
-  RSValue_RedisString = 5,
-  // An array of values, that can be of any type
-  RSValue_Array = 6,
-  // A redis string, but we own a refcount to it; tied to RSDummy
-  RSValue_OwnRstring = 7,
-  // Reference to another value
-  RSValue_Reference = 8,
-  // Duo value
-  RSValue_Duo = 9,
-  // Map value
-  RSValue_Map = 10,
+    RSValue_Number = 1,
+    RSValue_String = 3,
+    RSValue_Null = 4,
+    RSValue_RedisString = 5,
+    // An array of values, that can be of any type
+    RSValue_Array = 6,
+    // A redis string, but we own a refcount to it; tied to RSDummy
+    RSValue_OwnRstring = 7,
+    // Reference to another value
+    RSValue_Reference = 8,
+    // Duo value
+    RSValue_Duo = 9,
+    // Map value
+    RSValue_Map = 10,
 
 } RSValueType;
 
 /* Enumerate sub-types of C strings, basically the free() strategy */
 typedef enum {
-  RSString_Const = 0x00,
-  RSString_Malloc = 0x01,
-  RSString_RMAlloc = 0x02,
-  RSString_SDS = 0x03,
+    RSString_Const = 0x00,
+    RSString_Malloc = 0x01,
+    RSString_RMAlloc = 0x02,
+    RSString_SDS = 0x03,
 } RSStringType;
 
-#define RSVALUE_STATIC \
-  { .allocated = 0 }
+#define RSVALUE_STATIC                                                                             \
+    { .allocated = 0 }
 
 #pragma pack(4)
 // Variant value union
 typedef struct RSValue {
 
-  union {
-    // numeric value
-    double numval;
+    union {
+        // numeric value
+        double numval;
 
-    //int64_t intval;
+        // int64_t intval;
 
-    // string value
-    struct {
-      char *str;
-      uint32_t len : 29;
-      // sub type for string
-      RSStringType stype : 3;
-    } strval;
+        // string value
+        struct {
+            char *str;
+            uint32_t len : 29;
+            // sub type for string
+            RSStringType stype : 3;
+        } strval;
 
-    // array value
-    struct {
-      struct RSValue **vals;
-      uint32_t len;
-    } arrval;
+        // array value
+        struct {
+            struct RSValue **vals;
+            uint32_t len;
+        } arrval;
 
-    // map value
-    struct {
-      struct RSValue **pairs; // array of <key,value> pairs which are <strval, RSValue>
-      uint32_t len;           // number of pairs (not number of array elements)
-    } mapval;
+        // map value
+        struct {
+            struct RSValue **pairs; // array of <key,value> pairs which are <strval, RSValue>
+            uint32_t len;           // number of pairs (not number of array elements)
+        } mapval;
 
-    struct {
-      /**
-       * Duo value
-       *
-       * Allows keeping a value, together with an additional value.
-       *
-       * For example, keeping a value and, in addition, a different value for serialization, such as a JSON String representation.
-       */
+        struct {
+            /**
+             * Duo value
+             *
+             * Allows keeping a value, together with an additional value.
+             *
+             * For example, keeping a value and, in addition, a different value for serialization,
+             * such as a JSON String representation.
+             */
 
-      // An array of 2 RSValue *'s
-      // The first entry is the value, the second entry is the additional value
-      struct RSValue **vals;
-    } duoval;
+            // An array of 2 RSValue *'s
+            // The first entry is the value, the second entry is the additional value
+            struct RSValue **vals;
+        } duoval;
 
-    // redis string value
-    struct RedisModuleString *rstrval;
+        // redis string value
+        struct RedisModuleString *rstrval;
 
-    // reference to another value
-    struct RSValue *ref;
-  };
-  RSValueType t : 7;
-  uint8_t allocated : 1;
-  uint16_t refcount;
+        // reference to another value
+        struct RSValue *ref;
+    };
+    RSValueType t : 7;
+    uint8_t allocated : 1;
+    uint16_t refcount;
 
 #ifdef __cplusplus
-  RSValue() {
-  }
-  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {
-  }
+    RSValue() {}
+    RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {}
 
 #endif
 } RSValue;
 #pragma pack()
 
-#define RS_DUOVAL_VAL(v) ((v).duoval.vals[0])
-#define RS_DUOVAL_OTHERVAL(v) ((v).duoval.vals[1])
-#define RS_DUOVAL_OTHER2VAL(v) ((v).duoval.vals[2])
+#define RS_DUOVAL_VAL(v)                  ((v).duoval.vals[0])
+#define RS_DUOVAL_OTHERVAL(v)             ((v).duoval.vals[1])
+#define RS_DUOVAL_OTHER2VAL(v)            ((v).duoval.vals[2])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
-#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
+#define RSVALUE_MAP_KEYPOS(pos)   ((pos) * 2)
 #define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
 /**
@@ -150,26 +149,26 @@ void RSValue_Free(RSValue *v);
 #ifdef MT_BUILD
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
-  return v;
+    __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
+    return v;
 }
 
-#define RSValue_Decref(v)                                         \
-  if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) { \
-    RSValue_Free(v);                                              \
-  }
+#define RSValue_Decref(v)                                                                          \
+    if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) {                                \
+        RSValue_Free(v);                                                                           \
+    }
 
 #else
 
 static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  ++v->refcount;
-  return v;
+    ++v->refcount;
+    return v;
 }
 
-#define RSValue_Decref(v) \
-  if (!--(v)->refcount) { \
-    RSValue_Free(v);      \
-  }
+#define RSValue_Decref(v)                                                                          \
+    if (!--(v)->refcount) {                                                                        \
+        RSValue_Free(v);                                                                           \
+    }
 
 #endif
 
@@ -177,12 +176,12 @@ RSValue *RS_NewValue(RSValueType t);
 
 #ifndef __cplusplus
 static RSValue RS_StaticValue(RSValueType t) {
-  RSValue v = (RSValue){
-      .t = t,
-      .refcount = 1,
-      .allocated = 0,
-  };
-  return v;
+    RSValue v = (RSValue){
+        .t = t,
+        .refcount = 1,
+        .allocated = 0,
+    };
+    return v;
 }
 #endif
 
@@ -193,23 +192,23 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
-  RS_LOG_ASSERT(src, "RSvalue is missing");
-  RSValue_Clear(dst);
-  dst->t = RSValue_Reference;
-  dst->ref = RSValue_IncrRef(src);
+    RS_LOG_ASSERT(src, "RSvalue is missing");
+    RSValue_Clear(dst);
+    dst->t = RSValue_Reference;
+    dst->ref = RSValue_IncrRef(src);
 }
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
-  RSValue_Decref(src);
+    RSValue_MakeReference(dst, src);
+    RSValue_Decref(src);
 }
 #endif
 
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(const RSValue *v) {
-  for (; v && v->t == RSValue_Reference; v = v->ref)
-    ;
-  return (RSValue *)v;
+    for (; v && v->t == RSValue_Reference; v = v->ref)
+        ;
+    return (RSValue *)v;
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
@@ -224,11 +223,9 @@ RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 /* Wrap a string with length into a value object, assuming the string is a null terminated C
  * string
  */
-static inline RSValue *RS_StringValC(char *s) {
-  return RS_StringVal(s, strlen(s));
-}
+static inline RSValue *RS_StringValC(char *s) { return RS_StringVal(s, strlen(s)); }
 static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
-  return RS_StringValT((char *)s, n, RSString_Const);
+    return RS_StringValT((char *)s, n, RSString_Const);
 }
 #define RS_ConstStringValC(s) RS_ConstStringVal(s, strlen(s))
 
@@ -251,8 +248,8 @@ const char *RSValue_TypeName(RSValueType t);
 
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
-  return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
-                   value->t == RSValue_OwnRstring);
+    return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
+                     value->t == RSValue_OwnRstring);
 }
 
 /* Create a new NULL RSValue */
@@ -260,9 +257,11 @@ RSValue *RS_NullVal();
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
 static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
-  return 0;
+    if (!value || value == RS_NullVal())
+        return 1;
+    if (value->t == RSValue_Reference)
+        return RSValue_IsNull(value->ref);
+    return 0;
 }
 
 /**
@@ -287,46 +286,46 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
-  switch (v->t) {
+    switch (v->t) {
     case RSValue_Reference:
-      return RSValue_Hash(v->ref, hval);
+        return RSValue_Hash(v->ref, hval);
     case RSValue_String:
 
-      return fnv_64a_buf(v->strval.str, v->strval.len, hval);
+        return fnv_64a_buf(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
-      return fnv_64a_buf(&v->numval, sizeof(double), hval);
+        return fnv_64a_buf(&v->numval, sizeof(double), hval);
 
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
-      size_t sz;
-      const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
-      return fnv_64a_buf((void *)c, sz, hval);
+        size_t sz;
+        const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
+        return fnv_64a_buf((void *)c, sz, hval);
     }
     case RSValue_Null:
-      return hval + 1;
+        return hval + 1;
 
     case RSValue_Array: {
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        hval = RSValue_Hash(v->arrval.vals[i], hval);
-      }
-      return hval;
+        for (uint32_t i = 0; i < v->arrval.len; i++) {
+            hval = RSValue_Hash(v->arrval.vals[i], hval);
+        }
+        return hval;
     }
 
     case RSValue_Map:
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
-        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], hval);
-        hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], hval);
-      }
-      return hval;
+        for (uint32_t i = 0; i < v->mapval.len; i++) {
+            hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], hval);
+            hval = RSValue_Hash(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], hval);
+        }
+        return hval;
 
     case RSValue_Undef:
-      return 0;
+        return 0;
 
     case RSValue_Duo:
-      return RSValue_Hash(RS_DUOVAL_VAL(*v), hval);
-  }
+        return RSValue_Hash(RS_DUOVAL_VAL(*v), hval);
+    }
 
-  return 0;
+    return 0;
 }
 
 // Gets the string pointer and length from the value
@@ -354,7 +353,7 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
  * Helper function to allocate memory before passing it to RSValue_NewArray
  */
 static inline RSValue **RSValue_AllocateArray(uint32_t len) {
-  return (RSValue **)rm_malloc(len * sizeof(RSValue *));
+    return (RSValue **)rm_malloc(len * sizeof(RSValue *));
 }
 
 /**
@@ -389,38 +388,37 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */
 static inline int RSValue_BoolTest(const RSValue *v) {
-  if (RSValue_IsNull(v)) return 0;
+    if (RSValue_IsNull(v))
+        return 0;
 
-  v = RSValue_Dereference(v);
-  switch (v->t) {
+    v = RSValue_Dereference(v);
+    switch (v->t) {
     case RSValue_Array:
-      return v->arrval.len != 0;
+        return v->arrval.len != 0;
     case RSValue_Number:
-      return v->numval != 0;
+        return v->numval != 0;
     case RSValue_String:
-      return v->strval.len != 0;
+        return v->strval.len != 0;
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
-      size_t l = 0;
-      const char *p = RedisModule_StringPtrLen(v->rstrval, &l);
-      return l != 0;
+        size_t l = 0;
+        const char *p = RedisModule_StringPtrLen(v->rstrval, &l);
+        return l != 0;
     }
     default:
-      return 0;
-  }
+        return 0;
+    }
 }
 
 static inline RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
-  return arr->arrval.vals[index];
+    return arr->arrval.vals[index];
 }
 
-static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
-  return arr ? arr->arrval.len : 0;
-}
+static inline uint32_t RSValue_ArrayLen(const RSValue *arr) { return arr ? arr->arrval.len : 0; }
 
 typedef enum {
-  SENDREPLY_FLAG_TYPED = 0x01,
-  SENDREPLY_FLAG_EXPAND = 0x02,
+    SENDREPLY_FLAG_TYPED = 0x01,
+    SENDREPLY_FLAG_EXPAND = 0x02,
 } SendReplyFlags;
 
 /* Based on the value type, serialize the value into redis client response */
@@ -441,12 +439,12 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  * This macro decrements the refcount of dst (as a pointer), and increments the
  * refcount of src, and finally assigns src to the variable dst
  */
-#define RSVALUE_REPLACE(dstpp, src) \
-  do {                              \
-    RSValue_Decref(*dstpp);         \
-    RSValue_IncrRef(src);           \
-    *(dstpp) = src;                 \
-  } while (0);
+#define RSVALUE_REPLACE(dstpp, src)                                                                \
+    do {                                                                                           \
+        RSValue_Decref(*dstpp);                                                                    \
+        RSValue_IncrRef(src);                                                                      \
+        *(dstpp) = src;                                                                            \
+    } while (0);
 
 /**
  * This macro does three things:
@@ -454,10 +452,10 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  * (2) Decrements it
  * (3) Sets the variable to NULL, as it no longer owns it.
  */
-#define RSVALUE_CLEARVAR(v) \
-  if (v) {                  \
-    RSValue_Decref(v);      \
-  }
+#define RSVALUE_CLEARVAR(v)                                                                        \
+    if (v) {                                                                                       \
+        RSValue_Decref(v);                                                                         \
+    }
 
 #ifdef __cplusplus
 }

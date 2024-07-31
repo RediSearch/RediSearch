@@ -27,11 +27,10 @@ extern "C" {
 #endif
 
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
-typedef struct MetricRequest{
-  char *metric_name;
-  RLookupKey **key_ptr;
+typedef struct MetricRequest {
+    char *metric_name;
+    RLookupKey **key_ptr;
 } MetricRequest;
-
 
 /**
  * Query AST structure.
@@ -41,25 +40,25 @@ typedef struct MetricRequest{
  * To release the query AST, use QAST_Free()
  */
 typedef struct QueryAST {
-  size_t numTokens;
-  size_t numParams;
-  QueryNode *root;
-  // User data and length, for use by scorers
-  const void *udata;
-  size_t udatalen;
+    size_t numTokens;
+    size_t numParams;
+    QueryNode *root;
+    // User data and length, for use by scorers
+    const void *udata;
+    size_t udatalen;
 
-  // array of additional metrics names in the AST.
-  MetricRequest *metricRequests;
+    // array of additional metrics names in the AST.
+    MetricRequest *metricRequests;
 
-  // Copied query and length, because it seems we modify the string
-  // in the parser (FIXME). Thus, if the original query is const
-  // then it explodes
-  char *query;
-  size_t nquery;
+    // Copied query and length, because it seems we modify the string
+    // in the parser (FIXME). Thus, if the original query is const
+    // then it explodes
+    char *query;
+    size_t nquery;
 
-  // Copy of RSGlobalConfig parameters required for query execution,
-  // to ensure that they won't change during query execution.
-  IteratorsConfig config;
+    // Copy of RSGlobalConfig parameters required for query execution,
+    // to ensure that they won't change during query execution.
+    IteratorsConfig config;
 } QueryAST;
 
 /**
@@ -82,14 +81,14 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
  * to set global properties for the entire query
  */
 typedef struct {
-  // Used only to support legacy FILTER keyword. Should not be used by newer code
-  const NumericFilter *numeric;
-  // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
-  const GeoFilter *geo;
+    // Used only to support legacy FILTER keyword. Should not be used by newer code
+    const NumericFilter *numeric;
+    // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
+    const GeoFilter *geo;
 
-  /** List of IDs to limit to, and the length of that array */
-  t_docId *ids;
-  size_t nids;
+    /** List of IDs to limit to, and the length of that array */
+    t_docId *ids;
+    size_t nids;
 } QAST_GlobalFilterOptions;
 
 /** Set global filters on the AST */
@@ -107,8 +106,8 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param status error detail
  * @return an iterator.
  */
-IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status);
+IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options, RedisSearchCtx *sctx,
+                            ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

@@ -10,25 +10,25 @@
 #include "spec.h"
 
 typedef struct {
-  size_t numTextFields;
-  size_t numTextFieldsSortable;
-  size_t numTextFieldsNoIndex;
-  size_t numNumericFields;
-  size_t numNumericFieldsSortable;
-  size_t numNumericFieldsNoIndex;
-  size_t numGeoFields;
-  size_t numGeoFieldsSortable;
-  size_t numGeoFieldsNoIndex;
-  size_t numGeometryFields;
-  size_t numGeometryFieldsSortable;
-  size_t numGeometryFieldsNoIndex;
-  size_t numTagFields;
-  size_t numTagFieldsSortable;
-  size_t numTagFieldsNoIndex;
-  size_t numTagFieldsCaseSensitive;
-  size_t numVectorFields;
-  size_t numVectorFieldsFlat;
-  size_t numVectorFieldsHNSW;
+    size_t numTextFields;
+    size_t numTextFieldsSortable;
+    size_t numTextFieldsNoIndex;
+    size_t numNumericFields;
+    size_t numNumericFieldsSortable;
+    size_t numNumericFieldsNoIndex;
+    size_t numGeoFields;
+    size_t numGeoFieldsSortable;
+    size_t numGeoFieldsNoIndex;
+    size_t numGeometryFields;
+    size_t numGeometryFieldsSortable;
+    size_t numGeometryFieldsNoIndex;
+    size_t numTagFields;
+    size_t numTagFieldsSortable;
+    size_t numTagFieldsNoIndex;
+    size_t numTagFieldsCaseSensitive;
+    size_t numVectorFields;
+    size_t numVectorFieldsFlat;
+    size_t numVectorFieldsHNSW;
 } FieldsGlobalStats;
 
 /**

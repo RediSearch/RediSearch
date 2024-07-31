@@ -18,22 +18,22 @@ extern "C" {
 
 extern RedisModuleType *TrieType;
 
-#define TRIE_ENCVER_CURRENT 1
+#define TRIE_ENCVER_CURRENT    1
 #define TRIE_ENCVER_NOPAYLOADS 0
 
 typedef struct {
-  TrieNode *root;
-  size_t size;
-  TrieFreeCallback freecb;
-  TrieSortMode sortMode;
+    TrieNode *root;
+    size_t size;
+    TrieFreeCallback freecb;
+    TrieSortMode sortMode;
 } Trie;
 
 typedef struct {
-  char *str;
-  size_t len;
-  float score;
-  char *payload;
-  size_t plen;
+    char *str;
+    size_t len;
+    float score;
+    char *payload;
+    size_t plen;
 } TrieSearchResult;
 
 #define SCORE_TRIM_FACTOR 10.0
@@ -46,10 +46,9 @@ Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
 int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload);
-int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr, RSPayload *payload);
 
-/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len 
+/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
 void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);
 void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);

@@ -9,13 +9,12 @@
 #include "index_error.h"
 #include "reply.h"
 
-
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
 typedef struct {
     const char *identifier; // The identifier of the field spec.
-    const char *attribute; // The attribute of the field spec.
-    IndexError error; // Indexing error of the field spec.
+    const char *attribute;  // The attribute of the field spec.
+    IndexError error;       // Indexing error of the field spec.
 } FieldSpecInfo;
 
 // Create stack allocated FieldSpecInfo.

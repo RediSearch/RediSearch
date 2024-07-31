@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include "redismodule.h"
@@ -16,32 +15,28 @@
 typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterType;
 
 typedef struct {
-  MRClusterType type;
-  int timeoutMS;
-  const char* globalPass;
-  size_t connPerShard;
-  size_t cursorReplyThreshold;
-  size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
-  size_t topologyValidationTimeoutMS;
+    MRClusterType type;
+    int timeoutMS;
+    const char *globalPass;
+    size_t connPerShard;
+    size_t cursorReplyThreshold;
+    size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
+    size_t topologyValidationTimeoutMS;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
 
-#define CLUSTER_TYPE_OSS "redis_oss"
+#define CLUSTER_TYPE_OSS   "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
 
-#define DEFAULT_CLUSTER_CONFIG                                                             \
-  (SearchClusterConfig) {                                                                  \
-    .connPerShard = 0,                                                                     \
-    .type = DetectClusterType(),                                                           \
-    .timeoutMS = 0,                                                                        \
-    .globalPass = NULL,                                                                    \
-    .cursorReplyThreshold = 1,                                                             \
-    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
-    .topologyValidationTimeoutMS = 30000,                                                  \
-  }
+#define DEFAULT_CLUSTER_CONFIG                                                                     \
+    (SearchClusterConfig) {                                                                        \
+        .connPerShard = 0, .type = DetectClusterType(), .timeoutMS = 0, .globalPass = NULL,        \
+        .cursorReplyThreshold = 1, .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,           \
+        .topologyValidationTimeoutMS = 30000,                                                      \
+    }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
  * If we cannot determine, we return OSS type anyway

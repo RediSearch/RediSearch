@@ -4,10 +4,8 @@
 #include <stdlib.h>
 
 int testLeak() {
-	void *p = malloc(1024);
-	return 0;
+    void *p = malloc(1024);
+    return 0;
 }
 
-TEST_MAIN({
-  TESTFUNC(testLeak);
-})
+TEST_MAIN({ TESTFUNC(testLeak); })

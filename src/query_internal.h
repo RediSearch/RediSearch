@@ -18,29 +18,29 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-  typedef struct QueryParseCtx {
-  const char *raw;
-  size_t len;
+typedef struct QueryParseCtx {
+    const char *raw;
+    size_t len;
 
-  // the token count
-  size_t numTokens;
+    // the token count
+    size_t numTokens;
 
-  // the param count
-  size_t numParams;
+    // the param count
+    size_t numParams;
 
-  // Index spec
-  RedisSearchCtx *sctx;
+    // Index spec
+    RedisSearchCtx *sctx;
 
-  // query root
-  QueryNode *root;
+    // query root
+    QueryNode *root;
 
-  const RSSearchOptions *opts;
+    const RSSearchOptions *opts;
 
-  QueryError *status;
+    QueryError *status;
 
-  #ifdef PARSER_DEBUG
-  FILE *trace_log;
-  #endif
+#ifdef PARSER_DEBUG
+    FILE *trace_log;
+#endif
 
 } QueryParseCtx;
 
@@ -60,17 +60,19 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 
-#define NewUnionNode() NewQueryNode(QN_UNION)
-#define NewWildcardNode() NewQueryNode(QN_WILDCARD)
-#define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
+#define NewUnionNode()         NewQueryNode(QN_UNION)
+#define NewWildcardNode()      NewQueryNode(QN_WILDCARD)
+#define NewNotNode(child)      NewQueryNodeChildren(QN_NOT, &child, 1)
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
-QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt);
+QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate,
+                                              size_t len, QueryToken *wkt);
 QueryNode *NewGeofilterNode(QueryParam *p);
-QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
+QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type,
+                                    QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const char *tag, size_t len);
 QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);

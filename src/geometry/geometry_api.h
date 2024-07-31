@@ -20,14 +20,14 @@ const GeometryApi *GeometryApi_Get(const GeometryIndex *index);
 const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
 struct GeometryApi {
-  void (*freeIndex)(GeometryIndex *index);
-  int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
-                    t_docId docId, RedisModuleString **err_msg);
-  int (*delGeom)(GeometryIndex *index, t_docId docId);
-  IndexIterator *(*query)(const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
-                          const char *str, size_t len, RedisModuleString **err_msg);
-  void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
-  size_t (*report)(const GeometryIndex *index);
+    void (*freeIndex)(GeometryIndex *index);
+    int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,
+                      t_docId docId, RedisModuleString **err_msg);
+    int (*delGeom)(GeometryIndex *index, t_docId docId);
+    IndexIterator *(*query)(const GeometryIndex *index, QueryType queryType, GEOMETRY_FORMAT format,
+                            const char *str, size_t len, RedisModuleString **err_msg);
+    void (*dump)(const GeometryIndex *index, RedisModuleCtx *ctx);
+    size_t (*report)(const GeometryIndex *index);
 };
 
 #ifdef __cplusplus

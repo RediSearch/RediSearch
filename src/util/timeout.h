@@ -25,103 +25,107 @@ struct timespec;
  ****************************************/
 
 static inline int rs_timer_ge(const struct timespec *a, const struct timespec *b) {
-  if (a->tv_sec == b->tv_sec) {
-    return a->tv_nsec >= b->tv_nsec;
-  }
-  return a->tv_sec >= b->tv_sec;
+    if (a->tv_sec == b->tv_sec) {
+        return a->tv_nsec >= b->tv_nsec;
+    }
+    return a->tv_sec >= b->tv_sec;
 }
 
 static inline void rs_timeradd(struct timespec *a, struct timespec *b, struct timespec *result) {
-  result->tv_sec = a->tv_sec + b->tv_sec;
-  result->tv_nsec = a->tv_nsec + b->tv_nsec;
-  if (result->tv_nsec >= 1000000000) {
-    result->tv_sec  += 1;
-    result->tv_nsec -= 1000000000;
-  }
+    result->tv_sec = a->tv_sec + b->tv_sec;
+    result->tv_nsec = a->tv_nsec + b->tv_nsec;
+    if (result->tv_nsec >= 1000000000) {
+        result->tv_sec += 1;
+        result->tv_nsec -= 1000000000;
+    }
 }
 
 static inline void rs_timersub(struct timespec *a, struct timespec *b, struct timespec *result) {
-  result->tv_sec = a->tv_sec - b->tv_sec;
-  result->tv_nsec = a->tv_nsec - b->tv_nsec;
-  if (result->tv_nsec < 0) {
-    result->tv_sec  -= 1;
-    result->tv_nsec += 1000000000;
-  }
+    result->tv_sec = a->tv_sec - b->tv_sec;
+    result->tv_nsec = a->tv_nsec - b->tv_nsec;
+    if (result->tv_nsec < 0) {
+        result->tv_sec -= 1;
+        result->tv_nsec += 1000000000;
+    }
 }
 
 #define NOT_TIMED_OUT 0
-#define TIMED_OUT 1
+#define TIMED_OUT     1
 
 typedef struct TimeoutCtx {
-  size_t counter;
-  struct timespec timeout;
+    size_t counter;
+    struct timespec timeout;
 } TimeoutCtx;
 
-typedef int(*TimeoutCb)(TimeoutCtx *);
+typedef int (*TimeoutCb)(TimeoutCtx *);
 
 static inline int TimedOut(struct timespec *timeout) {
-  static struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
-    return TIMED_OUT;
-  }
-  return NOT_TIMED_OUT;
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
+        return TIMED_OUT;
+    }
+    return NOT_TIMED_OUT;
 }
 
 // Check if time has been reached (run once every 100 calls)
 static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
-  if (RS_IsMock) return 0;
+    if (RS_IsMock)
+        return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
+    if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
+        *counter = 0;
+        return TimedOut(timeout);
+    }
+    return NOT_TIMED_OUT;
 }
 
 // Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCounter_Gran(struct timespec *timeout, size_t *counter, uint32_t gran) {
-  if (RS_IsMock) return 0;
+static inline int TimedOut_WithCounter_Gran(struct timespec *timeout, size_t *counter,
+                                            uint32_t gran) {
+    if (RS_IsMock)
+        return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
+    if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
+        *counter = 0;
+        return TimedOut(timeout);
+    }
+    return NOT_TIMED_OUT;
 }
 
 // Check if time has been reached (run once every 100 calls)
 static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
-  return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
+    return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
 }
 
 // Check if time has been reached (run once every `gran` calls)
 static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
-  return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
+    return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
 }
 
 // Check if time has been reached
 static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
-  int rc = TimedOut(timeout);
-  if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ETIMEDOUT);
-  }
-  return rc;
+    int rc = TimedOut(timeout);
+    if (status && rc == TIMED_OUT) {
+        QueryError_SetCode(status, QUERY_ETIMEDOUT);
+    }
+    return rc;
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
-  if (RS_IsMock) return;
+    if (RS_IsMock)
+        return;
 
-  // 0 disables the timeout
-  if (durationNS == 0) {
-    durationNS = INT32_MAX;
-  }
+    // 0 disables the timeout
+    if (durationNS == 0) {
+        durationNS = INT32_MAX;
+    }
 
-  struct timespec now = { .tv_sec = 0, .tv_nsec = 0 };
-  struct timespec duration = { .tv_sec = durationNS / 1000,
-                               .tv_nsec = ((durationNS % 1000) * 1000000) };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  rs_timeradd(&now, &duration, timeout);
+    struct timespec now = {.tv_sec = 0, .tv_nsec = 0};
+    struct timespec duration = {.tv_sec = durationNS / 1000,
+                                .tv_nsec = ((durationNS % 1000) * 1000000)};
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    rs_timeradd(&now, &duration, timeout);
 }
 
 #ifdef __cplusplus

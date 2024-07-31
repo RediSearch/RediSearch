@@ -14,20 +14,20 @@
 #include "trie.h"
 
 /*
-* SparseAutomaton is a C implementation of a levenshtein automaton using
-* sparse vectors, as described and implemented here:
-* http://julesjacobs.github.io/2015/06/17/disqus-levenshtein-simple-and-fast.html
-*
-* We then convert the automaton to a simple DFA that is faster to evaluate during the query stage.
-* This DFA is used while traversing a Trie to decide where to stop.
-*/
+ * SparseAutomaton is a C implementation of a levenshtein automaton using
+ * sparse vectors, as described and implemented here:
+ * http://julesjacobs.github.io/2015/06/17/disqus-levenshtein-simple-and-fast.html
+ *
+ * We then convert the automaton to a simple DFA that is faster to evaluate during the query stage.
+ * This DFA is used while traversing a Trie to decide where to stop.
+ */
 typedef struct {
     const rune *string;
     size_t len;
     int max;
 } SparseAutomaton;
 
-struct dfaEdge; 
+struct dfaEdge;
 
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */
 typedef struct dfaNode {
@@ -47,7 +47,6 @@ typedef struct dfaEdge {
 
 /* Get an edge for a dfa node given the next rune */
 dfaNode *__dfn_getEdge(dfaNode *n, rune r);
-
 
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);

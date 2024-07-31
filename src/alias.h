@@ -15,9 +15,9 @@ extern "C" {
 #endif
 
 typedef struct {
-  struct dict *d;
-  void (*on_add)(const char *alias, const IndexSpec *spec);
-  void (*on_del)(const char *alias, const IndexSpec *spec);
+    struct dict *d;
+    void (*on_add)(const char *alias, const IndexSpec *spec);
+    void (*on_del)(const char *alias, const IndexSpec *spec);
 } AliasTable;
 
 extern AliasTable *AliasTable_g;

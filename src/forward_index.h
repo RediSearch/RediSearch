@@ -16,56 +16,56 @@
 #include "document.h"
 
 typedef struct ForwardIndexEntry {
-  struct ForwardIndexEntry *next;
-  t_docId docId;
+    struct ForwardIndexEntry *next;
+    t_docId docId;
 
-  uint32_t freq;
-  t_fieldMask fieldMask;
+    uint32_t freq;
+    t_fieldMask fieldMask;
 
-  const char *term;
-  uint32_t len;
-  uint32_t hash;
-  VarintVectorWriter *vw;
+    const char *term;
+    uint32_t len;
+    uint32_t hash;
+    VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct ForwardIndex {
-  KHTable *hits;
-  uint32_t maxFreq;
-  uint32_t totalFreq;
-  uint32_t idxFlags;
-  Stemmer *stemmer;
-  SynonymMap *smap;
-  BlkAlloc terms;
-  BlkAlloc entries;
-  mempool_t *vvwPool;
+    KHTable *hits;
+    uint32_t maxFreq;
+    uint32_t totalFreq;
+    uint32_t idxFlags;
+    Stemmer *stemmer;
+    SynonymMap *smap;
+    BlkAlloc terms;
+    BlkAlloc entries;
+    mempool_t *vvwPool;
 
 } ForwardIndex;
 
 typedef struct {
-  const char *doc;
-  VarintVectorWriter *allOffsets;
-  ForwardIndex *idx;
-  t_fieldId fieldId;
-  float fieldScore;
+    const char *doc;
+    VarintVectorWriter *allOffsets;
+    ForwardIndex *idx;
+    t_fieldId fieldId;
+    float fieldScore;
 } ForwardIndexTokenizerCtx;
 
 static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
                                                  const char *doc, VarintVectorWriter *vvw,
                                                  t_fieldId fieldId, float score) {
-  ctx->idx = idx;
-  ctx->fieldId = fieldId;
-  ctx->fieldScore = score;
-  ctx->doc = doc;
-  ctx->allOffsets = vvw;
+    ctx->idx = idx;
+    ctx->fieldId = fieldId;
+    ctx->fieldScore = score;
+    ctx->doc = doc;
+    ctx->allOffsets = vvw;
 }
 
 typedef struct {
-  KHTable *hits;
-  KHTableEntry *curEnt;
-  uint32_t curBucketIdx;
+    KHTable *hits;
+    KHTableEntry *curEnt;
+    uint32_t curBucketIdx;
 } ForwardIndexIterator;
 
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);

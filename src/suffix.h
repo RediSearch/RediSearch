@@ -18,7 +18,7 @@ extern "C" {
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,
     SUFFIX_TYPE_CONTAINS = 1,
-    SUFFIX_TYPE_WILDCARD = 2,    
+    SUFFIX_TYPE_WILDCARD = 2,
 } SuffixType;
 
 /***********************************************************/
@@ -37,12 +37,11 @@ typedef struct SuffixCtx {
 } SuffixCtx;
 
 typedef struct suffixData {
-  // int wordExists; // exact match to string exists already
-  // rune *rune;
-  char *term;             // string is used in the array of all suffix tokens
-  arrayof(char *) array;  // list of words containing the string. weak pointers
+    // int wordExists; // exact match to string exists already
+    // rune *rune;
+    char *term;            // string is used in the array of all suffix tokens
+    arrayof(char *) array; // list of words containing the string. weak pointers
 } suffixData;
-
 
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
@@ -52,10 +51,9 @@ void suffixTrie_freeCallback(void *data);
 /* Iterate on suffix trie and add use callback function on results */
 void Suffix_IterateContains(SuffixCtx *sufCtx);
 
-/* Iterate on suffix trie and add use callback function on results 
+/* Iterate on suffix trie and add use callback function on results
  * If wildcard pattern does not support suffix trie, return 0, else return 1. */
 int Suffix_IterateWildcard(SuffixCtx *sufCtx);
-
 
 /***********************************************************/
 /*****************        TrieMap       ********************/
@@ -66,13 +64,14 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 void suffixTrieMap_freeCallback(void *payload);
 
 /* Return a list of list of terms which match the suffix or contains term */
-arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout);
+arrayof(char **) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len, bool prefix,
+                                       struct timespec timeout);
 
 /* Return a list of terms which match the wildcard pattern
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions);
+arrayof(char *)
+    GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
+                                   struct timespec timeout, long long maxPrefixExpansions);
 
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
  * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.

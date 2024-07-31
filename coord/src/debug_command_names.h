@@ -9,7 +9,4 @@
  * This list is on a separate file so we can include it in the src/debug_commands.c file,
  * for the purpose of listing all the debug commands in the help command.
  */
-static const char *coordCommandsNames[] = {
-  "SHARD_CONNECTION_STATES",
-  NULL
-};
+static const char *coordCommandsNames[] = {"SHARD_CONNECTION_STATES", NULL};

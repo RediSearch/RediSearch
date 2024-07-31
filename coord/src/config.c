@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "config.h"
 #include "util/config_macros.h"
 #include "rmr/rmr.h"
@@ -20,109 +19,105 @@ extern RedisModuleCtx *RSDummyContext;
 
 #define CONFIG_FROM_RSCONFIG(c) ((SearchClusterConfig *)(c)->chainedConfig)
 
-static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
-  if(!CONFIG_FROM_RSCONFIG(config)){
-    config->chainedConfig = &clusterConfig;
-  }
-  return CONFIG_FROM_RSCONFIG(config);
+static SearchClusterConfig *getOrCreateRealConfig(RSConfig *config) {
+    if (!CONFIG_FROM_RSCONFIG(config)) {
+        config->chainedConfig = &clusterConfig;
+    }
+    return CONFIG_FROM_RSCONFIG(config);
 }
 
 // PARTITIONS
 CONFIG_SETTER(setNumPartitions) {
-  int acrc = AC_Advance(ac); // Consume the argument
-  RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to `AUTO`");
-  RETURN_STATUS(acrc);
+    int acrc = AC_Advance(ac); // Consume the argument
+    RedisModule_Log(RSDummyContext, "notice", "PARTITIONS option is deprecated. Set to `AUTO`");
+    RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getNumPartitions) {
-  return sdsnew("AUTO");
-}
+CONFIG_GETTER(getNumPartitions) { return sdsnew("AUTO"); }
 
 // TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
-  RETURN_STATUS(acrc);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
+    RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getClusterTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->timeoutMS);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    return sdsfromlonglong(realConfig->timeoutMS);
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  RETURN_STATUS(acrc);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
+    RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getGlobalPass) {
-  return sdsnew("Password: *******");
-}
+CONFIG_GETTER(getGlobalPass) { return sdsnew("Password: *******"); }
 
 // CONN_PER_SHARD
 int triggerConnPerShard(RSConfig *config) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  size_t connPerShard;
-  if (realConfig->connPerShard != 0) {
-    connPerShard = realConfig->connPerShard;
-  } else {
-    #ifdef MT_BUILD
-      connPerShard = config->numWorkerThreads + 1;
-    #else
-      connPerShard = 1;
-    #endif
-  }
-  MR_UpdateConnPerShard(connPerShard);
-  return REDISMODULE_OK;
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    size_t connPerShard;
+    if (realConfig->connPerShard != 0) {
+        connPerShard = realConfig->connPerShard;
+    } else {
+#ifdef MT_BUILD
+        connPerShard = config->numWorkerThreads + 1;
+#else
+        connPerShard = 1;
+#endif
+    }
+    MR_UpdateConnPerShard(connPerShard);
+    return REDISMODULE_OK;
 }
 
 CONFIG_SETTER(setConnPerShard) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetSize(ac, &realConfig->connPerShard, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  return triggerConnPerShard(config);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    int acrc = AC_GetSize(ac, &realConfig->connPerShard, AC_F_GE0);
+    CHECK_RETURN_PARSE_ERROR(acrc);
+    return triggerConnPerShard(config);
 }
 
 CONFIG_GETTER(getConnPerShard) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->connPerShard);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    return sdsfromlonglong(realConfig->connPerShard);
 }
 
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetSize(ac, &realConfig->cursorReplyThreshold, AC_F_GE1);
-  RETURN_STATUS(acrc);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    int acrc = AC_GetSize(ac, &realConfig->cursorReplyThreshold, AC_F_GE1);
+    RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getCursorReplyThreshold) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->cursorReplyThreshold);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    return sdsfromlonglong(realConfig->cursorReplyThreshold);
 }
 
 // SEARCH_THREADS
 CONFIG_SETTER(setSearchThreads) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  int acrc = AC_GetSize(ac, &realConfig->coordinatorPoolSize, AC_F_GE1);
-  RETURN_STATUS(acrc);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    int acrc = AC_GetSize(ac, &realConfig->coordinatorPoolSize, AC_F_GE1);
+    RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getSearchThreads) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->coordinatorPoolSize);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  int acrc = AC_GetSize(ac, &realConfig->topologyValidationTimeoutMS, AC_F_GE0);
-  RETURN_STATUS(acrc);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    int acrc = AC_GetSize(ac, &realConfig->topologyValidationTimeoutMS, AC_F_GE0);
+    RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getTopologyValidationTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
+    SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+    return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
 }
 
 static RSConfigOptions clusterOptions_g = {
@@ -141,26 +136,37 @@ static RSConfigOptions clusterOptions_g = {
              .helpText = "Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
              .getValue = getGlobalPass},
-            {.name = "CONN_PER_SHARD",
-             .helpText = "Number of connections to each shard in the cluster. Default to 0. "
-                         "If 0, the number of connections is set to `WORKERS` + 1.",
-             .setValue = setConnPerShard,
-             .getValue = getConnPerShard,},
-            {.name = "CURSOR_REPLY_THRESHOLD",
-             .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR READ` on the shards",
-             .setValue = setCursorReplyThreshold,
-             .getValue = getCursorReplyThreshold,},
-            {.name = "SEARCH_THREADS",
-             .helpText = "Sets the number of search threads in the coordinator thread pool",
-             .setValue = setSearchThreads,
-             .getValue = getSearchThreads,
-             .flags = RSCONFIGVAR_F_IMMUTABLE,},
-            {.name = "TOPOLOGY_VALIDATION_TIMEOUT",
-             .helpText = "Sets the timeout for topology validation (in milliseconds). After this timeout, "
-                         "any pending requests will be processed, even if the topology is not fully connected. "
-                         "Default is 30000 (30 seconds). 0 means no timeout.",
-             .setValue = setTopologyValidationTimeout,
-             .getValue = getTopologyValidationTimeout,},
+            {
+                .name = "CONN_PER_SHARD",
+                .helpText = "Number of connections to each shard in the cluster. Default to 0. "
+                            "If 0, the number of connections is set to `WORKERS` + 1.",
+                .setValue = setConnPerShard,
+                .getValue = getConnPerShard,
+            },
+            {
+                .name = "CURSOR_REPLY_THRESHOLD",
+                .helpText = "Maximum number of replies to accumulate before triggering `_FT.CURSOR "
+                            "READ` on the shards",
+                .setValue = setCursorReplyThreshold,
+                .getValue = getCursorReplyThreshold,
+            },
+            {
+                .name = "SEARCH_THREADS",
+                .helpText = "Sets the number of search threads in the coordinator thread pool",
+                .setValue = setSearchThreads,
+                .getValue = getSearchThreads,
+                .flags = RSCONFIGVAR_F_IMMUTABLE,
+            },
+            {
+                .name = "TOPOLOGY_VALIDATION_TIMEOUT",
+                .helpText = "Sets the timeout for topology validation (in milliseconds). After "
+                            "this timeout, "
+                            "any pending requests will be processed, even if the topology is not "
+                            "fully connected. "
+                            "Default is 30000 (30 seconds). 0 means no timeout.",
+                .setValue = setTopologyValidationTimeout,
+                .getValue = getTopologyValidationTimeout,
+            },
             {.name = NULL}
             // fin
         }
@@ -173,33 +179,31 @@ SearchClusterConfig clusterConfig = {0};
  * If we cannot determine, we return OSS type anyway
  */
 MRClusterType DetectClusterType() {
-  RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");
-  MRClusterType ret = ClusterType_RedisOSS;
+    RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");
+    MRClusterType ret = ClusterType_RedisOSS;
 
-  if (r && RedisModule_CallReplyType(r) == REDISMODULE_REPLY_STRING) {
-    size_t len;
-    // INFO SERVER should contain the term rlec_version in it if we are inside an RLEC shard
+    if (r && RedisModule_CallReplyType(r) == REDISMODULE_REPLY_STRING) {
+        size_t len;
+        // INFO SERVER should contain the term rlec_version in it if we are inside an RLEC shard
 
-    const char *str = RedisModule_CallReplyStringPtr(r, &len);
-    if (str) {
+        const char *str = RedisModule_CallReplyStringPtr(r, &len);
+        if (str) {
 
-      if (memmem(str, len, "rlec_version", strlen("rlec_version")) != NULL) {
-        ret = ClusterType_RedisLabs;
-      }
+            if (memmem(str, len, "rlec_version", strlen("rlec_version")) != NULL) {
+                ret = ClusterType_RedisLabs;
+            }
+        }
+        RedisModule_FreeCallReply(r);
     }
-    RedisModule_FreeCallReply(r);
-  }
-  // RedisModule_ThreadSafeContextUnlock(ctx);
-  return ret;
+    // RedisModule_ThreadSafeContextUnlock(ctx);
+    return ret;
 }
 
-RSConfigOptions *GetClusterConfigOptions(void) {
-  return &clusterOptions_g;
-}
+RSConfigOptions *GetClusterConfigOptions(void) { return &clusterOptions_g; }
 
 void ClusterConfig_RegisterTriggers(void) {
 #ifdef MT_BUILD
-  const char *connPerShardConfigs[] = {"WORKERS", NULL};
-  RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+    const char *connPerShardConfigs[] = {"WORKERS", NULL};
+    RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
 #endif
 }

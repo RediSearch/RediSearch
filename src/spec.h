@@ -39,74 +39,74 @@ struct DocumentIndexer;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
-#define SPEC_GEO_STR "GEO"
+#define SPEC_GEO_STR      "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
-#define SPEC_TAG_STR "TAG"
-#define SPEC_TEXT_STR "TEXT"
-#define SPEC_VECTOR_STR "VECTOR"
-#define SPEC_NUMERIC_STR "NUMERIC"
+#define SPEC_TAG_STR      "TAG"
+#define SPEC_TEXT_STR     "TEXT"
+#define SPEC_VECTOR_STR   "VECTOR"
+#define SPEC_NUMERIC_STR  "NUMERIC"
 
-#define SPEC_NOOFFSETS_STR "NOOFFSETS"
-#define SPEC_NOFIELDS_STR "NOFIELDS"
-#define SPEC_NOFREQS_STR "NOFREQS"
-#define SPEC_NOHL_STR "NOHL"
-#define SPEC_SCHEMA_STR "SCHEMA"
-#define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
-#define SPEC_TEMPORARY_STR "TEMPORARY"
-#define SPEC_AS_STR "AS"
-#define SPEC_WEIGHT_STR "WEIGHT"
-#define SPEC_NOSTEM_STR "NOSTEM"
-#define SPEC_PHONETIC_STR "PHONETIC"
-#define SPEC_SORTABLE_STR "SORTABLE"
-#define SPEC_UNF_STR "UNF"
-#define SPEC_STOPWORDS_STR "STOPWORDS"
-#define SPEC_NOINDEX_STR "NOINDEX"
-#define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
+#define SPEC_NOOFFSETS_STR          "NOOFFSETS"
+#define SPEC_NOFIELDS_STR           "NOFIELDS"
+#define SPEC_NOFREQS_STR            "NOFREQS"
+#define SPEC_NOHL_STR               "NOHL"
+#define SPEC_SCHEMA_STR             "SCHEMA"
+#define SPEC_SCHEMA_EXPANDABLE_STR  "MAXTEXTFIELDS"
+#define SPEC_TEMPORARY_STR          "TEMPORARY"
+#define SPEC_AS_STR                 "AS"
+#define SPEC_WEIGHT_STR             "WEIGHT"
+#define SPEC_NOSTEM_STR             "NOSTEM"
+#define SPEC_PHONETIC_STR           "PHONETIC"
+#define SPEC_SORTABLE_STR           "SORTABLE"
+#define SPEC_UNF_STR                "UNF"
+#define SPEC_STOPWORDS_STR          "STOPWORDS"
+#define SPEC_NOINDEX_STR            "NOINDEX"
+#define SPEC_TAG_SEPARATOR_STR      "SEPARATOR"
 #define SPEC_TAG_CASE_SENSITIVE_STR "CASESENSITIVE"
-#define SPEC_MULTITYPE_STR "MULTITYPE"
-#define SPEC_ASYNC_STR "ASYNC"
-#define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
-#define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
-#define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
-#define SPEC_INDEXMISSING_STR "INDEXMISSING"
+#define SPEC_MULTITYPE_STR          "MULTITYPE"
+#define SPEC_ASYNC_STR              "ASYNC"
+#define SPEC_SKIPINITIALSCAN_STR    "SKIPINITIALSCAN"
+#define SPEC_WITHSUFFIXTRIE_STR     "WITHSUFFIXTRIE"
+#define SPEC_INDEXEMPTY_STR         "INDEXEMPTY"
+#define SPEC_INDEXMISSING_STR       "INDEXMISSING"
 
-#define SPEC_GEOMETRY_FLAT_STR "FLAT"
+#define SPEC_GEOMETRY_FLAT_STR   "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
 
 #define DEFAULT_SCORE 1.0
 
-#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
-  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
-      {.name = "FILTER",                                                    \
-       .target = &(rule)->filter_exp_str,                                   \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},                                          \
-      {.name = "SCORE",                                                     \
-       .target = &(rule)->score_default,                                    \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},                                          \
-      {.name = "SCORE_FIELD",                                               \
-       .target = &(rule)->score_field,                                      \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},                                          \
-      {.name = "LANGUAGE",                                                  \
-       .target = &(rule)->lang_default,                                     \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},                                          \
-      {.name = "LANGUAGE_FIELD",                                            \
-       .target = &(rule)->lang_field,                                       \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},                                          \
-      {.name = "PAYLOAD_FIELD",                                             \
-       .target = &(rule)->payload_field,                                    \
-       .len = &dummy2,                                                      \
-       .type = AC_ARGTYPE_STRING},
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                                            \
+    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},                      \
+        {.name = "FILTER",                                                                         \
+         .target = &(rule)->filter_exp_str,                                                        \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},                                                               \
+        {.name = "SCORE",                                                                          \
+         .target = &(rule)->score_default,                                                         \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},                                                               \
+        {.name = "SCORE_FIELD",                                                                    \
+         .target = &(rule)->score_field,                                                           \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},                                                               \
+        {.name = "LANGUAGE",                                                                       \
+         .target = &(rule)->lang_default,                                                          \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},                                                               \
+        {.name = "LANGUAGE_FIELD",                                                                 \
+         .target = &(rule)->lang_field,                                                            \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},                                                               \
+        {.name = "PAYLOAD_FIELD",                                                                  \
+         .target = &(rule)->payload_field,                                                         \
+         .len = &dummy2,                                                                           \
+         .type = AC_ARGTYPE_STRING},
 
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
 #define INDEX_SPEC_KEY_PREFIX "idx:"
-#define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
+#define INDEX_SPEC_KEY_FMT    INDEX_SPEC_KEY_PREFIX "%s"
 
-#define SPEC_MAX_FIELDS 1024
+#define SPEC_MAX_FIELDS   1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 
 // The threshold after which we move to a special encoding for wide fields
@@ -120,60 +120,60 @@ extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
-  size_t numDocuments;
-  size_t numTerms;
-  size_t numRecords;
-  size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
-  size_t offsetVecsSize;
-  size_t offsetVecRecords;
-  size_t termsSize;
-  size_t totalIndexTime;
-  IndexError indexError;
-  size_t totalDocsLen;
+    size_t numDocuments;
+    size_t numTerms;
+    size_t numRecords;
+    size_t invertedSize;
+    size_t invertedCap;
+    size_t skipIndexesSize;
+    size_t scoreIndexesSize;
+    size_t offsetVecsSize;
+    size_t offsetVecRecords;
+    size_t termsSize;
+    size_t totalIndexTime;
+    IndexError indexError;
+    size_t totalDocsLen;
 } IndexStats;
 
 typedef enum {
-  Index_StoreTermOffsets = 0x01,
-  Index_StoreFieldFlags = 0x02,
+    Index_StoreTermOffsets = 0x01,
+    Index_StoreFieldFlags = 0x02,
 
-  // Was StoreScoreIndexes, but these are always stored, so this option is unused
-  Index__Reserved1 = 0x04,
-  Index_HasCustomStopwords = 0x08,
-  Index_StoreFreqs = 0x010,
-  Index_StoreNumeric = 0x020,
-  Index_StoreByteOffsets = 0x40,
-  Index_WideSchema = 0x080,
-  Index_HasSmap = 0x100,
-  Index_Temporary = 0x200,
-  Index_DocIdsOnly = 0x00,
+    // Was StoreScoreIndexes, but these are always stored, so this option is unused
+    Index__Reserved1 = 0x04,
+    Index_HasCustomStopwords = 0x08,
+    Index_StoreFreqs = 0x010,
+    Index_StoreNumeric = 0x020,
+    Index_StoreByteOffsets = 0x40,
+    Index_WideSchema = 0x080,
+    Index_HasSmap = 0x100,
+    Index_Temporary = 0x200,
+    Index_DocIdsOnly = 0x00,
 
-  // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400,
-  Index_Async = 0x800,
-  Index_SkipInitialScan = 0x1000,
-  Index_FromLLAPI = 0x2000,
-  Index_HasFieldAlias = 0x4000,
-  Index_HasVecSim = 0x8000,
-  Index_HasSuffixTrie = 0x10000,
-  // If any of the fields has undefined order. This is just a cache for quick lookup
-  Index_HasUndefinedOrder = 0x20000,
+    // If any of the fields has phonetics. This is just a cache for quick lookup
+    Index_HasPhonetic = 0x400,
+    Index_Async = 0x800,
+    Index_SkipInitialScan = 0x1000,
+    Index_FromLLAPI = 0x2000,
+    Index_HasFieldAlias = 0x4000,
+    Index_HasVecSim = 0x8000,
+    Index_HasSuffixTrie = 0x10000,
+    // If any of the fields has undefined order. This is just a cache for quick lookup
+    Index_HasUndefinedOrder = 0x20000,
 
-  Index_HasGeometry = 0x40000,
+    Index_HasGeometry = 0x40000,
 
-  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+    Index_HasNonEmpty = 0x80000, // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)
 
 typedef struct Version {
-  int majorVersion;
-  int minorVersion;
-  int patchVersion;
-  int buildVersion;  // if not exits then its zero
+    int majorVersion;
+    int minorVersion;
+    int patchVersion;
+    int buildVersion; // if not exits then its zero
 } Version;
 
 extern Version redisVersion;
@@ -188,24 +188,24 @@ extern bool isTrimming;
  */
 typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
-#define INDEX_DEFAULT_FLAGS \
-  Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
+#define INDEX_DEFAULT_FLAGS                                                                        \
+    Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_STORAGE_MASK                                                                  \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
+#define INDEX_STORAGE_MASK                                                                         \
+    (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric |      \
+     Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 23
-#define INDEX_GEOMETRY_VERSION 23
+#define INDEX_CURRENT_VERSION       23
+#define INDEX_GEOMETRY_VERSION      23
 #define INDEX_VECSIM_TIERED_VERSION 22
-#define INDEX_VECSIM_MULTI_VERSION 21
-#define INDEX_VECSIM_2_VERSION 20
-#define INDEX_VECSIM_VERSION 19
-#define INDEX_JSON_VERSION 18
-#define INDEX_MIN_COMPAT_VERSION 17
+#define INDEX_VECSIM_MULTI_VERSION  21
+#define INDEX_VECSIM_2_VERSION      20
+#define INDEX_VECSIM_VERSION        19
+#define INDEX_JSON_VERSION          18
+#define INDEX_MIN_COMPAT_VERSION    17
 
-#define LEGACY_INDEX_MAX_VERSION 16
-#define LEGACY_INDEX_MIN_VERSION 2
+#define LEGACY_INDEX_MAX_VERSION             16
+#define LEGACY_INDEX_MIN_VERSION             2
 #define INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
@@ -237,21 +237,20 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_MIN_ALIAS_VERSION 15
 
 #define IDXFLD_LEGACY_FULLTEXT 0
-#define IDXFLD_LEGACY_NUMERIC 1
-#define IDXFLD_LEGACY_GEO 2
-#define IDXFLD_LEGACY_TAG 3
-#define IDXFLD_LEGACY_MAX 3
+#define IDXFLD_LEGACY_NUMERIC  1
+#define IDXFLD_LEGACY_GEO      2
+#define IDXFLD_LEGACY_TAG      3
+#define IDXFLD_LEGACY_MAX      3
 
-#define Index_SupportsHighlight(spec) \
-  (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
+#define Index_SupportsHighlight(spec)                                                              \
+    (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
-#define Index_StoreFieldMask(spec) \
-  ((spec)->flags & Index_StoreFieldFlags)
+#define Index_StoreFieldMask(spec) ((spec)->flags & Index_StoreFieldFlags)
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
 typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
+    RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
 //---------------------------------------------------------------------------------------------
@@ -260,70 +259,71 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  char *name;                     // Index name
-  size_t nameLen;                 // Index name length
-  uint64_t uniqueId;              // Id of index
-  FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+    char *name;        // Index name
+    size_t nameLen;    // Index name length
+    uint64_t uniqueId; // Id of index
+    FieldSpec *fields; // Fields in the index schema
+    int numFields;     // Number of fields
 
-  IndexFlags flags;               // Flags
-  IndexStats stats;               // Statistics of memory used and quantities
+    IndexFlags flags; // Flags
+    IndexStats stats; // Statistics of memory used and quantities
 
-  Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
-  Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
-  t_fieldMask suffixMask;         // Mask of all fields that support contains query
-  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
+    Trie *terms;            // Trie of all TEXT terms. Used for GC and fuzzy queries
+    Trie *suffix;           // Trie of TEXT suffix tokens of terms. Used for contains queries
+    t_fieldMask suffixMask; // Mask of all fields that support contains query
+    dict *keysDict; // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR
+                    // and GEOSHAPE terms
 
-  RSSortingTable *sortables;      // Contains sortable data of documents
+    RSSortingTable *sortables; // Contains sortable data of documents
 
-  DocTable docs;                  // Contains metadata of all documents
+    DocTable docs; // Contains metadata of all documents
 
-  StopWordList *stopwords;        // List of stopwords for TEXT fields
+    StopWordList *stopwords; // List of stopwords for TEXT fields
 
-  GCContext *gc;                  // Garbage collection
+    GCContext *gc; // Garbage collection
 
-  SynonymMap *smap;               // List of synonym
-  char **aliases;                 // Aliases to self-remove when the index is deleted
+    SynonymMap *smap; // List of synonym
+    char **aliases;   // Aliases to self-remove when the index is deleted
 
-  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
-  struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
-  // can be true even if scanner == NULL, in case of a scan being cancelled
-  // in favor on a newer, pending scan
-  bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+    struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+    struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
+    // can be true even if scanner == NULL, in case of a scan being cancelled
+    // in favor on a newer, pending scan
+    bool scan_in_progress;
+    bool cascadeDelete; // (deprecated) remove keys when removing spec. used by temporary index
 
-  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
+    struct DocumentIndexer *indexer; // Indexer of fields into inverted indexes
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
-  struct IndexSpecCache *spcache;
-  // For index expiration
-  long long timeout;
-  RedisModuleTimerID timerId;
-  bool isTimerSet;
+    // cached strings, corresponding to number of fields
+    IndexSpecFmtStrings *indexStrs;
+    struct IndexSpecCache *spcache;
+    // For index expiration
+    long long timeout;
+    RedisModuleTimerID timerId;
+    bool isTimerSet;
 
-  // bitarray of dialects used by this index
-  uint_least8_t used_dialects;
+    // bitarray of dialects used by this index
+    uint_least8_t used_dialects;
 
-  // For criteria tester
-  RSGetValueCallback getValue;
-  void *getValueCtx;
+    // For criteria tester
+    RSGetValueCallback getValue;
+    void *getValueCtx;
 
-  // Count the number of times the index was used
-  long long counter;
+    // Count the number of times the index was used
+    long long counter;
 
-  // read write lock
-  pthread_rwlock_t rwlock;
+    // read write lock
+    pthread_rwlock_t rwlock;
 
-  // Cursors counters
-  size_t cursorsCap;
-  size_t activeCursors;
+    // Cursors counters
+    size_t cursorsCap;
+    size_t activeCursors;
 
-  // Quick access to the spec's strong ref
-  StrongRef own_ref;
+    // Quick access to the spec's strong ref
+    StrongRef own_ref;
 
-  // Contains inverted indexes of missing fields
-  dict *missingFieldDict;
+    // Contains inverted indexes of missing fields
+    dict *missingFieldDict;
 
 } IndexSpec;
 
@@ -331,18 +331,18 @@ typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
 typedef struct SpecOpCtx {
-  IndexSpec *spec;
-  SpecOp op;
+    IndexSpec *spec;
+    SpecOp op;
 } SpecOpCtx;
 
 typedef struct SpecOpIndexingCtx {
-  dict *specs;
-  SpecOpCtx *specsOps;
+    dict *specs;
+    SpecOpCtx *specsOps;
 } SpecOpIndexingCtx;
 
 typedef struct {
-  void (*dtor)(void *p);
-  void *p;
+    void (*dtor)(void *p);
+    void *p;
 } KeysDictValue;
 
 extern RedisModuleType *IndexSpecType;
@@ -359,9 +359,9 @@ extern RedisModuleType *IndexAliasType;
  * It is freed when its reference count hits 0
  */
 typedef struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
-  size_t refcount;
+    FieldSpec *fields;
+    size_t nfields;
+    size_t refcount;
 } IndexSpecCache;
 
 /**
@@ -396,9 +396,9 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, siz
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
 /*
-* Get a field spec by field mask.
-* Return the field spec if found, NULL if not
-*/
+ * Get a field spec by field mask.
+ * Return the field spec if found, NULL if not
+ */
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
 
 /**
@@ -418,7 +418,8 @@ t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len)
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
 
 /**
- * Check that `slop` and/or `inorder` are allowed on all fields matching the fieldmask (e.g., fields cannot have undefined ordering)
+ * Check that `slop` and/or `inorder` are allowed on all fields matching the fieldmask (e.g., fields
+ * cannot have undefined ordering)
  * (`RS_FIELDMASK_ALL` fieldmask checks all fields)
  * Returns true if allowed, and false otherwise.
  * If not allowed, set error message in status.
@@ -464,7 +465,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 // This function does not lock the spec. use it if you know the spec is locked for writing
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                t_docId id);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
@@ -495,8 +497,8 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
-                        QueryError *status);
+int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
+                        bool initialScan, QueryError *status);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
@@ -506,31 +508,31 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 //---------------------------------------------------------------------------------------------
 
 typedef enum {
-  INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
-  INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
-  INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+    INDEXSPEC_LOAD_NOALIAS = 0x01,     // Don't consult the alias table when retrieving the index
+    INDEXSPEC_LOAD_KEY_RSTRING = 0x02, // The name of the index is in the format of a redis string
+    INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
 } IndexLoadOptionsFlags;
 
 typedef struct {
-  union {
-    const char *nameC;
-    RedisModuleString *nameR;
-  };
-  IndexLoadOptionsFlags flags;
+    union {
+        const char *nameC;
+        RedisModuleString *nameR;
+    };
+    IndexLoadOptionsFlags flags;
 } IndexLoadOptions;
 
 //---------------------------------------------------------------------------------------------
 
 /**
  * Find and load the index using the specified parameters.
- * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
- * If an owned reference is needed, use StrongRef API to create one.
+ * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the
+ * index does not exist. If an owned reference is needed, use StrongRef API to create one.
  */
 StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
 
 /**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter
- * (only the weak reference counter).
+ * Find and load the index using the specified parameters. The call does not increase the spec
+ * reference counter (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
 StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
@@ -579,11 +581,11 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 //---------------------------------------------------------------------------------------------
 
 typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  WeakRef spec_ref;
-  char *spec_name;
-  size_t scannedKeys, totalKeys;
+    bool global;
+    bool cancelled;
+    WeakRef spec_ref;
+    char *spec_name;
+    size_t scannedKeys, totalKeys;
 } IndexesScanner;
 
 double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
@@ -604,14 +606,15 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
  * @return all memory used by the index `sp`.
  * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+                               size_t text_overhead);
 
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_Free(dict *d);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           DocumentType type, RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
@@ -629,4 +632,4 @@ size_t CleanInProgressOrPending();
 }
 #endif
 
-#endif  // __SPEC_H__
+#endif // __SPEC_H__

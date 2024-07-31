@@ -12,13 +12,13 @@
 
 extern RedisModuleCtx *RSDummyContext;
 
-char* const NA = "N/A";
-char* const IndexError_ObjectName = "Index Errors";
-char* const IndexingFailure_String = "indexing failures";
-char* const IndexingError_String = "last indexing error";
-char* const IndexingErrorKey_String = "last indexing error key";
-char* const IndexingErrorTime_String = "last indexing error time";
-RedisModuleString* NA_rstr = NULL;
+char *const NA = "N/A";
+char *const IndexError_ObjectName = "Index Errors";
+char *const IndexingFailure_String = "indexing failures";
+char *const IndexingError_String = "last indexing error";
+char *const IndexingErrorKey_String = "last indexing error key";
+char *const IndexingErrorTime_String = "last indexing error time";
+RedisModuleString *NA_rstr = NULL;
 
 static void initDefaultKey() {
     NA_rstr = RedisModule_CreateString(RSDummyContext, NA, strlen(NA));
@@ -26,7 +26,8 @@ static void initDefaultKey() {
 }
 
 IndexError IndexError_Init() {
-    if (!NA_rstr) initDefaultKey();
+    if (!NA_rstr)
+        initDefaultKey();
     IndexError error = {0}; // Initialize all fields to 0.
     error.last_error = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
@@ -34,7 +35,8 @@ IndexError IndexError_Init() {
     return error;
 }
 void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
-    if (!NA_rstr) initDefaultKey();
+    if (!NA_rstr)
+        initDefaultKey();
     if (!error_message) {
         RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
                         "Index error occurred but no index error message was set.");
@@ -52,7 +54,8 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
 }
 
 void IndexError_Clear(IndexError error) {
-    if (!NA_rstr) initDefaultKey();
+    if (!NA_rstr)
+        initDefaultKey();
     if (error.last_error != NA && error.last_error != NULL) {
         rm_free(error.last_error);
         error.last_error = NA;
@@ -79,34 +82,28 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 }
 
 // Returns the number of errors in the IndexError.
-size_t IndexError_ErrorCount(const IndexError *error) {
-    return error->error_count;
-}
+size_t IndexError_ErrorCount(const IndexError *error) { return error->error_count; }
 
 // Returns the last error message in the IndexError.
-const char *IndexError_LastError(const IndexError *error) {
-    return error->last_error;
-}
+const char *IndexError_LastError(const IndexError *error) { return error->last_error; }
 
 // Returns the key of the document that caused the error.
-const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
-    return error->key;
-}
+const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) { return error->key; }
 
 // Returns the last error time in the IndexError.
-struct timespec IndexError_LastErrorTime(const IndexError *error) {
-    return error->last_error_time;
-}
+struct timespec IndexError_LastErrorTime(const IndexError *error) { return error->last_error_time; }
 
 #ifdef RS_COORDINATOR
 
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
-    if (!NA_rstr) initDefaultKey();
+    if (!NA_rstr)
+        initDefaultKey();
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
         // copy/add error count later.
-        if (error->last_error != NA) rm_free(error->last_error);
+        if (error->last_error != NA)
+            rm_free(error->last_error);
         RedisModule_FreeString(RSDummyContext, error->key);
         error->last_error = rm_strdup(other->last_error);
         error->key = RedisModule_HoldString(RSDummyContext, other->key);
@@ -133,7 +130,8 @@ void IndexError_SetLastError(IndexError *error, const char *last_error) {
 
 // Set the key of the IndexError. The key should be owned by the error already.
 void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
-    if (!NA_rstr) initDefaultKey();
+    if (!NA_rstr)
+        initDefaultKey();
     RedisModule_FreeString(RSDummyContext, error->key);
     error->key = key;
 }
@@ -145,7 +143,9 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
-    RedisModule_Assert(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
+    RedisModule_Assert(reply &&
+                       (MRReply_Type(reply) == MR_REPLY_MAP ||
+                        (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
     // Make sure the reply is a map, regardless of the protocol.
     MRReply_ArrayToMap(reply);
 
@@ -157,20 +157,23 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     MRReply *last_error = MRReply_MapElement(reply, IndexingError_String);
     RedisModule_Assert(last_error);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
+    RedisModule_Assert(MRReply_Type(last_error) == MR_REPLY_STRING ||
+                       MRReply_Type(last_error) == MR_REPLY_STATUS);
     size_t error_len;
     const char *last_error_str = MRReply_String(last_error, &error_len);
 
     MRReply *key = MRReply_MapElement(reply, IndexingErrorKey_String);
     RedisModule_Assert(key);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
+    RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING ||
+                       MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
 
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
     RedisModule_Assert(last_error_time);
-    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
+    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY &&
+                       MRReply_Length(last_error_time) == 2);
     struct timespec ts = {MRReply_Integer(MRReply_ArrayElement(last_error_time, 0)),
                           MRReply_Integer(MRReply_ArrayElement(last_error_time, 1))};
     IndexError_SetErrorTime(&error, ts);
@@ -180,7 +183,8 @@ IndexError IndexError_Deserialize(MRReply *reply) {
         RedisModuleString *key_rstr = RedisModule_CreateString(RSDummyContext, key_str, key_len);
         IndexError_SetKey(&error, key_rstr);
     } else {
-        if (!NA_rstr) initDefaultKey();
+        if (!NA_rstr)
+            initDefaultKey();
         IndexError_SetLastError(&error, NA);
         IndexError_SetKey(&error, RedisModule_HoldString(RSDummyContext, NA_rstr));
     }

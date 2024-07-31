@@ -13,41 +13,41 @@
 #include "geometry_index.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
-  int isMulti;
-  int isNull;
-  struct {
-    // This is a struct and not a union since when FieldSpec options is `FieldSpec_Dynamic`:
-    // it can store data as several types, e.g., as numeric and as tag)
-
-    // Single value
-    double numeric;  // i.e. the numeric value of the field
-    arrayof(char*) tags;
+    int isMulti;
+    int isNull;
     struct {
-      const void *vector;
-      size_t vecLen;
-      size_t numVec;
-    };
+        // This is a struct and not a union since when FieldSpec options is `FieldSpec_Dynamic`:
+        // it can store data as several types, e.g., as numeric and as tag)
 
-    // Multi value
-    arrayof(double) arrNumeric;
+        // Single value
+        double numeric; // i.e. the numeric value of the field
+        arrayof(char *) tags;
+        struct {
+            const void *vector;
+            size_t vecLen;
+            size_t numVec;
+        };
 
-    struct {
-      const char *str;
-      size_t strlen;
-      GEOMETRY_FORMAT format;
+        // Multi value
+        arrayof(double) arrNumeric;
+
+        struct {
+            const char *str;
+            size_t strlen;
+            GEOMETRY_FORMAT format;
+        };
+        // struct {
+        //   arrayof(GEOMETRY) arrGeometry;
+        // };
     };
-    // struct {
-    //   arrayof(GEOMETRY) arrGeometry;
-    // };
-  };
 
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {
-  ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
-  RedisModuleCtx *redisCtx;        // Context for keeping the spec key
-  RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
+    ConcurrentSearchCtx concCtx;    // GIL locking. This is repopulated with the relevant key data
+    RedisModuleCtx *redisCtx;       // Context for keeping the spec key
+    RedisModuleString *specKeyName; // Cached, used for opening/closing the spec key.
+    uint64_t specId;                // Unique spec ID. Used to verify we haven't been replaced
 } DocumentIndexer;
 
 void Indexer_Free(DocumentIndexer *indexer);
@@ -79,10 +79,10 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 typedef struct {
-  RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
-  void *indexDatas[INDEXFLD_NUM_TYPES];
-  FieldType typemask;
-  int found;
+    RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
+    void *indexDatas[INDEXFLD_NUM_TYPES];
+    FieldType typemask;
+    int found;
 } IndexBulkData;
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,

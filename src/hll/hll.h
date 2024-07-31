@@ -11,10 +11,10 @@
 #include <stdint.h>
 
 struct HLL {
-  uint8_t bits;
+    uint8_t bits;
 
-  size_t size;
-  uint8_t *registers;
+    size_t size;
+    uint8_t *registers;
 };
 
 extern int hll_init(struct HLL *hll, uint8_t bits);

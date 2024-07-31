@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #pragma once
 
 #include <stdbool.h>
@@ -52,18 +51,18 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
-MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
+MRReply **MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 void MR_requestCompleted();
-
 
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
-struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
+struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc,
+                           void *privdata, int replyCap);
 
 extern void *MRITERATOR_DONE;
 

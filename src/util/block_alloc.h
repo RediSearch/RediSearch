@@ -14,25 +14,25 @@ extern "C" {
 #endif
 
 typedef struct BlkAllocBlock {
-  struct BlkAllocBlock *next;
-  size_t numUsed;
-  size_t capacity;
-  char data[0] __attribute__((aligned(16)));
+    struct BlkAllocBlock *next;
+    size_t numUsed;
+    size_t capacity;
+    char data[0] __attribute__((aligned(16)));
 } BlkAllocBlock;
 
 typedef struct BlkAlloc {
-  BlkAllocBlock *root;
-  BlkAllocBlock *last;
+    BlkAllocBlock *root;
+    BlkAllocBlock *last;
 
-  // Available blocks - used when recycling the allocator
-  BlkAllocBlock *avail;
+    // Available blocks - used when recycling the allocator
+    BlkAllocBlock *avail;
 } BlkAlloc;
 
 // Initialize a block allocator
 static inline void BlkAlloc_Init(BlkAlloc *alloc) {
-  alloc->root = NULL;
-  alloc->last = NULL;
-  alloc->avail = NULL;
+    alloc->root = NULL;
+    alloc->last = NULL;
+    alloc->avail = NULL;
 }
 
 /**

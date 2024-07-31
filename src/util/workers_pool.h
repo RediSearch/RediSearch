@@ -5,5 +5,5 @@
  */
 
 #ifdef MT_BUILD
-extern struct redisearch_thpool_t* _workers_thpool;
+extern struct redisearch_thpool_t *_workers_thpool;
 #endif

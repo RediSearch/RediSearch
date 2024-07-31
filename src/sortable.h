@@ -25,38 +25,38 @@ extern "C" {
 // #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
 // nil value means the value is empty
-#define RS_SORTABLE_NIL 4
+#define RS_SORTABLE_NIL   4
 #define RS_SORTABLE_RSVAL 5
 
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */
 #pragma pack(1)
 typedef struct RSSortingVector {
-  unsigned char len;
-  RSValue *values[];
+    unsigned char len;
+    RSValue *values[];
 } RSSortingVector;
 #pragma pack()
 
 /* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
  * part of the spec */
 typedef struct {
-  const char *name;
-  RSValueType type;
+    const char *name;
+    RSValueType type;
 } RSSortField;
 
 typedef struct {
-  uint16_t len;
-  uint16_t cap;
-  RSSortField fields[1];
+    uint16_t len;
+    uint16_t cap;
+    RSSortField fields[1];
 } RSSortingTable;
 
 /* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
 typedef struct {
-  /* The field index we are sorting by */
-  int index : 8;
+    /* The field index we are sorting by */
+    int index : 8;
 
-  /* ASC/DESC flag */
-  int ascending;
+    /* ASC/DESC flag */
+    int ascending;
 } RSSortingKey;
 
 /* Create a sorting table. */
@@ -80,10 +80,10 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type,
 
 /* Returns the value for a given index. Does not increment the refcount */
 static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
-  if (v->len <= index) {
-    return NULL;
-  }
-  return v->values[index];
+    if (v->len <= index) {
+        return NULL;
+    }
+    return v->values[index];
 }
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);

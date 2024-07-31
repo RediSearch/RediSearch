@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #if defined(DEBUG) || !defined(NDEBUG)
 #include "readies/cetara/diag/gdb.h"
 #endif
