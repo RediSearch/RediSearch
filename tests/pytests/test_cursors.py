@@ -162,9 +162,9 @@ def testTimeout(env):
         1,
     ]
     env.cmd(*q1)
-    exptime = time() + 2.5
+    exptime = time.time() + 2.5
     rv = 1
-    while time() < exptime:
+    while time.time() < exptime:
         sleep(0.01)
         env.cmd("FT.CURSOR", "GC", "idx1", "0")
         rv = getCursorStats(env, "idx1")["index_total"]

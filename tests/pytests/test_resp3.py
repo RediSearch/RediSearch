@@ -1151,6 +1151,7 @@ def test_profile_child_itrerators_array():
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
+
 @skip(no_json=True)
 def testExpandErrorsResp3():
     env = Env(protocol=3)
@@ -1181,9 +1182,10 @@ def testExpandErrorsResp3():
         "EXPAND format is only supported with JSON"
     )
 
-  env.expect(
-    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
-  ).error().contains('EXPAND format is only supported with JSON')
+    env.expect("FT.AGGREGATE", "idx2", "*", "FORMAT", "EXPAND").error().contains(
+        "EXPAND format is only supported with JSON"
+    )
+
 
 @skip(no_json=True)
 def testExpandErrorsResp2():
@@ -1205,9 +1207,10 @@ def testExpandErrorsResp2():
         "EXPAND format is only supported with RESP3"
     )
 
-  env.expect(
-    'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
-  ).error().contains('EXPAND format is only supported with RESP3')
+    env.expect("FT.AGGREGATE", "idx2", "*", "FORMAT", "EXPAND").error().contains(
+        "EXPAND format is only supported with RESP3"
+    )
+
 
 @skip(no_json=True)
 def testExpandJson():

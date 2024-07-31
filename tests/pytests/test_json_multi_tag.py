@@ -3,6 +3,7 @@ import json
 from common import *
 from json_multi_text_content import *
 
+
 @skip(no_json=True)
 def testMultiTagReturnSimple(env):
     """test multiple TAG values (array of strings)"""
@@ -51,9 +52,28 @@ def testMultiTagReturnSimple(env):
     ]
 
     # Currently return a single value (only the first value)
-    env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
-    env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
+    env.expect(
+        "FT.SEARCH",
+        "idx1",
+        "@category:{mathematics\ and\ computer\ science}",
+        "RETURN",
+        "1",
+        "category",
+    ).equal(res1)
+    env.expect(
+        "FT.SEARCH", "idx1", "@category:{logic}", "RETURN", "1", "category"
+    ).equal(res1)
+    env.expect(
+        "FT.SEARCH",
+        "idx1",
+        "@category:{logic}",
+        "RETURN",
+        "3",
+        "$.category",
+        "AS",
+        "category_arr",
+    ).equal(res2)
+
 
 @skip(no_json=True)
 def testMultiTagBool(env):
@@ -110,9 +130,12 @@ def testMultiTagBool(env):
     # res = env.cmd('FT.SEARCH', 'idx_multi', '@bar:{false}', 'NOCONTENT')
     # env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:3', 'doc:1']))
 
-    res = env.cmd('FT.SEARCH', 'idx_single', '@bar:{true}', 'NOCONTENT')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:1']))
-    env.expect('FT.SEARCH', 'idx_single', '@bar:{false}', 'NOCONTENT').equal([1, 'doc:3'])
+    res = env.cmd("FT.SEARCH", "idx_single", "@bar:{true}", "NOCONTENT")
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, "doc:2", "doc:1"]))
+    env.expect("FT.SEARCH", "idx_single", "@bar:{false}", "NOCONTENT").equal(
+        [1, "doc:3"]
+    )
+
 
 @skip(no_json=True)
 def testMultiTag(env):
@@ -178,6 +201,7 @@ def testMultiTag(env):
     waitForIndex(env, "idx_category_arr_author_flat")
 
     searchMultiTagCategory(env)
+
 
 @skip(no_json=True)
 def testMultiTagNested(env):
@@ -346,7 +370,13 @@ def searchMultiTagAuthor(env):
             toSortedFlatList(res), toSortedFlatList([3, "doc:1", "doc:2", "doc:3"])
         )
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category:{programming}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect(
+        "FT.SEARCH",
+        "idx_category_arr_author_flat",
+        "@category:{programming}",
+        "NOCONTENT",
+    ).equal([1, "doc:1"])
+
 
 @skip(no_json=True)
 def testMultiNonText(env):
@@ -623,8 +653,11 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
     env.assertEqual(res[1][1].lower(), expected[2][2][1].lower())
 
     # RETURN ALL
-    res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
-    env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
+    res = conn.execute_command("FT.SEARCH", "idx_flat", expr, *dialect_param)
+    env.assertEqual(
+        json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content
+    )
+
 
 @skip(no_json=True)
 def testMultiTagReturn(env):
@@ -640,6 +673,7 @@ def testMultiTagReturn(env):
     checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, False)
     env.flush()
     checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, True)
+
 
 @skip(no_json=True)
 def testMultiTagReturnBWC(env):

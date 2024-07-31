@@ -201,6 +201,7 @@ def testBasic(env):
     forceInvokeGC(env, "idx1")
     checkInfo(env, "idx1", 0, 0)
 
+
 @skip(no_json=True)
 def testMultiNonGeo(env):
     """
@@ -289,8 +290,13 @@ def testMultiNonGeoNested(env):
         )
 
     # Search good indices with content
-    env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
-    env.expect('FT.SEARCH', 'idx2', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect("FT.SEARCH", "idx1", "@attr:[29.72 34.96 1 km]", "NOCONTENT").equal(
+        [1, "doc:1"]
+    )
+    env.expect("FT.SEARCH", "idx2", "@attr:[29.72 34.96 1 km]", "NOCONTENT").equal(
+        [1, "doc:1"]
+    )
+
 
 @skip(cluster=True, no_json=True)
 def testDebugDump(env):
@@ -468,6 +474,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
         json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content
     )
 
+
 @skip(no_json=True)
 def testMultiGeoReturn(env):
     """test RETURN with multiple GEO values"""
@@ -479,6 +486,7 @@ def testMultiGeoReturn(env):
     checkMultiGeoReturn(env, [res1, res2, res3], False, False)
     env.flush()
     checkMultiGeoReturn(env, [res1, res2, res3], False, True)
+
 
 @skip(no_json=True)
 def testMultiGeoReturnBWC(env):

@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from common import getConnectionByEnv, waitForIndex, config_cmd, skip
-from RLTest import Env
-from common import index_info
 import time
 
-from common import config_cmd, getConnectionByEnv, index_info, waitForIndex
+from common import config_cmd, getConnectionByEnv, index_info, skip, waitForIndex
 from RLTest import Env
 
 
@@ -129,9 +126,23 @@ def testHashIndexLanguage(env):
     env.expect("FT.SEARCH", "idx_it", "oranges", "language", "any_language").error()
 
     # Creating an index with an unsupported language is not allowed
-    env.expect('FT.CREATE', 'idx_xx', 'ON', 'HASH', 'PREFIX', '1', '{word}:',
-            'LANGUAGE', 'any_invalid_language', 'LANGUAGE_FIELD', '__lang',
-            'SCHEMA', 'word', 'TEXT', ).error()
+    env.expect(
+        "FT.CREATE",
+        "idx_xx",
+        "ON",
+        "HASH",
+        "PREFIX",
+        "1",
+        "{word}:",
+        "LANGUAGE",
+        "any_invalid_language",
+        "LANGUAGE_FIELD",
+        "__lang",
+        "SCHEMA",
+        "word",
+        "TEXT",
+    ).error()
+
 
 @skip(no_json=True)
 def testJsonIndexLanguage(env):
@@ -595,6 +606,7 @@ def testHashIndexLanguageField(env):
             "DESC",
         )
         env.assertEqual(res2, res1)
+
 
 @skip(no_json=True)
 def testJsonIndexLanguageField(env):

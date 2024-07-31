@@ -1,6 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict, skip
-
-
+from common import getConnectionByEnv, index_info, skip, to_dict
 
 # String constants for the info command output.
 

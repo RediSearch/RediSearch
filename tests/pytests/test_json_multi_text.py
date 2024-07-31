@@ -8,6 +8,7 @@ from json_multi_text_content import *
 def expect_undef_order(query: Query):
     query.error().contains("has undefined ordering")
 
+
 @skip(no_json=True)
 def testMultiText(env):
     """test multiple TEXT values at root level (array of strings)"""
@@ -72,6 +73,7 @@ def testMultiText(env):
     waitForIndex(env, "idx_category_arr_author_flat")
 
     searchMultiTextCategory(env)
+
 
 @skip(no_json=True)
 def testMultiTextNested(env):
@@ -334,26 +336,55 @@ def searchMultiTextAuthor(env):
     ).error().contains("has undefined ordering")
 
     cond = ConditionalExpected(env, has_json_api_v2)
-    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
-    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
-    cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_author_flat",
+        "@category:(programming science)=>{$slop:200; $inorder:false}",
+        "NOCONTENT",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, lambda q: q.error().contains("has undefined ordering")
+    )
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_author_flat",
+        "@category:(programming science)=>{$slop:200}",
+        "NOCONTENT",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, lambda q: q.error().contains("has undefined ordering")
+    )
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_author_flat",
+        "@category:(programming science)=>{$inorder:false}",
+        "NOCONTENT",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, lambda q: q.error().contains("has undefined ordering")
+    )
+
 
 @skip(no_json=True)
 def testInvalidPath(env):
     """Test invalid JSONPath"""
 
     cond = ConditionalExpected(env, has_json_api_v2)
-    cond.call('FT.CREATE', 'idx_with_bad_path', 'ON', 'JSON', 'SCHEMA',
-                           '$.books[*.authors', 'AS', 'author', 'TEXT',
-                           '$.category..', 'AS', 'category', 'TEXT') \
-    .expect_when(True, lambda q: q.error().contains("Invalid JSONPath")) \
-    .expect_when(False, lambda q: q.ok())
+    cond.call(
+        "FT.CREATE",
+        "idx_with_bad_path",
+        "ON",
+        "JSON",
+        "SCHEMA",
+        "$.books[*.authors",
+        "AS",
+        "author",
+        "TEXT",
+        "$.category..",
+        "AS",
+        "category",
+        "TEXT",
+    ).expect_when(True, lambda q: q.error().contains("Invalid JSONPath")).expect_when(
+        False, lambda q: q.ok()
+    )
+
 
 @skip(no_json=True)
 def testUndefinedOrderingWithSlopAndInorder(env):
@@ -546,8 +577,9 @@ def testMultiNonText(env):
         )
 
     # Search good indices with content
-    env.expect('FT.SEARCH', 'idx1', '@root:(third)', 'NOCONTENT').equal([1, 'doc:1:'])
-    env.expect('FT.SEARCH', 'idx2', '@root:(third)', 'NOCONTENT').equal([1, 'doc:2:'])
+    env.expect("FT.SEARCH", "idx1", "@root:(third)", "NOCONTENT").equal([1, "doc:1:"])
+    env.expect("FT.SEARCH", "idx2", "@root:(third)", "NOCONTENT").equal([1, "doc:2:"])
+
 
 @skip(no_json=True)
 def testMultiNonTextNested(env):
@@ -595,6 +627,7 @@ def trim_in_list(val, lst):
         if type(v) == str:
             lst[i] = v.replace(val, "")
     return lst
+
 
 @skip(no_json=True)
 def testMultiSortRoot(env):
@@ -719,6 +752,7 @@ def testMultiSortRoot(env):
         )
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
+
 
 @skip(no_json=True)
 def testMultiSortNested(env):
@@ -954,6 +988,7 @@ def testMultiEmptyBlankOrNone(env):
 
     env.assertEqual(env.cmd("FT.SEARCH", "idx", "*", "NOCONTENT")[0], len(values) + 1)
 
+
 @skip(no_json=True)
 def testconfigMultiTextOffsetDelta(env):
     """test default ft.config `MULTI_TEXT_SLOP`"""
@@ -993,12 +1028,25 @@ def testconfigMultiTextOffsetDelta(env):
     ).equal([1, "doc:1"])
 
     cond = ConditionalExpected(env, has_json_api_v2)
-    cond.call('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '300') \
-        .expect_when(True, lambda q: q.equal([0])) \
-        .expect_when(False, expect_undef_order)
-    cond.call('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '301') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr",
+        "@category:(mathematics database)",
+        "NOCONTENT",
+        "SLOP",
+        "300",
+    ).expect_when(True, lambda q: q.equal([0])).expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr",
+        "@category:(mathematics database)",
+        "NOCONTENT",
+        "SLOP",
+        "301",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, expect_undef_order
+    )
+
 
 @skip(no_json=True)
 def testconfigMultiTextOffsetDeltaSlop101():
@@ -1046,12 +1094,25 @@ def testconfigMultiTextOffsetDeltaSlop101():
         False, expect_undef_order
     )
 
-    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '301') \
-        .expect_when(True, lambda q: q.equal([0])) \
-        .expect_when(False, expect_undef_order)
-    cond.call('FT.SEARCH', 'idx_category_arr_2', '@category:(science database)', 'NOCONTENT', 'SLOP', '302') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_2",
+        "@category:(science database)",
+        "NOCONTENT",
+        "SLOP",
+        "301",
+    ).expect_when(True, lambda q: q.equal([0])).expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_2",
+        "@category:(science database)",
+        "NOCONTENT",
+        "SLOP",
+        "302",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, expect_undef_order
+    )
+
 
 @skip(no_json=True)
 def testconfigMultiTextOffsetDeltaSlop0():
@@ -1099,12 +1160,25 @@ def testconfigMultiTextOffsetDeltaSlop0():
         False, expect_undef_order
     )
 
-    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '1') \
-        .expect_when(True, lambda q: q.equal([0])) \
-        .expect_when(False, expect_undef_order)
-    cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(science database)', 'NOCONTENT', 'SLOP', '2') \
-        .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_3",
+        "@category:(science database)",
+        "NOCONTENT",
+        "SLOP",
+        "1",
+    ).expect_when(True, lambda q: q.equal([0])).expect_when(False, expect_undef_order)
+    cond.call(
+        "FT.SEARCH",
+        "idx_category_arr_3",
+        "@category:(science database)",
+        "NOCONTENT",
+        "SLOP",
+        "2",
+    ).expect_when(True, lambda q: q.equal([1, "doc:1"])).expect_when(
+        False, expect_undef_order
+    )
+
 
 @skip(no_json=True)
 def testMultiNoHighlight(env):
@@ -1356,6 +1430,7 @@ def testMultiTextReturn(env):
     checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, False)
     env.flush()
     checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, True)
+
 
 @skip(no_json=True)
 def testMultiTextReturnBWC(env):

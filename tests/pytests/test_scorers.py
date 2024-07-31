@@ -907,7 +907,7 @@ def testScoreError(env):
     )
 
 
-def testExposeScore(env: Env):
+def testExposeScore(env):
     env.expect("FT.CREATE idx ON HASH SCHEMA title TEXT").ok()
     with env.getClusterConnectionIfNeeded() as conn:
         conn.execute_command("HSET", "doc1", "title", "hello")

@@ -49,7 +49,8 @@ doc_non_numeric_content = r"""{
     "attr9": [1, 2, null, 131.42, null, ["no", "noo"] ],
     "attr10": [1, 2, null, 131.42, null, [7007] ]
 }
-'''
+"""
+
 
 @skip(no_json=True)
 def testBasic(env):
@@ -125,9 +126,15 @@ def testBasic(env):
     env.expect("FT.SEARCH", "idx3", "@seq:[-0.0002 (-0.0001]", "NOCONTENT").equal([0])
 
     # Intersect
-    env.expect('FT.SEARCH', 'idx4', '@seq1:[1.5 2.5] @seq2:[10e19 10e21]', 'NOCONTENT').equal([1, 'doc:1'])
-    env.expect('FT.SEARCH', 'idx4', '@seq1:[1.5 2.5] @seq2:[40 41]', 'NOCONTENT').equal([0])
-    env.expect('FT.SEARCH', 'idx4', '@seq1:[0 1]     @seq2:[10e19 10e21]', 'NOCONTENT').equal([0])
+    env.expect(
+        "FT.SEARCH", "idx4", "@seq1:[1.5 2.5] @seq2:[10e19 10e21]", "NOCONTENT"
+    ).equal([1, "doc:1"])
+    env.expect("FT.SEARCH", "idx4", "@seq1:[1.5 2.5] @seq2:[40 41]", "NOCONTENT").equal(
+        [0]
+    )
+    env.expect(
+        "FT.SEARCH", "idx4", "@seq1:[0 1]     @seq2:[10e19 10e21]", "NOCONTENT"
+    ).equal([0])
 
 
 @skip(no_json=True)
@@ -173,8 +180,9 @@ def testMultiNonNumeric(env):
         )
 
     # Search good indices with content
-    env.expect('FT.SEARCH', 'idx1', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:1:'])
-    env.expect('FT.SEARCH', 'idx2', '@root:[131 132]', 'NOCONTENT').equal([1, 'doc:2:'])
+    env.expect("FT.SEARCH", "idx1", "@root:[131 132]", "NOCONTENT").equal([1, "doc:1:"])
+    env.expect("FT.SEARCH", "idx2", "@root:[131 132]", "NOCONTENT").equal([1, "doc:2:"])
+
 
 @skip(no_json=True)
 def testMultiNonNumericNested(env):
@@ -329,10 +337,24 @@ def testDebugDump(env):
     conn.execute_command("JSON.SET", "doc:1", "$", json.dumps([-1, 2, 3]))
     conn.execute_command("JSON.SET", "doc:2", "$", json.dumps([-2, -1, 2]))
 
-    env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0,
-                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
+    env.expect(debug_cmd(), "DUMP_NUMIDX", "idx:top", "val").equal([[1, 2]])
+    env.expect(debug_cmd(), "NUMIDX_SUMMARY", "idx:top", "val").equal(
+        [
+            "numRanges",
+            1,
+            "numEntries",
+            6,
+            "lastDocId",
+            2,
+            "revisionId",
+            0,
+            "emptyLeaves",
+            0,
+            "RootMaxDepth",
+            0,
+        ]
+    )
+
 
 @skip(cluster=True, no_json=True)
 def testInvertedIndexMultipleBlocks(env):
@@ -444,6 +466,7 @@ def printSeed(env):
     seed = str(time.time())
     env.assertNotEqual(seed, None, message="random seed " + seed)
     random.seed(seed)
+
 
 @skip(cluster=True, no_json=True)
 def testInfoAndGC(env):
@@ -613,10 +636,12 @@ def checkSortByBWC(env, is_flat_arr):
     for i in range(2, len(res)):
         checkLess(int(res[i]), int(res[i - 1]))
 
+
 @skip(no_json=True)
 def testSortByBWC(env):
     """Test sorting multi numeric values with flat array"""
     checkSortByBWC(env, True)
+
 
 @skip(no_json=True)
 def testSortByArrBWC(env):
@@ -644,10 +669,12 @@ def checkSortBy(env, is_flat_arr):
     for i in range(2, len(res)):
         env.assertLess(int(res[i]), int(res[i - 1]))
 
+
 @skip(no_json=True)
 def testSortBy(env):
     """Test sorting multi numeric values with flat array"""
     checkSortBy(env, True)
+
 
 @skip(no_json=True)
 def testSortByArr(env):
@@ -656,7 +683,8 @@ def testSortByArr(env):
 
 
 def keep_dict_keys(dict, keys):
-        return {k:v for k,v in dict.items() if k in keys}
+    return {k: v for k, v in dict.items() if k in keys}
+
 
 @skip(no_json=True)
 def testInfoStats(env):
@@ -723,6 +751,7 @@ def testInfoStats(env):
     info_single = keep_dict_keys(index_info(env, "idx:single"), interesting_attr)
     info_multi = keep_dict_keys(index_info(env, "idx:multi"), interesting_attr)
     env.assertEqual(info_single, info_multi)
+
 
 @skip(no_json=True)
 def testInfoStatsAndSearchAsSingle(env):
@@ -895,6 +924,7 @@ def testConsecutiveValues(env):
     summary2 = env.cmd(debug_cmd(), "NUMIDX_SUMMARY", "idx", "val")
 
     env.assertEqual(summary1, summary2)
+
 
 @skip(cluster=True, no_json=True)
 def testDebugRangeTree(env):
@@ -1084,8 +1114,9 @@ def checkUpdateNumRecords(env, is_json):
     forceInvokeGC(env, "idx")
 
     # Info is accurately updated after GC
-    info = index_info(env, 'idx')
-    env.assertEqual(info['num_records'], 0)
+    info = index_info(env, "idx")
+    env.assertEqual(info["num_records"], 0)
+
 
 @skip(cluster=True, no_json=True)
 def testUpdateNumRecordsJson(env):
@@ -1296,6 +1327,7 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
         json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content
     )
 
+
 @skip(no_json=True)
 def testMultiNumericReturn(env):
     """test RETURN with multiple NUMERIC values"""
@@ -1307,6 +1339,7 @@ def testMultiNumericReturn(env):
     checkMultiNumericReturn(env, [res1, res2, res3], False, False)
     env.flush()
     checkMultiNumericReturn(env, [res1, res2, res3], False, True)
+
 
 @skip(no_json=True)
 def testMultiNumericReturnBWC(env):

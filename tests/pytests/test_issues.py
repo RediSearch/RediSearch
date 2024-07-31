@@ -258,56 +258,148 @@ def test_issue1988(env):
 
 @no_msan
 def testIssue2104Hash(env):
-  # 'AS' attribute does not work in functions
-  conn = getConnectionByEnv(env)
+    # 'AS' attribute does not work in functions
+    conn = getConnectionByEnv(env)
 
-  # hash
-  env.cmd('FT.CREATE', 'hash_idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
-  conn.execute_command('hset', 'data1','name', 'abc', 'subj1', '20')
-  # load a single field
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '1', '@subj1') \
-      .equal([1, ['subj1', '20']])
-  # load a field with an attribute
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a') \
-      .equal([1, ['a', '20']])
-  # load field and use `APPLY`
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
-      .equal([1, ['a', '20', 'avg', '20']])
-  # load a field implicitly with `APPLY`
-  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
-  env.assertEqual(toSortedFlatList([1, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
+    # hash
+    env.cmd(
+        "FT.CREATE",
+        "hash_idx",
+        "SCHEMA",
+        "name",
+        "TEXT",
+        "SORTABLE",
+        "subj1",
+        "NUMERIC",
+        "SORTABLE",
+    )
+    conn.execute_command("hset", "data1", "name", "abc", "subj1", "20")
+    # load a single field
+    env.expect("FT.AGGREGATE", "hash_idx", "*", "LOAD", "1", "@subj1").equal(
+        [1, ["subj1", "20"]]
+    )
+    # load a field with an attribute
+    env.expect("FT.AGGREGATE", "hash_idx", "*", "LOAD", "3", "@subj1", "AS", "a").equal(
+        [1, ["a", "20"]]
+    )
+    # load field and use `APPLY`
+    env.expect(
+        "FT.AGGREGATE",
+        "hash_idx",
+        "*",
+        "LOAD",
+        "3",
+        "@subj1",
+        "AS",
+        "a",
+        "APPLY",
+        "(@a+@a)/2",
+        "AS",
+        "avg",
+    ).equal([1, ["a", "20", "avg", "20"]])
+    # load a field implicitly with `APPLY`
+    res = env.cmd(
+        "FT.AGGREGATE", "hash_idx", "*", "APPLY", "(@subj1+@subj1)/2", "AS", "avg"
+    )
+    env.assertEqual(
+        toSortedFlatList([1, ["subj1", "20", "avg", "20"]]), toSortedFlatList(res)
+    )
 
-  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
-  env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-      
+    res = env.cmd(
+        "FT.AGGREGATE",
+        "hash_idx",
+        "*",
+        "LOAD",
+        "3",
+        "@subj1",
+        "AS",
+        "a",
+        "APPLY",
+        "(@subj1+@subj1)/2",
+        "AS",
+        "avg",
+    )
+    env.assertEqual(
+        toSortedFlatList([1, ["a", "20", "subj1", "20", "avg", "20"]]),
+        toSortedFlatList(res),
+    )
+
+
 @skip(msan=True, no_json=True)
 def testIssue2104JSON(env):
-  # 'AS' attribute does not work in functions
-  conn = getConnectionByEnv(env)
+    # 'AS' attribute does not work in functions
+    conn = getConnectionByEnv(env)
 
-  env.cmd('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
-                                                                        '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
-  env.cmd('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
-  env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
-  # load a single field
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2') \
-      .equal([1, ['subj2', '3.14']])
-  # load a field with an attribute
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a') \
-      .equal([1, ['a', '3.14']])
-  # load field and use `APPLY`
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
-      .equal([1, ['a', '3.14', 'avg', '3.14']])
-  # load a field implicitly with `APPLY`
-  res = env.cmd('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')
-  env.assertEqual(toSortedFlatList([1, ['subj2', '3.14', 'avg', '3.14']]), toSortedFlatList(res))
+    env.cmd(
+        "FT.CREATE",
+        "json_idx",
+        "ON",
+        "JSON",
+        "SCHEMA",
+        "$.name",
+        "AS",
+        "name",
+        "TEXT",
+        "SORTABLE",
+        "$.subj1",
+        "AS",
+        "subj2",
+        "NUMERIC",
+        "SORTABLE",
+    )
+    env.cmd("JSON.SET", "doc:1", "$", r'{"name":"Redis", "subj1":3.14}')
+    env.expect("json.get", "doc:1", "$").equal('[{"name":"Redis","subj1":3.14}]')
+    # load a single field
+    env.expect("FT.AGGREGATE", "json_idx", "*", "LOAD", "1", "@subj2").equal(
+        [1, ["subj2", "3.14"]]
+    )
+    # load a field with an attribute
+    env.expect("FT.AGGREGATE", "json_idx", "*", "LOAD", "3", "@subj2", "AS", "a").equal(
+        [1, ["a", "3.14"]]
+    )
+    # load field and use `APPLY`
+    env.expect(
+        "FT.AGGREGATE",
+        "json_idx",
+        "*",
+        "LOAD",
+        "3",
+        "@subj2",
+        "AS",
+        "a",
+        "APPLY",
+        "(@a+@a)/2",
+        "AS",
+        "avg",
+    ).equal([1, ["a", "3.14", "avg", "3.14"]])
+    # load a field implicitly with `APPLY`
+    res = env.cmd(
+        "FT.AGGREGATE", "json_idx", "*", "APPLY", "(@subj2+@subj2)/2", "AS", "avg"
+    )
+    env.assertEqual(
+        toSortedFlatList([1, ["subj2", "3.14", "avg", "3.14"]]), toSortedFlatList(res)
+    )
 
-  # load a field with an attribute
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a') \
-      .equal([1, ['a', '3.14']])
-  # In this example we get both `a` and `subj1` since
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
-      .equal([1, ['a', '3.14', 'avg', '3.14']])
+    # load a field with an attribute
+    env.expect(
+        "FT.AGGREGATE", "json_idx", "*", "LOAD", "3", "@$.subj1", "AS", "a"
+    ).equal([1, ["a", "3.14"]])
+    # In this example we get both `a` and `subj1` since
+    env.expect(
+        "FT.AGGREGATE",
+        "json_idx",
+        "*",
+        "LOAD",
+        "3",
+        "@$.subj1",
+        "AS",
+        "a",
+        "APPLY",
+        "(@a+@a)/2",
+        "AS",
+        "avg",
+    ).equal([1, ["a", "3.14", "avg", "3.14"]])
+
 
 @skip(msan=True, no_json=True)
 def test_MOD1266(env):
@@ -528,11 +620,32 @@ def test_MOD_1517(env):
         ["field1", "val1", "field2", None, "amount1Sum", "1", "amount2Sum", "1"],
     ]
 
-  env.expect('FT.AGGREGATE', 'idx', '*',
-             'LOAD', '2', '@amount1', '@amount2',
-             'GROUPBY', '2', '@field1', '@field2',
-             'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
-             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
+    env.expect(
+        "FT.AGGREGATE",
+        "idx",
+        "*",
+        "LOAD",
+        "2",
+        "@amount1",
+        "@amount2",
+        "GROUPBY",
+        "2",
+        "@field1",
+        "@field2",
+        "REDUCE",
+        "SUM",
+        "1",
+        "@amount1",
+        "AS",
+        "amount1Sum",
+        "REDUCE",
+        "SUM",
+        "1",
+        "@amount2",
+        "as",
+        "amount2Sum",
+    ).equal(res)
+
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):
@@ -1292,13 +1405,14 @@ def test_mod_4255(env):
         conn.execute_command("DEL", f"doc{i}", "test", str(i))
     forceInvokeGC(env, "idx")
 
-  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-  env.assertEqual(res[0] ,[1, ['test', '2']])
-  cursor = res[1]
-  env.assertNotEqual(cursor ,0)
-  res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-  cursor = res[1]
-  env.assertEqual(cursor ,0)
+    res = env.cmd("FT.CURSOR", "READ", "idx", cursor)
+    env.assertEqual(res[0], [1, ["test", "2"]])
+    cursor = res[1]
+    env.assertNotEqual(cursor, 0)
+    res = env.cmd("FT.CURSOR", "READ", "idx", cursor)
+    cursor = res[1]
+    env.assertEqual(cursor, 0)
+
 
 @skip(no_json=True)
 def test_as_startswith_as(env):
@@ -1954,17 +2068,21 @@ def test_unsafe_simpleString_values():
         unsafe_field,
     ).apply(get_results).equal(expected)
 
-  expected = [{'id': unsafe_value, 'values': []}]
-  env.expect('FT.SEARCH', unsafe_index, '*', 'SORTBY', unsafe_field, 'RETURN', 0).apply(get_results).equal(expected)
+    expected = [{"id": unsafe_value, "values": []}]
+    env.expect(
+        "FT.SEARCH", unsafe_index, "*", "SORTBY", unsafe_field, "RETURN", 0
+    ).apply(get_results).equal(expected)
 
 
 def test_mod_7463(env: Env):
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-  with env.getClusterConnectionIfNeeded() as conn:
-    conn.execute_command('HSET', 'doc1', 'name', 'hello kitty')
+    env.expect("FT.CREATE", "idx", "SCHEMA", "name", "TEXT").ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command("HSET", "doc1", "name", "hello kitty")
 
-  env.expect('FT.SEARCH', 'idx', 'kitti').equal([1, 'doc1', ['name', 'hello kitty']])
-  env.expect('FT.SEARCH', 'idx', 'kitti', 'VERBATIM').equal([0])
+    env.expect("FT.SEARCH", "idx", "kitti").equal([1, "doc1", ["name", "hello kitty"]])
+    env.expect("FT.SEARCH", "idx", "kitti", "VERBATIM").equal([0])
 
-  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'LOAD', '*').equal([1, ['name', 'hello kitty']])
-  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'VERBATIM', 'LOAD', '*').equal([0])
+    env.expect("FT.AGGREGATE", "idx", "kitti", "LOAD", "*").equal(
+        [1, ["name", "hello kitty"]]
+    )
+    env.expect("FT.AGGREGATE", "idx", "kitti", "VERBATIM", "LOAD", "*").equal([0])

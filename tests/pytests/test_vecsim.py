@@ -5026,6 +5026,7 @@ class TestTimeoutReached(object):
 
         self.run_long_queries(n_vec, query_vec)
 
+
 @skip(no_json=True)
 def test_create_multi_value_json():
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
@@ -5113,6 +5114,7 @@ def test_create_multi_value_json():
                 0,
                 message=f"{algo}, {path}",
             )
+
 
 @skip(no_json=True)
 def test_index_multi_value_json():
@@ -5252,6 +5254,7 @@ def test_index_multi_value_json():
             )
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range)
+
 
 @skip(no_json=True)
 def test_bad_index_multi_value_json():

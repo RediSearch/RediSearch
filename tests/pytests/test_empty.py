@@ -451,26 +451,38 @@ def testEmptyTag():
 
         # Test that when we index many docs, we find the wanted portion of them upon
         # empty value indexing
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
+        env.expect("FT.CREATE", "idx", "SCHEMA", "t", "TAG", "INDEXEMPTY").ok()
         n_docs = 1000
         for i in range(n_docs):
-            conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
-        res = env.cmd('FT.SEARCH', 'idx', '@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
+            conn.execute_command("HSET", f"h{i}", "t", "" if i % 2 == 0 else f"{i}")
+        res = env.cmd("FT.SEARCH", "idx", '@t:{""}', "WITHCOUNT", "LIMIT", "0", "0")
         env.assertEqual(int(res[0]), 500)
-        res = env.cmd('FT.SEARCH', 'idx', '-@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
+        res = env.cmd("FT.SEARCH", "idx", '-@t:{""}', "WITHCOUNT", "LIMIT", "0", "0")
         env.assertEqual(int(res[0]), 500)
         env.flush()
-    
-@skip(no_json=True)   
+
+
+@skip(no_json=True)
 def testEmptyTagJSON():
     env = DialectEnv()
     conn = getConnectionByEnv(env)
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env.set_dialect(dialect)
-                # ---------------------------------- JSON ----------------------------------
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
-        EmptyTagJSONTest(env, 'jidx', dialect)
+        # ---------------------------------- JSON ----------------------------------
+        env.expect(
+            "FT.CREATE",
+            "jidx",
+            "ON",
+            "JSON",
+            "SCHEMA",
+            "$t",
+            "AS",
+            "t",
+            "TAG",
+            "INDEXEMPTY",
+        ).ok()
+        EmptyTagJSONTest(env, "jidx", dialect)
         env.flush()
 
         env.expect(
@@ -573,7 +585,8 @@ def testEmptyTagJSON():
         env.assertEqual(info["hash_indexing_failures"], 1)
 
         env.flush()
-        
+
+
 def testEmptyText():
     """Tests the indexing and querying of empty TEXT (field type) values"""
 
@@ -840,16 +853,27 @@ def testEmptyText():
         testEmptyTextHash(env, "idx_phonetic", dialect)
         env.flush()
 
-      
+
 @skip(no_json=True)
 def testEmptyTextJSON():
     env = DialectEnv()
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env.set_dialect(dialect)
-      # ---------------------------------- JSON ----------------------------------
-        env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY').ok()
-        EmptyTextJSONTest(env, 'jidx', dialect)
+        # ---------------------------------- JSON ----------------------------------
+        env.expect(
+            "FT.CREATE",
+            "jidx",
+            "ON",
+            "JSON",
+            "SCHEMA",
+            "$t",
+            "AS",
+            "t",
+            "TEXT",
+            "INDEXEMPTY",
+        ).ok()
+        EmptyTextJSONTest(env, "jidx", dialect)
         env.flush()
 
         env.expect(
@@ -883,7 +907,7 @@ def testEmptyTextJSON():
         ).ok()
         EmptyTextJSONTest(env, "jidx_suffix", dialect)
         env.flush()
-    
+
 
 def testEmptyInfo():
     """Tests that the `FT.INFO` command returns the correct information

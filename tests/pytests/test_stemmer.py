@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from common import waitForIndex, config_cmd, debug_cmd, skip
+from common import config_cmd, debug_cmd, skip, waitForIndex
+
 
 def testHashMinStemLen(env):
 
@@ -87,6 +88,7 @@ def testHashMinStemLen(env):
     for word in ["dar", "daremos", "daré", "darían", "dará"]:
         res = env.cmd("FT.SEARCH", "idx_es", word, "LANGUAGE", "spanish")
         env.assertEqual(res[0], 3)
+
 
 @skip(no_json=True)
 def testJsonMinStemLen(env):
