@@ -74,7 +74,7 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 2, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 1).contains("Syntax error")
     env.expect('FT.EXPLAIN', 'idx', '*=>[knn $K @vec_field $BLOB as score]', 'PARAMS', 4, 'K', 10, 'BLOB', np.full((1), 1, dtype = np.float32).tobytes(), 'DIALECT', 2).contains("{K=10 nearest vector")
 
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 1)
+    res = env.cmd('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 1)
     expected = [
       'INTERSECT {',                                                                                                                                 
       '  UNION {',
@@ -92,17 +92,17 @@ def test_v1_vs_v2(env):
       '}',
       ''
     ]
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.2e+3", 'DIALECT', 2)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', "1.2e+3", 'DIALECT', 2)
     expected = [
       'UNION {',
       '  1.2e+3',
       '  +1.2e+3(expanded)',
       '}',
       '']
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 1)
+    res = env.cmd('FT.EXPLAIN', 'idx', "1.e+3", 'DIALECT', 1)
     expected = [
       'INTERSECT {',
       '  UNION {',
@@ -120,8 +120,8 @@ def test_v1_vs_v2(env):
       '}',
       ''
     ]
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', "1.e+3", 'DIALECT', 2)
     expected = [
       'INTERSECT {',
       '  UNION {',
@@ -141,7 +141,7 @@ def test_v1_vs_v2(env):
       '}',
       ''
     ]
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
