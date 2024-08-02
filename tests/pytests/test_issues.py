@@ -1088,3 +1088,14 @@ def test_unsafe_simpleString_values(env: Env):
 
   expected = [1, unsafe_value]
   env.expect('FT.SEARCH', unsafe_index, '*', 'SORTBY', unsafe_field, 'RETURN', 0).equal(expected)
+
+def test_mod_7463(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', 'doc1', 'name', 'hello kitty')
+
+  env.expect('FT.SEARCH', 'idx', 'kitti').equal([1, 'doc1', ['name', 'hello kitty']])
+  env.expect('FT.SEARCH', 'idx', 'kitti', 'VERBATIM').equal([0])
+
+  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'LOAD', '*').equal([1, ['name', 'hello kitty']])
+  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'VERBATIM', 'LOAD', '*').equal([0])
