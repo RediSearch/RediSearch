@@ -1,8 +1,8 @@
 
-get_filename_component(root ../../../../.. ABSOLUTE)
+get_filename_component(root ../../../.. ABSOLUTE)
 message("# coord/rmr/test: root: " ${root})
 
-include_directories(${root}/src/coord/src/rmr)
+include_directories(${root}/src/coord/rmr)
 
 function(RMRTEST name)
     add_executable(${name} ${name}.c init-rm.c)

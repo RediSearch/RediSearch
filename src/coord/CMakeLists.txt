@@ -1,7 +1,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-get_filename_component(root ../.. ABSOLUTE)
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
 
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
@@ -51,7 +51,7 @@ add_compile_options("-fvisibility=hidden")
 #----------------------------------------------------------------------------------------------
 
 include_directories(
-	${root}/coord/src
+	${root}/coord
 	${root}/deps/libuv/include
 	${root}/deps
 	${root}/deps/RedisModulesSDK
@@ -65,8 +65,10 @@ if (APPLE)
 endif()
 
 add_subdirectory(${root} search)
-add_subdirectory(src/rmr)
-add_subdirectory(src)
+add_subdirectory(rmr)
+
+file(GLOB COORDINATOR_SRC *.c *.cpp)
+add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -102,10 +104,9 @@ macro(MODULE_TARGET TYPE)
 		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
     endif()
 
-	message("root " ${root})
     add_library(${_moduleName} SHARED
 		${FINAL_OBJECTS}
-			${root}/src/coord/src/build-info/info-${MODULE_NAME_SUFFIX}.c)
+		${root}/src/coord/build-info/info-${MODULE_NAME_SUFFIX}.c)
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
 
@@ -141,7 +142,7 @@ if (BUILD_COORD_OSS)
 		dl)
 
 	if (BUILD_SEARCH_UNIT_TESTS)
-		add_subdirectory(src/rmr/test)
+		add_subdirectory(rmr/test)
 		add_subdirectory(tests/unit)
 		add_subdirectory(${root}/tests/ctests/ext-example example_extension)
 		add_subdirectory(${root}/tests/cpptests/redismock redismock)

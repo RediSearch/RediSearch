@@ -1,8 +1,8 @@
 
-get_filename_component(root ../../../.. ABSOLUTE)
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../../.. ABSOLUTE)
 message("# coord/tests/unit: root: " ${root})
 
-include_directories(${root}/src/coord/src)
+include_directories(${root}/src/coord)
 include_directories(${root}/deps)
 include_directories(${root}/tests)
 

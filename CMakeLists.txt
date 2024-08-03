@@ -7,7 +7,6 @@ include(${root}/deps/readies/cmake/main)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
 #----------------------------------------------------------------------------------------------
-message("in top level cmake")
 
 option(BUILD_STATIC "Build a static library" OFF)
 # BUILD_COORDINATOR
@@ -108,7 +107,7 @@ set(FINAL_OBJECTS
 
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
-        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c src/coord/src/rmr/reply.c)
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c src/coord/rmr/reply.c)
 
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
@@ -116,7 +115,7 @@ if (BUILD_COORDINATOR)
             RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
-        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c src/coord/src/rmr/reply.c)
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c src/coord/rmr/reply.c)
 
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD
@@ -161,7 +160,7 @@ endif()
 if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
-    message("BUILDING TESTS WITH ROOT " ${root})
+
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)

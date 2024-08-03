@@ -1,5 +1,5 @@
 
-get_filename_component(root ../../../.. ABSOLUTE)
+get_filename_component(root ../../.. ABSOLUTE)
 message("# coord/rmr: root: " ${root})
 
 file(GLOB RMR_SRC
@@ -8,7 +8,7 @@ file(GLOB RMR_SRC
 
 include_directories(
 	${root}/src
-	${root}/src/coord/src
+	${root}/src/coord
 	${root}/deps/libuv
 	${root}/deps/libuv/include)
 
