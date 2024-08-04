@@ -147,10 +147,10 @@ else # COORD
 	endif
 
 	ifeq ($(COORD),oss) # OSS Coordinator
-		BINDIR=$(BINROOT)/coord-oss
-		SRCDIR=src/coord
+		BINDIR=$(BINROOT)/search-ce
+		SRCDIR=.
 		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-oss
+		PACKAGE_NAME=redisearch-ce
 		MODULE_NAME=search
 		RAMP_YAML=src/pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch-oss
@@ -267,14 +267,6 @@ MK_CUSTOM_CLEAN=1
 #----------------------------------------------------------------------------------------------
 
 MISSING_DEPS:=
-
-# S2GEOMETRY_DIR=$(ROOT)/deps/s2geometry
-# export S2GEOMETRY_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/s2geometry
-# include build/s2geometry/Makefile.defs
-
-# ifeq ($(wildcard $(S2GEOMETRY)),)
-# MISSING_DEPS += $(S2GEOMETRY)
-# endif
 
 ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)

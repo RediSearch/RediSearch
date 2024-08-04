@@ -4,16 +4,13 @@ cmake_minimum_required(VERSION 3.13)
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
 
-get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-
-#@@ lists_from_env(LIBUV HIREDIS)
+get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/../.. ABSOLUTE)
 
 #----------------------------------------------------------------------------------------------
 
 # COORD_TYPE=oss|rlec
-
 if (NOT COORD_TYPE)
-	message(FATAL_ERROR "Missing COORD_TYPE. Should be 'oss' or 'rlec'.")
+	set(BUILD_COORD_OSS 1)
 elseif (COORD_TYPE STREQUAL "oss")
 	set(BUILD_COORD_OSS 1)
 elseif (COORD_TYPE STREQUAL "rlec")
@@ -45,13 +42,11 @@ setup_cc_options()
 # Specific to coordinator
 add_compile_options("-fvisibility=hidden")
 
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
 
 #----------------------------------------------------------------------------------------------
 
 include_directories(
-	${root}/coord
+	${root}/src/coord
 	${root}/deps/libuv/include
 	${root}/deps
 	${root}/deps/RedisModulesSDK
@@ -64,14 +59,10 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
-add_subdirectory(${root} search)
 add_subdirectory(rmr)
 
 file(GLOB COORDINATOR_SRC *.c *.cpp)
 add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
-
-option(VECSIM_STATIC "Build as static library" ON)
-option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
@@ -104,9 +95,7 @@ macro(MODULE_TARGET TYPE)
 		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
     endif()
 
-    add_library(${_moduleName} SHARED
-		${FINAL_OBJECTS}
-		${root}/src/coord/build-info/info-${MODULE_NAME_SUFFIX}.c)
+    add_library(${_moduleName} SHARED ${FINAL_OBJECTS})
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
 
@@ -123,7 +112,35 @@ macro(MODULE_TARGET TYPE)
 	extract_debug_symbols(${_moduleName})
 endmacro()
 
-MODULE_TARGET(${COORD_TYPE})
+#MODULE_TARGET(${COORD_TYPE})
+
+if (${COORD_TYPE} STREQUAL "oss")
+	set(_moduleDefs "RS_CLUSTER_OSS")
+	set(MODULE_NAME_SUFFIX "oss")
+	set(_moduleName "redisearch")
+elseif (${TYPE} STREQUAL "rlec")
+	set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
+	set(MODULE_NAME_SUFFIX "enterprise")
+	set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: why calling it module and not redisearch???
+else()
+	message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
+endif()
+
+add_library(${_moduleName} SHARED ${FINAL_OBJECTS})
+
+target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
+
+target_link_libraries(${_moduleName}
+		redisearch-${MODULE_NAME_SUFFIX}
+		redisearch-geometry
+		VectorSimilarity
+		${LIBUV_LIBS}
+		${HIREDIS_LIBS}
+		${SSL_LIBS})
+
+setup_shared_object_target(${_moduleName} ${_moduleName})
+
+extract_debug_symbols(${_moduleName})
 
 #----------------------------------------------------------------------------------------------
 

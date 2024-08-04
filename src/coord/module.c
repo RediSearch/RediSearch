@@ -20,7 +20,6 @@
 #include "info_command.h"
 #include "version.h"
 #include "cursor.h"
-#include "build-info/info.h"
 #include "aggregate/aggregate.h"
 #include "value.h"
 #include "cluster_spell_check.h"
@@ -2038,7 +2037,7 @@ int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
  * All coordinator handlers must be wrapped in this decorator.
  */
 static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (RSBuildType_g == RSBuildType_Enterprise && clusterConfig.type != ClusterType_RedisLabs) {
+  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
     /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
     return DisabledCommandHandler;
   }
@@ -2141,7 +2140,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
-  if (RSBuildType_g == RSBuildType_OSS) {
+  if (!IsEnterprise()) {
     RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
@@ -2174,7 +2173,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1));
   RM_TRY(RedisModule_CreateCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1));
-  if (RSBuildType_g == RSBuildType_OSS) {
+  if (!IsEnterprise()) {
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));

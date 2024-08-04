@@ -29,10 +29,6 @@ endif()
 
 setup_cc_options()
 
-# lists_from_env(S2GEOMETRY)
-
-# set(REDISEARCH_LIBS ${S2GEOMETRY})
-
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
@@ -54,7 +50,6 @@ include_directories(
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
-#   ${root}/deps/s2geometry/src
     ${BOOST_DIR}
     ${root})
 
@@ -68,6 +63,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------
 
