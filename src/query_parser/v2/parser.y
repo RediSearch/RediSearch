@@ -114,6 +114,32 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
+static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        return NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing - `A` is already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            C = B; // Swap B and C
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+        // Handle C
+        QueryNode_AddChild(A, C);
+        A->opts.fieldMask |= C->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+    return A;
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -381,81 +407,21 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 union(A) ::= union(B) OR expr(C). [OR] {
-    if (B && C) {
-        A = B;
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
-    } else if (B) {
-        A = B;
-    } else {
-        A = C;
-    }
+  A = union_step(B, C);
 }
 
 // This rule is needed for queries like "hello|(world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 union(A) ::= expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 text_expr(A) ::= text_union(B) . [ORX] {
@@ -464,37 +430,11 @@ text_expr(A) ::= text_union(B) . [ORX] {
 
 // This rule is identical to "union ::= expr OR expr", but keeps the text context.
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
-    if (B && C) {
-        A = B;
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
-    } else if (B) {
-        A = B;
-    } else {
-        A = C;
-    }
+  A = union_step(B, C);
 }
 
 /////////////////////////////////////////////////////////////////
