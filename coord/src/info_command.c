@@ -236,10 +236,6 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
       return;
     }
     fields->indexName = MRReply_String(value, &fields->indexNameLen);
-    const char *curlyIdx = index(fields->indexName, '{');
-    if (curlyIdx != NULL) {
-      fields->indexNameLen = curlyIdx - fields->indexName;
-    }
   } else if (!strcmp(name, "attributes")) {
     if (!fields->indexSchema) {
       fields->indexSchema = value;
