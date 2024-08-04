@@ -152,7 +152,7 @@ else # COORD
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=src/pack/ramp.yml
+		RAMP_YAML=pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
