@@ -604,7 +604,7 @@ def testExplain(env):
 
     # test FUZZY
     _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
-    
+
     _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
                  "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
 
@@ -615,7 +615,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ["@tag:{w'*'}=>{$weight: 3;}"],
                  "TAG:@tag {\n  WILDCARD{*}\n} => { $weight: 3; }\n")
-    
+
     # test wildcard with TEXT field
     _testExplain(env, 'idx', ["@t:(w'*')"], "@t:WILDCARD{*}\n")
 
@@ -3209,7 +3209,7 @@ def testIssue1184(env):
 
         for i in range(num_docs):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
-        
+
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
         env.assertEqual(res[0], num_docs)
 
@@ -3766,82 +3766,92 @@ def test_cluster_set_with_password():
     cluster_set_test(env)
 
 def cluster_set_test(env: Env):
-    def verify_address(addr):
-        try:
-            with TimeLimit(10):
-                res = None
-                while res is None or res[9][2][1] != addr:
-                    res = env.cmd('SEARCH.CLUSTERINFO')
-        except Exception:
-            env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
+    def verify_address(topology, addr):
+        # 10 seconds retry, with 20 iterations of 0.5 seconds each
+        # Resend the topology every iteration to compete with the `SEARCH.CLUSTERREFRESH` command
+        # which is being sent in a loop every 1 second
+        for _ in range(20):
+            env.expect(*topology).ok() # make sure the topology is updated
+            try:
+                with TimeLimit(0.5):
+                    while True:
+                        res = env.cmd('SEARCH.CLUSTERINFO')
+                        if res[9][2][1] == addr:
+                            return # success
+            except Exception:
+                pass
+        env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
 
     password = env.password + "@" if env.password else ""
     # test ipv4
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'RANGES',
-               '1',
-               'SHARD',
-               '1',
-               'SLOTRANGE',
-               '0',
-               '16383',
-               'ADDR',
-               f'{password}127.0.0.1:{env.port}',
-               'MASTER'
-            ).ok()
-    verify_address('127.0.0.1')
+    topology_cmd = (
+        'SEARCH.CLUSTERSET',
+        'MYID',
+        '1',
+        'RANGES',
+        '1',
+        'SHARD',
+        '1',
+        'SLOTRANGE',
+        '0',
+        '16383',
+        'ADDR',
+        f'{password}127.0.0.1:{env.port}',
+        'MASTER'
+    )
+    verify_address(topology_cmd, '127.0.0.1')
 
     env.stop()
     env.start()
 
     # test ipv6 test
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'HASHFUNC',
-               'CRC16',
-               'NUMSLOTS',
-               '16384',
-               'RANGES',
-               '1',
-               'SHARD',
-               '1',
-               'SLOTRANGE',
-               '0',
-               '16383',
-               'ADDR',
-               f'{password}[::1]:{env.port}',
-               'MASTER'
-            ).ok()
-    verify_address('::1')
+    topology_cmd = (
+        'SEARCH.CLUSTERSET',
+        'MYID',
+        '1',
+        'HASHFUNC',
+        'CRC16',
+        'NUMSLOTS',
+        '16384',
+        'RANGES',
+        '1',
+        'SHARD',
+        '1',
+        'SLOTRANGE',
+        '0',
+        '16383',
+        'ADDR',
+        f'{password}[::1]:{env.port}',
+        'MASTER'
+    )
+    verify_address(topology_cmd, '::1')
 
     env.stop()
     env.start()
 
     # test unix socket
-    env.expect('SEARCH.CLUSTERSET',
-               'MYID',
-               '1',
-               'HASHFUNC',
-               'CRC12',
-               'NUMSLOTS',
-               '4096',
-               'RANGES',
-               '1',
-               'SHARD',
-               '1',
-               'SLOTRANGE',
-               '0',
-               '4095',
-               'ADDR',
-               f'{password}localhost:{env.port}',
-               'UNIXADDR',
-               '/tmp/redis.sock',
-               'MASTER'
-            ).ok()
-    verify_address('localhost')
+    topology_cmd = (
+        'SEARCH.CLUSTERSET',
+        'MYID',
+        '1',
+        'HASHFUNC',
+        'CRC12',
+        'NUMSLOTS',
+        '4096',
+        'RANGES',
+        '1',
+        'SHARD',
+        '1',
+        'SLOTRANGE',
+        '0',
+        '4095',
+        'ADDR',
+        f'{password}localhost:{env.port}',
+        'UNIXADDR',
+        '/tmp/redis.sock',
+        'MASTER'
+    )
+    verify_address(topology_cmd, 'localhost')
 
     shards = []
     for i in range(env.shardsCount):
