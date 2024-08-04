@@ -148,20 +148,20 @@ else # COORD
 
 	ifeq ($(COORD),oss) # OSS Coordinator
 		BINDIR=$(BINROOT)/coord-oss
-		SRCDIR=coord
+		SRCDIR=src/coord
 		TARGET=$(BINDIR)/redisearch.so
 		PACKAGE_NAME=redisearch-oss
 		MODULE_NAME=search
-		RAMP_YAML=pack/ramp.yml
+		RAMP_YAML=src/pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
 		BINDIR=$(BINROOT)/coord-rlec
-		SRCDIR=coord
+		SRCDIR=src/coord
 		TARGET=$(BINDIR)/module-enterprise.so
 		PACKAGE_NAME=redisearch
 		MODULE_NAME=search
-		RAMP_YAML=coord/pack/ramp.yml
+		RAMP_YAML=src/coord/pack/ramp.yml
 		PACKAGE_S3_DIR=redisearch
 
 	else
