@@ -7,6 +7,7 @@
 #include "info_command.h"
 #include "resp3.h"
 #include "info/field_spec_info.h"
+#include "../src/reply_macros.h"
 
 // Type of field returned in INFO
 typedef enum {
@@ -337,7 +338,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Respond with the name, schema, and options
   if (fields->indexName) {
-    RedisModule_ReplyKV_StringBuffer(reply, "index_name", fields->indexName, fields->indexNameLen);
+    REPLY_KVSTR_SAFE("index_name", fields->indexName);
   }
 
   if (fields->indexOptions) {
