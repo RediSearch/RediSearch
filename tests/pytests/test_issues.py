@@ -199,7 +199,7 @@ def testIssue2104Hash(env):
 
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-      
+
 @skip(msan=True, no_json=True)
 def testIssue2104JSON(env):
   # 'AS' attribute does not work in functions
@@ -1161,3 +1161,9 @@ def test_mod_7463(env: Env):
 
   env.expect('FT.AGGREGATE', 'idx', 'kitti', 'LOAD', '*').equal([1, ['name', 'hello kitty']])
   env.expect('FT.AGGREGATE', 'idx', 'kitti', 'VERBATIM', 'LOAD', '*').equal([0])
+
+@skip(cluster=True)
+def test_mod_7495(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # testing union of stopwords (at least the first 2 were required to reproduce the crash)
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|and)', 'DIALECT', '2').equal([0]).noError()
