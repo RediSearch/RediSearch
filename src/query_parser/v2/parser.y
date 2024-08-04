@@ -402,11 +402,15 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
 }
 
 union(A) ::= union(B) OR expr(C). [OR] {
-    A = B;
-    if (C) {
+    if (B && C) {
+        A = B;
         QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    } else if (B) {
+        A = B;
+    } else {
+        A = C;
     }
 }
 
@@ -481,11 +485,15 @@ text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
-    A = B;
-    if (C) {
+    if (B && C) {
+        A = B;
         QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(C, A->opts.fieldMask);
+    } else if (B) {
+        A = B;
+    } else {
+        A = C;
     }
 }
 

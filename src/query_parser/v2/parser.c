@@ -1741,11 +1741,15 @@ static YYACTIONTYPE yy_reduce(
       case 10: /* union ::= union OR expr */
       case 15: /* text_union ::= text_union OR text_expr */ yytestcase(yyruleno==15);
 {
-    yylhsminor.yy47 = yymsp[-2].minor.yy47;
-    if (yymsp[0].minor.yy47) {
+    if (yymsp[-2].minor.yy47 && yymsp[0].minor.yy47) {
+        yylhsminor.yy47 = yymsp[-2].minor.yy47;
         QueryNode_AddChild(yylhsminor.yy47, yymsp[0].minor.yy47);
         yylhsminor.yy47->opts.fieldMask |= yymsp[0].minor.yy47->opts.fieldMask;
         QueryNode_SetFieldMask(yymsp[0].minor.yy47, yylhsminor.yy47->opts.fieldMask);
+    } else if (yymsp[-2].minor.yy47) {
+        yylhsminor.yy47 = yymsp[-2].minor.yy47;
+    } else {
+        yylhsminor.yy47 = yymsp[0].minor.yy47;
     }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
