@@ -221,44 +221,40 @@ UNION {
 UNION {
   INTERSECT {
     EXACT {
+      hallo
+    }
+    EXACT {
+      world
+    }
+  }
+  EXACT {
+    werld
+  }
+  INTERSECT {
+    EXACT {
       hello
     }
     EXACT {
       world
     }
   }
-  UNION {
-    INTERSECT {
-      EXACT {
-        hello
-      }
-      EXACT {
-        world
-      }
+  INTERSECT {
+    EXACT {
+      hello
     }
-    UNION {
-      INTERSECT {
-        EXACT {
-          hallo
-        }
-        EXACT {
-          world
-        }
-      }
-      EXACT {
-        werld
-      }
+    EXACT {
+      world
     }
-    INTERSECT {
-      EXACT {
-        hello
-      }
-      EXACT {
-        world
-      }
-      EXACT {
-        werld
-      }
+    EXACT {
+      werld
+    }
+  }
+  INTERSECT {
+    EXACT {
+      hello
+    }
+    EXACT {
+      world
     }
   }
 }
