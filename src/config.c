@@ -229,16 +229,82 @@ CONFIG_GETTER(getMinOperationWorkers) {
   return sdscatprintf(ss, "%lu", config->minOperationWorkers);
 }
 
-// MT_MODE, WORKER_THREADS
-CONFIG_SETTER(trySetDeprecatedWorkersConfig) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
-  int acrc = AC_Advance(ac); // Consume the value argument
-  RETURN_STATUS(acrc);
+/************************************ DEPRECATION CANDIDATES *************************************/
+
+enum MTMode {
+  MT_MODE_OFF,
+  MT_MODE_ONLY_ON_OPERATIONS,
+  MT_MODE_FULL,
+};
+
+// Old configuration
+enum MTMode mt_mode_config = MT_MODE_OFF;
+size_t numWorkerThreads_config = 0;
+
+// WORKER_THREADS
+CONFIG_SETTER(setWorkThreads) {
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
+  numWorkerThreads_config = newNumThreads;
+  return REDISMODULE_OK;
 }
 
-CONFIG_GETTER(getDeprecatedWorkersConfig) {
-  return sdsnew("Deprecated, see WORKERS and MIN_OPERATION_WORKERS");
+CONFIG_GETTER(getWorkThreads) {
+  sds ss = sdsempty();
+  size_t numThreads;
+  switch (mt_mode_config) {
+  case MT_MODE_OFF:
+    numThreads = 0;
+    break;
+  case MT_MODE_ONLY_ON_OPERATIONS:
+    numThreads = config->minOperationWorkers;
+    break;
+  case MT_MODE_FULL:
+    numThreads = config->numWorkerThreads;
+    break;
+  }
+  return sdscatprintf(ss, "%lu", numThreads);
 }
+
+// MT_MODE
+CONFIG_SETTER(setMtMode) {
+  const char *mt_mode;
+  int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
+    mt_mode_config = MT_MODE_OFF;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+    mt_mode_config = MT_MODE_ONLY_ON_OPERATIONS;
+  } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
+    mt_mode_config = MT_MODE_FULL;
+  } else {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+static inline const char *MTMode_ToString(enum MTMode mt_mode) {
+  switch (mt_mode) {
+    case MT_MODE_OFF:
+      return "MT_MODE_OFF";
+    case MT_MODE_ONLY_ON_OPERATIONS:
+      return "MT_MODE_ONLY_ON_OPERATIONS";
+    case MT_MODE_FULL:
+      return "MT_MODE_FULL";
+  }
+}
+
+CONFIG_GETTER(getMtMode) {
+  return sdsnew(MTMode_ToString(mt_mode_config));
+}
+
+/********************************* END OF DEPRECATION CANDIDATES *********************************/
 
 // TIERED_HNSW_BUFFER_LIMIT
 CONFIG_SETTER(setTieredIndexBufferLimit) {
@@ -686,13 +752,13 @@ RSConfigOptions RSGlobalConfigOptions = {
         },
         {.name = "WORKER_THREADS",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
-         .setValue = trySetDeprecatedWorkersConfig,
-         .getValue = getDeprecatedWorkersConfig,
+         .setValue = setWorkThreads,
+         .getValue = getWorkThreads,
         },
         {.name = "MT_MODE",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
-         .setValue = trySetDeprecatedWorkersConfig,
-         .getValue = getDeprecatedWorkersConfig,
+         .setValue = setMtMode,
+         .getValue = getMtMode,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
@@ -861,6 +927,45 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
   }
   RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
+
+#ifdef MT_BUILD
+
+void UpgradeDeprecatedMTConfigs() {
+  RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
+  RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
+  if (workers->flags & RSCONFIGVAR_F_MODIFIED || minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED) {
+    return; // New configurations were set. Ignore the deprecated ones.
+  }
+  RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
+  RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
+  if (!(mtMode->flags & RSCONFIGVAR_F_MODIFIED) && !(workerThreads->flags & RSCONFIGVAR_F_MODIFIED)) {
+    return; // No deprecated configurations were set.
+  }
+
+  // We now know that deprecated configurations were set, and new configurations were not set.
+  if ((mt_mode_config == MT_MODE_OFF && numWorkerThreads_config != 0) ||
+      (mt_mode_config != MT_MODE_OFF && numWorkerThreads_config == 0)) {
+    return; // Inconsistent configuration. Ignore the deprecated configurations.
+  }
+
+  // Set the new configurations based on the deprecated ones.
+  switch (mt_mode_config) {
+    case MT_MODE_OFF:
+      RSGlobalConfig.numWorkerThreads = 0;
+      RSGlobalConfig.minOperationWorkers = 0;
+      break;
+    case MT_MODE_FULL:
+      RSGlobalConfig.numWorkerThreads = numWorkerThreads_config;
+      RSGlobalConfig.minOperationWorkers = 0;
+      break;
+    case MT_MODE_ONLY_ON_OPERATIONS:
+      RSGlobalConfig.numWorkerThreads = 0;
+      RSGlobalConfig.minOperationWorkers = numWorkerThreads_config;
+      break;
+  }
+}
+
+#endif // MT_BUILD
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
