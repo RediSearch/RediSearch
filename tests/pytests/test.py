@@ -7,22 +7,6 @@ import random
 import time
 import unittest
 
-# this tests is not longer relevant
-# def testAdd(env):
-#     if env.is_cluster():
-#         env.skip()
-
-#     r = env
-#     env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
-#     env.assertTrue(r.exists('idx:idx'))
-#     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world', 'body', 'lorem ist ipsum').ok()
-
-#     for _ in r.retry_with_rdb_reload():
-#         prefix = 'ft'
-#         env.assertExists(prefix + ':idx/hello')
-#         env.assertExists(prefix + ':idx/world')
-#         env.assertExists(prefix + ':idx/lorem')
-
 def testAddErrors(env):
     env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
     env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword')
@@ -30,13 +14,6 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
     env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
-
-def assertEqualIgnoreCluster(env, val1, val2):
-    # todo: each test that uses this function should be switch back to env.assertEqual once fix
-    # issues on coordinator
-    if env.isCluster():
-        return
-    env.assertEqual(val1, val2)
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
@@ -593,6 +570,7 @@ def testExplain(env):
         res = env.cmd('FT.EXPLAIN', idx, *query)
         env.assertEqual(res, expected)
 
+        # FT.EXPLAINCLI is not supported on cluster
         if not env.isCluster():
             res = env.cmd('FT.EXPLAINCLI', idx, *query)
             env.assertEqual(res, expected.split('\n'))
@@ -645,6 +623,31 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
                     "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
+    
+    # test numeric ranges
+    _testExplain(env, 'idx', ['@bar:[10 100]'],
+                 "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
+
+    _testExplain(env, 'idx', ['@bar:[-INF 100]'],
+                 "NUMERIC {-inf <= @bar <= 100.000000}\n")
+
+    _testExplain(env, 'idx', ['@bar:[10 Inf]'],
+                 "NUMERIC {10.000000 <= @bar <= inf}\n")
+
+    _testExplain(env, 'idx', ['@bar:[-inf (inf]'],
+                 "NUMERIC {-inf <= @bar < inf}\n")
+
+    _testExplain(env, 'idx', ['@bar:[(-1 $n]','PARAMS', '2', 'n', '10'],
+                    "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
+
+    _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
+                    "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
+    
+    _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
+                    "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
+    
+    _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
+                    "NUMERIC {-22.000000 < @bar < 50.000000}\n")
 
 def testNoIndex(env):
     r = env
@@ -1451,9 +1454,17 @@ def testNumericRange(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
+    # Test bad filter ranges
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf').error().contains("Bad upper range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '(-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(inf', 5).error().contains("Bad lower range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '+inf', 5).error().contains("Bad lower range: +inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(+inf', 5).error().contains("Bad lower range: +inf")
+    # Filter does not accept parameters
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '$n',
+               'PARAMS', 2, 'n', '10').error().contains("Bad upper range: $n")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
@@ -1473,10 +1484,18 @@ def testNumericRange(env):
 
         res = r.execute_command('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
                                 "filter", "score", "(0", "(50")
-
         env.assertEqual(49, res[0])
-        res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", "-inf", "+inf")
+        env.assertEqual(100, res[0])
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
+                                "filter", "score", "-inf", "inf")
+        env.assertEqual(100, res[0])
+
+        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
+                                "filter", "score", "-INF", "Inf")
         env.assertEqual(100, res[0])
 
         # test multi filters
@@ -1530,6 +1549,27 @@ def testNumericRange(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
+
+        # Test numeric ranges using params
+        for dialect in range(2, 5):
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[$min $max]',
+                "nocontent", 'PARAMS', 4, 'min', 0, 'max', 50, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(51, res[0])
+
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[(+$min -$max]',
+                "nocontent", 'PARAMS', 4, 'min', 0, 'max', -50, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(50, res[0])
+
+            res = env.cmd(
+                'ft.search', 'idx', 'hello kitty @score:[-$min (-$max]',
+                "nocontent", 'PARAMS', 4, 'min', 500, 'max', -500, 'WITHCOUNT',
+                'DIALECT', dialect)
+            env.assertEqual(100, res[0])
+
 
 def testNotIter(env):
     conn = getConnectionByEnv(env)
