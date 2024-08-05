@@ -81,19 +81,22 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing - `A` is already assigned
     } else {
+        struct RSQueryNode* child;
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
+            child = C;
         } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = C;
-            C = B; // Swap B and C
+            child = B;
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
             A->opts.fieldMask |= B->opts.fieldMask;
+            child = C;
         }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
+        // Handle child
+        QueryNode_AddChild(A, child);
+        A->opts.fieldMask |= child->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
