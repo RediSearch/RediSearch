@@ -243,6 +243,7 @@ size_t numWorkerThreads_config = 0;
 
 // WORKER_THREADS
 CONFIG_SETTER(setWorkThreads) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -255,6 +256,7 @@ CONFIG_SETTER(setWorkThreads) {
 }
 
 CONFIG_GETTER(getWorkThreads) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   sds ss = sdsempty();
   size_t numThreads;
   switch (mt_mode_config) {
@@ -273,6 +275,7 @@ CONFIG_GETTER(getWorkThreads) {
 
 // MT_MODE
 CONFIG_SETTER(setMtMode) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -301,6 +304,7 @@ static inline const char *MTMode_ToString(enum MTMode mt_mode) {
 }
 
 CONFIG_GETTER(getMtMode) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   return sdsnew(MTMode_ToString(mt_mode_config));
 }
 
