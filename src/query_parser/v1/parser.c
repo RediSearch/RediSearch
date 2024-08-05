@@ -1267,6 +1267,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
       case 5: /* union ::= expr OR expr */
+      case 6: /* union ::= union OR expr */ yytestcase(yyruleno==6);
 {
     int rv = one_not_null(yymsp[-2].minor.yy75, yymsp[0].minor.yy75, (void**)&yylhsminor.yy75);
     if (rv == NODENN_BOTH_INVALID) {
@@ -1286,22 +1287,6 @@ static YYACTIONTYPE yy_reduce(
         QueryNode_AddChild(yylhsminor.yy75, yymsp[0].minor.yy75);
         yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
         QueryNode_SetFieldMask(yylhsminor.yy75, yylhsminor.yy75->opts.fieldMask);
-    }
-
-}
-  yymsp[-2].minor.yy75 = yylhsminor.yy75;
-        break;
-      case 6: /* union ::= union OR expr */
-{
-    if (yymsp[-2].minor.yy75 && yymsp[0].minor.yy75) {
-        yylhsminor.yy75 = yymsp[-2].minor.yy75;
-        QueryNode_AddChild(yylhsminor.yy75, yymsp[0].minor.yy75);
-        yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
-        QueryNode_SetFieldMask(yymsp[0].minor.yy75, yylhsminor.yy75->opts.fieldMask);
-    } else if (yymsp[-2].minor.yy75) {
-        yylhsminor.yy75 = yymsp[-2].minor.yy75;
-    } else {
-        yylhsminor.yy75 = yymsp[0].minor.yy75;
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;

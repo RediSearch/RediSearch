@@ -225,19 +225,27 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
-
 }
 
 union(A) ::= union(B) OR expr(C). [ORX] {
-    if (B && C) {
-        A = B;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        A = NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing- already assigned
+    } else {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+        }
+
+        // Handle C
         QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
-    } else if (B) {
-        A = B;
-    } else {
-        A = C;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
 }
 
