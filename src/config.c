@@ -242,7 +242,7 @@ enum MTMode mt_mode_config = MT_MODE_OFF;
 size_t numWorkerThreads_config = 0;
 
 // WORKER_THREADS
-CONFIG_SETTER(setWorkThreads) {
+CONFIG_SETTER(setDeprWorkThreads) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
@@ -255,7 +255,7 @@ CONFIG_SETTER(setWorkThreads) {
   return REDISMODULE_OK;
 }
 
-CONFIG_GETTER(getWorkThreads) {
+CONFIG_GETTER(getDeprWorkThreads) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   sds ss = sdsempty();
   size_t numThreads;
@@ -756,13 +756,15 @@ RSConfigOptions RSGlobalConfigOptions = {
         },
         {.name = "WORKER_THREADS",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
-         .setValue = setWorkThreads,
-         .getValue = getWorkThreads,
+         .setValue = setDeprWorkThreads,
+         .getValue = getDeprWorkThreads,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
          .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
          .setValue = setMtMode,
          .getValue = getMtMode,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
