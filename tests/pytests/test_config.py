@@ -81,8 +81,8 @@ def testSetConfigOptions(env):
     if MT_BUILD:
         env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
         env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
-        env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal('OK') # deprecated
-        env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal('OK') # deprecated
+        env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
+        env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
