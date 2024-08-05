@@ -135,43 +135,43 @@ def test_v1_vs_v2(env):
     env.assertEqual(res, '\n'.join(expected))
 
     # DIALECT 2 does not expand numbers
-    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 1)
+    res = env.cmd('FT.EXPLAIN', 'idx', '705', 'DIALECT', 1)
     expected = ['UNION {', '  705', '  +705(expanded)', '}', '']
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', '705', 'DIALECT', 2)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', '705', 'DIALECT', 2)
     expected = ['705', '']
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
-    res = env.cmd('FT.EXPLAINCLI', 'idx', 'inf', 'DIALECT', 1)
+    res = env.cmd('FT.EXPLAIN', 'idx', 'inf', 'DIALECT', 1)
     expected = ['UNION {', '  inf', '  +inf(expanded)', '}', '']
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', 'inf', 'DIALECT', 2)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', 'inf', 'DIALECT', 2)
     expected = ['inf', '']
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
-    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+    env.expect('FT.EXPLAIN', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
                'DIALECT', 1).error().contains('Syntax error')
-    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
+    res = env.cmd('FT.EXPLAIN', 'idx', '$n', 'PARAMS', 2, 'n', '1.2e-3',
                   'DIALECT', 2)
     expected = ['1.2e-3', '']
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
-    env.expect('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
+    env.expect('FT.EXPLAIN', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
                'DIALECT', 1).error().contains('Syntax error')
-    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
+    res = env.cmd('FT.EXPLAIN', 'idx', '$n', 'PARAMS', 2, 'n', '-inf',
                   'DIALECT', 2)
     expected = ['-inf', '']
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
     # terms wich contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
-    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 2)
-    env.assertEqual(res, expected)
-    res = env.cmd('FT.EXPLAINCLI', 'idx', '$n', 'PARAMS', 2, 'n', 'cherry1',
+    res = env.cmd('FT.EXPLAIN', 'idx', 'cherry1', 'DIALECT', 1)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', 'cherry1', 'DIALECT', 2)
+    env.assertEqual(res, '\n'.join(expected))
+    res = env.cmd('FT.EXPLAIN', 'idx', '$n', 'PARAMS', 2, 'n', 'cherry1',
                   'DIALECT', 2)
-    env.assertEqual(res, expected)
+    env.assertEqual(res, '\n'.join(expected))
 
 def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
