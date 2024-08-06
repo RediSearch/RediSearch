@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
@@ -28,8 +27,6 @@ set(BUILD_COORDINATOR 1)
 
 project(RSCoordinator)
 
-#----------------------------------------------------------------------------------------------
-
 add_compile_definitions(
 	REDISMODULE_SDK_RLEC
 	_GNU_SOURCE
@@ -41,7 +38,6 @@ setup_cc_options()
 
 # Specific to coordinator
 add_compile_options("-fvisibility=hidden")
-
 
 #----------------------------------------------------------------------------------------------
 
@@ -82,42 +78,10 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-macro(MODULE_TARGET TYPE)
-    if (${TYPE} STREQUAL "oss")
-        set(_moduleDefs "RS_CLUSTER_OSS")
-		set(MODULE_NAME_SUFFIX "oss")
-		set(_moduleName "redisearch")
-    elseif (${TYPE} STREQUAL "rlec")
-        set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
-		set(MODULE_NAME_SUFFIX "enterprise")
-		set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: WHY???
-	else()
-		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
-    endif()
-
-    add_library(${_moduleName} SHARED ${FINAL_OBJECTS})
-
-    target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
-
-    target_link_libraries(${_moduleName}
-		redisearch-${MODULE_NAME_SUFFIX}
-		redisearch-geometry
-		VectorSimilarity
-		${LIBUV_LIBS}
-		${HIREDIS_LIBS}
-		${SSL_LIBS})
-
-	setup_shared_object_target(${_moduleName} ${_moduleName})
-
-	extract_debug_symbols(${_moduleName})
-endmacro()
-
-#MODULE_TARGET(${COORD_TYPE})
-
 if (${COORD_TYPE} STREQUAL "oss")
 	set(_moduleDefs "RS_CLUSTER_OSS")
 	set(MODULE_NAME_SUFFIX "oss")
-	set(_moduleName "redisearch")
+	set(_moduleName redisearch-coord-${MODULE_NAME_SUFFIX})
 elseif (${TYPE} STREQUAL "rlec")
 	set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
 	set(MODULE_NAME_SUFFIX "enterprise")

@@ -1,8 +1,4 @@
 
-#ifndef RS_NO_RMAPI
-#define REDISMODULE_MAIN
-#endif
-
 #include "redismodule.h"
 
 #include "module.h"
@@ -28,14 +24,6 @@
 #include "info_command.h"
 #include "profile.h"
 
-#ifndef RS_NO_ONLOAD
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
-                       REDISMODULE_APIVER_1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-#endif
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
