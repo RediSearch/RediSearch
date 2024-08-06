@@ -952,7 +952,7 @@ void UpgradeDeprecatedMTConfigs() {
   if ((mt_mode_config == MT_MODE_OFF && numWorkerThreads_config != 0) ||
       (mt_mode_config != MT_MODE_OFF && numWorkerThreads_config == 0)) {
     RedisModule_Log(RSDummyContext, "warning",
-                    "Inconsistent configuration: MT_MODE `%s` and WORKER_THREADS `%d`. Ignoring "
+                    "Inconsistent configuration: MT_MODE `%s` and WORKER_THREADS `%lu`. Ignoring "
                     "the deprecated configurations.",
                     MTMode_ToString(mt_mode_config), numWorkerThreads_config);
     return; // Inconsistent configuration. Ignore the deprecated configurations.
@@ -961,15 +961,16 @@ void UpgradeDeprecatedMTConfigs() {
   // Set the new configurations based on the deprecated ones.
   switch (mt_mode_config) {
     case MT_MODE_OFF:
+      RedisModule_Log(RSDummyContext, "warning",
+                      "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
+                      "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
       RSGlobalConfig.numWorkerThreads = 0;
       RSGlobalConfig.minOperationWorkers = 0;
       break;
     case MT_MODE_FULL:
       RSGlobalConfig.numWorkerThreads = numWorkerThreads_config;
-      RSGlobalConfig.minOperationWorkers = 0;
       break;
     case MT_MODE_ONLY_ON_OPERATIONS:
-      RSGlobalConfig.numWorkerThreads = 0;
       RSGlobalConfig.minOperationWorkers = numWorkerThreads_config;
       break;
   }
