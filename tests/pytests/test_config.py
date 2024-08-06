@@ -243,25 +243,30 @@ def testImmutable(env):
 
 ############################ TEST DEPRECATED MT CONFIGS ############################
 
+workers_default = 0
+min_operation_workers_default = 4
+
 @skip(cluster=True, noWorkers=True)
 def testDeprecatedMTConfig_full():
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL')
+    workers = '3'
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL')
     # Check old config values
-    env.expect('ft.config', 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '3']])
+    env.expect('ft.config', 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect('ft.config', 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
     # Check new config values
-    env.expect('ft.config', 'get', 'WORKERS').equal([['WORKERS', '3']])
-    env.expect('ft.config', 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '0']])
+    env.expect('ft.config', 'get', 'WORKERS').equal([['WORKERS', workers]])
+    env.expect('ft.config', 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True, noWorkers=True)
 def testDeprecatedMTConfig_operations():
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+    workers = '3'
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
     # Check old config values
-    env.expect('ft.config', 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '3']])
+    env.expect('ft.config', 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect('ft.config', 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
     # Check new config values
-    env.expect('ft.config', 'get', 'WORKERS').equal([['WORKERS', '0']])
-    env.expect('ft.config', 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '3']])
+    env.expect('ft.config', 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+    env.expect('ft.config', 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
 @skip(cluster=True, noWorkers=True)
 def testDeprecatedMTConfig_off():
@@ -269,14 +274,11 @@ def testDeprecatedMTConfig_off():
     # Check old config values
     env.expect('ft.config', 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
     env.expect('ft.config', 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_OFF']])
-    # Check new config values
+    # Check new config values. Both are 0 due to explicit configuration
     env.expect('ft.config', 'get', 'WORKERS').equal([['WORKERS', '0']])
     env.expect('ft.config', 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '0']])
 
 # Check invalid combination
-workers_default = 0
-min_operation_workers_default = 4
-
 @skip(cluster=True, noWorkers=True)
 def testDeprecatedMTConfig_full_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0')
