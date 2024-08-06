@@ -951,6 +951,10 @@ void UpgradeDeprecatedMTConfigs() {
   // We now know that deprecated configurations were set, and new configurations were not set.
   if ((mt_mode_config == MT_MODE_OFF && numWorkerThreads_config != 0) ||
       (mt_mode_config != MT_MODE_OFF && numWorkerThreads_config == 0)) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Inconsistent configuration: MT_MODE `%s` and WORKER_THREADS `%d`. Ignoring "
+                    "the deprecated configurations.",
+                    MTMode_ToString(mt_mode_config), numWorkerThreads_config);
     return; // Inconsistent configuration. Ignore the deprecated configurations.
   }
 
