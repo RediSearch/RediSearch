@@ -1173,3 +1173,19 @@ def test_mod_7463(env: Env):
 
   env.expect('FT.AGGREGATE', 'idx', 'kitti', 'LOAD', '*').equal([1, ['name', 'hello kitty']])
   env.expect('FT.AGGREGATE', 'idx', 'kitti', 'VERBATIM', 'LOAD', '*').equal([0])
+
+@skip(cluster=True)
+def test_mod_7495(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # testing union of stopwords (at least the first 2 were required to reproduce the crash)
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|and)', 'DIALECT', '2').equal([0]).noError()
+
+  env.cmd('HSET', 'doc1', 't', 'hello world')
+  expected = [1, 'doc1', ['t', 'hello world']]
+
+  # First non-stopword is found
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|world)', 'DIALECT', '2').equal(expected).noError()
+
+  # First non-stopword is not found
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()
