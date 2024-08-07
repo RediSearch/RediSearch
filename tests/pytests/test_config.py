@@ -223,6 +223,14 @@ def testInitConfig():
     test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
 
 @skip(cluster=True)
+def test_command_name(env: Env):
+    if config_cmd() == '_FT.CONFIG':
+        # if the binaries are not standalone only, the command name is _FT.CONFIG
+        env.expect('_FT.CONFIG', 'GET', 'TIMEOUT').noError()
+    # Expect the `FT.CONFIG` command to be available anyway
+    env.expect('FT.CONFIG', 'GET', 'TIMEOUT').noError()
+
+@skip(cluster=True)
 def testImmutable(env):
 
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
