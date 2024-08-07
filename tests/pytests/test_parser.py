@@ -208,42 +208,22 @@ UNION {
     env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
 UNION {
   INTERSECT {
-    EXACT {
-      hallo
-    }
-    EXACT {
-      world
-    }
+    hallo
+    world
   }
-  EXACT {
+  werld
+  INTERSECT {
+    hello
+    world
+  }
+  INTERSECT {
+    hello
+    world
     werld
   }
   INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
-  }
-  INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
-    EXACT {
-      werld
-    }
-  }
-  INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
+    hello
+    world
   }
 }
 '''[1:])
