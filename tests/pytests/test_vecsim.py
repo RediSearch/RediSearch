@@ -580,7 +580,11 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    if MT_BUILD:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    else:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1093,7 +1097,11 @@ def test_single_entry():
 
 
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    if MT_BUILD:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    else:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1771,7 +1779,11 @@ def test_create_multi_value_json():
 
 @skip(no_json=True)
 def test_index_multi_value_json():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    if MT_BUILD:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    else:
+        env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
     conn = getConnectionByEnv(env)
     dim = 4
     n = 100
