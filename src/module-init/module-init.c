@@ -99,21 +99,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 }
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-  // Module version
-  RedisModule_InfoAddSection(ctx, "version");
-  char ver[64];
-  // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
-  RedisModule_InfoAddFieldCString(ctx, "version", ver);
-  // Redis version
-  GetFormattedRedisVersion(ver, sizeof(ver));
-  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
-  // Redis Enterprise version
-  if (IsEnterprise()) {
-    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
-    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
-  }
-
   // Numer of indexes
   RedisModule_InfoAddSection(ctx, "index");
   RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
