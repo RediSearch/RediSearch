@@ -258,7 +258,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.EXPLAIN": {
     "summary": "Returns the execution plan for a complex query",
@@ -281,7 +284,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.EXPLAINCLI": {
     "summary": "Returns the execution plan for a complex query",
@@ -304,7 +310,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.ALTER": {
     "summary": "Adds a new field to the index",
@@ -424,7 +433,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.SUGADD": {
     "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
@@ -514,7 +526,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "suggestion"
+    "group": "suggestion",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.SUGDEL": {
     "summary": "Deletes a string from a suggestion index",
@@ -581,7 +596,10 @@
       }
     ],
     "since": "1.2.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.SPELLCHECK": {
     "summary": "Performs spelling correction on a query, returning suggestions for misspelled terms",
@@ -644,7 +662,10 @@
       }
     ],
     "since": "1.4.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.DICTADD": {
     "summary": "Adds terms to a dictionary",
@@ -690,13 +711,19 @@
       }
     ],
     "since": "1.4.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT._LIST": {
     "summary": "Returns a list of all existing indexes",
     "complexity": "O(1)",
     "since": "2.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.CONFIG SET": {
     "summary": "Sets runtime configuration options",
@@ -724,7 +751,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.CONFIG HELP": {
     "summary": "Help description of runtime configuration options",
@@ -736,7 +766,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.SEARCH": {
     "summary": "Searches the index with a textual query, returning either documents or just ids",
@@ -1160,7 +1193,10 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
 
   "FT.AGGREGATE": {
@@ -1410,7 +1446,10 @@
       }
     ],
     "since": "1.1.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
 
   "FT.PROFILE": {
@@ -1477,7 +1516,10 @@
       }
     ],
     "since": "1.1.0",
-    "group": "search"
+    "group": "search",
+    "command_flags": [
+        "readonly"
+    ]
   },
   "FT.CURSOR DEL": {
     "summary": "Deletes a cursor",
