@@ -48,7 +48,7 @@ static char *strdupcase(const char *s, size_t len) {
   char *dst = ret;
   char *src = dst;
   while (*src) {
-      // unescape 
+      // unescape
       if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
           continue;
@@ -59,18 +59,18 @@ static char *strdupcase(const char *s, size_t len) {
 
   }
   *dst = '\0';
-  
+
   return ret;
 }
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
+// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
-  
+
   char *dst = s;
   char *src = dst;
   char *end = s + sz;
   while (src < end) {
-      // unescape 
+      // unescape
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
@@ -78,17 +78,17 @@ static size_t unescapen(char *s, size_t sz) {
       }
       *dst++ = *src++;
   }
- 
+
   return (size_t)(dst - s);
 }
 
 #define NODENN_BOTH_VALID 0
 #define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1 
+#define NODENN_ONE_NULL 1
 // Returns:
 // 0 if a && b
 // -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
+// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
 static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
@@ -102,7 +102,7 @@ static int one_not_null(void *a, void *b, void *out) {
         return NODENN_ONE_NULL;
     }
 }
-   
+
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
 ***************** Begin token definitions *************************************/
@@ -770,13 +770,13 @@ static void yy_destructor(
       break;
     case 38: /* modifierlist */
 {
- 
+
     for (size_t i = 0; i < Vector_Size((yypminor->yy42)); i++) {
         char *s;
         Vector_Get((yypminor->yy42), i, &s);
         rm_free(s);
     }
-    Vector_Free((yypminor->yy42)); 
+    Vector_Free((yypminor->yy42));
 
 }
       break;
@@ -1229,11 +1229,11 @@ static YYACTIONTYPE yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
-{ 
+{
  /* If the root is a negative node, we intersect it with a wildcard node */
- 
+
     ctx->root = yymsp[0].minor.yy75;
- 
+
 }
         break;
       case 1: /* query ::= */
@@ -1254,10 +1254,10 @@ static YYACTIONTYPE yy_reduce(
     } else if (rv == NODENN_ONE_NULL) {
         // Nothing- `out` is already assigned
     } else {
-        if (yymsp[-1].minor.yy75 && yymsp[-1].minor.yy75->type == QN_PHRASE && yymsp[-1].minor.yy75->pn.exact == 0 && 
+        if (yymsp[-1].minor.yy75 && yymsp[-1].minor.yy75->type == QN_PHRASE && yymsp[-1].minor.yy75->pn.exact == 0 &&
             yymsp[-1].minor.yy75->opts.fieldMask == RS_FIELDMASK_ALL ) {
             yylhsminor.yy75 = yymsp[-1].minor.yy75;
-        } else {     
+        } else {
             yylhsminor.yy75 = NewPhraseNode(0);
             QueryNode_AddChild(yylhsminor.yy75, yymsp[-1].minor.yy75);
         }
@@ -1273,6 +1273,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
       case 5: /* union ::= expr OR expr */
+      case 6: /* union ::= union OR expr */ yytestcase(yyruleno==6);
 {
     int rv = one_not_null(yymsp[-2].minor.yy75, yymsp[0].minor.yy75, (void**)&yylhsminor.yy75);
     if (rv == NODENN_BOTH_INVALID) {
@@ -1293,18 +1294,6 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
         QueryNode_SetFieldMask(yylhsminor.yy75, yylhsminor.yy75->opts.fieldMask);
     }
-    
-}
-  yymsp[-2].minor.yy75 = yylhsminor.yy75;
-        break;
-      case 6: /* union ::= union OR expr */
-{
-    yylhsminor.yy75 = yymsp[-2].minor.yy75;
-    if (yymsp[0].minor.yy75) {
-        QueryNode_AddChild(yylhsminor.yy75, yymsp[0].minor.yy75);
-        yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
-        QueryNode_SetFieldMask(yymsp[0].minor.yy75, yylhsminor.yy75->opts.fieldMask);
-    }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1316,14 +1305,14 @@ static YYACTIONTYPE yy_reduce(
         if (ctx->sctx->spec) {
             QueryNode_SetFieldMask(yymsp[0].minor.yy75, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
         }
-        yylhsminor.yy75 = yymsp[0].minor.yy75; 
+        yylhsminor.yy75 = yymsp[0].minor.yy75;
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
         break;
       case 8: /* expr ::= modifierlist COLON expr */
 {
-    
+
     if (yymsp[0].minor.yy75 == NULL) {
         for (size_t i = 0; i < Vector_Size(yymsp[-2].minor.yy42); i++) {
           char *s;
@@ -1334,7 +1323,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy75 = NULL;
     } else {
         //yymsp[0].minor.yy75->opts.fieldMask = 0;
-        t_fieldMask mask = 0; 
+        t_fieldMask mask = 0;
         for (int i = 0; i < Vector_Size(yymsp[-2].minor.yy42); i++) {
             char *p;
             Vector_Get(yymsp[-2].minor.yy42, i, &p);
@@ -1409,7 +1398,7 @@ static YYACTIONTYPE yy_reduce(
 {
     yymsp[-2].minor.yy75 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy75->opts.flags |= QueryNode_Verbatim;
-    
+
 }
         break;
       case 18: /* expr ::= term */
@@ -1458,7 +1447,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
       case 25: /* expr ::= MINUS expr */
-{ 
+{
     if (yymsp[0].minor.yy75) {
         yymsp[-1].minor.yy75 = NewNotNode(yymsp[0].minor.yy75);
     } else {
@@ -1467,7 +1456,7 @@ static YYACTIONTYPE yy_reduce(
 }
         break;
       case 26: /* expr ::= TILDE expr */
-{ 
+{
     if (yymsp[0].minor.yy75) {
         yymsp[-1].minor.yy75 = NewOptionalNode(yymsp[0].minor.yy75);
     } else {
@@ -1547,7 +1536,7 @@ static YYACTIONTYPE yy_reduce(
 
         yylhsminor.yy75 = NewTagNode(s, slen);
         QueryNode_AddChildren(yylhsminor.yy75, yymsp[0].minor.yy75->children, QueryNode_NumChildren(yymsp[0].minor.yy75));
-        
+
         // Set the children count on yymsp[0].minor.yy75 to 0 so they won't get recursively free'd
         QueryNode_ClearChildren(yymsp[0].minor.yy75, 0);
         QueryNode_Free(yymsp[0].minor.yy75);
@@ -1636,7 +1625,7 @@ static YYACTIONTYPE yy_reduce(
       case 56: /* term ::= TERM */
       case 57: /* term ::= NUMBER */ yytestcase(yyruleno==57);
 {
-    yylhsminor.yy0 = yymsp[0].minor.yy0; 
+    yylhsminor.yy0 = yymsp[0].minor.yy0;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -1700,7 +1689,7 @@ static void yy_syntax_error(
   RSQueryParser_v1_CTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-  
+
     QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
