@@ -936,6 +936,8 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 
 #ifdef MT_BUILD
 
+// Upgrade deprecated configurations if needed.
+// Unless MT_MODE is OFF, only the relevant configuration is set, while the other keeps its default value.
 void UpgradeDeprecatedMTConfigs() {
   RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
   RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
