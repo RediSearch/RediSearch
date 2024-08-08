@@ -7,7 +7,9 @@ READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
 cd $ROOT
-getver_c=$(mktemp "${TMPDIR:-/tmp}/getver-XXXXXXX.c")
+tmpdir=$(mktemp -d)
+getver_c=$tmpdir/getver.c
+touch $getver_c
 if [[ $NUMERIC != 1 ]]; then
 	cat <<- EOF > $getver_c
 		#include <stdio.h>

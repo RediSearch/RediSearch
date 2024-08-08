@@ -4,6 +4,10 @@
 
 #include <stdbool.h>
 
+// Hack to support Alpine Linux 3 where __STRING is not defined
+#if !defined(__GLIBC__) && !defined(__STRING)
+#include <sys/cdefs.h>
+#endif
 
 typedef enum {
   SPECIAL_CASE_NONE,
