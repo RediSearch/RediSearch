@@ -143,7 +143,7 @@ jobs:
           if 'alpine:3' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3',
-              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash libstdc++ libgcc"})
+              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
