@@ -27,10 +27,14 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      rejson:
+        type: number
+        default: 1
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  LLVM_VERSION: ${{vars.LLVM_VERSION}}
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -86,7 +90,10 @@ jobs:
             tests/pytests/requirements.*
       - name: Setup specific
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          ./install_llvm.sh ${{ steps.mode.outputs.mode }} ${{ env.LLVM_VERSION }}
+          ./install_rust.sh 
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -99,11 +106,9 @@ jobs:
           submodules: recursive
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
-
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -119,9 +124,8 @@ jobs:
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
-        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -130,7 +134,14 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-
+      - name: verify CC and CXX
+        if: inputs.san == 'address'
+        run: |
+         echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CC=$CC"
+          echo "CXX=$CXX"
       - name: Build
         run: make SAN=${{ inputs.san }}
       - name: Build Tests # TODO: should be done in the build step above
