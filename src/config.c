@@ -937,11 +937,6 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 #ifdef MT_BUILD
 
 void UpgradeDeprecatedMTConfigs() {
-  RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
-  RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
-  if (workers->flags & RSCONFIGVAR_F_MODIFIED || minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED) {
-    return; // New configurations were set. Ignore the deprecated ones.
-  }
   RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
   RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
   if (!(mtMode->flags & RSCONFIGVAR_F_MODIFIED) && !(workerThreads->flags & RSCONFIGVAR_F_MODIFIED)) {
@@ -958,20 +953,35 @@ void UpgradeDeprecatedMTConfigs() {
     return; // Inconsistent configuration. Ignore the deprecated configurations.
   }
 
+  RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
+  RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
+  bool explicit_workers = workers->flags & RSCONFIGVAR_F_MODIFIED;
+  bool explicit_minOperationWorkers = minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED;
+
   // Set the new configurations based on the deprecated ones.
+  // We know that at least one of the deprecated configurations was set.
+  // If the new configurations were also set, ignore the deprecated ones.
   switch (mt_mode_config) {
     case MT_MODE_OFF:
-      RedisModule_Log(RSDummyContext, "warning",
-                      "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
-                      "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
-      RSGlobalConfig.numWorkerThreads = 0;
-      RSGlobalConfig.minOperationWorkers = 0;
+      if (!explicit_workers) {
+        RSGlobalConfig.numWorkerThreads = 0;
+      }
+      if (!explicit_minOperationWorkers) {
+        RSGlobalConfig.minOperationWorkers = 0;
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
+                        "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
+      }
       break;
     case MT_MODE_FULL:
-      RSGlobalConfig.numWorkerThreads = numWorkerThreads_config;
+      if (!explicit_workers) {
+        RSGlobalConfig.numWorkerThreads = numWorkerThreads_config;
+      }
       break;
     case MT_MODE_ONLY_ON_OPERATIONS:
-      RSGlobalConfig.minOperationWorkers = numWorkerThreads_config;
+      if (!explicit_minOperationWorkers) {
+        RSGlobalConfig.minOperationWorkers = numWorkerThreads_config;
+      }
       break;
   }
 }
