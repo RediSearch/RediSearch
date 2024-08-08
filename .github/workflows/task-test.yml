@@ -27,6 +27,9 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      rejson:
+        type: integer
+        default: 1
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}

@@ -19,4 +19,5 @@ jobs:
       test-config: ${{ inputs.flow-config }}
       san: address
       env: ubuntu-latest
+      rejson: 0
     secrets: inherit
