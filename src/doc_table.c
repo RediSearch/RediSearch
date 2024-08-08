@@ -209,6 +209,49 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  if (hasExpirationTimeInformation(dmd->flags)) {
+    TimeToLiveTable_Init(&t->ttl);
+    TimeToLiveTable_Add(&t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+  }
+}
+
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
+  if (!hasExpirationTimeInformation(dmd->flags) || !t->ttl.hashTable) {
+      return false;
+  }
+  return TimeToLiveTable_HasDocExpired(&t->ttl, dmd->id, expirationPoint);
+}
+
+bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx, const struct timespec* expirationPoint) {
+  if (!t->ttl.hashTable) {
+    return true;
+  }
+  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(&t->ttl, docId, ctx->fieldIndex, ctx->predicate, expirationPoint);
+}
+
+bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx, const struct timespec* expirationPoint) {
+  if (!t->ttl.hashTable || ctx->fieldMask == RS_FIELDMASK_ALL) {
+    return true;
+  }
+  t_fieldIndex* sortedFieldIndices = NULL;
+  for (size_t index = 0; index < ctx->spec->numFields; ++index) {
+    FieldSpec* fs = &ctx->spec->fields[index];
+    if (fs->ftId == (t_fieldId)-1) {
+      continue;
+    }
+    if (ctx->fieldMask & FIELD_BIT(fs)) {
+      array_ensure_append_1(sortedFieldIndices, fs->index);
+    }
+  }
+  if (!sortedFieldIndices) {
+    return true;
+  }
+  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate, expirationPoint);
+  array_free(sortedFieldIndices);
+  return verified;
+}
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
@@ -319,6 +362,7 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
 }
 
@@ -346,6 +390,15 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     if (!md) {
       return NULL;
     }
+
+    if (t->ttl.hashTable && hasExpirationTimeInformation(md->flags)) {
+      TimeToLiveTable_Remove(&t->ttl, md->id);
+      if (TimeToLiveTable_Empty(&t->ttl)) {
+        TimeToLiveTable_Destroy(&t->ttl);
+        t->ttl.hashTable = NULL;
+      }
+    }
+
     // Assuming we already locked the spec for write, and we don't have multiple writers,
     // all the next operations don't need to be atomic
     md->flags |= Document_Deleted;

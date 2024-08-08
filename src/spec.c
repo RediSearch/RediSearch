@@ -81,6 +81,55 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 }
 
+#define MILLISECOND_IN_ONE_SECOND 1000
+#define NANOSECOND_IN_ONE_MILLISECOND 1000000
+
+static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
+  timespec result = {.tv_sec = 0, .tv_nsec = 0};
+  if (totalMilliseconds > 0) {
+    result.tv_sec = totalMilliseconds / MILLISECOND_IN_ONE_SECOND;
+    result.tv_nsec = (totalMilliseconds % MILLISECOND_IN_ONE_SECOND) * NANOSECOND_IN_ONE_MILLISECOND;
+  }
+  return result;
+}
+
+static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr) {
+  timespec zero = {.tv_sec = 0, .tv_nsec = 0};
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "PEXPIRETIME", "s", keystr);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER) {
+    size_t length = 0;
+    const char* error = rep ? RedisModule_CallReplyStringPtr(rep, &length) : "unknown error";
+    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, type: %d, error(%d): %s", rep ? RedisModule_CallReplyType(rep) : REDISMODULE_REPLY_UNKNOWN, errno, error);
+    return zero;
+  }
+
+  const int64_t totalMilliseconds = RedisModule_CallReplyInteger(rep);
+  t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
+  RedisModule_FreeCallReply(rep);
+  return result;
+}
+
+static inline FieldExpiration* callHashFieldExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr, RedisModuleString** fields) {
+  size_t vectorElementCount = array_len(fields);
+  long long fieldCount = vectorElementCount;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    return NULL;
+  }
+  size_t sz = RedisModule_CallReplyLength(rep);
+  arrayof(FieldExpiration) result = NULL;
+  for (t_fieldIndex i = 0; i < sz; i++) {
+    const int64_t milliseconds = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(rep, i));
+    if (milliseconds <= 0) {
+      continue;
+    }
+    const FieldExpiration fieldExpiration = { .index = i, .point = timespecFromMilliseconds(milliseconds)};
+    array_ensure_append_1(result, fieldExpiration);
+  }
+  RedisModule_FreeCallReply(rep);
+  return result;
+}
+
 /*
  * Initialize the spec's fields that are related to the cursors.
  */
@@ -1713,6 +1762,8 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->monitorDocumentExpiration = true;
+  sp->monitorFieldExpiration = true;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -1739,6 +1790,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
+  RS_LOG_ASSERT(fs->index < RS_INVALID_FIELD_INDEX, "The maximum number of fields has been reached");
   fs->name = rm_strdup(name);
   fs->path = (path) ? rm_strdup(path) : fs->name;
   fs->ftId = (t_fieldId)-1;
@@ -2860,6 +2912,22 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+static inline FieldExpiration* getHashFieldExpirationTime(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
+  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
+    FieldSpec *f = spec->fields + field;
+    RS_LOG_ASSERT(f->index < spec->numFields, "index is outside allowed range");
+    fields[f->index] = RedisModule_CreateString(ctx, f->name, strlen(f->name));
+  }
+  FieldExpiration* result = callHashFieldExpirationTime(ctx, key, fields);
+  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
+    RedisModule_FreeString(ctx, fields[field]);
+    fields[field] = NULL;
+  }
+  array_free(fields);
+  return result;
+}
+
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
@@ -2897,6 +2965,15 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
+  }
+
+  doc.docExpirationTime.tv_nsec = doc.docExpirationTime.tv_sec = 0;
+  doc.fieldExpirations = NULL;
+  if (spec->monitorDocumentExpiration) {
+    doc.docExpirationTime = getDocExpirationTime(ctx, key);
+  }
+  if (type == DocumentType_Hash && spec->monitorFieldExpiration) {
+    doc.fieldExpirations = getHashFieldExpirationTime(spec, ctx, key);
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);

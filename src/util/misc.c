@@ -7,6 +7,7 @@
 #include "misc.h"
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
