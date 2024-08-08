@@ -7,6 +7,7 @@
 #include "coord/rmr/rmr.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
+#include "redis_cluster.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
@@ -15,8 +16,22 @@ DEBUG_COMMAND(shardConnectionStates) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(pauseTopologyUpdater) {
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  StopRedisTopologyUpdater(ctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(resumeTopologyUpdater) {
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  InitRedisTopologyUpdater(ctx);
+  return REDISMODULE_OK;
+}
+
 DebugCommandType coordCommands[] = {
   {"SHARD_CONNECTION_STATES", shardConnectionStates},
+  {"PAUSE_TOPOLOGY_UPDATER", pauseTopologyUpdater},
+  {"RESUME_TOPOLOGY_UPDATER", resumeTopologyUpdater},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)

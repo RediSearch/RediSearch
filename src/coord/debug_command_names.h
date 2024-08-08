@@ -11,5 +11,7 @@
  */
 static const char *coordCommandsNames[] = {
   "SHARD_CONNECTION_STATES",
+  "PAUSE_TOPOLOGY_UPDATER",
+  "RESUME_TOPOLOGY_UPDATER",
   NULL
 };

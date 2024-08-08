@@ -130,13 +130,21 @@ void UpdateTopology(RedisModuleCtx *ctx) {
 }
 
 #define REFRESH_PERIOD 1000 // 1 second
+RedisModuleTimerID topologyRefreshTimer = 0;
 
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
-  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
 }
 
 void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  RedisModule_Assert(topologyRefreshTimer == 0);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+}
+
+void StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  int rc = RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  RedisModule_Assert(rc == REDISMODULE_OK); // We should always be able to stop the timer
+  topologyRefreshTimer = 0;
 }
