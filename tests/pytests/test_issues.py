@@ -199,7 +199,7 @@ def testIssue2104Hash(env):
 
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
-      
+
 @skip(msan=True, no_json=True)
 def testIssue2104JSON(env):
   # 'AS' attribute does not work in functions
@@ -1149,3 +1149,31 @@ def test_unsafe_simpleString_values():
 
   expected = [{'id': unsafe_value, 'values': []}]
   env.expect('FT.SEARCH', unsafe_index, '*', 'SORTBY', unsafe_field, 'RETURN', 0).apply(get_results).equal(expected)
+
+
+def test_mod_7463(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', 'doc1', 'name', 'hello kitty')
+
+  env.expect('FT.SEARCH', 'idx', 'kitti').equal([1, 'doc1', ['name', 'hello kitty']])
+  env.expect('FT.SEARCH', 'idx', 'kitti', 'VERBATIM').equal([0])
+
+  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'LOAD', '*').equal([1, ['name', 'hello kitty']])
+  env.expect('FT.AGGREGATE', 'idx', 'kitti', 'VERBATIM', 'LOAD', '*').equal([0])
+
+@skip(cluster=True)
+def test_mod_7495(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # testing union of stopwords (at least the first 2 were required to reproduce the crash)
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|and)', 'DIALECT', '2').equal([0]).noError()
+
+  env.cmd('HSET', 'doc1', 't', 'hello world')
+  expected = [1, 'doc1', ['t', 'hello world']]
+
+  # First non-stopword is found
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|world)', 'DIALECT', '2').equal(expected).noError()
+
+  # First non-stopword is not found
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
+  env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()

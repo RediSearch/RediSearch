@@ -5,7 +5,7 @@
  */
 
 #include "debug_commands.h"
-#include "coord/src/debug_command_names.h"
+#include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "index.h"
