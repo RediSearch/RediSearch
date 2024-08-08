@@ -423,7 +423,8 @@ def testInfo(env):
                     'language_field', 'lang',
                     'default_score', '0.5',
                     'score_field', 'score',
-                    'payload_field', 'pl']
+                    'payload_field', 'pl',
+                    'indexes_all', 'false']
     env.assertEqual(res_actual[5], res_expected)
 
     env.expect('ft.drop test').ok()
@@ -432,7 +433,8 @@ def testInfo(env):
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH',
                     'prefixes', [''],
-                    'default_score', '1']
+                    'default_score', '1',
+                    'indexes_all', 'false']
     env.assertEqual(res_actual[5], res_expected)
 
 def testCreateDropCreate(env):

@@ -224,7 +224,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
                                 RSQueryTerm *term, double weight);
 
 /* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp);
+IndexReader *NewGenericIndexReader(InvertedIndex *idx, IndexSpec *sp, double weight, uint32_t freq);
 
 void IR_Abort(void *ctx);
 

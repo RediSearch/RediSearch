@@ -108,9 +108,9 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   // Read from the root filter until we have a valid result
   while (1) {
     rc = it->Read(it->ctx, &r);
-    // This means we are done!
     switch (rc) {
     case INDEXREAD_EOF:
+      // This means we are done!
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
     case INDEXREAD_TIMEOUT:
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);

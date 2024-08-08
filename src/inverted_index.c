@@ -1104,8 +1104,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (ir->decoders.seeker) {
     // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
-      // We're at the end of the last block...
-      if (ir->currentBlock + 1 == ir->idx->size) {
+      if (ir->currentBlock == ir->idx->size - 1) {
+        // We're at the end of the last block...
         goto eof;
       }
       IndexReader_AdvanceBlock(ir);
@@ -1143,7 +1143,6 @@ eof:
 
 size_t IR_NumDocs(void *ctx) {
   IndexReader *ir = ctx;
-  // otherwise we use our counter
   return ir->len;
 }
 
@@ -1197,13 +1196,14 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
+IndexReader *NewGenericIndexReader(InvertedIndex *idx, IndexSpec *sp, double weight, uint32_t freq) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);  
-  if (!decoder.decoder) {  
-    return NULL;  
-  } 
-  RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
+  if (!decoder.decoder) {
+    return NULL;
+  }
+  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  record->freq = freq;
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 

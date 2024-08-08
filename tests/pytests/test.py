@@ -4321,3 +4321,11 @@ def test_notIterTimeout(env):
         'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
         'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+def test_indexall_disable(env):
+    """Tests that the `INDEXALL DISABLE` option works as expected"""
+
+    env.expect('FT.CREATE', 'explicit', 'INDEXALL', 'DISABLE', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.CREATE', 'implicit', 'SCHEMA', 'title', 'TEXT').ok()
+
+    env.assertEqual(env.cmd('FT.INFO', 'explicit')[2:], env.cmd('FT.INFO', 'implicit')[2:])

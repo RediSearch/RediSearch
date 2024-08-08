@@ -573,7 +573,6 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
     }
   } else {
     UI_SyncIterList(ui);
-    // todo:
   }
   iter->Read = UI_ReadUnsorted;
 }
@@ -924,10 +923,12 @@ static size_t II_Len(void *ctx) {
   return ((IntersectIterator *)ctx)->len;
 }
 
-/* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND
- * for hits */
+/* A Not iterator works by wrapping another iterator, and returning OK for
+ * misses, and NOTFOUND for hits. It takes its reference from a wildcard iterator
+ * if `INDEXALL` is on (optimization). */
 typedef struct {
-  IndexIterator base;
+  IndexIterator base;          // base index iterator
+  IndexIterator *wcii;         // wildcard index iterator
   IndexIterator *child;
   t_docId lastDocId;
   t_docId maxDocId;
@@ -939,12 +940,18 @@ typedef struct {
 static void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
   nc->base.isValid = 0;
+  if (nc->wcii) {
+    nc->wcii->Abort(nc->wcii->ctx);
+  }
   nc->child->Abort(nc->child->ctx);
 }
 
 static void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
+  if (nc->wcii) {
+    nc->wcii->Rewind(nc->wcii->ctx);
+  }
   nc->base.current->docId = 0;
   nc->base.isValid = 1;
   nc->child->Rewind(nc->child->ctx);
@@ -954,14 +961,17 @@ static void NI_Free(IndexIterator *it) {
 
   NotContext *nc = it->ctx;
   nc->child->Free(nc->child);
-
+  if (nc->wcii) {
+    nc->wcii->Free(nc->wcii);
+  }
   IndexResult_Free(nc->base.current);
+
   rm_free(it);
 }
 
-/* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end
- * - return OK */
-static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
+/* SkipTo for NOT iterator - Non-Optimized version. If we have a match - return
+ * NOTFOUND. If we don't or we're at the end - return OK */
+static int NI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   NotContext *nc = ctx;
 
   // do not skip beyond max doc id
@@ -986,8 +996,7 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // If the child docId is the one we are looking for, it's an anti match!
   if (childId == docId) {
-    nc->base.current->docId = docId;
-    nc->lastDocId = docId;
+    nc->base.current->docId = nc->lastDocId = docId;
     *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
   }
@@ -1001,10 +1010,69 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
 ok:
-  // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
-  nc->base.current->docId = docId;
-  nc->lastDocId = docId;
+  // NOT FOUND or end means OK. We need to set the docId to the hit we will bubble up
+  nc->base.current->docId = nc->lastDocId = docId;
   *hit = nc->base.current;
+  return INDEXREAD_OK;
+}
+
+/* SkipTo for NOT iterator - Optimized version. If we have a match - return
+ * NOTFOUND. If we don't or we're at the end - return OK */
+int NI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
+  NotContext *nc = ctx;
+
+  // do not skip beyond max doc id
+  if (docId > nc->maxDocId) {
+    IITER_SET_EOF(nc->wcii);
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
+
+  // Get the child's last read docId
+  // if lastDocId is 0, Read & Skipto weren't called yet and child lastId
+  // might not be be updated (ex. NUMERIC filter) (PR-2440)
+  t_docId childId = 0;
+  if (nc->lastDocId != 0) {
+    childId = nc->child->LastDocId(nc->child->ctx);
+  }
+
+  // If the child is ahead of the skipto id, it means the child doesn't have this id.
+  // So we are okay!
+  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
+    goto ok;
+  }
+
+  // If the child docId is the one we are looking for, it's an anti match!
+  int wcii_rc;
+  if (childId == docId) {
+    // Skip the inner wildcard to `docId`, and return NOTFOUND
+    wcii_rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, hit);
+    if (wcii_rc == INDEXREAD_EOF) {
+      IITER_SET_EOF(&nc->base);
+    }
+    nc->lastDocId = nc->base.current->docId = nc->wcii->LastDocId(nc->wcii->ctx);
+    return INDEXREAD_NOTFOUND;
+  }
+
+  // read the next entry from the child
+  int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
+
+  // OK means not found
+  if (rc == INDEXREAD_OK) {
+    return INDEXREAD_NOTFOUND;
+  }
+
+ok:
+  // NOT FOUND or end means OK. We need to set the docId to the hit we will bubble up
+  wcii_rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, hit);
+  nc->base.current->docId = nc->wcii->LastDocId(nc->wcii->ctx);
+  if (wcii_rc == INDEXREAD_EOF) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  } else if (wcii_rc == INDEXREAD_NOTFOUND) {
+    return INDEXREAD_NOTFOUND;
+  }
+  RS_LOG_ASSERT_FMT(nc->wcii->LastDocId(nc->wcii->ctx) == docId, "Expected docId to be %llu, got %llu", docId, nc->wcii->LastDocId(nc->wcii->ctx));
   return INDEXREAD_OK;
 }
 
@@ -1013,9 +1081,10 @@ static size_t NI_NumEstimated(void *ctx) {
   return nc->maxDocId;
 }
 
-/* Read from a NOT iterator. This is applicable only if the only or leftmost node of a query is a
- * NOT node. We simply read until max docId, skipping docIds that exist in the child*/
-static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
+/* Read from a NOT iterator - Non-Optimized version. This is applicable only if
+ * the only or leftmost node of a query is a NOT node. We simply read until max
+ * docId, skipping docIds that exist in the child */
+static int NI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   NotContext *nc = ctx;
   if (nc->lastDocId > nc->maxDocId) {
     IITER_SET_EOF(&nc->base);
@@ -1072,6 +1141,69 @@ ok:
   return INDEXREAD_OK;
 }
 
+/* Read from a NOT iterator - Optimized version. This is applicable only if
+ * the only or leftmost node of a query is a NOT node. We simply read until max
+ * docId, skipping docIds that exist in the child */
+static int NI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
+  NotContext *nc = ctx;
+
+  RSIndexResult *cr = NULL;
+  // if we have a child, get the latest result from the child
+  cr = IITER_CURRENT_RECORD(nc->child);
+
+  if (cr == NULL || cr->docId == 0) {
+    nc->child->Read(nc->child->ctx, &cr);
+  }
+
+  // Advance the embedded wildcard iterator
+  RSIndexResult *wcii_res = NULL;
+  int wcii_rc = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
+
+  if (wcii_rc == INDEXREAD_EOF) {
+    // If the wildcard iterator hit EOF, we're done
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
+  nc->base.current->docId = wcii_res->docId;
+
+  // Notice: The wildcard iterator result still can't be higher then the child
+  // result (docId), as promised in the non-optimized case.
+
+  if (cr == NULL || cr->docId > wcii_res->docId || !IITER_HAS_NEXT(nc->child)) {
+    goto ok;
+  }
+
+  while (cr->docId == wcii_res->docId) {
+    wcii_rc = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
+    nc->base.current->docId = wcii_res->docId;
+
+    if (wcii_rc == INDEXREAD_EOF) {
+      IITER_SET_EOF(&nc->base);
+      return INDEXREAD_EOF;
+    }
+
+    // read next entry from child
+    if (nc->child->Read(nc->child->ctx, &cr) == INDEXREAD_EOF) {
+      break;
+    }
+
+    // Check for timeout
+    if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
+      IITER_SET_EOF(nc->wcii);
+      IITER_SET_EOF(&nc->base);
+      return INDEXREAD_TIMEOUT;
+    }
+  }
+  nc->timeoutCtx.counter = 0;
+
+ok:
+  nc->lastDocId = nc->base.current->docId;
+  if (hit) *hit = nc->base.current;
+  ++nc->len;
+
+  return INDEXREAD_OK;
+}
+
 /* We always have next, in case anyone asks... ;) */
 static int NI_HasNext(void *ctx) {
   NotContext *nc = ctx;
@@ -1092,19 +1224,26 @@ static t_docId NI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout) {
-  NotContext *nc = rm_malloc(sizeof(*nc));
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
+  double weight, struct timespec timeout, QueryEvalCtx *q) {
+
+  NotContext *nc = rm_calloc(1, sizeof(*nc));
+  bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  if (optimized) {
+    nc->wcii = NewWildcardIterator(q);
+  }
   nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   nc->base.current->docId = 0;
+  nc->base.isValid = 1;
+  IndexIterator *ret = &nc->base;
+
   nc->child = it ? it : NewEmptyIterator();
   nc->lastDocId = 0;
-  nc->maxDocId = maxDocId;
+  nc->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   nc->len = 0;
   nc->weight = weight;
-  nc->base.isValid = 1;
   nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
 
-  IndexIterator *ret = &nc->base;
   ret->ctx = nc;
   ret->type = NOT_ITERATOR;
   ret->NumEstimated = NI_NumEstimated;
@@ -1112,8 +1251,8 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->HasNext = NI_HasNext;
   ret->LastDocId = NI_LastDocId;
   ret->Len = NI_Len;
-  ret->Read = NI_ReadSorted;
-  ret->SkipTo = NI_SkipTo;
+  ret->Read = optimized ? NI_ReadSorted_O : NI_ReadSorted_NO;
+  ret->SkipTo = optimized ? NI_SkipTo_O : NI_SkipTo_NO;
   ret->Abort = NI_Abort;
   ret->Rewind = NI_Rewind;
 
@@ -1300,12 +1439,6 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   return ret;
 }
 
-/* Wildcard iterator, matching ALL documents in the index. This is used for one thing only -
- * purely negative queries. If the root of the query is a negative expression, we cannot process
- * it
- * without a positive expression. So we create a wildcard iterator that basically just iterates
- * all
- * the incremental document ids, and matches every skip within its range. */
 typedef struct {
   IndexIterator base;
   t_docId topId;
@@ -1389,7 +1522,7 @@ static size_t WI_NumEstimated(void *p) {
 }
 
 /* Create a new wildcard iterator */
-IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
+static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
   WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
   c->current = 0;
   c->topId = maxId;
@@ -1411,6 +1544,25 @@ IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs) {
   ret->Rewind = WI_Rewind;
   ret->NumEstimated = WI_NumEstimated;
   return ret;
+}
+
+// Returns a new wildcard iterator.
+IndexIterator *NewWildcardIterator(QueryEvalCtx *q) {
+  IndexIterator *ret;
+  if (q->sctx->spec->rule->index_all) {
+    if (q->sctx->spec->existingDocs) {
+      IndexReader *ir = NewGenericIndexReader(q->sctx->spec->existingDocs,
+        q->sctx->spec, 1, 1);
+      ret = NewReadIterator(ir);
+      ret->type = WILDCARD_ITERATOR;
+    } else {
+      ret = NewEmptyIterator();
+    }
+    return ret;
+  }
+
+  // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
+  return NewWildcardIterator_NonOptimized(q->docTable->maxDocId, q->docTable->size);
 }
 
 static int EOI_Read(void *p, RSIndexResult **e) {
@@ -1450,29 +1602,6 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
 IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;
 }
-
-// LCOV_EXCL_START unused
-const char *IndexIterator_GetTypeString(const IndexIterator *it) {
-  if (it->Free == UnionIterator_Free) {
-    return "UNION";
-  } else if (it->Free == IntersectIterator_Free) {
-    return "INTERSECTION";
-  } else if (it->Free == OI_Free) {
-    return "OPTIONAL";
-  } else if (it->Free == WI_Free) {
-    return "WILDCARD";
-  } else if (it->Free == NI_Free) {
-    return "NOT";
-  } else if (it->Free == ReadIterator_Free) {
-    return "IIDX";
-  } else if (it == &eofIterator) {
-    return "EMPTY";
-  } else {
-    return "Unknown";
-  }
-}
-// LCOV_EXCL_STOP
-
 
 /**********************************************************
  * Profile printing functions

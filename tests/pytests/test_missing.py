@@ -585,9 +585,6 @@ def testMissingGC():
         conn.execute_command('HSET', f'doc{2 *i}', 't', fake.name())
         conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
 
-    # Wait for docs to be indexed
-    waitForIndex(env, 'idx')
-
     # Set the GC clean threshold to 0, and stop its periodic execution
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()

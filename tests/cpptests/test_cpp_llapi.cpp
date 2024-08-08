@@ -1306,11 +1306,11 @@ TEST_F(LLApiTest, testInfoSize) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 340);
+  ASSERT_EQ(RediSearch_MemUsage(index), 335);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 241);
+  ASSERT_EQ(RediSearch_MemUsage(index), 236);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
