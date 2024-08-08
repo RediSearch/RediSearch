@@ -138,13 +138,15 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   UpdateTopology(ctx);
 }
 
-void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  RedisModule_Assert(topologyRefreshTimer == 0);
+int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  if (topologyRefreshTimer) return REDISMODULE_ERR;
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  return REDISMODULE_OK;
 }
 
-void StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
+int StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  if (clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_OK; // Only Redis OSS supports this
   int rc = RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
-  RedisModule_Assert(rc == REDISMODULE_OK); // We should always be able to stop the timer
   topologyRefreshTimer = 0;
+  return rc; // OK if we stopped the timer, ERR if it was already stopped
 }

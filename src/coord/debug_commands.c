@@ -18,14 +18,20 @@ DEBUG_COMMAND(shardConnectionStates) {
 
 DEBUG_COMMAND(pauseTopologyUpdater) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  StopRedisTopologyUpdater(ctx);
-  return REDISMODULE_OK;
+  if (StopRedisTopologyUpdater(ctx) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Topology updater is already paused");
+  } else {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 DEBUG_COMMAND(resumeTopologyUpdater) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  InitRedisTopologyUpdater(ctx);
-  return REDISMODULE_OK;
+  if (InitRedisTopologyUpdater(ctx) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Topology updater is already running");
+  } else {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 DebugCommandType coordCommands[] = {
