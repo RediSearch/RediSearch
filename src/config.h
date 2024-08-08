@@ -217,6 +217,10 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
+#ifdef MT_BUILD
+void UpgradeDeprecatedMTConfigs();
+#endif
+
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define GC_SCANSIZE 100
