@@ -316,6 +316,24 @@ def testDeprecatedMTConfig_ignore_operations():
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '6']]) # follows MIN_OPERATION_WORKERS
 
+@skip(cluster=True, noWorkers=True)
+def testDeprecatedMTConfig_address_combination_full():
+    # Check allowed combination of deprecated and new configs
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6')
+    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '3']])
+    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
+    env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
+    env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '3']]) # follows WORKERS
+
+@skip(cluster=True, noWorkers=True)
+def testDeprecatedMTConfig_address_combination_operations():
+    # Check allowed combination of deprecated and new configs
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5')
+    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '5']])
+    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '3']])
+    env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
+    env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '3']]) # follows MIN_OPERATION_WORKERS
+
 ########################## TEST DEPRECATED MT CONFIGS END ##########################
 
 ###############################################################################
