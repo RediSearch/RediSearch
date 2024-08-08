@@ -28,7 +28,7 @@ on:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
       rejson:
-        type: integer
+        type: number
         default: 1
 
 env:
