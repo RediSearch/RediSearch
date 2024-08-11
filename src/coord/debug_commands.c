@@ -7,7 +7,7 @@
 #include "coord/rmr/rmr.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
-#include "redis_cluster.h"
+#include "coord/rmr/redis_cluster.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
