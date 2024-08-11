@@ -92,8 +92,8 @@ jobs:
         working-directory: setup/.install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          ./install_llvm.sh ${{ steps.mode.outputs.mode }} ${{ env.LLVM_VERSION }}
-          ./install_rust.sh 
+          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
+          ./test_deps/install_rust.sh 
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4

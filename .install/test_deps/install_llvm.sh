@@ -2,8 +2,8 @@
 
 OS_TYPE=$(uname -s)
 
-MODE=$1 
-VERSION=$2
+VERSION=$1
+MODE=$2
 
 
 
