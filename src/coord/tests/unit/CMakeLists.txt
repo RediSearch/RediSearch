@@ -4,7 +4,7 @@ message("# coord/tests/unit: root: " ${root})
 
 include_directories(${root}/src/coord)
 include_directories(${root}/deps)
-include_directories(${root}/tests)
+include_directories(${root}/coord/tests)
 
 add_executable(test_distagg test_distagg.cpp)
 target_link_libraries(test_distagg testdeps m redismock dl)

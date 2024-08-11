@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.13)
-# set(CMAKE_CXX_STANDARD 20)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
@@ -9,12 +8,7 @@ get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 #----------------------------------------------------------------------------------------------
 
 option(BUILD_STATIC "Build a static library" OFF)
-# BUILD_COORDINATOR
-# BUILD_COORD_OSS
-# BUILD_COORD_RLEC
-
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
-
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 
 #----------------------------------------------------------------------------------------------
@@ -38,10 +32,6 @@ add_compile_definitions(
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
-
-if (USE_REDIS_ALLOCATOR)
-    add_compile_definitions(REDIS_MODULE_TARGET)
-endif()
 
 #----------------------------------------------------------------------------------------------
 
@@ -90,21 +80,27 @@ file(GLOB SOURCES
     "deps/wildcard/*.c"
     "deps/geohash/*.c")
 
+add_library(rscore-test OBJECT ${SOURCES})
+
+if (USE_REDIS_ALLOCATOR)
+    add_compile_definitions(REDIS_MODULE_TARGET RMUTIL_NO_SDS)
+endif()
+
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>)
+    $<TARGET_OBJECTS:metaphone>
+    $<TARGET_OBJECTS:redisearch-coord-oss>)
 
 #----------------------------------------------------------------------------------------------
 
 if (BUILD_STATIC)
-    add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
+    add_library(redisearch-static STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore> src/module-init/module-init.c)
 
-    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:metaphone> $<TARGET_OBJECTS:rscore-test> src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
@@ -114,11 +110,18 @@ if (BUILD_STATIC)
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 else() # OSS RediSearch
-    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore> src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch
+            redisearch-geometry
+            VectorSimilarity
+            ${LIBUV_LIBS}
+            ${HIREDIS_LIBS}
+            ${SSL_LIBS}
+            ${REDISEARCH_LIBS}
+            ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
 
@@ -127,20 +130,30 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
-if (BUILD_COORDINATOR)
-    set(BUILD_SEARCH_UNIT_TESTS OFF)
-endif()
+if (BUILD_SEARCH_UNIT_TESTS)
+    enable_testing()
 
-if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
+    add_subdirectory(tests/cpptests/redismock)
+
+    add_library(testdeps STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore-test>)
+
+
+    target_link_libraries(testdeps
+            ${LIBUV_LIBS}
+            redisearch-geometry
+            redismock
+            VectorSimilarity
+            ${HIREDIS_LIBS}
+            ${SSL_LIBS}
+            dl)
+
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)
-    add_subdirectory(tests/c_utils)
     add_subdirectory(tests/ctests/ext-example example_extension)
-    if (ENABLE_REDIS_MOCK)
-        add_subdirectory(tests/cpptests/redismock)
-    endif()
+    add_subdirectory(tests/ctests/coord_tests)
+
 endif()

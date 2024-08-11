@@ -246,8 +246,7 @@ CMAKE_FILES+= \
 	tests/ctests/CMakeLists.txt \
 	tests/cpptests/CMakeLists.txt \
 	tests/cpptests/redismock/CMakeLists.txt \
-	tests/pytests/CMakeLists.txt \
-	tests/c_utils/CMakeLists.txt
+	tests/pytests/CMakeLists.txt
 endif
 
 #----------------------------------------------------------------------------------------------

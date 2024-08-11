@@ -21,7 +21,6 @@ endif()
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE) # don't run RediSearch tests
 set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests
 set(BUILD_STATIC OFF CACHE BOOL "" FORCE)
-set(BUILD_COORDINATOR 1)
 
 #----------------------------------------------------------------------------------------------
 
@@ -94,38 +93,14 @@ add_library(${_moduleName} SHARED ${FINAL_OBJECTS})
 
 target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
 
-target_link_libraries(${_moduleName}
-		redisearch-${MODULE_NAME_SUFFIX}
-		redisearch-geometry
-		VectorSimilarity
-		${LIBUV_LIBS}
-		${HIREDIS_LIBS}
-		${SSL_LIBS})
-
-setup_shared_object_target(${_moduleName} ${_moduleName})
-
-extract_debug_symbols(${_moduleName})
-
-#----------------------------------------------------------------------------------------------
-
-if (BUILD_COORD_OSS)
-	enable_testing()
-
-	add_library(testdeps STATIC ${FINAL_OBJECTS})
-	target_link_libraries(testdeps
-		${LIBUV_LIBS}
-		redisearch-oss
-		redisearch-geometry
-		redismock
-		VectorSimilarity
-		${HIREDIS_LIBS}
-		${SSL_LIBS}
-		dl)
-
-	if (BUILD_SEARCH_UNIT_TESTS)
-		add_subdirectory(rmr/test)
-		add_subdirectory(tests/unit)
-		add_subdirectory(${root}/tests/ctests/ext-example example_extension)
-		add_subdirectory(${root}/tests/cpptests/redismock redismock)
-	endif()
-endif()
+#target_link_libraries(${_moduleName}
+#		redisearch-${MODULE_NAME_SUFFIX}
+#		redisearch-geometry
+#		VectorSimilarity
+#		${LIBUV_LIBS}
+#		${HIREDIS_LIBS}
+#		${SSL_LIBS})
+#
+#setup_shared_object_target(${_moduleName} ${_moduleName})
+#
+#extract_debug_symbols(${_moduleName})

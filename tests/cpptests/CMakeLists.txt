@@ -1,16 +1,9 @@
 
-# include(CTest)
-
 include_directories("${gtest_SOURCE_DIR}/include")
-include_directories(.)
-
-add_subdirectory(redismock)
 
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
 endif()
-
-# add_definitions(-DEXT_TEST_PATH="\\"${binroot}/search/tests/cpptests/example_extension/libexample_extension.so\\"")
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
