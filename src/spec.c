@@ -2464,10 +2464,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     spec_ref = (StrongRef){oldSpec};
   } else {
     dictAdd(specDict_g, sp->name, spec_ref.rm);
-  }
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    }
   }
 
   return REDISMODULE_OK;
