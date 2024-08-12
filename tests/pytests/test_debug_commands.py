@@ -29,13 +29,12 @@ class TestDebugCommands(object):
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
             help_list.append('WORKERS')
-        self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
-        for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']:
-                # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
-                 continue
-            self.env.expect('FT.DEBUG', cmd).error().contains(err_msg)
+        self.env.expect(debug_cmd(), 'help').equal(help_list)
+
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']
+        for cmd in [c for c in help_list if c not in arity_2_cmds]:
+            self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
     def testDocInfo(self):
         rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
@@ -310,3 +309,9 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').noError()
     # Look for the coordinator only command in the help command
     env.expect(debug_cmd(), 'HELP').contains('SHARD_CONNECTION_STATES')
+
+    # Test topology updater pause and resume
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').error().contains('Topology updater is already paused')
+    env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
+    env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
