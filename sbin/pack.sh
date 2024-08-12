@@ -87,6 +87,11 @@ if [[ $OS == macos ]]; then
 	fi
 fi
 
+if [[ $OSNICK == alpine3 ]]; then
+	# Restore the original os-release ID, as it was changed to support gha
+	sed -i 's/ID=NotpineForGHA/ID=alpine/g' /etc/os-release
+fi
+
 PLATFORM="$OS-$OSNICK-$ARCH"
 
 #----------------------------------------------------------------------------------------------
