@@ -87,10 +87,9 @@ if [[ $OS == macos ]]; then
 	fi
 fi
 
-# Restore the original os-release ID, as it was changed to support gha
+# Fix OSNICK for NotpineForGHA3 (alpine workaround to support arm64 GH Actions)
 if [[ $OSNICK == NotpineForGHA3* ]]; then
 	OSNICK=alpine3
-	sed -i 's/ID=NotpineForGHA/ID=alpine/g' /etc/os-release
 fi
 
 PLATFORM="$OS-$OSNICK-$ARCH"

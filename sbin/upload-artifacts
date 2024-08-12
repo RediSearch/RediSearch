@@ -64,6 +64,11 @@ if [[ $OS == macos ]]; then
 	fi
 fi
 
+# Fix OSNICK for NotpineForGHA3 (alpine workaround to support arm64 GH Actions)
+if [[ $OSNICK == NotpineForGHA3* ]]; then
+	OSNICK=alpine3
+fi
+
 PLATFORM="$OS-$OSNICK-$ARCH"
 
 #----------------------------------------------------------------------------------------------
