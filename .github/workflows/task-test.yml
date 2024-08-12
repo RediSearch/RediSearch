@@ -155,7 +155,7 @@ jobs:
         id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} TEST=test_async:testAlterIndex
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
