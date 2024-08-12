@@ -15,7 +15,7 @@ else
         filename=cmake-${version}-linux-aarch64.sh
     fi
 
-    wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+    wget -q https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
     chmod u+x ./${filename}
     $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
     cmake --version
