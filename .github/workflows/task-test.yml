@@ -110,14 +110,14 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
       - name: Get Redis (node20)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
+        if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Get Redis (node20 not supported)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
+        if: ${{ steps.node20.outputs.supported == 'false' }}
         uses: actions/checkout@v3
         with:
           repository: redis/redis
@@ -137,7 +137,7 @@ jobs:
       - name: verify CC and CXX
         if: inputs.san == 'address'
         run: |
-         echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
           echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Build
