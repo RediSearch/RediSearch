@@ -150,7 +150,7 @@ jobs:
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} TEST=test_async:testAlterIndex
       - name: Flow tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
