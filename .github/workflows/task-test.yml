@@ -162,7 +162,8 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' ||
+           steps.test1.outcome == 'cancelled' || steps.test2.outcome == 'cancelled' || steps.test3.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -174,7 +175,8 @@ jobs:
         # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' ||
+           steps.test1.outcome == 'cancelled' || steps.test2.outcome == 'cancelled' || steps.test3.outcome == 'cancelled')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
