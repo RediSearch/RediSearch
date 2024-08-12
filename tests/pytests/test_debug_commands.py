@@ -29,14 +29,10 @@ class TestDebugCommands(object):
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
             help_list.append('WORKERS')
-        if COORD_BUILD:
-            coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
-            help_list.extend(coord_help_list)
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
