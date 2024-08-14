@@ -16,7 +16,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
     //printf("%d ", i);
     if (pattern_end != pattern_itr) {
       const char c = *pattern_itr;
-      if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
+      if ((str_end != str_itr) && (c == *str_itr || c == '?') && (c != '*')) {
         ++str_itr;
         ++pattern_itr;
         continue;
