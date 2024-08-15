@@ -27,6 +27,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
         }
         const char d = *pattern_itr;
         if (d != '?') {
+          // If d = '?', it consumes any character, thus handled next iteration, above
           while ((str_end != str_itr) && !(d == *str_itr)) {
             // Continue in string pointer until either it ends, or we find a
             // matching character the pattern pointer
