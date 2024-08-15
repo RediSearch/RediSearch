@@ -15,18 +15,14 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
   while (++i) {
     if (pattern_end > pattern_itr) {
       const char c = *pattern_itr;
-      if ((str_end > str_itr) && (c == *str_itr || c == '?') && (c != '*')) {
-        // Equal characters or '?' match --> advance both pointers
-        ++str_itr;
-        ++pattern_itr;
-        continue;
-      } else if (c == '*') {
+
+      if (c == '*') {
         while ((pattern_end > pattern_itr) && (*pattern_itr == '*')) {
           // Multiple '*' are equivalent to a single '*' --> skip them
           ++pattern_itr;
         }
         const char d = *pattern_itr;
-        if (d != '?') {
+        if ((pattern_end > pattern_itr) && d != '?') {
           // If d = '?', it consumes any character, thus handled next iteration, above
           while ((str_end > str_itr) && !(d == *str_itr)) {
             // Continue in string pointer until either it ends, or we find a
@@ -37,6 +33,11 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
         // Save pointers for the case that the '*' should have matched more characters ("backtracking")
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
+        continue;
+      } else if ((str_end > str_itr) && (c == *str_itr || c == '?')) {
+        // Equal characters or '?' match --> advance both pointers
+        ++str_itr;
+        ++pattern_itr;
         continue;
       }
     } else if (str_end <= str_itr) {
