@@ -30,7 +30,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
           // If d = '?', it consumes any character, thus handled next iteration, above
           while ((str_end > str_itr) && !(d == *str_itr)) {
             // Continue in string pointer until either it ends, or we find a
-            // matching character the pattern pointer
+            // matching character in the pattern pointer
             ++str_itr;
           }
         }
@@ -40,16 +40,16 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
         continue;
       }
     } else if (str_end <= str_itr) {
-      // Both pattern and string depleted - done
+      // Both pattern and string are depleted - done
       return FULL_MATCH;
     }
 
     if (str_end <= str_itr) {
-      // Pattern depleted, but string not - this could succeed if more characters
-      // are added to the string - partial match
+      // Pattern is depleted, but string is not - this could succeed if more
+      // characters are added to the string - partial match
       return PARTIAL_MATCH;
     } else if (ns_itr == NULL) {
-      // Pattern depleted but string not, and no '*' was found -> no match
+      // Pattern is depleted but string is not, and no '*' was found -> no match
       return NO_MATCH;
     }
     // Backtrack
