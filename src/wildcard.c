@@ -13,34 +13,47 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
   const char *ns_itr = NULL;
   int i = 0;
   while (++i) {
-    //printf("%d ", i);
-    if (pattern_end != pattern_itr) {
+    if (pattern_end > pattern_itr) {
       const char c = *pattern_itr;
-      if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
-        ++str_itr;
-        ++pattern_itr;
-        continue;
-      } else if (c == '*') {
-        while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
+
+      if (c == '*') {
+        while ((pattern_end > pattern_itr) && (*pattern_itr == '*')) {
+          // Multiple '*' are equivalent to a single '*' --> skip them
           ++pattern_itr;
         }
         const char d = *pattern_itr;
-        while ((str_end != str_itr) && !(d == *str_itr || d == '?')) {
-          ++str_itr;
+        if ((pattern_end > pattern_itr) && d != '?') {
+          // If d = '?', it consumes any character, thus handled next iteration, above
+          while ((str_end > str_itr) && !(d == *str_itr)) {
+            // Continue in string pointer until either it ends, or we find a
+            // matching character in the pattern pointer
+            ++str_itr;
+          }
         }
+        // Save pointers for the case that the '*' should have matched more characters ("backtracking")
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
         continue;
-      } 
-    } else if (str_end == str_itr) {
+      } else if ((str_end > str_itr) && (c == *str_itr || c == '?')) {
+        // Equal characters or '?' match --> advance both pointers
+        ++str_itr;
+        ++pattern_itr;
+        continue;
+      }
+    } else if (str_end <= str_itr) {
+      // Both pattern and string are depleted - done
       return FULL_MATCH;
     }
 
-    if (str_end == str_itr) {
+    if (str_end <= str_itr) {
+      // Pattern is depleted, but string is not - this could succeed if more
+      // characters are added to the string - partial match
       return PARTIAL_MATCH;
     } else if (ns_itr == NULL) {
+      // Pattern is depleted but string is not, and no '*' was found -> no match
       return NO_MATCH;
     }
+    // Backtrack
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
