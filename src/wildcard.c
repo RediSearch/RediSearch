@@ -16,30 +16,42 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
     if (pattern_end != pattern_itr) {
       const char c = *pattern_itr;
       if ((str_end != str_itr) && (c == *str_itr || c == '?') && (c != '*')) {
+        // Equal characters or '?' match --> advance both pointers
         ++str_itr;
         ++pattern_itr;
         continue;
       } else if (c == '*') {
         while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
+          // Multiple '*' are equivalent to a single '*' --> skip them
           ++pattern_itr;
         }
         const char d = *pattern_itr;
-        while ((str_end != str_itr) && !(d == *str_itr || d == '?')) {
-          ++str_itr;
+        if (d != '?') {
+          while ((str_end != str_itr) && !(d == *str_itr)) {
+            // Continue in string pointer until either it ends, or we find a
+            // matching character the pattern pointer
+            ++str_itr;
+          }
         }
+        // Save pointers for the case that the '*' should have matched more characters ("backtracking")
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
         continue;
-      } 
+      }
     } else if (str_end == str_itr) {
+      // Both pattern and string depleted - done
       return FULL_MATCH;
     }
 
     if (str_end == str_itr) {
+      // Pattern depleted, but string not - this could succeed if more characters
+      // are added to the string - partial match
       return PARTIAL_MATCH;
     } else if (ns_itr == NULL) {
+      // Pattern depleted but string not, and no '*' was found -> no match
       return NO_MATCH;
     }
+    // Backtrack
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
