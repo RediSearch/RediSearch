@@ -13,7 +13,7 @@
 #include "util/arr.h"
 #include "config.h"
 #include "util/timeout.h"
-#include "wildcard/wildcard.h"
+#include "wildcard.h"
 
 typedef struct {
   rune * buf;

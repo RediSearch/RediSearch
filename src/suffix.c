@@ -7,7 +7,7 @@
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
-#include "wildcard/wildcard.h"
+#include "wildcard.h"
 
 #include <string.h>
 #include <strings.h>
