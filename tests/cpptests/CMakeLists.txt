@@ -16,6 +16,6 @@ add_test(NAME rstest COMMAND rstest)
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
-target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
+target_link_libraries(rsbench ${TEST_MODULE} testdeps ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
 # set_property(TARGET rsbench PROPERTY CXX_STANDARD 11)

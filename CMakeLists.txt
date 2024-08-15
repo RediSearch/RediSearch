@@ -33,6 +33,9 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if (USE_REDIS_ALLOCATOR)
+    add_compile_definitions(REDIS_MODULE_TARGET RMUTIL_NO_SDS)
+endif()
 #----------------------------------------------------------------------------------------------
 
 include_directories(
@@ -80,15 +83,10 @@ file(GLOB SOURCES
     "deps/wildcard/*.c"
     "deps/geohash/*.c")
 
-add_library(rscore-test OBJECT ${SOURCES})
-
-if (USE_REDIS_ALLOCATOR)
-    add_compile_definitions(REDIS_MODULE_TARGET RMUTIL_NO_SDS)
-endif()
-
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
+    $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
@@ -98,7 +96,7 @@ set(FINAL_OBJECTS
 #----------------------------------------------------------------------------------------------
 
 if (BUILD_STATIC)
-    add_library(redisearch-static STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore> src/module-init/module-init.c)
+    add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:metaphone> $<TARGET_OBJECTS:rscore-test> src/module-init/module-init.c)
 
@@ -110,7 +108,7 @@ if (BUILD_STATIC)
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 else() # OSS RediSearch
-    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore> src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
@@ -135,7 +133,7 @@ if (BUILD_SEARCH_UNIT_TESTS)
 
     add_subdirectory(tests/cpptests/redismock)
 
-    add_library(testdeps STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:rscore-test>)
+    add_library(testdeps STATIC ${FINAL_OBJECTS})
 
 
     target_link_libraries(testdeps
