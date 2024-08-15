@@ -5,7 +5,7 @@
  */
 
 
-#include "wildcard/wildcard.h"
+#include "wildcard.h"
 #include "suffix.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"

@@ -50,6 +50,27 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
+class DialectEnv(Env):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dialect = None
+
+    def set_dialect(self, dialect):
+        self.dialect = dialect
+        result = run_command_on_all_shards(self, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        expected_result = ['OK'] * self.shardsCount
+        self.assertEqual(result, expected_result, message=f"Failed to set dialect to {dialect} on all shards")
+
+    def get_dialect(self):
+        return self.dialect
+
+    def assertEqual(self, first, second, depth=0, message=None):
+        if self.dialect is not None:
+            if message is None:
+                message = f'Dialect {self.dialect}'
+            else:
+                message = f'Dialect {self.dialect}, {message}'
+        super().assertEqual(first, second, depth=depth, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -371,6 +392,15 @@ def to_dict(res):
 
 def to_list(input_dict: dict):
     return [item for pair in input_dict.items() for item in pair]
+
+MAX_DIALECT = 0
+def set_max_dialect(env):
+    global MAX_DIALECT
+    if MAX_DIALECT == 0:
+        info = env.cmd('INFO', 'MODULES')
+        prefix = 'search_dialect_'
+        MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
+    return MAX_DIALECT
 
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000

@@ -5,7 +5,7 @@
 #include "util/bsearch.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
-#include "wildcard/wildcard.h"
+#include "wildcard.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
