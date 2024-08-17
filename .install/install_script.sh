@@ -12,7 +12,7 @@ else
     OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
     OS_NAME=${OS_NAME#"NAME="}
     [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
-    [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor version for Alpine Linux
+    [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
     OS=${OS_NAME,,}_${VERSION}
     OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
 fi
