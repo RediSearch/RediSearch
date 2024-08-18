@@ -385,3 +385,25 @@ def testSuffixCleanup(env):
   conn.execute_command('DEL', 'doc')
 
   forceInvokeGC(env, 'idx')
+
+def testMOD7453():
+  """Tests that we don't enter an infinite loop when we match a wildcard to a
+    wildcard in the matched term"""
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create an index with a TEXT and TAG field
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+
+  # Populate the db
+  conn.execute_command('HSET', 'doc1', 'tag', 'ba*cl', 'text', 'ba*cl')
+
+  # Search via "problematic" wildcard
+  res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*'} @text:w'*a*'")
+  env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])
+
+  # TODO: Bug - this should work for intersection as well, but doesn't since
+  # the text wildcard doesn't match the result correctly.
+  res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*?'} | @text:w'*a*?'")
+  env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])
