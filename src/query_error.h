@@ -74,6 +74,9 @@ typedef enum {
 typedef struct QueryError {
   QueryErrorCode code;
   char *detail;
+
+  // warnings
+  bool reached_maxprefixexpansions;
 } QueryError;
 
 /** Initialize QueryError object */
