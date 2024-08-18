@@ -208,6 +208,9 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CursorList_Init(&g_CursorsListCoord, true);
 
 #ifdef MT_BUILD
+  // Handle deprecated MT configurations
+  UpgradeDeprecatedMTConfigs();
+
   // Init threadpool.
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;

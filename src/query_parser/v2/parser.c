@@ -73,6 +73,35 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
+static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        return NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing - `A` is already assigned
+    } else {
+        struct RSQueryNode* child;
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
+        A->opts.fieldMask |= child->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+    return A;
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -1713,40 +1742,13 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy47 = yylhsminor.yy47;
         break;
       case 9: /* union ::= expr OR expr */
+      case 10: /* union ::= union OR expr */ yytestcase(yyruleno==10);
       case 11: /* union ::= text_expr OR expr */ yytestcase(yyruleno==11);
       case 12: /* union ::= expr OR text_expr */ yytestcase(yyruleno==12);
       case 14: /* text_union ::= text_expr OR text_expr */ yytestcase(yyruleno==14);
-{
-    int rv = one_not_null(yymsp[-2].minor.yy47, yymsp[0].minor.yy47, (void**)&yylhsminor.yy47);
-    if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy47 = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (yymsp[-2].minor.yy47->type == QN_UNION && yymsp[-2].minor.yy47->opts.fieldMask == RS_FIELDMASK_ALL) {
-            yylhsminor.yy47 = yymsp[-2].minor.yy47;
-        } else {
-            yylhsminor.yy47 = NewUnionNode();
-            QueryNode_AddChild(yylhsminor.yy47, yymsp[-2].minor.yy47);
-            yylhsminor.yy47->opts.fieldMask |= yymsp[-2].minor.yy47->opts.fieldMask;
-        }
-        // Handle yymsp[0].minor.yy47
-        QueryNode_AddChild(yylhsminor.yy47, yymsp[0].minor.yy47);
-        yylhsminor.yy47->opts.fieldMask |= yymsp[0].minor.yy47->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy47, yylhsminor.yy47->opts.fieldMask);
-    }
-}
-  yymsp[-2].minor.yy47 = yylhsminor.yy47;
-        break;
-      case 10: /* union ::= union OR expr */
       case 15: /* text_union ::= text_union OR text_expr */ yytestcase(yyruleno==15);
 {
-    yylhsminor.yy47 = yymsp[-2].minor.yy47;
-    if (yymsp[0].minor.yy47) {
-        QueryNode_AddChild(yylhsminor.yy47, yymsp[0].minor.yy47);
-        yylhsminor.yy47->opts.fieldMask |= yymsp[0].minor.yy47->opts.fieldMask;
-        QueryNode_SetFieldMask(yymsp[0].minor.yy47, yylhsminor.yy47->opts.fieldMask);
-    }
+  yylhsminor.yy47 = union_step(yymsp[-2].minor.yy47, yymsp[0].minor.yy47);
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
         break;

@@ -130,13 +130,22 @@ void UpdateTopology(RedisModuleCtx *ctx) {
 }
 
 #define REFRESH_PERIOD 1000 // 1 second
+RedisModuleTimerID topologyRefreshTimer = 0;
 
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
-  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
 }
 
-void InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
-  RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  if (topologyRefreshTimer || clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_ERR;
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  return REDISMODULE_OK;
+}
+
+int StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
+  int rc = RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  topologyRefreshTimer = 0;
+  return rc; // OK if we stopped the timer, ERR if it was already stopped (or never started - enterprise)
 }

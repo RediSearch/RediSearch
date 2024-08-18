@@ -3930,18 +3930,18 @@ def test_cluster_set_with_password():
 def cluster_set_test(env: Env):
     def verify_address(addr):
         try:
-            with TimeLimit(10):
-                res = None
-                while res is None or res[9][2][1] != addr:
-                    res = env.cmd('SEARCH.CLUSTERINFO')
-        except Exception:
-            env.assertTrue(False, message='Failed waiting cluster set command to be updated with the new IP address %s' % addr)
+            with TimeLimit(10, f'Failed waiting cluster set command to be updated with the new IP address `{addr}`'):
+                while env.cmd('SEARCH.CLUSTERINFO')[9][2][1] != addr:
+                    pass
+        except Exception as e:
+            env.assertTrue(False, message=str(e))
 
     def prepare_env(env):
         # set validation timeout to 5ms so occasionaly we will fail to validate the cluster,
         # this is to test the timeout logic, and help us with ipv6 addresses in containers
         # where the ipv6 address is not available by default
         env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
+        env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
         verify_shard_init(env)
 
     password = env.password + "@" if env.password else ""
