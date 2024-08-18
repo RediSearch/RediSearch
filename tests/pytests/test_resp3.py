@@ -1502,3 +1502,22 @@ def test_error_with_partial_results():
 
   env.assertEqual(len(res['warning']), 1)
   env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+
+def test_warning_maxprefixexpansions():
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS 1')
+  env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+  env.cmd('HSET', 'doc1', 't', 'foo')
+  env.cmd('HSET', 'doc2', 't', 'fooo')
+
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1', 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+
+  # Set `MAXPREFIXEXPANSIONS` to a higher value
+  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 2)
+  env.assertEqual(res['results'], [{'id': 'doc1', 'values': []}, {'id': 'doc2', 'values': []}])
+  env.assertEqual(res['warning'], [])

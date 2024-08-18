@@ -619,8 +619,8 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
-    } else if (req->qiter.err) {
-      RedisModule_Reply_SimpleString(reply, "Max prefix expansions reached");
+    } else if (req->qiter.err->reached_maxprefixexpansions) {
+      RedisModule_Reply_SimpleString(reply, "Max prefix expansions limit was reached");
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
