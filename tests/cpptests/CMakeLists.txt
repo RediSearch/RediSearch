@@ -1,6 +1,9 @@
 
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
+
 include_directories("${gtest_SOURCE_DIR}/include")
-include_directories(../../src)
+include_directories(${root}/src)
+include_directories(${root}/deps)
 
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
@@ -10,13 +13,18 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} testdeps ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
-# set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
 add_dependencies(rstest example_extension)
 add_test(NAME rstest COMMAND rstest)
-# set_tests_properties(rstest PROPERTIES ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>")
+
+
+add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
+target_link_libraries(test_distagg ${TEST_MODULE} testdeps)
+set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+target_compile_definitions(test_distagg PRIVATE REDISMODULE_MAIN)
+add_test(name test_distagg COMMAND test_distagg)
+
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} testdeps ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
-# set_property(TARGET rsbench PROPERTY CXX_STANDARD 11)

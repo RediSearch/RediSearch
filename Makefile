@@ -17,7 +17,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build          # compile and link
-  COORD=0|1|oss|rlec  # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
+  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
   MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
@@ -105,78 +105,59 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),0) # Standalone build (explicit)
+ifeq ($(STATIC),1) # Static build
+	BINDIR=$(BINROOT)/search-static
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.a
+	PACKAGE_NAME=
+	MODULE_NAME=
+	RAMP_YAML=
 
-	ifeq ($(STATIC),1) # Static build
-		BINDIR=$(BINROOT)/search-static
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.a
-		PACKAGE_NAME=
-		MODULE_NAME=
-		RAMP_YAML=
+else ifeq ($(LITE),1)# Search Lite
+	BINDIR=$(BINROOT)/search-lite
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.so
+	PACKAGE_NAME=redisearch-light
+	MODULE_NAME=searchlight
+	RAMP_YAML=pack/ramp-light.yml
+	PACKAGE_S3_DIR=redisearch
+endif
 
-	else ifneq ($(LITE),1) # OSS Search
-		BINDIR=$(BINROOT)/search
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-oss
-		MODULE_NAME=search
-		RAMP_YAML=
-		PACKAGE_S3_DIR=
+ifeq ($(COORD),1)
+	override COORD:=oss
+else ifeq ($(COORD),) # Default: OSS Coordinator build
+	override COORD:=oss
+endif
 
-	else # Search Lite
-		BINDIR=$(BINROOT)/search-lite
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-light
-		MODULE_NAME=searchlight
-		RAMP_YAML=pack/ramp-light.yml
-		PACKAGE_S3_DIR=redisearch
-	endif
+ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
+	BINDIR=$(BINROOT)/search-ce
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.so
+	PACKAGE_NAME=redisearch-ce
+	MODULE_NAME=search
+	RAMP_YAML=pack/ramp-ce.yml
+	PACKAGE_S3_DIR=redisearch-oss
 
-else # COORD
+else ifeq ($(COORD),rlec) # RLEC Coordinator
+	BINDIR=$(BINROOT)/search-enterprise
+	SRCDIR=.
+	TARGET=$(BINDIR)/module-enterprise.so
+	PACKAGE_NAME=redisearch
+	MODULE_NAME=search
+	RAMP_YAML=pack/ramp-enterprise.yml
+	PACKAGE_S3_DIR=redisearch
 
-	ifeq ($(STATIC),1)
-		___:=$(error STATIC=1 is incompatible with COORD)
-	endif
+else
+	___:=$(error COORD should be either oss or rlec)
+endif
 
-	ifeq ($(COORD),1)
-		override COORD:=oss
-	else ifeq ($(COORD),) # Default: OSS Coordinator build
-		override COORD:=oss
-	endif
+LIBUV_DIR=$(ROOT)/deps/libuv
+export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
+include build/libuv/Makefile.defs
 
-	ifeq ($(COORD),oss) # OSS Coordinator
-		BINDIR=$(BINROOT)/search-ce
-		SRCDIR=.
-		TARGET=$(BINDIR)/redisearch.so
-		PACKAGE_NAME=redisearch-ce
-		MODULE_NAME=search
-		RAMP_YAML=src/pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch-oss
-
-	else ifeq ($(COORD),rlec) # RLEC Coordinator
-		BINDIR=$(BINROOT)/coord-rlec
-		SRCDIR=src/coord
-		TARGET=$(BINDIR)/module-enterprise.so
-		PACKAGE_NAME=redisearch
-		MODULE_NAME=search
-		RAMP_YAML=src/coord/pack/ramp.yml
-		PACKAGE_S3_DIR=redisearch
-
-	else
-		___:=$(error COORD should be either oss or rlec)
-	endif
-
-	LIBUV_DIR=$(ROOT)/deps/libuv
-	export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
-	include build/libuv/Makefile.defs
-
-	HIREDIS_DIR=$(ROOT)/deps/hiredis
-	HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
-	include build/hiredis/Makefile.defs
-
-endif # COORD
+HIREDIS_DIR=$(ROOT)/deps/hiredis
+HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
+include build/hiredis/Makefile.defs
 
 export COORD
 export PACKAGE_NAME
@@ -206,9 +187,6 @@ CC_C_STD=gnu11
 # CC_CXX_STD=c++20
 
 CC_STATIC_LIBSTDCXX ?= 1
-
-CC_COMMON_H=src/common.h
-
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(VERBOSE_UTESTS),1)
@@ -381,14 +359,6 @@ fetch:
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),0)
-CMAKE_TARGET=rscore
-CMAKE_TARGET_DIR=
-else
-CMAKE_TARGET=coordinator-core
-CMAKE_TARGET_DIR=src/
-endif
-
 CMAKE_TARGET_BUILD_DIR=$(CMAKE_TARGET_DIR)CMakeFiles/$(CMAKE_TARGET).dir
 
 cc:
@@ -399,12 +369,10 @@ cc:
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(COORD),0)
 ifeq ($(REDIS_STANDALONE),0)
 WITH_RLTEST=1
 else ifeq ($(SA),0)
 WITH_RLTEST=1
-endif
 endif
 
 run:
@@ -520,6 +488,7 @@ bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
 else
 bin/artifacts/$(RAMP.release): __force
 endif
+
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 

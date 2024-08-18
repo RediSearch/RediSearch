@@ -73,16 +73,6 @@ add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/coord)
 
-if (${COORD_TYPE} STREQUAL "oss")
-    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_OSS)
-elseif (${TYPE} STREQUAL "rlec")
-    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_ENTERPRISE)
-    set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
-    #set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: why calling it module and not redisearch???
-else()
-    message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
-endif()
-
 #----------------------------------------------------------------------------------------------
 
 file(GLOB SOURCES
@@ -152,6 +142,16 @@ else() # OSS RediSearch
 
     add_dependencies(redisearch VectorSimilarity)
 
+endif()
+
+if (${COORD_TYPE} STREQUAL "oss")
+    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_OSS)
+elseif (${COORD_TYPE} STREQUAL "rlec")
+    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_ENTERPRISE)
+    # TODO: why calling it module and not redisearch???
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
+else()
+    message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
 #----------------------------------------------------------------------------------------------

@@ -145,11 +145,11 @@ fi
 $READIES/bin/sep1
 echo "# Running coordinator unit tests"
 TESTS_DIR="$(cd $BINROOT/search-ce/tests/ctests/coord_tests; pwd)"
-cd $ROOT/src/coord/tests/unit
 if [[ -z $TEST ]]; then
 	if [[ $NOP != 1 ]]; then
 		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
 			TEST_NAME="$(basename $test)" sanitizer_defs
+			echo $TEST_NAME
 			{ $test; (( E |= $? )); } || true
 		done
 	else
@@ -159,6 +159,20 @@ else
 	$OP $GDB_CMD $TESTS_DIR/$TEST
 fi
 
+TESTS_DIR="$(cd $BINROOT/search-ce/tests/cpptests; pwd)"
+if [[ -z $TEST ]]; then
+	if [[ $NOP != 1 ]]; then
+		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
+			TEST_NAME="$(basename $test)" sanitizer_defs
+			echo $TEST_NAME
+			{ $test; (( E |= $? )); } || true
+		done
+	else
+		find $TESTS_DIR -name "test_*" -type f -executable -print
+	fi
+else
+	$OP $GDB_CMD $TESTS_DIR/$TEST
+fi
 #-------------------------------------------------------------------------------------- Summary
 
 if [[ $NOP != 1 ]]; then
