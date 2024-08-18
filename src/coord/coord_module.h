@@ -1,4 +1,5 @@
-#include "src/module.h"
+#pragma once
+
 #include "util/heap.h"
 #include "query.h"
 

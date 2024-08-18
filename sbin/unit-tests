@@ -65,7 +65,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
+export EXT_TEST_PATH=${BINROOT}/search-ce/example_extension/libexample_extension.so
 
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
@@ -110,7 +110,7 @@ E=0
 if [[ $C_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C unit tests"
-	TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-ce/tests/ctests; pwd)"
 	cd $ROOT/tests/ctests
 	if [[ -z $TEST ]]; then
 		if [[ $NOP != 1 ]]; then
@@ -132,7 +132,7 @@ fi
 if [[ $CPP_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C++ unit tests"
-	TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-ce/tests/cpptests; pwd)"
 	cd $ROOT/tests/cpptests
 	TEST_NAME=rstest sanitizer_defs
 	if [[ -z $TEST ]]; then
@@ -144,7 +144,7 @@ fi
 
 $READIES/bin/sep1
 echo "# Running coordinator unit tests"
-TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
+TESTS_DIR="$(cd $BINROOT/search-ce/tests/ctests/coord_tests; pwd)"
 cd $ROOT/src/coord/tests/unit
 if [[ -z $TEST ]]; then
 	if [[ $NOP != 1 ]]; then

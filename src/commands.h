@@ -4,19 +4,15 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_COMMANDS_H_
-#define RS_COMMANDS_H_
+#pragma once
 
 /** RS_CMD_PREFIX can be defined with -D from the Makefile */
 #ifdef RS_CLUSTER_ENTERPRISE
 #define RS_CMD_WRITE_PREFIX "FT"
 #define RS_CMD_READ_PREFIX "_FT"
-#elif defined(RS_CLUSTER_OSS)
+#else  // RS_CLUSTER_OSS
 #define RS_CMD_WRITE_PREFIX "_FT"
 #define RS_CMD_READ_PREFIX "_FT"
-#else
-#define RS_CMD_WRITE_PREFIX "FT"
-#define RS_CMD_READ_PREFIX "FT"
 #endif
 
 // write commands
@@ -72,5 +68,3 @@
 #define RS_DEBUG RS_CMD_READ_PREFIX ".DEBUG"
 #define RS_SPELL_CHECK RS_CMD_READ_PREFIX ".SPELLCHECK"
 #define RS_CONFIG RS_CMD_READ_PREFIX ".CONFIG"
-
-#endif

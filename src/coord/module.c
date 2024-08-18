@@ -27,6 +27,8 @@
 #include "resp3.h"
 #include "dist_profile.h"
 #include "debug_commands.h"
+#include "module.h"
+
 
 #include "libuv/include/uv.h"
 

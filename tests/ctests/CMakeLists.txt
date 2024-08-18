@@ -6,7 +6,7 @@ endif()
 
 function(define_test name)
     add_executable("${name}" "${name}.c")
-    target_link_libraries("${name}" testdeps ${TEST_MODULE} ${CMAKE_LD_LIBS})
+    target_link_libraries("${name}" ${TEST_MODULE} ${CMAKE_LD_LIBS})
     set_target_properties("${name}" PROPERTIES LINKER_LANGUAGE CXX)
 endfunction()
 

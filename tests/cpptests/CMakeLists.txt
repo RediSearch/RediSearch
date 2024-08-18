@@ -1,5 +1,6 @@
 
 include_directories("${gtest_SOURCE_DIR}/include")
+include_directories(../../src)
 
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
@@ -7,7 +8,7 @@ endif()
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
-target_link_libraries(rstest gtest ${TEST_MODULE} ${CMAKE_LD_LIBS} redismock)
+target_link_libraries(rstest gtest ${TEST_MODULE} testdeps ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 # set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
 add_dependencies(rstest example_extension)

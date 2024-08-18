@@ -4,9 +4,11 @@ if (NOT TEST_MODULE)
 endif()
 
 include_directories(${root}/src/coord/rmr)
+add_compile_definitions(RMUTIL_NO_SDS)
 
 function(RMRTEST name)
     add_executable(${name} ${name}.c init-rm.c)
+    add_dependencies(${name} ${TEST_MODULE} testdeps)
     target_link_libraries("${name}" testdeps ${TEST_MODULE} ${CMAKE_LD_LIBS})
     add_test(NAME "${name}" COMMAND "${name}")
     set_target_properties("${name}" PROPERTIES COMPILE_FLAGS "-fvisibility=default")

@@ -14,10 +14,7 @@ option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 #----------------------------------------------------------------------------------------------
 
 project(redisearch)
-
-if (NOT MODULE_NAME)
-    set(MODULE_NAME "search")
-endif()
+set(MODULE_NAME "search")
 
 #----------------------------------------------------------------------------------------------
 
@@ -31,15 +28,33 @@ add_compile_definitions(
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
-    _GNU_SOURCE)
+    _GNU_SOURCE
+    RS_COORDINATOR)
+
 
 if (USE_REDIS_ALLOCATOR)
-    add_compile_definitions(REDIS_MODULE_TARGET RMUTIL_NO_SDS)
+    add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
+
+if (APPLE)
+    include_directories(/usr/local/opt/openssl/include)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
+
+    include_directories(${LIBSSL_DIR}/include)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
+    set(SSL_LIBS crypto ssl)
+else()
+    set(SSL_LIBS crypto crypt ssl)
+endif()
+
 #----------------------------------------------------------------------------------------------
+
+include(${root}/build/libuv/libuv.cmake)
+include(${root}/build/hiredis/hiredis.cmake)
 
 include_directories(
     ${root}/src
+    ${root}/src/coord
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
@@ -57,6 +72,16 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/coord)
+
+if (${COORD_TYPE} STREQUAL "oss")
+    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_OSS)
+elseif (${TYPE} STREQUAL "rlec")
+    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_ENTERPRISE)
+    set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
+    #set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: why calling it module and not redisearch???
+else()
+    message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
+endif()
 
 #----------------------------------------------------------------------------------------------
 
@@ -91,14 +116,15 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
-    $<TARGET_OBJECTS:redisearch-coord-oss>)
+    $<TARGET_OBJECTS:redisearch-coord>
+)
 
 #----------------------------------------------------------------------------------------------
 
 if (BUILD_STATIC)
     add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
 
-    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:metaphone> $<TARGET_OBJECTS:rscore-test> src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:metaphone> src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
@@ -115,15 +141,17 @@ else() # OSS RediSearch
     target_link_libraries(redisearch
             redisearch-geometry
             VectorSimilarity
+            redisearch-coord
             ${LIBUV_LIBS}
             ${HIREDIS_LIBS}
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
 
-    extract_debug_symbols(redisearch)
+#    extract_debug_symbols(redisearch)
 
     add_dependencies(redisearch VectorSimilarity)
+
 endif()
 
 #----------------------------------------------------------------------------------------------
@@ -133,8 +161,7 @@ if (BUILD_SEARCH_UNIT_TESTS)
 
     add_subdirectory(tests/cpptests/redismock)
 
-    add_library(testdeps STATIC ${FINAL_OBJECTS})
-
+    add_library(testdeps STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:redismock>)
 
     target_link_libraries(testdeps
             ${LIBUV_LIBS}
@@ -142,8 +169,7 @@ if (BUILD_SEARCH_UNIT_TESTS)
             redismock
             VectorSimilarity
             ${HIREDIS_LIBS}
-            ${SSL_LIBS}
-            dl)
+            ${SSL_LIBS})
 
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)

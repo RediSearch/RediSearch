@@ -18,10 +18,6 @@ else()
 	message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE) # don't run RediSearch tests
-set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests
-set(BUILD_STATIC OFF CACHE BOOL "" FORCE)
-
 #----------------------------------------------------------------------------------------------
 
 project(RSCoordinator)
@@ -36,7 +32,7 @@ add_compile_definitions(
 setup_cc_options()
 
 # Specific to coordinator
-add_compile_options("-fvisibility=hidden")
+#add_compile_options("-fvisibility=hidden")
 
 #----------------------------------------------------------------------------------------------
 
@@ -49,58 +45,19 @@ include_directories(
 	${root}
 	${root}/deps/VectorSimilarity/src)
 
-if (APPLE)
-    include_directories(/usr/local/opt/openssl/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
-endif()
-
 add_subdirectory(rmr)
 
 file(GLOB COORDINATOR_SRC *.c *.cpp)
 add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
 
-include(${root}/build/libuv/libuv.cmake)
-include(${root}/build/hiredis/hiredis.cmake)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)
 
-if (APPLE)
-	include_directories(${LIBSSL_DIR}/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
-	set(SSL_LIBS crypto ssl)
-else()
-	set(SSL_LIBS crypto crypt ssl)
-endif()
+add_library(redisearch-coord STATIC ${FINAL_OBJECTS})
 
-#----------------------------------------------------------------------------------------------
-
-if (${COORD_TYPE} STREQUAL "oss")
-	set(_moduleDefs "RS_CLUSTER_OSS")
-	set(MODULE_NAME_SUFFIX "oss")
-	set(_moduleName redisearch-coord-${MODULE_NAME_SUFFIX})
-elseif (${TYPE} STREQUAL "rlec")
-	set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
-	set(MODULE_NAME_SUFFIX "enterprise")
-	set(_moduleName module-${MODULE_NAME_SUFFIX}) # TODO: why calling it module and not redisearch???
-else()
-	message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
-endif()
-
-add_library(${_moduleName} SHARED ${FINAL_OBJECTS})
-
-target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
-
-#target_link_libraries(${_moduleName}
-#		redisearch-${MODULE_NAME_SUFFIX}
-#		redisearch-geometry
-#		VectorSimilarity
-#		${LIBUV_LIBS}
-#		${HIREDIS_LIBS}
-#		${SSL_LIBS})
-#
 #setup_shared_object_target(${_moduleName} ${_moduleName})
 #
 #extract_debug_symbols(${_moduleName})
