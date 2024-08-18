@@ -1505,9 +1505,10 @@ def test_error_with_partial_results():
 
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS 1')
+  conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
-  env.cmd('HSET', 'doc1', 't', 'foo')
-  env.cmd('HSET', 'doc2', 't', 'fooo')
+  conn.execute_command('HSET', 'doc1', 't', 'foo')
+  conn.execute_command('HSET', 'doc2', 't', 'fooo')
 
   res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
   env.assertEqual(res['total_results'], 1)
