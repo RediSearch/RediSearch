@@ -148,14 +148,14 @@ jobs:
 
       # Upload
       - name: Configure AWS Credentials (node20)
-        if: steps.node20.outputs.supported == 'true'
+        if: steps.node20.outputs.supported == 'true' && vars.ARTIFACT_SHOULD_UPLOAD != 'false'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+        if: steps.node20.outputs.supported == 'false' && vars.ARTIFACT_SHOULD_UPLOAD != 'false'
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}

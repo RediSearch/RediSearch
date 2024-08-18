@@ -83,6 +83,7 @@ jobs:
       - name: Get boto3
         run: pip install boto3
       - name: Set Version Artifacts
+        if: vars.ARTIFACT_SHOULD_UPLOAD != 'false'
         shell: python
         run: |
           import boto3
