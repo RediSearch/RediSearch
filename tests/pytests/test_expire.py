@@ -163,7 +163,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
                 'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
             conn.execute_command('HSET', 'doc1', 't', 'bar')
             conn.execute_command('HSET', 'doc2', 't', 'arr')
-        conn.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
+        conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')
         env.assertEqual(res, expected_results[both_docs_no_sortby], message='both docs exist')
@@ -245,7 +245,7 @@ def test_expire_aggregate(env):
     # Use "lazy" expire (expire only when key is accessed)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    conn.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')
@@ -465,3 +465,22 @@ def testLazyVectorFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+
+@skip(redis_less_than='7.3')
+def testLastFieldNoExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
+    conn.execute_command('HEXPIRE', 'doc:1', '300', 'FIELDS', '1', 'y')
+    # We want to hit this line:
+    # } else if (fieldIndexToCheck < fieldExpiration->index) {
+    #   ++runningIndex;
+    # for that we need a field with a high index that is set for expiration
+    # we use a free text search that will return both documents
+    # the mask for doc:1 will be for both x and y
+    # doc:1 will see it has fields set for expiration
+    # it will check if all of the fields are expired
+    # this should lead to the line being hit
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])

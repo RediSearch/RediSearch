@@ -4,17 +4,12 @@
 #include "util/misc.h"
 
 typedef struct {
-  t_docId id;
-  t_expirationTimePoint point;
-} DocumentExpiration;
-
-typedef struct {
-  DocumentExpiration documentExpiration;
+  t_expirationTimePoint documentExpirationPoint;
   FieldExpiration* fieldExpirations;
 } TimeToLiveEntry;
 
 static uint64_t hashFunction_DocId(const void *key) {
-  return (uint64_t)key;
+  return (t_docId)key;
 }
 static void *dup_DocId(void *p, const void *key) {
   return (void*)key;
@@ -40,34 +35,33 @@ static dictType dictTimeToLive = {
   .valDestructor = destructor_TimeToLiveEntry,
 };
 
-void TimeToLiveTable_Init(TimeToLiveTable *table) {
-    if (!table->hashTable) {
-      table->hashTable = dictCreate(&dictTimeToLive, NULL);
+void TimeToLiveTable_VerifyInit(TimeToLiveTable **table) {
+    if (!*table) {
+      *table = dictCreate(&dictTimeToLive, NULL);
     }
 }
 
-void TimeToLiveTable_Destroy(TimeToLiveTable *table) {
-    if (table->hashTable) {
-      dictRelease(table->hashTable);
-      table->hashTable = NULL;
+void TimeToLiveTable_Destroy(TimeToLiveTable **table) {
+    if (*table) {
+      dictRelease(*table);
+      *table = NULL;
     }
 }
 
 void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpirationTime, arrayof(FieldExpiration) sortedById) {
   TimeToLiveEntry* entry = (TimeToLiveEntry*)rm_malloc(sizeof(TimeToLiveEntry));
-  entry->documentExpiration.id = docId;
-  entry->documentExpiration.point = docExpirationTime;
+  entry->documentExpirationPoint = docExpirationTime;
   entry->fieldExpirations = sortedById;
   // we don't want the operation to fail so we use dictReplace
-  dictReplace(table->hashTable, (void*)docId, entry);
+  dictReplace(table, (void*)docId, entry);
 }
 
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId) {
-  dictDelete(table->hashTable, (void*)docId);
+  dictDelete(table, (void*)docId);
 }
 
-bool TimeToLiveTable_Empty(TimeToLiveTable *table) {
-  return dictSize(table->hashTable) == 0;
+bool TimeToLiveTable_IsEmpty(TimeToLiveTable *table) {
+  return dictSize(table) == 0;
 }
 
 static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirationTimePoint* now) {
@@ -75,27 +69,21 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
     return false;
   }
 
-  if (field->tv_sec > now->tv_sec) {
-    return false;
-  } else if (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec) {
-    return false;
-  } else {
-    return true;
-  }
+  return !((field->tv_sec > now->tv_sec) || (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec));
 }
 
 bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
-  dictEntry *entry = dictFind(table->hashTable, (void*)docId);
+  dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
     return false;
   }
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  return DidExpire(&ttlEntry->documentExpiration.point, expirationPoint);
+  return DidExpire(&ttlEntry->documentExpirationPoint, expirationPoint);
 }
 
 static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  dictEntry *entry = dictFind(table->hashTable, (void*)docId);
+  dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
     // the document did not have a ttl for itself or its children
     // if predicate is default then we know at least one field is valid

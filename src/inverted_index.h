@@ -239,8 +239,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
 
-static inline IndexReader *NewTermIndexReader(InvertedIndex *idx)
-{
+static inline IndexReader *NewTermIndexReader(InvertedIndex *idx) {
   return NewTermIndexReaderEx(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
 }
 

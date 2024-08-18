@@ -73,7 +73,7 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
-  TimeToLiveTable ttl;
+  TimeToLiveTable* ttl;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -151,6 +151,8 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
 // default predicate - one of the fields did not yet expire -> entry is still valid
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx, const struct timespec* expirationPoint);
+// Field Mask relates to textual fields only
+// So this function is meant to be used only in the context of textual fields
 bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx, const struct timespec* expirationPoint);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */

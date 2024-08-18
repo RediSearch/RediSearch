@@ -1111,6 +1111,11 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
 
     FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
+    if (!fs) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is currently limited to %d fields",
+                             sp->numFields);
+      goto reset;
+    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
@@ -1790,11 +1795,18 @@ IndexSpec *NewIndexSpec(const char *name) {
 
 // Assuming the spec is properly locked before calling this function.
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
-  sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+  if (sp->numFields + 1 == RS_INVALID_FIELD_INDEX) {
+    return NULL;
+  }
+  FieldSpec* fields = sp->fields;
+  fields = rm_realloc(fields, sizeof(*fields) * (sp->numFields + 1));
+  if (fields == NULL) {
+    return NULL;
+  }
+  sp->fields = fields;
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
-  RS_LOG_ASSERT(fs->index < RS_INVALID_FIELD_INDEX, "The maximum number of fields has been reached");
   fs->name = rm_strdup(name);
   fs->path = (path) ? rm_strdup(path) : fs->name;
   fs->ftId = (t_fieldId)-1;
@@ -2908,13 +2920,11 @@ static inline FieldExpiration* getHashFieldExpirationTime(IndexSpec *spec, Redis
   arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
   for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
     FieldSpec *f = spec->fields + field;
-    RS_LOG_ASSERT(f->index < spec->numFields, "index is outside allowed range");
     fields[f->index] = RedisModule_CreateString(ctx, f->name, strlen(f->name));
   }
   FieldExpiration* result = callHashFieldExpirationTime(ctx, key, fields);
   for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
     RedisModule_FreeString(ctx, fields[field]);
-    fields[field] = NULL;
   }
   array_free(fields);
   return result;

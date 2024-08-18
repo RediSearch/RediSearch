@@ -825,7 +825,7 @@ typedef struct {
   uint32_t fields;
 } MonitorExpirationOptions;
 
-DEBUG_COMMAND(monitorExpiration) {
+DEBUG_COMMAND(setMonitorExpiration) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1285,7 +1285,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
-                               {"MONITOR_EXPIRATION", monitorExpiration},
+                               {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
                                {NULL, NULL}};

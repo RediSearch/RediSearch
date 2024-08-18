@@ -14,15 +14,13 @@ typedef struct {
   t_expirationTimePoint point;
 } FieldExpiration;
 
-typedef struct {
-  dict *hashTable;
-} TimeToLiveTable;
+typedef dict TimeToLiveTable;
 
-void TimeToLiveTable_Init(TimeToLiveTable *table);
-void TimeToLiveTable_Destroy(TimeToLiveTable *table);
+void TimeToLiveTable_VerifyInit(TimeToLiveTable **table);
+void TimeToLiveTable_Destroy(TimeToLiveTable **table);
 void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpiration, arrayof(FieldExpiration) sortedById);
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId);
-bool TimeToLiveTable_Empty(TimeToLiveTable *table);
+bool TimeToLiveTable_IsEmpty(TimeToLiveTable *table);
 
 bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint);
 bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);

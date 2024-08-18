@@ -280,8 +280,8 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
-        master.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
-        slave.execute_command(debug_cmd(), 'MONITOR_EXPIRATION', 'idx', 'documents', '0')
+        master.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
+        slave.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
         master.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
         time.sleep(0.05)

@@ -123,6 +123,9 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 
   // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
+  if (!fs) {
+    return sp->numFields;
+  }
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {

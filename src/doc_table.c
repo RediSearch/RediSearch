@@ -211,27 +211,27 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   if (hasExpirationTimeInformation(dmd->flags)) {
-    TimeToLiveTable_Init(&t->ttl);
-    TimeToLiveTable_Add(&t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+    TimeToLiveTable_VerifyInit(&t->ttl);
+    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
   }
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (!hasExpirationTimeInformation(dmd->flags) || !t->ttl.hashTable) {
+  if (!hasExpirationTimeInformation(dmd->flags) || !t->ttl) {
       return false;
   }
-  return TimeToLiveTable_HasDocExpired(&t->ttl, dmd->id, expirationPoint);
+  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
 }
 
 bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx, const struct timespec* expirationPoint) {
-  if (!t->ttl.hashTable) {
+  if (!t->ttl) {
     return true;
   }
-  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(&t->ttl, docId, ctx->fieldIndex, ctx->predicate, expirationPoint);
+  return TimeToLiveTable_VerifyDocAndFieldIndexPredicate(t->ttl, docId, ctx->fieldIndex, ctx->predicate, expirationPoint);
 }
 
 bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx, const struct timespec* expirationPoint) {
-  if (!t->ttl.hashTable || ctx->fieldMask == RS_FIELDMASK_ALL) {
+  if (!t->ttl || ctx->fieldMask == RS_FIELDMASK_ALL) {
     return true;
   }
   t_fieldIndex* sortedFieldIndices = NULL;
@@ -247,7 +247,7 @@ bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docI
   if (!sortedFieldIndices) {
     return true;
   }
-  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(&t->ttl, docId, sortedFieldIndices, ctx->predicate, expirationPoint);
+  const bool verified = TimeToLiveTable_VerifyFieldIndicesPredicate(t->ttl, docId, sortedFieldIndices, ctx->predicate, expirationPoint);
   array_free(sortedFieldIndices);
   return verified;
 }
@@ -391,11 +391,10 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       return NULL;
     }
 
-    if (t->ttl.hashTable && hasExpirationTimeInformation(md->flags)) {
-      TimeToLiveTable_Remove(&t->ttl, md->id);
-      if (TimeToLiveTable_Empty(&t->ttl)) {
+    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+      TimeToLiveTable_Remove(t->ttl, md->id);
+      if (TimeToLiveTable_IsEmpty(t->ttl)) {
         TimeToLiveTable_Destroy(&t->ttl);
-        t->ttl.hashTable = NULL;
       }
     }
 

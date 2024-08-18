@@ -30,7 +30,7 @@ typedef enum {
 } RSContextFlags;
 
 typedef struct {
-  // current execution time - real clock
+  // current execution start time - real clock
   struct timespec current;
   // when the query should timeout - monotonic raw clock, unrelated to real clock
   struct timespec timeout;
