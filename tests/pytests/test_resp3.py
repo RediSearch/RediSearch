@@ -1504,21 +1504,31 @@ def test_error_with_partial_results():
   env.assertEqual(res['warning'][0], 'Timeout limit was reached')
 
 def test_warning_maxprefixexpansions():
-  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS 1')
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
-  conn.execute_command('HSET', 'doc1', 't', 'foo')
-  conn.execute_command('HSET', 'doc2', 't', 'fooo')
+
+  # Add documents to ONE OF THE SHARDS ONLY, such that MAXPREFIXEXPANSIONS will
+  # be reached only on that shard (others are empty)
+  conn.execute_command('HSET', 'doc1{1}', 't', 'foo')
+  conn.execute_command('HSET', 'doc2{1}', 't', 'fooo')
+
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  result = run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+  expected_result = ['OK'] * env.shardsCount
+  env.assertEqual(result, expected_result, message=f"Failed to set `maxprefixexpansions` on all shards: {result}")
 
   res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
   env.assertEqual(res['total_results'], 1)
-  env.assertEqual(res['results'], [{'id': 'doc1', 'values': []}])
+  env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
 
-  # Set `MAXPREFIXEXPANSIONS` to a higher value
-  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+  # Set `MAXPREFIXEXPANSIONS` to 10
+  result = run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+  expected_result = ['OK'] * env.shardsCount
+  env.assertEqual(result, expected_result, message=f"Failed to set `maxprefixexpansions` on all shards: {result}")
 
   res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
   env.assertEqual(res['total_results'], 2)
-  env.assertEqual(res['results'], [{'id': 'doc1', 'values': []}, {'id': 'doc2', 'values': []}])
+  env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}, {'id': 'doc2{1}', 'values': []}])
   env.assertEqual(res['warning'], [])
