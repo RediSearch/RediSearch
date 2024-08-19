@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <rmutil/args.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {      
@@ -63,6 +64,8 @@ extern "C" {
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
 
+#define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+
 typedef enum {      
   QUERY_OK = 0,     
 
@@ -74,6 +77,9 @@ typedef enum {
 typedef struct QueryError {
   QueryErrorCode code;
   char *detail;
+
+  // warnings
+  bool reachedMaxPrefixExpansions;
 } QueryError;
 
 /** Initialize QueryError object */
@@ -84,7 +90,7 @@ const char *QueryError_Strerror(QueryErrorCode code);
 
 /**
  * Set the error code of the query. If `err` is present, then the error
- * object must eventually be released using QueryError_Clear().
+ * object must eventually be released using QueryError_ClearError().
  *
  * Only has an effect if no error is already present
  */
