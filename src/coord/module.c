@@ -27,8 +27,6 @@
 #include "resp3.h"
 #include "dist_profile.h"
 #include "debug_commands.h"
-#include "module.h"
-
 
 #include "libuv/include/uv.h"
 
@@ -1981,19 +1979,13 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /* Perform basic configurations and init all threads and global structures */
-static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isClusterEnabled) {
   RedisModule_Log(ctx, "notice",
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
-    // Check if we are actually in cluster mode
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-    RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
-                       RedisModule_CallReplyLength(rep) == 2);
-    size_t len;
-    const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
-    if (STR_EQCASE(isCluster, len, "yes")) {
+    if (isClusterEnabled) {
       // Init the topology updater cron loop.
       InitRedisTopologyUpdater(ctx);
     } else {
@@ -2001,7 +1993,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // Set the number of shards to 1 to indicate the topology is "set"
       NumShards = 1;
     }
-    RedisModule_FreeCallReply(rep);
   }
 
   size_t num_connections_per_shard;
@@ -2087,6 +2078,19 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
   }
 }
 
+static bool checkClusterEnabled(RedisModuleCtx *ctx) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
+  RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+                     RedisModule_CallReplyLength(rep) == 2);
+  size_t len;
+  const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
+  bool isClusterEnabled = STR_EQCASE(isCluster, len, "yes");
+  RedisModule_FreeCallReply(rep);
+  return isClusterEnabled;
+}
+
+int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -2113,8 +2117,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
+  // Check if we are actually in cluster mode
+  bool isClusterEnabled = checkClusterEnabled(ctx);
+
   // Init the global cluster structs
-  if (initSearchCluster(ctx, argv, argc) == REDISMODULE_ERR) {
+  if (initSearchCluster(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init MR search cluster");
     return REDISMODULE_ERR;
   }
@@ -2143,6 +2150,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
   if (!IsEnterprise()) {
+    if (!isClusterEnabled) {
+      // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
+      RM_TRY(RedisModule_CreateCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0));
+    }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
     RM_TRY(RedisModule_CreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1));

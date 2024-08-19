@@ -1,17 +1,10 @@
 
-<<<<<<<< HEAD:tests/ctests/coord_tests/CMakeLists.txt
 if (NOT TEST_MODULE)
     set(TEST_MODULE redisearch)
 endif()
 
 include_directories(${root}/src/coord/rmr)
 add_compile_definitions(RMUTIL_NO_SDS)
-========
-get_filename_component(root ../../../.. ABSOLUTE)
-message("# coord/rmr/test: root: " ${root})
-
-include_directories(${root}/src/coord/rmr)
->>>>>>>> master:src/coord/rmr/test/CMakeLists.txt
 
 function(RMRTEST name)
     add_executable(${name} ${name}.c init-rm.c)
