@@ -447,8 +447,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QOptimizer_UpdateTotalResults(req);
     }
 
-
-
     // Upon `FT.PROFILE` commands, embed the response inside another map
     if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
@@ -493,13 +491,12 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
-    bool reached_maxPrefixExpansions = req->qiter.err->reached_maxprefixexpansions;
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
+          req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -510,7 +507,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
+      req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -525,7 +522,7 @@ done_2_err:
 
 /**
  * Sends a chunk of <n> rows in the resp3 format
-*/
+**/
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
@@ -631,12 +628,11 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
-    bool reached_maxPrefixExpansions = req->qiter.err->reached_maxprefixexpansions;
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
+        req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
       }
     }
 

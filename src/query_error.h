@@ -90,7 +90,7 @@ const char *QueryError_Strerror(QueryErrorCode code);
 
 /**
  * Set the error code of the query. If `err` is present, then the error
- * object must eventually be released using QueryError_Clear().
+ * object must eventually be released using QueryError_ClearError().
  *
  * Only has an effect if no error is already present
  */
