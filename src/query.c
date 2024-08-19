@@ -549,16 +549,17 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   int dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         (itsSz < q->config->maxPrefixExpansions)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    if (itsSz >= q->config->maxPrefixExpansions) {
+      q->status->reached_maxprefixexpansions = true;
+      break;
+    }
+
     target_str = runesToStr(rstr, slen, &tok_len);
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
     rm_free(target_str);
   }
 
-  if (itsSz == q->config->maxPrefixExpansions) {
-    q->status->reached_maxprefixexpansions = true;
-  }
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
@@ -1116,8 +1117,12 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     void *ptr;
 
     // Find all completions of the prefix
-    while (nextFunc(it, &s, &sl, &ptr) &&
-          (itsSz < q->config->maxPrefixExpansions)) {
+    while (nextFunc(it, &s, &sl, &ptr)) {
+      if (itsSz >= q->config->maxPrefixExpansions) {
+        q->status->reached_maxprefixexpansions = true;
+        break;
+      }
+
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -1129,9 +1134,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       }
     }
 
-    if (itsSz == q->config->maxPrefixExpansions) {
-      q->status->reached_maxprefixexpansions = true;
-    }
 
     TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
@@ -1231,8 +1233,12 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     void *ptr;
 
     // Find all completions of the prefix
-    while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
-          (itsSz < q->config->maxPrefixExpansions)) {
+    while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr)) {
+      if (itsSz >= q->config->maxPrefixExpansions) {
+        q->status->reached_maxprefixexpansions = true;
+        break;
+      }
+
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
 
@@ -1242,10 +1248,6 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
         itsCap *= 2;
         its = rm_realloc(its, itsCap * sizeof(*its));
       }
-    }
-
-    if (itsSz == q->config->maxPrefixExpansions) {
-      q->status->reached_maxprefixexpansions = true;
     }
 
     TrieMapIterator_Free(it);

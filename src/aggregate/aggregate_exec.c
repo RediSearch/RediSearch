@@ -17,6 +17,7 @@
 #include "profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
+#include "query_error.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -492,12 +493,13 @@ done_2:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
+    bool reached_maxPrefixExpansions = req->qiter.err->reached_maxprefixexpansions;
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req, has_timedout);
+          req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -508,7 +510,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req, has_timedout);
+      req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -620,7 +622,7 @@ done_3:
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
     } else if (req->qiter.err->reached_maxprefixexpansions) {
-      RedisModule_Reply_SimpleString(reply, "Max prefix expansions limit was reached");
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -629,11 +631,12 @@ done_3:
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
+    bool reached_maxPrefixExpansions = req->qiter.err->reached_maxprefixexpansions;
 
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req, has_timedout);
+        req->profile(reply, req, has_timedout, reached_maxPrefixExpansions);
       }
     }
 

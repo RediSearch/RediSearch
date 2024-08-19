@@ -372,11 +372,10 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           if (resp3 && MRReply_Length(warning) > 0) {
             warning = MRReply_ArrayElement(warning, 0);
             // Set an error to be later picked up and sent as a warning
-            // Note: Once we support more than only the timeout warning - extend this
-            // behavior to return `RS_RESULT_NONFATAL_ERROR` for which we return
-            // a warning only (instead of a simple error).
             if (!strcmp(MRReply_String(warning, NULL), QueryError_Strerror(QUERY_ETIMEDOUT))) {
               timed_out = true;
+            } else if (!strcmp(MRReply_String(warning, NULL), QUERY_WMAXPREFIXEXPANSIONS)) {
+              nc->areq->qiter.err->reached_maxprefixexpansions = true;
             }
           }
 
@@ -641,10 +640,10 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
+void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-  ProfilePrinterCtx cCtx = {req, timedout};
+  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions};
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,

@@ -103,6 +103,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   ProfilePrinterCtx *profileCtx = ctx;
   AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
+  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -126,6 +127,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print whether a warning was raised throughout command execution
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+      } else if (reachedMaxPrefixExpansions) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
@@ -180,7 +183,8 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout};
+void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout,
+                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions};
   Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
 }

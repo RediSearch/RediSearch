@@ -1506,24 +1506,47 @@ def test_error_with_partial_results():
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+  env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 't2', 'TAG')
 
   # Add documents to ONE OF THE SHARDS ONLY, such that MAXPREFIXEXPANSIONS will
   # be reached only on that shard (others are empty)
-  conn.execute_command('HSET', 'doc1{1}', 't', 'foo')
-  conn.execute_command('HSET', 'doc2{1}', 't', 'fooo')
+  # (This configuration is enforced on the shard level, thus every shard may
+  # expand a term up to `MAXPREFIXEXPANSIONS` times)
+  conn.execute_command('HSET', 'doc1{1}', 't', 'foo', 't2', 'foo')
 
   # Set `MAXPREFIXEXPANSIONS` to 1
   result = run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
   expected_result = ['OK'] * env.shardsCount
   env.assertEqual(result, expected_result, message=f"Failed to set `maxprefixexpansions` on all shards: {result}")
 
+  # Test that we don't throw an warning in case we the amount of expansion is
+  # exactly the threshold (1)
+  # TEXT
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+  # TAG
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+
+  # Add another document
+  conn.execute_command('HSET', 'doc2{1}', 't', 'fooo', 't2', 'fooo')
+
+  # TEXT
   res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+  # TAG
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
 
-  # Set `MAXPREFIXEXPANSIONS` to 10
+  # Set `MAXPREFIXEXPANSIONS` to 10 --> get all results
   result = run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
   expected_result = ['OK'] * env.shardsCount
   env.assertEqual(result, expected_result, message=f"Failed to set `maxprefixexpansions` on all shards: {result}")
@@ -1532,3 +1555,17 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['total_results'], 2)
   env.assertEqual(res['results'], [{'id': 'doc1{1}', 'values': []}, {'id': 'doc2{1}', 'values': []}])
   env.assertEqual(res['warning'], [])
+
+  # -------------------------------- FT.PROFILE --------------------------------
+  # Check the FT.PROFILE response. Specifically the shard warnings
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  result = run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+  expected_result = ['OK'] * env.shardsCount
+  env.assertEqual(result, expected_result, message=f"Failed to set `maxprefixexpansions` on all shards: {result}")
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'fo*')
+
+  # Check that we have a warning in the response, and a warning in each shard
+  env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
+  for shard in res['Profile']['Shards']:
+    env.assertEqual(shard['Warning'], 'Max prefix expansions limit was reached')

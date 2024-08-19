@@ -64,6 +64,8 @@ extern "C" {
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
 
+#define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+
 typedef enum {      
   QUERY_OK = 0,     
 
