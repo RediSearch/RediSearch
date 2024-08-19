@@ -79,7 +79,7 @@ typedef struct QueryError {
   char *detail;
 
   // warnings
-  bool reached_maxprefixexpansions;
+  bool reachedMaxPrefixExpansions;
 } QueryError;
 
 /** Initialize QueryError object */

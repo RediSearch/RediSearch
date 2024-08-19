@@ -1519,7 +1519,7 @@ def test_warning_maxprefixexpansions():
   # Set `MAXPREFIXEXPANSIONS` to 1
   populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
-  # Test that we don't throw an warning in case we the amount of expansion is
+  # Test that we don't throw an warning in case the amount of expansions is
   # exactly the threshold (1)
   # ------------------------------ FT.SEARCH -----------------------------------
   # TEXT

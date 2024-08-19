@@ -369,7 +369,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
             timed_out = true;
           } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-            nc->areq->qiter.err->reached_maxprefixexpansions = true;
+            nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
           }
         }
 

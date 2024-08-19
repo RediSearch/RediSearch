@@ -496,7 +496,7 @@ done_2:
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
+          req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -507,7 +507,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
+      req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -618,7 +618,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
-    } else if (req->qiter.err->reached_maxprefixexpansions) {
+    } else if (req->qiter.err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -632,7 +632,7 @@ done_3:
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req, has_timedout, req->qiter.err->reached_maxprefixexpansions);
+        req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
       }
     }
 
