@@ -1448,3 +1448,84 @@ def test_error_with_partial_results():
 
   env.assertEqual(len(res['warning']), 1)
   env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+
+def test_warning_maxprefixexpansions():
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 't2', 'TAG')
+
+  # Add documents to ONE OF THE SHARDS ONLY, such that MAXPREFIXEXPANSIONS will
+  # be reached only on that shard (others are empty)
+  # (This configuration is enforced on the shard level, thus every shard may
+  # expand a term up to `MAXPREFIXEXPANSIONS` times)
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo', 't2', 'foo')
+
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Test that we don't throw an warning in case the amount of expansions is
+  # exactly the threshold (1)
+  # ------------------------------ FT.SEARCH -----------------------------------
+  # TEXT
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+  # TAG
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+
+  # Add another document
+  conn.execute_command('HSET', 'doc2{3}', 't', 'fooo', 't2', 'fooo')
+
+  # ------------------------------ FT.AGGREGATE -----------------------------------
+  # TEXT
+  res = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'load', '*')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+  # TAG
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+
+  # ------------------------------- All results --------------------------------
+  # Set `MAXPREFIXEXPANSIONS` to 10
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 2)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}, {'id': 'doc2{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+
+  # -------------------------------- FT.PROFILE --------------------------------
+  # Check the FT.PROFILE response. Specifically the shard warnings
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'fo*')
+
+  # Check that we have a warning in the response, and a warning in each shard
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+  if env.isCluster():
+    n_warnings = 0
+    for _, shard_response in res['shards'].items():
+        if shard_response.get('Warning', 'None') == 'Max prefix expansions limit was reached':
+          n_warnings += 1
+    env.assertEqual(n_warnings, 1)
+
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'fo*')
+
+  # Check that we have a warning in the response, and a warning in one shard only
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+  if env.isCluster():
+    n_warnings = 0
+    for _, shard_response in res['Shards'].items():
+      if shard_response.get('Warning', 'None') == 'Max prefix expansions limit was reached':
+          n_warnings += 1
+    env.assertEqual(n_warnings, 1)

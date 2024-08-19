@@ -549,7 +549,8 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   int dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
+  int hasNext;
+  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) &&
          (itsSz < q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
@@ -559,6 +560,10 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
     addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
+  }
+
+  if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+    q->status->reachedMaxPrefixExpansions = true;
   }
 
   TrieIterator_Free(it);
@@ -751,6 +756,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
+    q->status->reachedMaxPrefixExpansions = true;
     return REDISEARCH_ERR;
   }
   RSToken tok = {0};
@@ -772,6 +778,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (ctx->nits >= q->config->maxPrefixExpansions) {
+    q->status->reachedMaxPrefixExpansions = true;
     return REDISEARCH_ERR;
   }
   RSToken tok = {.str = (char *)s, .len = n};
@@ -1110,7 +1117,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     void *ptr;
 
     // Find all completions of the prefix
-    while (nextFunc(it, &s, &sl, &ptr) &&
+    int hasNext;
+    while ((hasNext = nextFunc(it, &s, &sl, &ptr)) &&
           (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
@@ -1122,6 +1130,11 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         its = rm_realloc(its, itsCap * sizeof(*its));
       }
     }
+
+    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+      q->status->reachedMaxPrefixExpansions = true;
+    }
+
     TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
     arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
@@ -1135,6 +1148,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       for (int j = 0; j < array_len(arr[i]); ++j) {
         size_t jarrlen = array_len(arr[i]);
         if (itsSz >= q->config->maxPrefixExpansions) {
+          q->status->reachedMaxPrefixExpansions = true;
           break;
         }
         IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i][j], strlen(arr[i][j]), 1);
@@ -1190,6 +1204,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     } else {
       for (int i = 0; i < array_len(arr); ++i) {
         if (itsSz >= q->config->maxPrefixExpansions) {
+          q->status->reachedMaxPrefixExpansions = true;
           break;
         }
         IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, arr[i], strlen(arr[i]), 1);
@@ -1218,7 +1233,8 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     void *ptr;
 
     // Find all completions of the prefix
-    while (TrieMapIterator_NextWildcard(it, &s, &sl, &ptr) &&
+    int hasNext;
+    while ((hasNext = TrieMapIterator_NextWildcard(it, &s, &sl, &ptr)) &&
           (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
       if (!ret) continue;
@@ -1230,6 +1246,11 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
         its = rm_realloc(its, itsCap * sizeof(*its));
       }
     }
+
+    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
+      q->status->reachedMaxPrefixExpansions = true;
+    }
+
     TrieMapIterator_Free(it);
   } else
 

@@ -402,7 +402,7 @@ def testProfileMaxPrefixExpansion(env):
   conn.execute_command('hset', '3', 't', 'foo3')
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo*', 'limit', '0', '0')
-  env.assertEqual(actual_res[1][4][1][6:8], ['Warning', 'Max prefix expansion reached'])
+  env.assertEqual(actual_res[1][4][1][6:8], ['Warning', 'Max prefix expansions limit was reached'])
 
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
 
