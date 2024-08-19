@@ -553,7 +553,6 @@ ifeq ($(REJSON_PATH),)
 	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
 endif
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(MAKE) build COORD=0 COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
 	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
