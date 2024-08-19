@@ -72,7 +72,7 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
   return !((field->tv_sec > now->tv_sec) || (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec));
 }
 
-bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
+bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
     return false;
@@ -82,7 +82,7 @@ bool TimeToLiveTable_HasDocExpired(const TimeToLiveTable *table, t_docId docId, 
   return DidExpire(&ttlEntry->documentExpirationPoint, expirationPoint);
 }
 
-static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+static inline bool verifyFieldIndices(TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
     // the document did not have a ttl for itself or its children
@@ -121,10 +121,10 @@ static inline bool verifyFieldIndices(const TimeToLiveTable *table, t_docId docI
   return false;
 }
 
-bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   return verifyFieldIndices(table, docId, &fieldIndex, 1, predicate, expirationPoint);
 }
 
-bool TimeToLiveTable_VerifyFieldIndicesPredicate(const TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+bool TimeToLiveTable_VerifyFieldIndicesPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   return verifyFieldIndices(table, docId, sortedFieldIndices, array_len(sortedFieldIndices), predicate, expirationPoint);
 }

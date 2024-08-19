@@ -952,8 +952,7 @@ IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, co
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx,
-                             .filter.index.predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx};
   return NewIndexReaderGeneric(sctx, idx, procs, ctx, skipMulti, res, &fieldCtx);
 }
 
