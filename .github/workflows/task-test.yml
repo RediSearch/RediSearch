@@ -133,9 +133,6 @@ jobs:
 
       - name: Build
         run: make SAN=${{ inputs.san }}
-      - name: Build Tests # TODO: should be done in the build step above
-        run: make SAN=${{ inputs.san }} COORD=0
-
       - name: Unit tests
         id: test1
         continue-on-error: true
