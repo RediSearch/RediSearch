@@ -95,7 +95,6 @@ file(GLOB SOURCES
     "deps/base64/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
-    "deps/wildcard/*.c"
     "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${SOURCES})
@@ -113,8 +112,7 @@ set(FINAL_OBJECTS
 
 if (BUILD_STATIC)
     add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
-
-    add_library(redisearch SHARED ${FINAL_OBJECTS} $<TARGET_OBJECTS:metaphone> src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")

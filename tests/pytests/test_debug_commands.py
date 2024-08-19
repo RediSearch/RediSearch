@@ -29,7 +29,6 @@ class TestDebugCommands(object):
                      'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
         if MT_BUILD:
             help_list.append('WORKERS')
-        if COORD_BUILD:
             coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
             help_list.extend(coord_help_list)
 
