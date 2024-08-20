@@ -136,7 +136,7 @@ else() # OSS RediSearch
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
 
-#    extract_debug_symbols(redisearch)
+    extract_debug_symbols(redisearch)
 
     add_dependencies(redisearch VectorSimilarity)
 

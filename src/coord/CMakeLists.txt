@@ -31,9 +31,6 @@ add_compile_definitions(
 
 setup_cc_options()
 
-# Specific to coordinator
-#add_compile_options("-fvisibility=hidden")
-
 #----------------------------------------------------------------------------------------------
 
 include_directories(
@@ -57,7 +54,3 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmr>)
 
 add_library(redisearch-coord STATIC ${FINAL_OBJECTS})
-
-#setup_shared_object_target(${_moduleName} ${_moduleName})
-#
-#extract_debug_symbols(${_moduleName})
