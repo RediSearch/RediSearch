@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <rmutil/args.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +63,8 @@ extern "C" {
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")           \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")              \
 
+#define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+
 typedef enum {
   QUERY_OK = 0,
 
@@ -73,6 +76,9 @@ typedef enum {
 typedef struct QueryError {
   QueryErrorCode code;
   char *detail;
+
+  // warnings
+  bool reachedMaxPrefixExpansions;
 } QueryError;
 
 /** Initialize QueryError object */
