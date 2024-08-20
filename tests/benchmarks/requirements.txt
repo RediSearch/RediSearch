@@ -1,1 +1,1 @@
-redisbench_admin>=0.11.1
+redisbench_admin>=0.10.1
