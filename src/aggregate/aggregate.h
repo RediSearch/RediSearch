@@ -106,7 +106,8 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout);
+typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req,
+                              bool has_timedout, bool reachedMaxPrefixExpansions);
 
 typedef enum {
   /* Pipeline has a loader */
