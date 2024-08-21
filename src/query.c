@@ -1122,7 +1122,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       rm_free(its);
       return NULL;
     }
-    for (int i = 0; i < array_len(arr); ++i) {
+    for (int i = 0; i < array_len(arr) && itsSz < q->config->maxPrefixExpansions; ++i) {
       size_t iarrlen = array_len(arr);
       for (int j = 0; j < array_len(arr[i]); ++j) {
         size_t jarrlen = array_len(arr[i]);
