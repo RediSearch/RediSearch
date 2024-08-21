@@ -97,6 +97,31 @@ def test_1667(env):
   env.expect('ft.search idx a').equal([0])
   env.expect('ft.search idx b').equal([1, 'doc_b', ['text', 'b']])
 
+@skip(cluster=False)
+def test_MOD_7454(env: Env):
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+  n_docs = 1100 * env.shardsCount # We need more than 1000 docs in each shard
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+  # We have more than 1000 docs in each shard, and the query should return all of them.
+  # In cluster mode, FT.AGGREGATE (and FT.PROFILE AGGREGATE) uses cursors in each shard, reading
+  # 1000 at a time and then aggregate the replies.
+  # The second batch read from each shard will require to "reopen" the numeric index (on each shard).
+  # We have a large numeric range so we expect to have a union iterator of multiple numeric iterators.
+  # We are also in PROFILE mode, so each numeric iterator should be wrapped with a PROFILE iterator.
+  # The issue was that we casted each iterator in the union to a numeric iterator without checking if it's
+  # a PROFILE iterator, which caused a crash.
+  # We first validate that the query returns without error.
+  res = env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', f'@n:[0 {n_docs}]').noError().res
+
+  # With the given setup we should have enough docs to trigger the issue.
+  # Let's validate that we got a union iterator of multiple numeric iterators.
+  union_profile = to_dict(to_dict(res[-1][1][0])['Iterators profile']) # take the first shard info
+  env.assertEqual(union_profile['Type'], 'UNION')
+  env.assertEqual(union_profile['Query type'], 'NUMERIC')
+
 def test_MOD_865(env):
   conn = getConnectionByEnv(env)
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
