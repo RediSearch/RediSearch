@@ -1573,7 +1573,6 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(n_warnings, 1)
 
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'fo*')
-  print(res)
 
   # Check that we have a warning in the response, and a warning in one shard only
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
@@ -1581,5 +1580,4 @@ def test_warning_maxprefixexpansions():
   for i, shard in enumerate(res['Profile']['Shards']):
     if shard['Warning']== 'Max prefix expansions limit was reached':
          n_warnings += 1
-         print(f'Warning in shard {i}')
   env.assertEqual(n_warnings, 1)
