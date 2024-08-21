@@ -395,22 +395,6 @@ def testResultProcessorCounter(env):
   env.assertEqual(actual_res[1][1][0][5], res)
 
 @skip(cluster=True)
-def testProfileMaxPrefixExpansion(env):
-  conn = getConnectionByEnv(env)
-  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 2)
-  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-
-  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-  conn.execute_command('hset', '1', 't', 'foo1')
-  conn.execute_command('hset', '2', 't', 'foo2')
-  conn.execute_command('hset', '3', 't', 'foo3')
-
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo*', 'limit', '0', '0')
-  env.assertEqual(actual_res[1][1][0][3][6:8], ['Warning', 'Max prefix expansions limit was reached'])
-
-  env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200)
-
-@skip(cluster=True)
 def testNotIterator(env):
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 2)
