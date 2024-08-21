@@ -47,6 +47,16 @@ int cmpMinId(const void *e1, const void *e2, const void *udata) {
   return 0;
 }
 
+
+// Profile iterator, used for profiling. PI is added between all iterator
+typedef struct {
+  IndexIterator base;
+  IndexIterator *child;
+  size_t counter;
+  clock_t cpuTime;
+  int eof;
+} ProfileIterator, ProfileIteratorCtx;
+
 typedef struct {
   IndexIterator base;
   /**
@@ -201,6 +211,11 @@ void UI_Foreach(IndexIterator *index_it, void (*callback)(IndexReader *it)) {
   UnionIterator *ui = index_it->ctx;
   for (int i = 0; i < ui->num; ++i) {
     IndexIterator *it = ui->its[i];
+    if (it->type == PROFILE_ITERATOR) {
+      // If this is a profile query, each IndexReader is wrapped in a ProfileIterator
+      it = ((ProfileIterator *)(it->ctx))->child;
+    }
+    RS_LOG_ASSERT_FMT(it->type == READ_ITERATOR, "Expected read iterator, got %d", it->type);
     callback(it->ctx);
   }
 }
@@ -1477,16 +1492,6 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it) {
 /**********************************************************
  * Profile printing functions
  **********************************************************/
-
-/* Profile iterator, used for profiling. PI is added between all iterator
- */
-typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
-  size_t counter;
-  clock_t cpuTime;
-  int eof;
-} ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
