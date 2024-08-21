@@ -1603,12 +1603,6 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
   printProfileCounter(counter);
 
-  // if MAXPREFIXEXPANSIONS reached
-  if (ui->norig == config->iteratorsConfig->maxPrefixExpansions) {
-    RedisModule_Reply_SimpleString(reply, "Warning");
-    RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-  }
-
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
     RedisModule_Reply_Array(reply);
