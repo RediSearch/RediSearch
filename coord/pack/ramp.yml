@@ -52,3 +52,4 @@ overide_command:
     - {"command_arity": -1, "command_name": "FT.SUGDEL", "first_key": 0, "flags": ["write"], "last_key": 0, "step": -1}
     - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
     - {"command_arity": -1, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
+    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
