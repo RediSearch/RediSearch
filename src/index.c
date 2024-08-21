@@ -215,6 +215,7 @@ void UI_Foreach(IndexIterator *index_it, void (*callback)(IndexReader *it)) {
       // If this is a profile query, each IndexReader is wrapped in a ProfileIterator
       it = ((ProfileIterator *)(it->ctx))->child;
     }
+    RS_LOG_ASSERT_FMT(it->type == READ_ITERATOR, "Expected read iterator, got %d", it->type);
     callback(it->ctx);
   }
 }
