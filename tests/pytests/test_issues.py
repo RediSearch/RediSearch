@@ -124,7 +124,7 @@ def test_MOD_7454(env: Env):
 
   # With the given setup we should have enough docs to trigger the issue.
   # Let's validate that we got a union iterator of multiple numeric iterators.
-  union_profile = to_dict(to_dict(res[-1][1][0])['Iterators profile']) # take the first shard info
+  union_profile = to_dict(res[1][4][1][:8]) # take the first shard info
   env.assertEqual(union_profile['Type'], 'UNION')
   env.assertEqual(union_profile['Query type'], 'NUMERIC')
 
