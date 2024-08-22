@@ -54,6 +54,8 @@ static inline bool loopThreadUninitialized() {
 }
 
 static void triggerPendingQueues() {
+  loop_th_ready = true;
+  RedisModule_Log(RSDummyContext, "warning", "triggering %d pending queues (%p)", array_len(pendingQueues), pendingQueues);
   array_foreach(pendingQueues, async, uv_async_send(async));
   array_free(pendingQueues);
   pendingQueues = NULL;
@@ -66,20 +68,17 @@ static void topologyFailureCB(uv_timer_t *timer) {
   uv_timer_stop(&topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
-  loop_th_ready = true;
   triggerPendingQueues();
 }
 
 static void topologyTimerCB(uv_timer_t *timer) {
   if (MR_CheckTopologyConnections(true) == REDIS_OK) {
-    // We are connected to all master nodes. We can mark the event loop thread as ready
-    loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
+    RedisModule_Log(RSDummyContext, "warning", "All nodes connected");
     uv_timer_stop(&topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues();
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
+    RedisModule_Log(RSDummyContext, "warning", "Waiting for all nodes to connect");
   }
 }
 
@@ -87,7 +86,7 @@ static void topologyAsyncCB(uv_async_t *async) {
   struct queueItem *topo = exchangePendingTopo(NULL); // take the topology
   if (topo) {
     // Apply new topology
-    RedisModule_Log(RSDummyContext, "verbose", "Applying new topology");
+    RedisModule_Log(RSDummyContext, "warning", "Applying new topology");
     // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
@@ -121,7 +120,7 @@ static void verify_uv_thread() {
     uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
     RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
-    RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+    RedisModule_Log(RSDummyContext, "warning", "Created event loop thread");
   }
 }
 
