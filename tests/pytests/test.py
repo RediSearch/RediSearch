@@ -1999,6 +1999,7 @@ def testNoStem(env):
         # todo: change it to be more generic to pass on isCluster
         res = env.cmd('ft.info', 'idx')
         env.assertEqual(res[7][1][8], 'NOSTEM')
+        # assertInfoField(env, res, 'name', 'text', 'NOSTEM')
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
@@ -2006,16 +2007,55 @@ def testNoStem(env):
         except redis.ResponseError:
             pass
 
-        # Insert a document
-        env.assertCmdOk('ft.add', 'idx', 'doc', 1.0, 'fields',
-                         'body', "located",
-                         'name', "located")
+        # Insert documents
+        env.cmd('HSET', 'doc1', 'body', "located", 'name', "located")
+        env.cmd('HSET', 'doc2', 'body', "smith", 'name', "smith")
+        env.cmd('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
+        env.cmd('HSET', 'doc4', 'body', "cherry")
+        env.cmd('HSET', 'doc5', 'body', "cherries")
+        env.cmd('HSET', 'doc6', 'name', "candy")
+        env.cmd('HSET', 'doc7', 'name', "candies")
 
         # Now search for the fields
         res_body = env.cmd('ft.search', 'idx', '@body:location')
         res_name = env.cmd('ft.search', 'idx', '@name:location')
         env.assertEqual(0, res_name[0])
         env.assertEqual(1, res_body[0])
+
+        res_body = env.cmd('ft.search', 'idx', '@body:smith')
+        res_name = env.cmd('ft.search', 'idx', '@name:smith')
+        env.assertEqual(1, res_name[0])
+        env.assertEqual(2, res_body[0])
+
+        res_body = env.cmd('ft.search', 'idx', '@body:smiths')
+        res_name = env.cmd('ft.search', 'idx', '@name:smiths')
+        env.assertEqual(1, res_name[0])
+        env.assertEqual(2, res_body[0])
+
+        res = env.cmd('ft.search', 'idx', '@body|name:cherry')
+        env.assertEqual(2, res[0])
+        res = env.cmd('ft.search', 'idx', '@body|name:cherries')
+        env.assertEqual(2, res[0])
+
+        # Test modifier list with only one field with NOSTEM
+        res = env.cmd('ft.search', 'idx', '@body|name:candy')
+        env.assertEqual(1, res[0])
+        res = env.cmd('ft.search', 'idx', '@body|name:candies')
+        env.assertEqual(1, res[0])
+
+        res = env.cmd('ft.search', 'idx', '@body|name:candy|cherry')
+        env.assertEqual(3, res[0])
+        res = env.cmd('ft.search', 'idx', '@body|name:candies|cherries')
+        env.assertEqual(3, res[0])
+
+        # Test explaincli with modifier list
+        env.expect('ft.explain', 'idx', '@body|name:candy').equal(r'''
+@body|name:UNION {
+  @body|name:candy
+  @body|name:+candi(expanded)
+  @body|name:candi(expanded)
+}
+'''[1:])
 
 def testSortbyMissingField(env):
     # GH Issue 131
