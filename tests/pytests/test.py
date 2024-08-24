@@ -1993,59 +1993,60 @@ def testInfoCommandImplied(env):
     env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 'body', 'text', 'name', 'text', 'nostem')
+    conn = getConnectionByEnv(env)
+
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'body', 'text', 'name', 'text', 'nostem').ok()
     if not env.isCluster():
         # todo: change it to be more generic to pass on isCluster
-        res = env.cmd('ft.info', 'idx')
+        res = conn.execute_command('ft.info', 'idx')
         env.assertEqual(res[7][1][8], 'NOSTEM')
-        # assertInfoField(env, res, 'name', 'text', 'NOSTEM')
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
-            env.cmd('ft.del', 'idx', 'doc')
+            conn.execute_command('ft.del', 'idx', 'doc')
         except redis.ResponseError:
             pass
 
         # Insert documents
-        env.cmd('HSET', 'doc1', 'body', "located", 'name', "located")
-        env.cmd('HSET', 'doc2', 'body', "smith", 'name', "smith")
-        env.cmd('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
-        env.cmd('HSET', 'doc4', 'body', "cherry")
-        env.cmd('HSET', 'doc5', 'body', "cherries")
-        env.cmd('HSET', 'doc6', 'name', "candy")
-        env.cmd('HSET', 'doc7', 'name', "candies")
+        conn.execute_command('HSET', 'doc1', 'body', "located", 'name', "located")
+        conn.execute_command('HSET', 'doc2', 'body', "smith", 'name', "smith")
+        conn.execute_command('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
+        conn.execute_command('HSET', 'doc4', 'body', "cherry")
+        conn.execute_command('HSET', 'doc5', 'body', "cherries")
+        conn.execute_command('HSET', 'doc6', 'name', "candy")
+        conn.execute_command('HSET', 'doc7', 'name', "candies")
 
         # Now search for the fields
-        res_body = env.cmd('ft.search', 'idx', '@body:location')
-        res_name = env.cmd('ft.search', 'idx', '@name:location')
+        res_body = conn.execute_command('ft.search', 'idx', '@body:location')
+        res_name = conn.execute_command('ft.search', 'idx', '@name:location')
         env.assertEqual(0, res_name[0])
         env.assertEqual(1, res_body[0])
 
-        res_body = env.cmd('ft.search', 'idx', '@body:smith')
-        res_name = env.cmd('ft.search', 'idx', '@name:smith')
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smith')
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smith')
         env.assertEqual(1, res_name[0])
         env.assertEqual(2, res_body[0])
 
-        res_body = env.cmd('ft.search', 'idx', '@body:smiths')
-        res_name = env.cmd('ft.search', 'idx', '@name:smiths')
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smiths')
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smiths')
         env.assertEqual(1, res_name[0])
         env.assertEqual(2, res_body[0])
 
-        res = env.cmd('ft.search', 'idx', '@body|name:cherry')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherry')
         env.assertEqual(2, res[0])
-        res = env.cmd('ft.search', 'idx', '@body|name:cherries')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherries')
         env.assertEqual(2, res[0])
 
         # Test modifier list with only one field with NOSTEM
-        res = env.cmd('ft.search', 'idx', '@body|name:candy')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candy')
         env.assertEqual(1, res[0])
-        res = env.cmd('ft.search', 'idx', '@body|name:candies')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
         env.assertEqual(1, res[0])
 
-        res = env.cmd('ft.search', 'idx', '@body|name:candy|cherry')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candy|cherry')
         env.assertEqual(3, res[0])
-        res = env.cmd('ft.search', 'idx', '@body|name:candies|cherries')
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candies|cherries')
         env.assertEqual(3, res[0])
 
         # Test explaincli with modifier list
