@@ -1997,10 +1997,8 @@ def testNoStem(env):
 
     env.expect('ft.create', 'idx', 'ON', 'HASH',
             'schema', 'body', 'text', 'name', 'text', 'nostem').ok()
-    if not env.isCluster():
-        # todo: change it to be more generic to pass on isCluster
-        res = conn.execute_command('ft.info', 'idx')
-        env.assertEqual(res[7][1][8], 'NOSTEM')
+    d = index_info(env, 'idx')
+    env.assertEqual(d['attributes'][1][8],'NOSTEM')
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
@@ -2019,31 +2017,35 @@ def testNoStem(env):
 
         # Now search for the fields
         res_body = conn.execute_command('ft.search', 'idx', '@body:location')
+        env.assertEqual(1, res_body[0])
         res_name = conn.execute_command('ft.search', 'idx', '@name:location')
         env.assertEqual(0, res_name[0])
-        env.assertEqual(1, res_body[0])
 
         res_body = conn.execute_command('ft.search', 'idx', '@body:smith')
+        env.assertEqual(2, res_body[0])
         res_name = conn.execute_command('ft.search', 'idx', '@name:smith')
         env.assertEqual(1, res_name[0])
-        env.assertEqual(2, res_body[0])
 
         res_body = conn.execute_command('ft.search', 'idx', '@body:smiths')
+        env.assertEqual(2, res_body[0])
         res_name = conn.execute_command('ft.search', 'idx', '@name:smiths')
         env.assertEqual(1, res_name[0])
-        env.assertEqual(2, res_body[0])
 
+        # Test modifier list
+        # 2 results are returned because 'body' field is stemming 'cherry'
         res = conn.execute_command('ft.search', 'idx', '@body|name:cherry')
         env.assertEqual(2, res[0])
         res = conn.execute_command('ft.search', 'idx', '@body|name:cherries')
         env.assertEqual(2, res[0])
 
-        # Test modifier list with only one field with NOSTEM
+        # only 1 result is returned because 'name' field is not stemming
         res = conn.execute_command('ft.search', 'idx', '@body|name:candy')
         env.assertEqual(1, res[0])
         res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
         env.assertEqual(1, res[0])
 
+        # 3 results are returned because 'body' field is stemming 'candy' 
+        # but 'name' field is not stemming  
         res = conn.execute_command('ft.search', 'idx', '@body|name:candy|cherry')
         env.assertEqual(3, res[0])
         res = conn.execute_command('ft.search', 'idx', '@body|name:candies|cherries')
