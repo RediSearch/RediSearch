@@ -1063,7 +1063,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_CREATE_COMMAND(NULL, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
-  RM_CREATE_COMMAND("read, search", ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
+  RM_CREATE_COMMAND("read search", ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
   RM_CREATE_COMMAND("read search", ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
