@@ -854,6 +854,10 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// A macro that extracts the first argument from a variadic macro
+#define SECOND_ARG_HELPER(first, second, ...) second
+#define SECOND_ARG(...) SECOND_ARG_HELPER(__VA_ARGS__)
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -861,6 +865,23 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {                                                                     \
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
+
+#define RM_CREATE_COMMAND(aclCategories, ...)                                  \
+  if (RedisModule_CreateCommand(__VA_ARGS__) == REDISMODULE_ERR) {        \
+    RedisModule_Log(ctx, "warning", "Could not create command " #__VA_ARGS__); \
+    return REDISMODULE_ERR;                                                    \
+  } else {                                                                     \
+    RedisModuleCommand *command = RedisModule_GetCommand(ctx, SECOND_ARG(__VA_ARGS__)); \
+    if (!command) {                                                            \
+      RedisModule_Log(ctx, "warning", "Could not find command " STRINGIFY(SECOND_ARG(__VA_ARGS__))); \
+      return REDISMODULE_ERR;                                                  \
+    }                                                                          \
+    result = RedisModule_SetCommandACLCategories(command, aclCategories);      \
+    if (result == REDISMODULE_ERR) {                                           \
+      RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command " STRINGIFY(SECOND_ARG(__VA_ARGS__)) ". Got error code: %d", errno); \
+    }                                                                          \
+  }
+
 
 Version supportedVersion = {
     .majorVersion = 7,
@@ -1008,102 +1029,120 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #define INDEX_DOC_CMD_ARGS 2, 2, 1
 #endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+  // Create the `search` ACL command category
+  RedisModuleString* cat_name = RedisModule_CreateString(ctx, "search", strlen("search"));
+  if (RedisModule_AddACLCategory(ctx, RedisModule_StringPtrLen(cat_name, NULL)) == REDISMODULE_ERR) {
+      RedisModule_Assert(errno == ENOMEM);
+      RedisModule_FreeString(ctx, cat_name);
+      return REDISMODULE_ERR;
+  }
+  RedisModule_FreeString(ctx, cat_name);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS);
+  int result;
+
+  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+
+  RM_CREATE_COMMAND("admin write search", ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+                    INDEX_DOC_CMD_ARGS);
 
 #ifdef RS_CLUSTER_ENTERPRISE
   // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
   // to be able to replicate from an old RediSearch version.
   // If this is the light version then the _ft.safeadd/_ft.del does not exists
   // and we will get the normal ft.safeadd/ft.del command.
-  RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
+  RM_CREATE_COMMAND("admin write search", ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
+  RM_CREATE_COMMAND("admin write search dangerous", ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
          INDEX_DOC_CMD_ARGS);
 #endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
+  RM_CREATE_COMMAND("admin write search", ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
+  RM_CREATE_COMMAND("admin write search dangerous", ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
+  RM_CREATE_COMMAND("read, search", ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+  RM_CREATE_COMMAND("read search", ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("admin read search", ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS);
 
 #ifndef RS_COORDINATOR
-  // in case not coordinator is defined, all docs and index name should go to the same slot
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
+  // in case coordinator is not defined, all docs and index name should go to the same slot
+  RM_CREATE_COMMAND("admin read search", ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
 #else
   // in case coordinator is defined, do not force cross slot validation
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("admin read search", ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
 #endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
+  RM_CREATE_COMMAND("write search", ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
+
+  RM_CREATE_COMMAND("write search", ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RM_CREATE_COMMAND("write search", ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+  RM_CREATE_COMMAND("write search", ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
+  RM_CREATE_COMMAND("write search", ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+  RM_CREATE_COMMAND("write search", ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
+  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("read search", ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("read search", ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("read search", ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+
+  RM_CREATE_COMMAND("write search", ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
          1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1);
+  RM_CREATE_COMMAND("write search", ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1);
+  RM_CREATE_COMMAND("read search", ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
+  RM_CREATE_COMMAND("read search", ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
 
 #ifndef RS_COORDINATOR
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
+  RM_CREATE_COMMAND("read search", ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
 #else
   // we do not want to raise a move error on cluster with coordinator
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("read search", ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
 #endif
 
   // todo: what to do with this?
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_SYNADD_CMD, SynAddCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
+  RM_CREATE_COMMAND("search", ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
   RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
