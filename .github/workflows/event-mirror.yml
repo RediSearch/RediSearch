@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - uses: codyde/branch-mirroring-action@v10
+      - uses: RediSearch/branch-mirroring-action@v1
         with:
           target_repo_url:
             ${{ vars.MIRROR_TARGET_REPO_URL }}
