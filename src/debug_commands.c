@@ -863,8 +863,12 @@ DEBUG_COMMAND(setMonitorExpiration) {
     return RedisModule_ReplyWithError(ctx, "Can't set both fields and not-fields");
   }
 
-  sp->monitorDocumentExpiration = options.docs && !options.notDocs;
-  sp->monitorFieldExpiration = options.fields && !options.notFields;
+  if (options.docs || options.notDocs) {
+    sp->monitorDocumentExpiration = options.docs && !options.notDocs;
+  }
+  if (options.fields || options.notFields) {
+    sp->monitorFieldExpiration = options.fields && !options.notFields;
+  }
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
