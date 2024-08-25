@@ -454,7 +454,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
 }
 
 static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx,
-                             QueryNode **pqn, const IndexSpec *spec) {
+                             QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
   // Do not expand verbatim nodes
@@ -463,12 +463,16 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 
   // Do not expand the node if the field has NOSTEM option
-  const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, qn->opts.fieldMask);
-  if(fs) {
-    if(fs->options & FieldSpec_NoStemming) {
-      return;
+  if(expCtx->handle && expCtx->handle->spec) {
+    const IndexSpec *spec = expCtx->handle->spec;
+    const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, qn->opts.fieldMask);
+    if(fs) {
+      if(fs->options & FieldSpec_NoStemming) {
+        return;
+      }
     }
   }
+
   int expandChildren = 0;
 
   if (qn->type == QN_TOKEN && qn->tn.len > 0) {
@@ -480,7 +484,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
   if (expandChildren) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-      QueryNode_Expand(expander, expCtx, &qn->children[ii], spec);
+      QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
   }
 }
@@ -1575,7 +1579,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
   if (xpc && xpc->exp) {
-    QueryNode_Expand(xpc->exp, &expCtx, &q->root, sctx->spec);
+    QueryNode_Expand(xpc->exp, &expCtx, &q->root);
     if (xpc->ff) {
       xpc->ff(expCtx.privdata);
     }
