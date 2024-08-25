@@ -821,8 +821,10 @@ DEBUG_COMMAND(ttlExpire) {
 }
 
 typedef struct {
-  uint32_t docs;
-  uint32_t fields;
+  int docs;
+  int notDocs;
+  int fields;
+  int notFields;
 } MonitorExpirationOptions;
 
 DEBUG_COMMAND(setMonitorExpiration) {
@@ -839,10 +841,12 @@ DEBUG_COMMAND(setMonitorExpiration) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  MonitorExpirationOptions options = {.docs = sp->monitorDocumentExpiration, .fields = sp->monitorFieldExpiration};
+  MonitorExpirationOptions options = {0};
   ACArgSpec argspecs[] = {
-      {.name = "documents", .type = AC_ARGTYPE_UINT, .target = &options.docs},
-      {.name = "fields", .type = AC_ARGTYPE_UINT, .target = &options.fields},
+      {.name = "not-documents", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.notDocs},
+      {.name = "documents", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.docs},
+      {.name = "fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.fields},
+      {.name = "not-fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.notFields},
       {NULL}};
   RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
@@ -852,9 +856,15 @@ DEBUG_COMMAND(setMonitorExpiration) {
   if (rv != AC_OK) {
     return RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
   }
+  if (options.docs && options.notDocs) {
+    return RedisModule_ReplyWithError(ctx, "Can't set both documents and not-documents");
+  }
+  if (options.fields && options.notFields) {
+    return RedisModule_ReplyWithError(ctx, "Can't set both fields and not-fields");
+  }
 
-  sp->monitorDocumentExpiration = options.docs;
-  sp->monitorFieldExpiration = options.fields;
+  sp->monitorDocumentExpiration = options.docs && !options.notDocs;
+  sp->monitorFieldExpiration = options.fields && !options.notFields;
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

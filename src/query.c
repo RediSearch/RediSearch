@@ -891,6 +891,7 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
 
+  RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
   return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
                              q->docTable->maxDocId, qn->opts.weight);
 }

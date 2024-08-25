@@ -163,7 +163,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
                 'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
             conn.execute_command('HSET', 'doc1', 't', 'bar')
             conn.execute_command('HSET', 'doc2', 't', 'arr')
-        conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
+        conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')
         env.assertEqual(res, expected_results[both_docs_no_sortby], message='both docs exist')
@@ -245,7 +245,7 @@ def test_expire_aggregate(env):
     # Use "lazy" expire (expire only when key is accessed)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', '0')
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')
@@ -466,6 +466,7 @@ def testLazyVectorFieldExpiration(env):
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
+
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
     conn = getConnectionByEnv(env)
@@ -483,4 +484,20 @@ def testLastFieldNoExpiration(env):
     # doc:1 will see it has fields set for expiration
     # it will check if all of the fields are expired
     # this should lead to the line being hit
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+
+def testDocWithLongExpiration(env):
+    # We want to cover this snippet of code:
+    # if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
+    #   // the document has no fields with expiration times, there exists at least one valid field
+    #   return true;
+    # }
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
+    # Set an expiration that will take a long time to expire
+    conn.execute_command('EXPIRE', 'doc:1', '30000')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])

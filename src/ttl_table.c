@@ -2,6 +2,7 @@
 #include "rmalloc.h"
 #include "util/minmax.h"
 #include "util/misc.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct {
   t_expirationTimePoint documentExpirationPoint;
@@ -53,7 +54,8 @@ void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTime
   entry->documentExpirationPoint = docExpirationTime;
   entry->fieldExpirations = sortedById;
   // we don't want the operation to fail so we use dictReplace
-  dictReplace(table, (void*)docId, entry);
+  const bool added = dictAdd(table, (void*)docId, entry) == DICT_OK;
+  RS_LOG_ASSERT(added, "Failed to add document to ttl table");
 }
 
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId) {

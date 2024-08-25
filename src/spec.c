@@ -94,15 +94,15 @@ static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
 }
 
 static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr) {
-  timespec zero = {.tv_sec = 0, .tv_nsec = 0};
+  t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "PEXPIRETIME", "s", keystr);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER) {
+  if (rep == NULL) {
     size_t length = 0;
-    const char* error = rep ? RedisModule_CallReplyStringPtr(rep, &length) : "unknown error";
-    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, type: %d, error(%d): %s", rep ? RedisModule_CallReplyType(rep) : REDISMODULE_REPLY_UNKNOWN, errno, error);
+    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, error: %d", errno);
     return zero;
   }
 
+  RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER, "PEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));
   const int64_t totalMilliseconds = RedisModule_CallReplyInteger(rep);
   t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
   RedisModule_FreeCallReply(rep);
@@ -113,14 +113,15 @@ static inline FieldExpiration* callHashFieldExpirationTime(RedisModuleCtx* ctx, 
   size_t vectorElementCount = array_len(fields);
   long long fieldCount = vectorElementCount;
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+  if (rep == NULL) {
     return NULL;
   }
+  RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY, "HPEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));
   size_t sz = RedisModule_CallReplyLength(rep);
   arrayof(FieldExpiration) result = NULL;
   for (t_fieldIndex i = 0; i < sz; i++) {
     const int64_t milliseconds = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(rep, i));
-    if (milliseconds <= 0) {
+    if (milliseconds < 0) {
       continue;
     }
     const FieldExpiration fieldExpiration = { .index = i, .point = timespecFromMilliseconds(milliseconds)};
