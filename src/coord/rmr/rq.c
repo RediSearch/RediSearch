@@ -155,6 +155,7 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
     q->head = q->tail = item;
   }
   q->sz++;
+  RedisModule_Log(RSDummyContext, "warning", "Pushing job %p", item);
 
   uv_mutex_unlock(&q->lock);
   uv_async_send(&q->async);
@@ -195,11 +196,13 @@ void RQ_Done(MRWorkQueue *q) {
 static void rqAsyncCb(uv_async_t *async) {
   if (!loop_th_ready) {
     array_ensure_append_1(pendingQueues, async); // try again later
+    RedisModule_Log(RSDummyContext, "warning", "Queue is not ready, pending...");
     return;
   }
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
+    RedisModule_Log(RSDummyContext, "warning", "Processing request %p", req);
     req->cb(req->privdata);
     rm_free(req);
   }
