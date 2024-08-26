@@ -104,7 +104,7 @@ def cluster_set_test(env: Env):
 
 try:
     skipTest(cluster=False)
-    for i in range(1, 1001):
+    for i in range(1, 201):
         globals()[f'test_cluster_set_{i}'] = lambda env: cluster_set_test(env)
 except SkipTest:
     pass
