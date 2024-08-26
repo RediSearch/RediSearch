@@ -318,6 +318,7 @@ static void uvReplyClusterInfo(void *p) {
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModule_Log(RSDummyContext, "warning", "ClusterInfoCommand callback - %p", uvReplyClusterInfo);
   RQ_Push(rq_g, uvReplyClusterInfo, bc);
 }
 

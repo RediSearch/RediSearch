@@ -30,9 +30,9 @@ typedef struct MRWorkQueue {
 } MRWorkQueue;
 
 uv_thread_t loop_th;
-static char loop_th_started = false; // set to true when the event loop thread is started
-static char loop_th_running = false; // set to true when the event loop thread is initialized
-static char loop_th_ready = false;   /* set to true when the event loop thread is ready to process requests.
+static bool loop_th_started = false; // set to true when the event loop thread is started
+static bool loop_th_running = false; // set to true when the event loop thread is initialized
+static bool loop_th_ready = false;   /* set to true when the event loop thread is ready to process requests.
                                       * This is set to false when a new topology is applied, and set to true
                                       * when the topology check is done. */
 uv_timer_t topologyValidationTimer, topologyFailureTimer;
@@ -115,11 +115,13 @@ static void sideThread(void *arg) {
 
 static void verify_uv_thread() {
   if (loopThreadUninitialized()) {
-    uv_timer_init(uv_default_loop(), &topologyValidationTimer);
-    uv_timer_init(uv_default_loop(), &topologyFailureTimer);
-    uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
+    int rcs = 0;
+    rcs |= uv_timer_init(uv_default_loop(), &topologyValidationTimer);
+    rcs |= uv_timer_init(uv_default_loop(), &topologyFailureTimer);
+    rcs |= uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
+    rcs |= uv_thread_create(&loop_th, sideThread, NULL);
     // Verify that we are running on the event loop thread
-    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
+    RedisModule_Assert(rcs == 0);
     RedisModule_Log(RSDummyContext, "warning", "Created event loop thread");
   }
 }
@@ -202,7 +204,7 @@ static void rqAsyncCb(uv_async_t *async) {
   MRWorkQueue *q = async->data;
   struct queueItem *req;
   while (NULL != (req = rqPop(q))) {
-    RedisModule_Log(RSDummyContext, "warning", "Processing request %p", req);
+    RedisModule_Log(RSDummyContext, "warning", "Processing request %p, cb %p", req, req->cb);
     req->cb(req->privdata);
     rm_free(req);
   }
