@@ -8,4 +8,4 @@ $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git python3 python3-dev py3-pip openssl openssl-dev \
     tar xz which rsync bsd-compat-headers clang clang17-libclang
 
-$MODE apk add cmake --no-cache
+source install_cmake.sh $MODE

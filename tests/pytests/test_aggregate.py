@@ -167,6 +167,8 @@ class TestAggregate():
 
             self.env.assertEqual(expected, res[1])
         
+        # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
+        # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
                 'GROUPBY', '1', '@brand',
                 'REDUCE', 'COUNT', '0', 'AS', 'count',
