@@ -285,6 +285,7 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -300,6 +301,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
