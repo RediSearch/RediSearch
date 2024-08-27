@@ -127,21 +127,6 @@ if [[ $C_TESTS == 1 ]]; then
 	else
 		$OP $GDB_CMD $TESTS_DIR/$TEST
 	fi
-	echo "# coordinator unit tests"
-  TESTS_DIR="$(cd $BINROOT/search-ce/tests/ctests/coord_tests; pwd)"
-  if [[ -z $TEST ]]; then
-  	if [[ $NOP != 1 ]]; then
-  		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
-  			TEST_NAME="$(basename $test)" sanitizer_defs
-  			echo $TEST_NAME
-  			{ $test; (( E |= $? )); } || true
-  		done
-  	else
-  		find $TESTS_DIR -name "test_*" -type f -executable -print
-  	fi
-  else
-  	$OP $GDB_CMD $TESTS_DIR/$TEST
-  fi
 fi
 
 if [[ $CPP_TESTS == 1 ]]; then
@@ -155,7 +140,10 @@ if [[ $CPP_TESTS == 1 ]]; then
 	else
 		{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
 	fi
-	# coordinator tests
+fi
+
+echo "# Running coordinator unit tests"
+for TESTS_DIR in "$(cd $BINROOT/search-ce/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-ce/tests/cpptests; pwd)"; do
   if [[ -z $TEST ]]; then
   	if [[ $NOP != 1 ]]; then
   		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
@@ -169,7 +157,7 @@ if [[ $CPP_TESTS == 1 ]]; then
   else
   	$OP $GDB_CMD $TESTS_DIR/$TEST
   fi
-fi
+done
 
 #-------------------------------------------------------------------------------------- Summary
 
