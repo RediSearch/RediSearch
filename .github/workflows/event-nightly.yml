@@ -25,6 +25,7 @@ jobs:
       test-config: QUICK=1
 
   coverage:
+    if: ${{ vars.ENABLE_CODE_COVERAGE }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
