@@ -64,23 +64,20 @@ def testPendingCommands(env:Env):
     verify_shard_init(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     max_pending_commands = 50
-    test_commands = [
-        (config_cmd(), 'SET', 'CONN_PER_SHARD', '0'),
-        (debug_cmd(), 'SHARD_CONNECTION_STATES'),
-        ('SEARCH.CLUSTERINFO',),
-    ]
 
     # Run each command `max_pending_commands` times, to verify they are not pending
     # after they are executed, and that the coordinator is still responsive.
-    for command in test_commands:
-        for _ in range(max_pending_commands):
-            env.cmd(*command)
-        # Verify that the pending commands are cleared.
-        # This simple search will be executed only if the pending commands are cleared.
-        # Otherwise, it will get stuck.
-        # Using the current command for the search to know which command is pending.
-        message = ' '.join(command)
-        env.assertEqual(env.cmd('FT.SEARCH', 'idx', message), [0], message=message)
+    for _ in range(max_pending_commands):
+        env.cmd(config_cmd(), 'SET', 'CONN_PER_SHARD', '0')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
+
+    for _ in range(max_pending_commands):
+        env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
+
+    for _ in range(max_pending_commands):
+        env.cmd('SEARCH.CLUSTERINFO')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
 
 def test_curly_brackets(env):
     conn = getConnectionByEnv(env)
