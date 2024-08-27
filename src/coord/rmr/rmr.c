@@ -288,6 +288,7 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     uvUpdateConnPerShard(p);
   } else {
     RQ_Push(rq_g, uvUpdateConnPerShard, p);
+    RQ_Done(rq_g); // This is an eventual state operation. We don't wait for it so we don't count it as pending.
   }
 }
 
@@ -295,6 +296,7 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -310,6 +312,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
