@@ -443,6 +443,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
   RedisModule_UnblockClient(bc, NULL);
