@@ -47,7 +47,7 @@ arrayof(uv_async_t *) pendingQueues = NULL;
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
-  return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);sizeof(uv_async_t);
+  return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
 // Atomically check if the event loop thread is uninitialized and mark it as initialized.
