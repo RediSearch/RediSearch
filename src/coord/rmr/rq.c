@@ -25,6 +25,10 @@ typedef struct MRWorkQueue {
   int pending;
   int maxPending;
   size_t sz;
+  struct {
+    struct queueItem *head;
+    size_t hitCount;
+  } pendingInfo;
   uv_mutex_t lock;
   uv_async_t async;
 } MRWorkQueue;
@@ -43,7 +47,7 @@ arrayof(uv_async_t *) pendingQueues = NULL;
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
 static inline struct queueItem *exchangePendingTopo(struct queueItem *newTopo) {
-  return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);
+  return __atomic_exchange_n(&pendingTopo, newTopo, __ATOMIC_SEQ_CST);sizeof(uv_async_t);
 }
 
 // Atomically check if the event loop thread is uninitialized and mark it as initialized.
@@ -174,7 +178,24 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
     // If the queue is full we need to wake up the drain callback
     uv_async_send(&q->async);
 
+    // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
+    // So it's safe to do without the lock.
+    if (q->head == q->pendingInfo.head) { // q->head is not NULL at this point
+      q->pendingInfo.hitCount++;
+      if (q->pendingInfo.hitCount > 100) {
+        RedisModule_Log(RSDummyContext, "notice", "MRWorkQueue: Max pending requests reached");
+      }
+    } else {
+      q->pendingInfo.head = q->head;
+      q->pendingInfo.hitCount = 1;
+    }
+    RedisModule_Log(RSDummyContext, "verbose", "MRWorkQueue: Max pending requests reached");
+    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
+
     return NULL;
+  } else {
+    q->pendingInfo.head = NULL;
+    q->pendingInfo.hitCount = 0;
   }
 
   struct queueItem *r = q->head;
@@ -214,6 +235,8 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->tail = NULL;
   q->pending = 0;
   q->maxPending = maxPending;
+  q->pendingInfo.head = NULL;
+  q->pendingInfo.hitCount = 0;
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
