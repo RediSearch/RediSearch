@@ -273,6 +273,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+  MR_requestCompleted();
 }
 
 void MR_UpdateConnPerShard(size_t connPerShard) {
