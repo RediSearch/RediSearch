@@ -584,7 +584,7 @@ COV_EXCLUDE_DIRS += \
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 ifeq ($(REJSON_PATH),)
-REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXXXX)
 REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
 endif
 
