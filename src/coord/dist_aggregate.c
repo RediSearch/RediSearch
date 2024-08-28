@@ -360,26 +360,25 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       }
 
       if (nc->curIdx == len) {
-        long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
         bool timed_out = false;
+        // Check for a warning (resp3 only)
+        MRReply *warning = MRReply_MapElement(rows, "warning");
+        if (resp3 && MRReply_Length(warning) > 0) {
+          const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, 0), NULL);
+          // Set an error to be later picked up and sent as a warning
+          if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+            timed_out = true;
+          } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
+            nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
+          }
+        }
+
+        long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
 
         // in profile mode, save shard's profile info to be returned later
         if (cursorId == 0 && nc->shardsProfile) {
           array_ensure_append_1(nc->shardsProfile, root);
         } else {
-          // Check for a warning (resp3 only)
-          MRReply *warning = MRReply_MapElement(rows, "warning");
-          if (resp3 && MRReply_Length(warning) > 0) {
-            warning = MRReply_ArrayElement(warning, 0);
-            // Set an error to be later picked up and sent as a warning
-            // Note: Once we support more than only the timeout warning - extend this
-            // behavior to return `RS_RESULT_NONFATAL_ERROR` for which we return
-            // a warning only (instead of a simple error).
-            if (!strcmp(MRReply_String(warning, NULL), QueryError_Strerror(QUERY_ETIMEDOUT))) {
-              timed_out = true;
-            }
-          }
-
           MRReply_Free(root);
         }
         nc->current.root = nc->current.rows = root = rows = NULL;
@@ -641,10 +640,10 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout) {
+void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-  ProfilePrinterCtx cCtx = {req, timedout};
+  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions};
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,

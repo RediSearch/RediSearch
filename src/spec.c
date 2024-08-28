@@ -1722,7 +1722,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   pthread_rwlockattr_t attr;
   res = pthread_rwlockattr_init(&attr);
   RedisModule_Assert(res == 0);
-#if !defined(__APPLE__) && !defined(__FreeBSD__)
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
   RedisModule_Assert(res == 0);
