@@ -25,6 +25,16 @@
 #define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, uint32_t externalTriggerId, QueryError *status)
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
+#define CONFIG_STRING_GETTER(name) RedisModuleString * name(const char *name, void *privdata) 
+#define CONFIG_NUMERIC_GETTER(name) long long name(const char *name, void *privdata)
+#define CONFIG_BOOL_GETTER(name) int name(const char *name, void *privdata)
+#define CONFIG_ENUM_GETTER(name) int name(const char *name, void *privdata)
+
+#define CONFIG_STRING_SETTER(name) int name(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err)
+#define CONFIG_NUMERIC_SETTER(name) int name(const char *name, long long val, void *privdata, RedisModuleString **err)
+#define CONFIG_BOOL_SETTER(name) int name(const char *name, int val, void *privdata, RedisModuleString **err)
+#define CONFIG_ENUM_SETTER(name) int name(const char *name, int val, void *privdata, RedisModuleString **err)
+
 #define CONFIG_BOOLEAN_GETTER(name, var, invert) \
   CONFIG_GETTER(name) {                          \
     int cv = config->var;                        \

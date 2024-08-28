@@ -796,6 +796,8 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_Log(ctx, "warning", "FT.CONFIG is deprecated, please use CONFIG instead");
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
@@ -951,6 +953,49 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
+  // Module configuration API
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "default-dialect", 1, REDISMODULE_CONFIG_DEFAULT, 1, 4, 
+        get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "default-dialect registered");
+  }
+
+  // // TODO: How to init string to NULL?
+  // if (RedisModule_RegisterStringConfig(
+  //       ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, 
+  //       get_friso_ini, set_friso_ini, NULL, NULL) == REDISMODULE_ERR) {
+  //   return REDISMODULE_ERR;
+  // } else {
+  //   RedisModule_Log(ctx, "notice", "friso-ini registered");
+  // }
+
+ if (RedisModule_RegisterEnumConfig(
+        ctx, "on-timeout", TimeoutPolicy_Return, REDISMODULE_CONFIG_DEFAULT,
+        on_timeout_vals, int_on_timeout_vals, 2,
+        get_on_timeout, set_on_timeout, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "on-timeout registered");
+  }
+
+  if(RedisModule_RegisterBoolConfig(
+        ctx, "_numeric-compress", 0, REDISMODULE_CONFIG_DEFAULT,
+        get_numeric_compress, set_numeric_compress, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "search._numeric-compress registered");
+  }
+
+  if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "error", "Invalid LoadConfigs");
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "RedisModule_LoadConfigs()");
+  }
+
+  // RediSearch configuration
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);

@@ -20,8 +20,6 @@
 #include "resp3.h"
 #include "util/workers.h"
 
-#include "util/config_macros.h"
-
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
 
@@ -348,6 +346,20 @@ CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
 }
 
+// friso-ini
+CONFIG_STRING_SETTER(set_friso_ini) {
+  if (val) {
+    // RSGlobalConfig.frisoIni = NULL;
+    RSGlobalConfig.frisoIni = RedisModule_StringPtrLen(val, NULL);
+    return REDISMODULE_OK;
+  } else {
+    RSGlobalConfig.frisoIni = NULL;
+  }
+}
+
+CONFIG_STRING_GETTER(get_friso_ini) {
+  return RSGlobalConfig.frisoIni ? RedisModule_CreateString(NULL, RSGlobalConfig.frisoIni, strlen(RSGlobalConfig.frisoIni)) : NULL;
+}
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   size_t len;
@@ -365,6 +377,16 @@ CONFIG_SETTER(setOnTimeout) {
 
 CONFIG_GETTER(getOnTimeout) {
   return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+}
+
+// on-timeout
+CONFIG_ENUM_SETTER(set_on_timeout) {
+  RSGlobalConfig.requestConfigParams.timeoutPolicy = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_ENUM_GETTER(get_on_timeout) {
+  return RSGlobalConfig.requestConfigParams.timeoutPolicy;
 }
 
 // GC_SCANSIZE
@@ -455,6 +477,16 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
+// numeric-compress
+CONFIG_BOOL_SETTER(set_numeric_compress) {
+  RSGlobalConfig.numericCompress = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOL_GETTER(get_numeric_compress) {
+  return RSGlobalConfig.numericCompress;
+}
+
 // _FREE_RESOURCE_ON_THREAD
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
@@ -485,6 +517,7 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
 }
 
+// DEFAULT_DIALECT
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
@@ -496,9 +529,19 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   RETURN_STATUS(acrc);
 }
 
+// default-dialect
 CONFIG_GETTER(getDefaultDialectVersion) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->requestConfigParams.dialectVersion);
+}
+
+CONFIG_NUMERIC_GETTER(get_default_dialect) {
+  return RSGlobalConfig.requestConfigParams.dialectVersion;
+}
+
+CONFIG_NUMERIC_SETTER(set_default_dialect) {
+  RSGlobalConfig.requestConfigParams.dialectVersion = val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_SETTER(setVSSMaxResize) {

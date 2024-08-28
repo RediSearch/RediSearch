@@ -382,3 +382,23 @@ def testInitConfigCoord():
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
+
+def testConfigAPI():
+    def test_config(config_name, config_value):
+        env = Env(noDefaultModuleArgs=True)
+        env.expect('CONFIG SET ', config_name, config_value).equal('OK')
+        env.expect('CONFIG GET ', config_name).equal([config_name, config_value])
+
+    def test_config_invalid_value(config_name, config_value):
+        env = Env(noDefaultModuleArgs=True)
+        env.expect('CONFIG SET ', config_name, config_value).error().contains('CONFIG SET failed')
+
+    test_config('search.default-dialect', '2')
+    test_config_invalid_value('search.default-dialect', '0')
+    test_config_invalid_value('search.default-dialect', '5')
+    test_config('search.on-timeout', 'RETURN')
+    test_config('search.on-timeout', 'FAIL')
+    test_config_invalid_value('search.on-timeout', 'banana')
+    test_config('search._numeric-compress', 'yes')
+    test_config('search._numeric-compress', 'no')
+    test_config_invalid_value('search._numeric-compress', 'banana')

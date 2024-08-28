@@ -10,12 +10,16 @@
 #include "rmutil/sds.h"
 #include "query_error.h"
 #include "fields_global_stats.h"
+#include "util/config_macros.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
+
+static const int int_on_timeout_vals[2] = {TimeoutPolicy_Return, TimeoutPolicy_Fail};
+static const char *on_timeout_vals[2] = {"RETURN", "FAIL"};
 
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
@@ -303,6 +307,19 @@ extern "C" {
 // RSGlobalConfig.IteratorsConfig parameters values into it.
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
+
+// Module configuration parameters
+CONFIG_NUMERIC_GETTER(get_default_dialect);
+CONFIG_NUMERIC_SETTER(set_default_dialect);
+
+CONFIG_STRING_SETTER(set_friso_ini);
+CONFIG_STRING_GETTER(get_friso_ini);
+
+CONFIG_ENUM_SETTER(set_on_timeout); 
+CONFIG_ENUM_GETTER(get_on_timeout);
+
+CONFIG_BOOL_SETTER(set_numeric_compress);
+CONFIG_BOOL_GETTER(get_numeric_compress);
 
 #ifdef __cplusplus
 }
