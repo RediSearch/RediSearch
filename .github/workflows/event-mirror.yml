@@ -1,4 +1,4 @@
-name: Release a Version
+name: Mirror Release
 
 on:
   release:
