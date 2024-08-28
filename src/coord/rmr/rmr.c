@@ -273,20 +273,21 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+  MR_requestCompleted();
 }
 
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
   if (!rq_g) return; // not initialized yet, we have nothing to update yet.
-  void *p = (void *)(uintptr_t)connPerShard;
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
     // we know the uv thread is not initialized yet (and may never be).
     // We can update the connection pool size directly from the main thread.
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
-    // This call should only update the connection pool size for when the connection pool is initialized.
-    uvUpdateConnPerShard(p);
+    // This call should only update the connection pool `size` for when the connection pool is initialized.
+    MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
   } else {
+    void *p = (void *)(uintptr_t)connPerShard;
     RQ_Push(rq_g, uvUpdateConnPerShard, p);
   }
 }
@@ -295,6 +296,7 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -310,6 +312,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
