@@ -159,16 +159,6 @@ if (BUILD_SEARCH_UNIT_TESTS)
 
     add_subdirectory(tests/cpptests/redismock)
 
-    add_library(testdeps STATIC ${FINAL_OBJECTS} $<TARGET_OBJECTS:redismock>)
-
-    target_link_libraries(testdeps
-            ${LIBUV_LIBS}
-            redisearch-geometry
-            redismock
-            VectorSimilarity
-            ${HIREDIS_LIBS}
-            ${SSL_LIBS})
-
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 

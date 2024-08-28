@@ -17,7 +17,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build          # compile and link
-  COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise) default: oss
+  COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss
   MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
   STATIC=1            # build as static lib
   LITE=1              # build RediSearchLight
@@ -205,28 +205,6 @@ ifeq ($(STATIC),1)
 CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
-ifneq ($(COORD),0)
-CMAKE_COORD += -DCOORD_TYPE=$(COORD)
-endif
-
-CMAKE_FILES= \
-	CMakeLists.txt \
-	deps/friso/CMakeLists.txt \
-	deps/phonetics/CMakeLists.txt \
-	deps/snowball/CMakeLists.txt \
-	deps/rmutil/CMakeLists.txt
-
-ifneq ($(NO_TESTS),1)
-CMAKE_FILES+= \
-	deps/googletest/CMakeLists.txt \
-	deps/googletest/googlemock/CMakeLists.txt \
-	deps/googletest/googletest/CMakeLists.txt \
-	tests/ctests/CMakeLists.txt \
-	tests/cpptests/CMakeLists.txt \
-	tests/cpptests/redismock/CMakeLists.txt \
-	tests/pytests/CMakeLists.txt
-endif
-
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
@@ -235,7 +213,7 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_TEST)
 
 include $(MK)/defs
 
