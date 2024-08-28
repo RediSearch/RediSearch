@@ -854,10 +854,6 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-// A macro that extracts the first argument from a variadic macro
-#define SECOND_ARG_HELPER(first, second, ...) second
-#define SECOND_ARG(...) SECOND_ARG_HELPER(__VA_ARGS__)
-
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -865,25 +861,6 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {                                                                     \
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
-
-#define RM_CREATE_COMMAND(aclCategories, ...)                                  \
-  if (RedisModule_CreateCommand(__VA_ARGS__) == REDISMODULE_ERR) {        \
-    RedisModule_Log(ctx, "warning", "Could not create command " #__VA_ARGS__); \
-    return REDISMODULE_ERR;                                                    \
-  } else {                                                                     \
-    RedisModuleCommand *command = RedisModule_GetCommand(ctx, SECOND_ARG(__VA_ARGS__)); \
-    if (!command) {                                                            \
-      RedisModule_Log(ctx, "warning", "Could not find command " STRINGIFY(SECOND_ARG(__VA_ARGS__))); \
-      return REDISMODULE_ERR;                                                  \
-    }                                                                          \
-    if (aclCategories != NULL) {                                               \
-      result = RedisModule_SetCommandACLCategories(command, aclCategories);    \
-      if (result == REDISMODULE_ERR) {                                         \
-        RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command " STRINGIFY(SECOND_ARG(__VA_ARGS__)) ". Got error code: %d", errno); \
-      }                                                                        \
-    }                                                                          \
-  }
-
 
 Version supportedVersion = {
     .majorVersion = 7,
@@ -1148,7 +1125,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
 
   // TODO: Verify categories of `FT.DEBUG`.
-  RM_CREATE_COMMAND("admin read search dangerous slow", ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
+  RM_CREATE_COMMAND(NULL, ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
   RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
   RM_CREATE_COMMAND("read search", ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",

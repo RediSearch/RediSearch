@@ -43,6 +43,35 @@ do {                                            \
 #define RedisModule_ReplyWithLiteral(ctx, literal) \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
+// A macro that extracts the first argument from a variadic macro
+#define SECOND_ARG_HELPER(first, second, ...) second
+#define SECOND_ARG(...) SECOND_ARG_HELPER(__VA_ARGS__)
+
+#define RM_CREATE_COMMAND(aclCategories, ...)                                  \
+  if (RedisModule_CreateCommand(__VA_ARGS__) == REDISMODULE_ERR) {             \
+    RedisModule_Log(ctx, "warning", "Could not create command " #__VA_ARGS__); \
+    return REDISMODULE_ERR;                                                    \
+  } else {                                                                     \
+    RedisModuleCommand *command =                                              \
+      RedisModule_GetCommand(ctx, SECOND_ARG(__VA_ARGS__));                    \
+    if (!command) {                                                            \
+      RedisModule_Log(ctx, "warning",                                          \
+        "Could not find command " STRINGIFY(SECOND_ARG(__VA_ARGS__)));         \
+      return REDISMODULE_ERR;                                                  \
+    }                                                                          \
+    if (aclCategories != NULL &&                                               \
+        strncmp("_", SECOND_ARG(__VA_ARGS__), 1) != 0) {                       \
+      result = RedisModule_SetCommandACLCategories(command, aclCategories);    \
+      if (result == REDISMODULE_ERR) {                                         \
+        RedisModule_Log(ctx, "warning",                                        \
+          "Failed to set ACL categories for command " STRINGIFY(SECOND_ARG(__VA_ARGS__)) ". Got error code: %d", errno); \
+        return REDISMODULE_ERR;                                                \
+      }                                                                        \
+    }                                                                          \
+  }
+    // if (aclCategories != NULL &&                                               \
+        // strncmp("_", SECOND_ARG(__VA_ARGS__), 1) != 0) {                       \
+
 #ifdef __cplusplus
 }
 #endif
