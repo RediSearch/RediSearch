@@ -59,8 +59,7 @@ do {                                            \
         "Could not find command " STRINGIFY(SECOND_ARG(__VA_ARGS__)));         \
       return REDISMODULE_ERR;                                                  \
     }                                                                          \
-    if (aclCategories != NULL &&                                               \
-        strncmp("_", SECOND_ARG(__VA_ARGS__), 1) != 0) {                       \
+    if (aclCategories != NULL) {                                               \
       result = RedisModule_SetCommandACLCategories(command, aclCategories);    \
       if (result == REDISMODULE_ERR) {                                         \
         RedisModule_Log(ctx, "warning",                                        \
