@@ -213,7 +213,8 @@ ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_TEST)
+CMAKE_COORD += -DCOORD_TYPE=$(COORD)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 include $(MK)/defs
 
