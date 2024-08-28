@@ -393,12 +393,17 @@ def testConfigAPI():
         env = Env(noDefaultModuleArgs=True)
         env.expect('CONFIG SET ', config_name, config_value).error().contains('CONFIG SET failed')
 
+    def test_boolean_config(config_name):
+        test_config(config_name, 'yes')
+        test_config(config_name, 'no')
+        test_config_invalid_value(config_name, 'invalid_boolean')
+
     test_config('search.default-dialect', '2')
     test_config_invalid_value('search.default-dialect', '0')
     test_config_invalid_value('search.default-dialect', '5')
     test_config('search.on-timeout', 'RETURN')
     test_config('search.on-timeout', 'FAIL')
-    test_config_invalid_value('search.on-timeout', 'banana')
-    test_config('search._numeric-compress', 'yes')
-    test_config('search._numeric-compress', 'no')
-    test_config_invalid_value('search._numeric-compress', 'banana')
+    test_config_invalid_value('search.on-timeout', 'invalid_value')
+
+    test_boolean_config('search._fork-gc-clean-numeric-empty-nodes')
+    test_boolean_config('search._numeric-compress')

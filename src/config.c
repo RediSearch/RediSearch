@@ -347,17 +347,17 @@ CONFIG_GETTER(getFrisoINI) {
 }
 
 // friso-ini
-CONFIG_STRING_SETTER(set_friso_ini) {
+CONFIG_API_STRING_SETTER(set_friso_ini) {
   if (val) {
     // RSGlobalConfig.frisoIni = NULL;
     RSGlobalConfig.frisoIni = RedisModule_StringPtrLen(val, NULL);
-    return REDISMODULE_OK;
   } else {
     RSGlobalConfig.frisoIni = NULL;
   }
+  return REDISMODULE_OK;
 }
 
-CONFIG_STRING_GETTER(get_friso_ini) {
+CONFIG_API_STRING_GETTER(get_friso_ini) {
   return RSGlobalConfig.frisoIni ? RedisModule_CreateString(NULL, RSGlobalConfig.frisoIni, strlen(RSGlobalConfig.frisoIni)) : NULL;
 }
 // ON_TIMEOUT
@@ -380,12 +380,12 @@ CONFIG_GETTER(getOnTimeout) {
 }
 
 // on-timeout
-CONFIG_ENUM_SETTER(set_on_timeout) {
+CONFIG_API_ENUM_SETTER(set_on_timeout) {
   RSGlobalConfig.requestConfigParams.timeoutPolicy = val;
   return REDISMODULE_OK;
 }
 
-CONFIG_ENUM_GETTER(get_on_timeout) {
+CONFIG_API_ENUM_GETTER(get_on_timeout) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy;
 }
 
@@ -453,6 +453,10 @@ CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.for
 CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
 CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
 
+// _fork_gc_clean_numeric_empty_nodes
+CONFIG_API_BOOL_SETTER(set_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
+CONFIG_API_BOOL_GETTER(get_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
+
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
@@ -477,15 +481,9 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
-// numeric-compress
-CONFIG_BOOL_SETTER(set_numeric_compress) {
-  RSGlobalConfig.numericCompress = val;
-  return REDISMODULE_OK;
-}
-
-CONFIG_BOOL_GETTER(get_numeric_compress) {
-  return RSGlobalConfig.numericCompress;
-}
+// _numeric-compress
+CONFIG_API_BOOL_SETTER(set_numeric_compress, numericCompress)
+CONFIG_API_BOOL_GETTER(get_numeric_compress, numericCompress)
 
 // _FREE_RESOURCE_ON_THREAD
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
@@ -529,17 +527,17 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   RETURN_STATUS(acrc);
 }
 
-// default-dialect
 CONFIG_GETTER(getDefaultDialectVersion) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->requestConfigParams.dialectVersion);
 }
 
-CONFIG_NUMERIC_GETTER(get_default_dialect) {
+// default-dialect
+CONFIG_API_NUMERIC_GETTER(get_default_dialect) {
   return RSGlobalConfig.requestConfigParams.dialectVersion;
 }
 
-CONFIG_NUMERIC_SETTER(set_default_dialect) {
+CONFIG_API_NUMERIC_SETTER(set_default_dialect) {
   RSGlobalConfig.requestConfigParams.dialectVersion = val;
   return REDISMODULE_OK;
 }
@@ -1194,4 +1192,70 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
 }
 void iteratorsConfig_init(IteratorsConfig *config) {
   *config = RSGlobalConfig.iteratorsConfigParams;
+}
+
+
+// Module configuration parameters
+CONFIG_API_NUMERIC_GETTER(get_default_dialect);
+CONFIG_API_NUMERIC_SETTER(set_default_dialect);
+
+CONFIG_API_STRING_SETTER(set_friso_ini);
+CONFIG_API_STRING_GETTER(get_friso_ini);
+
+CONFIG_API_ENUM_SETTER(set_on_timeout); 
+CONFIG_API_ENUM_GETTER(get_on_timeout);
+
+int ModuleConfig_Register(RedisModuleCtx *ctx) {
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "default-dialect", 1, REDISMODULE_CONFIG_DEFAULT, 1, 4, 
+        get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "default-dialect registered");
+  }
+
+  // // TODO: How to init string to NULL?
+  // if (RedisModule_RegisterStringConfig(
+  //       ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, 
+  //       get_friso_ini, set_friso_ini, NULL, NULL) == REDISMODULE_ERR) {
+  //   return REDISMODULE_ERR;
+  // } else {
+  //   RedisModule_Log(ctx, "notice", "friso-ini registered");
+  // }
+
+ if (RedisModule_RegisterEnumConfig(
+        ctx, "on-timeout", TimeoutPolicy_Return, REDISMODULE_CONFIG_DEFAULT,
+        on_timeout_vals, int_on_timeout_vals, 2,
+        get_on_timeout, set_on_timeout, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "on-timeout registered");
+  }
+
+  if(RedisModule_RegisterBoolConfig(
+        ctx, "_fork-gc-clean-numeric-empty-nodes", 0, REDISMODULE_CONFIG_DEFAULT,
+        get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
+        NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "search._numeric-compress registered");
+  }
+
+  if(RedisModule_RegisterBoolConfig(
+        ctx, "_numeric-compress", 0, REDISMODULE_CONFIG_DEFAULT,
+        get_numeric_compress, set_numeric_compress, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "search._numeric-compress registered");
+  }
+
+  // Apply configuration
+  if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "error", "Invalid LoadConfigs");
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "RedisModule_LoadConfigs()");
+  }
+
+  return REDISMODULE_OK;
 }

@@ -197,6 +197,9 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
+/* Register module configuration parameters using Module Configuration API */
+int ModuleConfig_Register(RedisModuleCtx *ctx);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -307,19 +310,6 @@ extern "C" {
 // RSGlobalConfig.IteratorsConfig parameters values into it.
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
-
-// Module configuration parameters
-CONFIG_NUMERIC_GETTER(get_default_dialect);
-CONFIG_NUMERIC_SETTER(set_default_dialect);
-
-CONFIG_STRING_SETTER(set_friso_ini);
-CONFIG_STRING_GETTER(get_friso_ini);
-
-CONFIG_ENUM_SETTER(set_on_timeout); 
-CONFIG_ENUM_GETTER(get_on_timeout);
-
-CONFIG_BOOL_SETTER(set_numeric_compress);
-CONFIG_BOOL_GETTER(get_numeric_compress);
 
 #ifdef __cplusplus
 }
