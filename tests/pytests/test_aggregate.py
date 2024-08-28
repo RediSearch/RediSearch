@@ -2,6 +2,7 @@ from common import *
 
 import bz2
 import json
+import distro
 import unittest
 from datetime import datetime, timezone
 
@@ -149,16 +150,34 @@ class TestAggregate():
         self.env.assertEqual(29, int(float(row['avgPrice'])))
 
     def testParseTime(self):
+        distro_name = distro.name().lower()
+
+        expected = ['brand', '', 'count', '1518', 'dt', '2018-01-31T16:45:44Z',
+                    'parsed_dt', '1517417144']
+
+        # Skip on Alpine Linux, as its strptime() doesn't support '%FT%TZ' format
+        if distro_name != 'alpine linux':
+            cmd = ['FT.AGGREGATE', 'games', '*',
+                'GROUPBY', '1', '@brand',
+                'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
+                'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
+                'LIMIT', '0', '1']
+            res = self.env.cmd(*cmd)
+
+            self.env.assertEqual(expected, res[1])
+        
+        # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
+        # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
-               'GROUPBY', '1', '@brand',
-               'REDUCE', 'COUNT', '0', 'AS', 'count',
-               'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
-               'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
-               'LIMIT', '0', '1']
+                'GROUPBY', '1', '@brand',
+                'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
+                'APPLY', 'parsetime(@dt, "%Y-%m-%dT%H:%M:%SZ")', 'as',
+                'parsed_dt', 'LIMIT', '0', '1']
         res = self.env.cmd(*cmd)
 
-        self.env.assertEqual(['brand', '', 'count', '1518', 'dt',
-                              '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
+        self.env.assertEqual(expected, res[1])
 
     def testRandomSample(self):
         cmd = ['FT.AGGREGATE', 'games', '*', 'GROUPBY', '1', '@brand',
