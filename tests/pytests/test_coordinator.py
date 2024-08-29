@@ -61,6 +61,17 @@ def testCommandStatsOnRedis(env):
     conn.execute_command('FT.INFO', 'idx')
     check_info_commandstats(env, 'FT.INFO')
 
+@skip(cluster=False)
+def testPendingCommands(env:Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    max_pending_commands = 50
+
+    # Run each command `max_pending_commands` times, to verify they are not pending
+    # after they are executed, and that the coordinator is still responsive.
+    for _ in range(max_pending_commands):
+        env.cmd('SEARCH.CLUSTERINFO')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([0])
+
 def test_curly_brackets(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
