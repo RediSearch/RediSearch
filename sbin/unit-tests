@@ -65,7 +65,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search-ce/example_extension/libexample_extension.so
+export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
 
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
@@ -110,7 +110,7 @@ E=0
 if [[ $C_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C unit tests"
-	TESTS_DIR="$(cd $BINROOT/search-ce/tests/ctests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
 	cd $ROOT/tests/ctests
 	if [[ -z $TEST ]]; then
 		if [[ $NOP != 1 ]]; then
@@ -132,7 +132,7 @@ fi
 if [[ $CPP_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C++ unit tests"
-	TESTS_DIR="$(cd $BINROOT/search-ce/tests/cpptests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
 	cd $ROOT/tests/cpptests
 	TEST_NAME=rstest sanitizer_defs
 	if [[ -z $TEST ]]; then
@@ -143,7 +143,7 @@ if [[ $CPP_TESTS == 1 ]]; then
 fi
 
 echo "# Running coordinator unit tests"
-for TESTS_DIR in "$(cd $BINROOT/search-ce/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-ce/tests/cpptests; pwd)"; do
+for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
   if [[ -z $TEST ]]; then
     if [[ $NOP != 1 ]]; then
   	  for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
