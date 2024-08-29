@@ -2140,7 +2140,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RM_CREATE_COMMAND("read search", ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1);
   }
-  RM_CREATE_COMMAND("admin read search dangerous", ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_COMMAND("admin read search", ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1);
   RM_CREATE_COMMAND("read search", ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1);
   RM_CREATE_COMMAND("admin read search dangerous", ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1);
   if (clusterConfig.type == ClusterType_RedisLabs) {

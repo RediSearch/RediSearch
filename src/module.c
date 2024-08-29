@@ -1076,7 +1076,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
 
   // TODO: Remove from `dangerous` category if the command is O(1) - also fix PRD table.
-  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+  RM_CREATE_COMMAND("admin read search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
   RM_CREATE_COMMAND(NULL, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
