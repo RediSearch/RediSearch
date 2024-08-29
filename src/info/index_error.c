@@ -98,8 +98,6 @@ struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
-#ifdef RS_COORDINATOR
-
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     if (!NA_rstr) initDefaultKey();
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
@@ -187,5 +185,3 @@ IndexError IndexError_Deserialize(MRReply *reply) {
 
     return error;
 }
-
-#endif

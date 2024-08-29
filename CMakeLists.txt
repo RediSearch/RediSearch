@@ -28,8 +28,7 @@ add_compile_definitions(
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
-    _GNU_SOURCE
-    RS_COORDINATOR)
+    _GNU_SOURCE)
 
 
 if (USE_REDIS_ALLOCATOR)

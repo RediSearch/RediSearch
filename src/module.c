@@ -997,16 +997,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(NumericIndexType_Register, ctx);
 
-#ifndef RS_COORDINATOR
-// on a none coordinator version (for RS light/lite) we want to raise cross slot if
-// the index and the document do not go to the same shard
-#define INDEX_ONLY_CMD_ARGS 1, 1, 1
-#define INDEX_DOC_CMD_ARGS 1, 2, 1
-#else
 // on coordinator we do not want to raise a move error so we do not specify any key
 #define INDEX_ONLY_CMD_ARGS 0, 0, 0
 #define INDEX_DOC_CMD_ARGS 2, 2, 1
-#endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
 
@@ -1037,13 +1030,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS);
 
-#ifndef RS_COORDINATOR
-  // in case not coordinator is defined, all docs and index name should go to the same slot
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
-#else
-  // in case coordinator is defined, do not force cross slot validation
+  // do not force cross slot validation
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
-#endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS);
@@ -1081,12 +1069,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
 
-#ifndef RS_COORDINATOR
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
-#else
   // we do not want to raise a move error on cluster with coordinator
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
-#endif
 
   // todo: what to do with this?
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
@@ -1117,18 +1101,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
 
-// alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
-#ifndef RS_COORDINATOR
-  // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
-         1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
-         1);
-#else
+  // alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
@@ -1138,7 +1111,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
          0);
-#endif
   return REDISMODULE_OK;
 }
 

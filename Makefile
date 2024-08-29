@@ -105,24 +105,6 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(STATIC),1) # Static build
-	BINDIR=$(BINROOT)/search-static
-	SRCDIR=.
-	TARGET=$(BINDIR)/redisearch.a
-	PACKAGE_NAME=
-	MODULE_NAME=
-	RAMP_YAML=
-
-else ifeq ($(LITE),1)# Search Lite
-	BINDIR=$(BINROOT)/search-lite
-	SRCDIR=.
-	TARGET=$(BINDIR)/redisearch.so
-	PACKAGE_NAME=redisearch-light
-	MODULE_NAME=searchlight
-	RAMP_YAML=pack/ramp-light.yml
-	PACKAGE_S3_DIR=redisearch
-endif
-
 ifeq ($(COORD),1)
 	override COORD:=oss
 else ifeq ($(COORD),) # Default: OSS Coordinator build
@@ -130,12 +112,12 @@ else ifeq ($(COORD),) # Default: OSS Coordinator build
 endif
 
 ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
-	BINDIR=$(BINROOT)/search-ce
+	BINDIR=$(BINROOT)/search-community
 	SRCDIR=.
 	TARGET=$(BINDIR)/redisearch.so
-	PACKAGE_NAME=redisearch-ce
+	PACKAGE_NAME=redisearch-community
 	MODULE_NAME=search
-	RAMP_YAML=pack/ramp-ce.yml
+	RAMP_YAML=pack/ramp-community.yml
 	PACKAGE_S3_DIR=redisearch-oss
 
 else ifeq ($(COORD),rlec) # RLEC Coordinator
@@ -149,6 +131,26 @@ else ifeq ($(COORD),rlec) # RLEC Coordinator
 
 else
 	___:=$(error COORD should be either oss or rlec)
+endif
+
+ifeq ($(LITE),1) # Search Lite - overwrite the above settings (todo: retire lite completely)
+	BINDIR=$(BINROOT)/search-lite
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.so
+	PACKAGE_NAME=redisearch-light
+	MODULE_NAME=searchlight
+	RAMP_YAML=pack/ramp-light.yml
+	PACKAGE_S3_DIR=redisearch
+endif
+
+ifeq ($(STATIC),1) # Static build - overwrite the above settings
+	BINDIR=$(BINROOT)/search-static
+	SRCDIR=.
+	TARGET=$(BINDIR)/redisearch.a
+	PACKAGE_NAME=
+	MODULE_NAME=
+	RAMP_YAML=
+	PACKAGE_S3_DIR=
 endif
 
 LIBUV_DIR=$(ROOT)/deps/libuv
