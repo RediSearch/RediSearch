@@ -182,14 +182,15 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 }
 
+// `*50` for following the previous behavior
+// #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
+#define PENDING_FACTOR 50
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS) {
 
   cluster_g = cl;
   timeout_g = timeoutMS;
-  // `*50` for following the previous behavior
-  // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
-  rq_g = RQ_New(cl->mgr.nodeConns * 50);
+  rq_g = RQ_New(cl->mgr.nodeConns * PENDING_FACTOR);
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
@@ -273,20 +274,22 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+  RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
+  MR_requestCompleted();
 }
 
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
   if (!rq_g) return; // not initialized yet, we have nothing to update yet.
-  void *p = (void *)(uintptr_t)connPerShard;
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
     // we know the uv thread is not initialized yet (and may never be).
     // We can update the connection pool size directly from the main thread.
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
-    // This call should only update the connection pool size for when the connection pool is initialized.
-    uvUpdateConnPerShard(p);
+    // This call should only update the connection pool `size` for when the connection pool is initialized.
+    MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
   } else {
+    void *p = (void *)(uintptr_t)connPerShard;
     RQ_Push(rq_g, uvUpdateConnPerShard, p);
   }
 }
@@ -295,6 +298,7 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&cluster_g->mgr, ctx);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -310,6 +314,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
+  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
