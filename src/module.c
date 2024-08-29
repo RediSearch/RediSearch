@@ -1157,13 +1157,11 @@ void RediSearch_CleanupModule(void) {
   dictRelease(specDict_g);
   specDict_g = NULL;
 
-// Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
-// data structure that is accessed upon releasing the spec (and running thread might hold
-// a reference to the spec bat this time).
-#ifdef MT_BUILD
+  // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
+  // data structure that is accessed upon releasing the spec (and running thread might hold
+  // a reference to the spec bat this time).
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
-#endif
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
