@@ -182,14 +182,15 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 }
 
+// `*50` for following the previous behavior
+// #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
+#define PENDING_FACTOR 50
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS) {
 
   cluster_g = cl;
   timeout_g = timeoutMS;
-  // `*50` for following the previous behavior
-  // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
-  rq_g = RQ_New(cl->mgr.nodeConns * 50);
+  rq_g = RQ_New(cl->mgr.nodeConns * PENDING_FACTOR);
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
@@ -273,6 +274,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+  RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
   MR_requestCompleted();
 }
 

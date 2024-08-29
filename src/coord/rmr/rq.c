@@ -241,3 +241,9 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->async.data = q;
   return q;
 }
+
+void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
+  uv_mutex_lock(&q->lock);
+  q->maxPending = maxPending;
+  uv_mutex_unlock(&q->lock);
+}
