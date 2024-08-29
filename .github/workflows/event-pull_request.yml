@@ -25,7 +25,7 @@ jobs:
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ubuntu-latest
+      env: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
     secrets: inherit
@@ -51,7 +51,7 @@ jobs:
       - basic-test
       - coverage
       - sanitize
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

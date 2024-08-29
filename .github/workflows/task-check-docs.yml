@@ -10,7 +10,7 @@ on:
 
 jobs:
   check-only-docs-changed:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
     outputs:
       only-docs-changed: ${{ steps.check-docs.outputs.only_modified }}
     steps:

@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: "${{ vars.RUNS_ON_UBUNTU_LATEST }}"
         type: string
       container:
         type: string

@@ -15,7 +15,7 @@ on:
 
 jobs:
   trigger:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
     steps:
       # TODO: Use netlify/actions/build@master action instead of curl
       - run: |
