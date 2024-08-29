@@ -12,7 +12,7 @@ env:
 
 jobs:
   coverage:
-    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
+    runs-on: ${{ vars.RUNS_ON }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}

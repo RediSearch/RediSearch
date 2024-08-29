@@ -6,7 +6,7 @@ on:
 
 jobs:
   mirror:
-    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
+    runs-on: ${{ vars.RUNS_ON }}
     steps:
       - uses: actions/checkout@v3
         with:

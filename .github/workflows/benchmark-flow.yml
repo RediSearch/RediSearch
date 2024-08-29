@@ -37,7 +37,7 @@ env:
 
 jobs:
   benchmark-steps:
-    runs-on: ${{ vars.RUNS_ON_UBUNTU_LATEST }}
+    runs-on: ${{ vars.RUNS_ON }}
     container: ${{ inputs.container }}
     steps:
       - name: Checkout
