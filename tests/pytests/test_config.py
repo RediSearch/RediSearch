@@ -384,26 +384,55 @@ def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
 
 def testConfigAPI():
-    def test_config(config_name, config_value):
+    env = Env(noDefaultModuleArgs=True)
+
+    def _test_config(env, config_name, config_value):
         env = Env(noDefaultModuleArgs=True)
         env.expect('CONFIG SET ', config_name, config_value).equal('OK')
         env.expect('CONFIG GET ', config_name).equal([config_name, config_value])
 
-    def test_config_invalid_value(config_name, config_value):
-        env = Env(noDefaultModuleArgs=True)
-        env.expect('CONFIG SET ', config_name, config_value).error().contains('CONFIG SET failed')
+    def _test_config_invalid_value(env, config_name, config_value):
+        env.expect('CONFIG SET ', config_name, config_value).error()\
+            .contains('CONFIG SET failed')
 
-    def test_boolean_config(config_name):
-        test_config(config_name, 'yes')
-        test_config(config_name, 'no')
-        test_config_invalid_value(config_name, 'invalid_boolean')
+    def _test_boolean_config(env, config_name, old_config_name):
+        for val in ['yes', 'no']:
+            old_val = 'true' if val == 'yes' else 'false'
+            
+            # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect('CONFIG SET ', config_name, val).equal('OK')
+            env.expect('CONFIG GET ', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'get', old_config_name)\
+                .equal([[old_config_name, old_val]])
 
-    test_config('search.default-dialect', '2')
-    test_config_invalid_value('search.default-dialect', '0')
-    test_config_invalid_value('search.default-dialect', '5')
-    test_config('search.on-timeout', 'RETURN')
-    test_config('search.on-timeout', 'FAIL')
-    test_config_invalid_value('search.on-timeout', 'invalid_value')
+            # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect(config_cmd(), 'set', old_config_name, old_val).ok()
+            env.expect('CONFIG GET ', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'get', old_config_name)\
+                .equal([[old_config_name, old_val]])
 
-    test_boolean_config('search._fork-gc-clean-numeric-empty-nodes')
-    test_boolean_config('search._numeric-compress')
+        _test_config_invalid_value(env, config_name, 'invalid_boolean')
+
+    # Test enum parameters
+    _test_config(env, 'search.on-timeout', 'RETURN')
+    _test_config(env, 'search.on-timeout', 'FAIL')
+    _test_config_invalid_value(env, 'search.on-timeout', 'invalid_value')
+
+    # Test boolean parameters
+    _test_boolean_config(env, 'search.free-resource-on-thread',
+                         '_FREE_RESOURCE_ON_THREAD')
+    _test_boolean_config(env, 'search._numeric-compress',
+                         '_NUMERIC_COMPRESS')
+    _test_boolean_config(env, 'search._print-profile-clock',
+                         '_PRINT_PROFILE_CLOCK')
+    _test_boolean_config(env, 'search._prioritize-intersect-union-children',
+                         '_PRIORITIZE_INTERSECT_UNION_CHILDREN')
+    _test_boolean_config(env, 'search.fork-gc-clean-numeric-empty-nodes',
+                         'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+    _test_boolean_config(env, 'search.fork-gc-clean-numeric-empty-nodes',
+                         '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+
+    # Test numeric parameters
+    _test_config(env, 'search.default-dialect', '2')
+    _test_config_invalid_value(env, 'search.default-dialect', '0')
+    _test_config_invalid_value(env, 'search.default-dialect', '5')

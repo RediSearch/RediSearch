@@ -489,9 +489,17 @@ CONFIG_API_BOOL_GETTER(get_numeric_compress, numericCompress)
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
+// _free-resource-on-thread
+CONFIG_API_BOOL_SETTER(set_free_resource_on_thread, freeResourcesThread)
+CONFIG_API_BOOL_GETTER(get_free_resource_on_thread, freeResourcesThread)
+
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileClock, 0)
+
+// _print-profile-clock
+CONFIG_API_BOOL_SETTER(set_print_profile_clock, requestConfigParams.printProfileClock)
+CONFIG_API_BOOL_GETTER(get_print_profile_clock, requestConfigParams.printProfileClock)
 
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
@@ -677,6 +685,10 @@ CONFIG_GETTER(getBGIndexSleepGap) {
 // _PRIORITIZE_INTERSECT_UNION_CHILDREN
 CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
+
+// _prioritize-intersect-union-children
+CONFIG_API_BOOL_SETTER(set_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
+CONFIG_API_BOOL_GETTER(get_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
@@ -1232,22 +1244,16 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "on-timeout registered");
   }
 
-  if(RedisModule_RegisterBoolConfig(
-        ctx, "_fork-gc-clean-numeric-empty-nodes", 0, REDISMODULE_CONFIG_DEFAULT,
-        get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
-        NULL, NULL) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "search._numeric-compress registered");
-  }
-
-  if(RedisModule_RegisterBoolConfig(
-        ctx, "_numeric-compress", 0, REDISMODULE_CONFIG_DEFAULT,
-        get_numeric_compress, set_numeric_compress, NULL, NULL) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "search._numeric-compress registered");
-  }
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "free-resource-on-thread",
+      get_free_resource_on_thread, set_free_resource_on_thread);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_numeric-compress",
+      get_numeric_compress, set_numeric_compress);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_print-profile-clock",
+      get_print_profile_clock, set_print_profile_clock);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
+      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "fork-gc-clean-numeric-empty-nodes",
+      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes);
 
   // Apply configuration
   if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
