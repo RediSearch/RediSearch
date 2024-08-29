@@ -1075,7 +1075,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND(NULL, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  // TODO: Remove from `dangerous` category if the command is O(1) - also fix PRD table.
   RM_CREATE_COMMAND("search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
@@ -1120,7 +1119,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND("search", ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  // TODO: Verify
   RM_CREATE_COMMAND("search", ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 

@@ -68,8 +68,6 @@ do {                                            \
       }                                                                        \
     }                                                                          \
   }
-    // if (aclCategories != NULL &&                                               \
-        // strncmp("_", SECOND_ARG(__VA_ARGS__), 1) != 0) {                       \
 
 #ifdef __cplusplus
 }
