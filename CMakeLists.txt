@@ -14,7 +14,10 @@ option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 #----------------------------------------------------------------------------------------------
 
 project(redisearch)
-set(MODULE_NAME "search")
+
+if (NOT MODULE_NAME)
+    set(MODULE_NAME "search")  # unless it was already set to "searchlite"
+endif()
 
 #----------------------------------------------------------------------------------------------
 
