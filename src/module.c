@@ -1019,7 +1019,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   int result;
 
-  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search slow admin", ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
 
   RM_CREATE_COMMAND(NULL, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
                     INDEX_DOC_CMD_ARGS);
@@ -1076,19 +1076,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
 
   // TODO: Remove from `dangerous` category if the command is O(1) - also fix PRD table.
-  RM_CREATE_COMMAND("admin read search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
+  RM_CREATE_COMMAND("search read admin dangerous", ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("admin read search dangerous", ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
+  RM_CREATE_COMMAND("read search", ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("read search", ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("read search", ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
   RM_CREATE_COMMAND("write search", ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
@@ -1111,57 +1111,57 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND(NULL, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("write search", ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("read search", ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("write search", ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   // TODO: Verify
-  RM_CREATE_COMMAND(NULL, ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
+  RM_CREATE_COMMAND("search", ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   // TODO: Verify categories of `FT.DEBUG`.
-  RM_CREATE_COMMAND(NULL, ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
+  RM_CREATE_COMMAND("search admin dangerous slow", ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
   RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
-  RM_CREATE_COMMAND("read search", ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
+  RM_CREATE_COMMAND("search", ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("write search", ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search", ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0);
 
-  RM_CREATE_COMMAND("write search", ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search", ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0);
 
-  RM_CREATE_COMMAND("read search", ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND(NULL, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search admin", ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
 
 // alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
   // TODO: Verify
-  RM_CREATE_COMMAND(NULL, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
          1);
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
 
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
   // TODO: Verify
-  RM_CREATE_COMMAND(NULL, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
          1);
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
-  RM_CREATE_COMMAND(NULL, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
          0);
   RM_CREATE_COMMAND("write search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0);
 
   RM_CREATE_COMMAND("write search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
   // TODO: Verify
-  RM_CREATE_COMMAND(NULL, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
+  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
          0);
 #endif
   return REDISMODULE_OK;

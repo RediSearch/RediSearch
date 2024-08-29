@@ -2140,21 +2140,21 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RM_CREATE_COMMAND("read search", ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1);
   }
-  RM_CREATE_COMMAND("admin read search", ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_COMMAND("search", ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1);
   RM_CREATE_COMMAND("read search", ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1);
-  RM_CREATE_COMMAND("admin read search dangerous", ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_COMMAND("read search", ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1);
   if (clusterConfig.type == ClusterType_RedisLabs) {
     RM_CREATE_COMMAND("read search", ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3);
   } else {
     RM_CREATE_COMMAND("read search", ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1);
   }
-  RM_CREATE_COMMAND("read search", ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_COMMAND("search", ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1);
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
   if (RSBuildType_g == RSBuildType_OSS && !isClusterEnabled) {
     // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-    RM_CREATE_COMMAND(NULL, ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0);
+    RM_CREATE_COMMAND("search admin dangerous slow", ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0);
   }
 
   if (RSBuildType_g == RSBuildType_OSS) {
@@ -2165,27 +2165,27 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_CREATE_COMMAND("write search", ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND("read search", ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_CREATE_COMMAND("write search", ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND(NULL, ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
     RM_CREATE_COMMAND(NULL, ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND("write search", ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1);
+    RM_CREATE_COMMAND("search", ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1);
   }
 
   // cluster set commands
-  RM_CREATE_COMMAND(NULL, ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1);
-  RM_CREATE_COMMAND(NULL, ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1);
-  RM_CREATE_COMMAND(NULL, ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1);
+  RM_CREATE_COMMAND("search", ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1);
+  RM_CREATE_COMMAND("search", ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1);
+  RM_CREATE_COMMAND("search", ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1);
 
   // Deprecated commands. Grouped here for easy tracking
   RM_CREATE_COMMAND(NULL, ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1);

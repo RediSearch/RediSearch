@@ -15,14 +15,18 @@ def test_acl_search_commands(env):
     commands = [
         'FT.EXPLAINCLI', '_FT.ALIASDEL', 'FT.SPELLCHECK', 'FT.SYNUPDATE',
         'FT.ALIASUPDATE', '_FT.AGGREGATE', '_FT.ALIASADD', 'FT._LIST',
-        '_FT.ALIASUPDATE', 'FT.ALIASADD', 'FT.SEARCH', '_FT.SUGGET',
+        '_FT.ALIASUPDATE', 'FT.ALIASADD', 'FT.SEARCH',
         '_FT.CURSOR', 'FT.INFO', 'FT.SUGDEL', '_FT.INFO', '_FT.SUGDEL',
         '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE', 'FT.DICTDUMP',
         'FT.EXPLAIN', '_FT.SPELLCHECK', 'FT.AGGREGATE', 'FT.SUGLEN',
         '_FT.SUGLEN', 'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', '_FT.CREATE',
         'FT.DICTDEL', 'FT.CURSOR', 'FT.ALIASDEL', 'FT.SUGADD', '_FT.DICTADD',
         'FT.SYNDUMP', 'FT.CREATE', '_FT.PROFILE', '_FT.SEARCH', 'FT.DICTADD',
-        '_FT.SUGADD'
+        'FT.SYNFORCEUPDATE', 'FT._ALIASDELIFX', 'FT._CREATEIFNX',
+        '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT.SUGGET',
+        'search.CLUSTERREFRESH', 'FT._ALIASADDIFNX', '_FT._ALTERIFNX',
+        '_FT.SUGADD', 'FT._ALTERIFNX', '_FT._ALIASDELIFX', 'search.CLUSTERSET',
+        'search.CLUSTERINFO', '_FT._ALIASADDIFNX', 'FT.CONFIG'
     ]
     # Use a set since the order of the response is not consistent.
     commands = set(commands)
@@ -49,15 +53,15 @@ def test_acl_non_default_user(env):
     env.expect('AUTH', 'test', '123').true()
 
     # `test` should now be able to run `read` commands like `FT.SEARCH', but not
-    # `write` commands like `FT.CREATE`
+    # `search` commands like `FT.CREATE`
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').error().contains(
         "User test has no permissions to run the 'FT.CREATE' command")
     env.expect('FT.SEARCH', 'idx', 'hello').error().contains(
         "no such index")
 
-    # Add `test` write permissions
+    # Add `test` `search` permissions
     env.expect('AUTH', 'default', '').true()
-    env.expect('ACL', 'SETUSER', 'test', '+@write').ok()
+    env.expect('ACL', 'SETUSER', 'test', '+@search').ok()
     env.expect('AUTH', 'test', '123').true()
 
     # `test` should now be able to run `write` commands like `FT.CREATE`
