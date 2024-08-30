@@ -1245,15 +1245,15 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
   }
 
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "free-resource-on-thread",
-      get_free_resource_on_thread, set_free_resource_on_thread);
+      get_free_resource_on_thread, set_free_resource_on_thread, 1);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_numeric-compress",
-      get_numeric_compress, set_numeric_compress);
+      get_numeric_compress, set_numeric_compress, 0);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_print-profile-clock",
-      get_print_profile_clock, set_print_profile_clock);
+      get_print_profile_clock, set_print_profile_clock, 0);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
-      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children);
+      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children, 0);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "fork-gc-clean-numeric-empty-nodes",
-      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes);
+      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes, 1);
 
   // Apply configuration
   if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {

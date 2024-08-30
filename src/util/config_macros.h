@@ -69,12 +69,12 @@ static int name(const char *name, int val, void *privdata, RedisModuleString **e
   return REDISMODULE_OK;                                                       \
 }
 
-#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn) \
-  if(RedisModule_RegisterBoolConfig(                             \
-        ctx, name, 0, REDISMODULE_CONFIG_DEFAULT,                \
-        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {          \
-  } else {                                                       \
-    RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");\
+#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val) \
+  if(RedisModule_RegisterBoolConfig(                                          \
+        ctx, name, default_val, REDISMODULE_CONFIG_DEFAULT,                   \
+        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                       \
+  } else {                                                                    \
+    RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");             \
   }
 
 #ifdef RS_COORDINATOR

@@ -428,8 +428,6 @@ def testConfigAPI():
     _test_boolean_config(env, 'search._prioritize-intersect-union-children',
                          '_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     _test_boolean_config(env, 'search.fork-gc-clean-numeric-empty-nodes',
-                         'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
-    _test_boolean_config(env, 'search.fork-gc-clean-numeric-empty-nodes',
                          '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # Test numeric parameters
