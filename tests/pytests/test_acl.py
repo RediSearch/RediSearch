@@ -26,11 +26,13 @@ def test_acl_search_commands(env):
         '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT.SUGGET',
         'search.CLUSTERREFRESH', 'FT._ALIASADDIFNX', '_FT._ALTERIFNX',
         '_FT.SUGADD', 'FT._ALTERIFNX', '_FT._ALIASDELIFX', 'search.CLUSTERSET',
-        'search.CLUSTERINFO', '_FT._ALIASADDIFNX', 'FT.CONFIG'
+        'search.CLUSTERINFO', '_FT._ALIASADDIFNX'
     ]
+    if not env.isCluster():
+        commands.append('FT.CONFIG')
+
     # Use a set since the order of the response is not consistent.
-    commands = set(commands)
-    env.assertEqual(set(res), commands)
+    env.assertEqual(set(res), set(commands))
 
     # Check that one of our commands is listed in a non-search category
     res = env.cmd('ACL', 'CAT', 'read')

@@ -1133,7 +1133,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_CREATE_COMMAND("search", ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
+  RM_CREATE_COMMAND("search", ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
 
   RM_CREATE_COMMAND("search admin", ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
 
