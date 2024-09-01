@@ -2001,11 +2001,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_connections_per_shard = clusterConfig.connPerShard;
   } else {
     // default
-    #ifdef MT_BUILD
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
-    #else
-    num_connections_per_shard = 1;
-    #endif
   }
 
   MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);

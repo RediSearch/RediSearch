@@ -7,7 +7,7 @@ on:
 jobs:
   update-version:
     # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -72,9 +72,16 @@ jobs:
 
   set-artifacts:
     needs: update-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     steps:
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials Using Role
+        if: vars.USE_AWS_ROLE == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials Using Keys
+        if: vars.USE_AWS_ROLE == 'false'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}

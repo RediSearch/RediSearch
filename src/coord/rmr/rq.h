@@ -15,6 +15,7 @@ typedef void (*MRQueueCallback)(void *);
 typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(int maxPending);
+void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 
 void RQ_Done(MRWorkQueue *q);
 

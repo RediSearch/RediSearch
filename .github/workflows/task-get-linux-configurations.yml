@@ -13,7 +13,8 @@ env:
                     'gcc:12-bookworm',
                     'amazonlinux:2',
                     'amazonlinux:2023',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'alpine:3']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
@@ -23,7 +24,8 @@ env:
                     'debian:bullseye',
                     'gcc:12-bookworm',
                     'amazonlinux:2',
-                    'amazonlinux:2023']"
+                    'amazonlinux:2023',
+                    'alpine:3']"
 
 on:
   workflow_call:
@@ -47,7 +49,7 @@ on:
 jobs:
   get-required-envs:
     name: for ${{ inputs.platform }} platform on ${{ inputs.architecture }} architecture
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       platforms_arm: ${{ steps.get_platforms.outputs.arm_platforms }}
       platforms_x86: ${{ steps.get_platforms.outputs.x86_platforms }}
@@ -132,6 +134,16 @@ jobs:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+
+          # alpine:3 needs pre-checkout dependencies
+          if 'alpine:3' in x86_platforms:
+            x86_include.append({
+              'OS': 'alpine:3',
+              'pre-deps': "apk add bash"})
+          if 'alpine:3' in arm_platforms:
+            arm_include.append({
+              'OS': 'alpine:3',
+              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
