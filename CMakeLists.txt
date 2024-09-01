@@ -33,6 +33,9 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if (LITE)
+    add_compile_definitions(REDISEARCH_LIGHT)
+endif()
 
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
