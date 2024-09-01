@@ -18,6 +18,7 @@ typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+#define RS_INVALID_FIELD_ID (t_fieldId)-1
 // Used to identify any field index within the spec, not just textual fields
 typedef uint16_t t_fieldIndex;
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
@@ -89,6 +90,18 @@ enum FieldExpirationPredicate {
   FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
   FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
 };
+
+typedef struct {
+  // tells us the actual type of the field member
+  // true - fieldMask, false - fieldIndex
+  uint8_t isFieldMask;
+  union {
+    // For textual fields, allows to host multiple field indices at once
+    t_fieldMask mask;
+    // For the other fields, allows a single field to be referenced
+    t_fieldIndex index;
+  } value;
+} FieldMaskOrIndex;
 
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)

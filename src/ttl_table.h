@@ -22,8 +22,8 @@ void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTime
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId);
 bool TimeToLiveTable_IsEmpty(TimeToLiveTable *table);
 
+bool TimeToLiveTable_HasExpiration(TimeToLiveTable *table, t_docId docId);
 bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint);
-bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
-bool TimeToLiveTable_VerifyFieldIndicesPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
+bool TimeToLiveTable_VerifyDocAndFields(TimeToLiveTable *table, t_docId docId, const t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
 #endif //TTL_TABLE_H

@@ -358,7 +358,8 @@ TEST_F(IndexTest, testUnion) {
 TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createIndex(10, 1);
   InvertedIndex *w2 = createIndex(10, 2);
-  IndexReader *r1 = NewTermIndexReaderEx(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
+  IndexReader *r1 = NewTermIndexReaderEx(w, NULL, fieldMaskOrIndex, NULL, 0.5);  //
   IndexReader *r2 = NewTermIndexReader(w2);   //
 
   // printf("Reading!\n");
@@ -817,7 +818,8 @@ TEST_F(IndexTest, testHybridVector) {
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-  FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=NULL,
                                   .index = index,
@@ -977,7 +979,8 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   // child isn't the first child (since inOrder=true will trigger sorting).
   IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
 
-  FieldIndexFilterContext filterCtx = {.fieldIndex = 0, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Create hybrid iterator - should return NULL.
   HybridIteratorParams hParams = {.sctx = NULL,
                                   .index = index,

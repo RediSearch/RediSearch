@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 
 static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record, const FieldFilterCtx* filterCtx);
+                                          RSIndexResult *record, const FieldFilterContext* filterCtx);
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
@@ -944,7 +944,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
 IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
                               double rangeMin, double rangeMax, int skipMulti,
-                              const FieldIndexFilterContext* filterCtx) {
+                              const FieldFilterContext* fieldCtx) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -952,13 +952,32 @@ IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, co
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index = *filterCtx};
-  return NewIndexReaderGeneric(sctx, idx, procs, ctx, skipMulti, res, &fieldCtx);
+  return NewIndexReaderGeneric(sctx, idx, procs, ctx, skipMulti, res, fieldCtx);
+}
+
+IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
 }
 
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
+}
+
+static t_fieldIndex* expandFieldMask(t_fieldMask mask, IndexSpec* spec) {
+  t_fieldIndex* sortedFieldIndices = NULL;
+  for (size_t index = 0; index < spec->numFields; ++index) {
+    FieldSpec* fs = &spec->fields[index];
+    if (fs->ftId == RS_INVALID_FIELD_ID) {
+      continue;
+    }
+    if (mask & FIELD_BIT(fs)) {
+      array_ensure_append_1(sortedFieldIndices, fs->index);
+    }
+  }
+  return sortedFieldIndices;
 }
 
 int IR_Read(void *ctx, RSIndexResult **e) {
@@ -1007,10 +1026,15 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       ir->sameId = ir->lastId;
     }
 
-    if (ir->sctx && ir->sctx->spec) {
-      const bool validValue = ir->filterCtx.maskFilter ?
-                                DocTable_VerifyFieldMaskExpirationPredicate(&ir->sctx->spec->docs, record->docId, &ir->filterCtx.filter.mask, &ir->sctx->time.current) :
-                                DocTable_VerifyFieldIndexExpirationPredicate(&ir->sctx->spec->docs, record->docId, &ir->filterCtx.filter.index, &ir->sctx->time.current);
+    if (ir->sctx && ir->sctx->spec && DocTable_HasExpiration(&ir->sctx->spec->docs, record->docId)) {
+      t_fieldIndex* sortedFieldIndices = NULL;
+      if (ir->filterCtx.field.isFieldMask) {
+        sortedFieldIndices = expandFieldMask(ir->filterCtx.field.value.mask, ir->sctx->spec);
+      } else {
+        array_ensure_append_1(sortedFieldIndices, ir->filterCtx.field.value.index);
+      }
+      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, array_len(sortedFieldIndices), ir->filterCtx.predicate, &ir->sctx->time.current);
+      array_free(sortedFieldIndices);
       if (!validValue) {
         continue;
       }
@@ -1157,7 +1181,7 @@ size_t IR_NumDocs(void *ctx) {
 
 static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                             RSIndexResult *record, const FieldFilterCtx* filterCtx) {
+                             RSIndexResult *record, const FieldFilterContext* filterCtx) {
   // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
   ret->currentBlock = 0;
   ret->idx = idx;
@@ -1178,13 +1202,13 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
 
 static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record, const FieldFilterCtx* filterCtx) {
+                                          RSIndexResult *record, const FieldFilterContext* filterCtx) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
   IndexReader_Init(sctx, ret, idx, decoder, decoderCtx, skipMulti, record, filterCtx);
   return ret;
 }
 
-IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                 RSQueryTerm *term, double weight) {
   if (term && sctx) {
     // compute IDF based on num of docs in the header
@@ -1202,13 +1226,16 @@ IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {.num = fieldMask};
+  IndexDecoderCtx dctx = {.num = fieldMaskOrIndex.isFieldMask ? fieldMaskOrIndex.value.mask : RS_FIELDMASK_ALL};
 
-  FieldFilterCtx filterCtx = {.maskFilter = true,
-                              .filter.mask.fieldMask = fieldMask,
-                              .filter.mask.predicate = FIELD_EXPIRATION_DEFAULT,
-                              .filter.mask.spec = sctx ? sctx->spec : NULL};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex,
+                                  .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &filterCtx);
+}
+
+IndexReader *NewTermIndexReader(InvertedIndex *idx) {
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  return NewTermIndexReaderEx(idx, NULL, fieldMaskOrIndex, NULL, 1);
 }
 
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
@@ -1218,11 +1245,10 @@ IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sct
   if (!decoder.decoder) {
     return NULL;
   }
-  FieldFilterCtx fieldCtx = {.maskFilter = false, .filter.index.fieldIndex = fieldIndex,
-                             .filter.index.predicate = FIELD_EXPIRATION_MISSING };
+  FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = FIELD_EXPIRATION_MISSING };
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = freq;
-  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldCtx);
+  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);
 }
 
 void IR_Free(IndexReader *ir) {

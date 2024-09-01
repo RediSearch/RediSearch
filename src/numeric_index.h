@@ -93,11 +93,11 @@ typedef struct {
 
 struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
                                               const NumericFilter *f, int skipMulti,
-                                              const FieldIndexFilterContext* filterCtx);
+                                              const FieldFilterContext* filterCtx);
 
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType,
-                                               IteratorsConfig *config, const FieldIndexFilterContext* filterCtx);
+                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.

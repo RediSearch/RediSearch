@@ -25,7 +25,7 @@ typedef struct {
   bool ignoreDocScore;
   IndexIterator *childIt;
   struct timespec timeout;
-  const FieldIndexFilterContext* filterCtx;
+  const FieldFilterContext* filterCtx;
 } HybridIteratorParams;
 
 typedef struct {
@@ -50,7 +50,7 @@ typedef struct {
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.
   TimeoutCtx timeoutCtx;           // Timeout parameters
-  FieldIndexFilterContext filterCtx;
+  FieldFilterContext filterCtx;
 } HybridIterator;
 
 #ifdef __cplusplus

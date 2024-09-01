@@ -132,28 +132,18 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
 
 typedef struct {
-  struct IndexSpec* spec;
-  // For textual fields, allows to host multiple field indices at once
-  t_fieldMask fieldMask;
+  FieldMaskOrIndex field;
   // our field expiration predicate
   enum FieldExpirationPredicate predicate;
-} FieldMaskFilterContext;
+} FieldFilterContext;
 
-typedef struct {
-  // For the other fields, allows a single field to be referenced
-  t_fieldIndex fieldIndex;
-  enum FieldExpirationPredicate predicate;
-} FieldIndexFilterContext;
-
+bool DocTable_HasExpiration(DocTable *t, t_docId docId);
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Will return true if the document passed the predicate
 // default predicate - one of the fields did not yet expire -> entry is still valid
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
-bool DocTable_VerifyFieldIndexExpirationPredicate(const DocTable *t, t_docId docId, const FieldIndexFilterContext* ctx, const struct timespec* expirationPoint);
-// Field Mask relates to textual fields only
-// So this function is meant to be used only in the context of textual fields
-bool DocTable_VerifyFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, const FieldMaskFilterContext* ctx, const struct timespec* expirationPoint);
+bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);

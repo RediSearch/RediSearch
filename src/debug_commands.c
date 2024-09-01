@@ -260,7 +260,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      FieldIndexFilterContext fieldCtx = {.fieldIndex = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldFilterContext fieldCtx = {.field.isFieldMask = false, .field.value.index = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
       IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true, &fieldCtx);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
@@ -1300,7 +1300,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
-#ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
                                {NULL, NULL}};
 

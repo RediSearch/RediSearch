@@ -294,7 +294,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagContainsNode)
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagSuffixNode)
 (RSIndex* sp, const char* s);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
-(RSIndex* sp, const char* begin, const char* end, int includeBegin,
+(RSIndex* sp, const char* fieldName, const char* begin, const char* end, int includeBegin,
  int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);

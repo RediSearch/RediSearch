@@ -533,7 +533,7 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
 
 IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
                                        const NumericFilter *f, int skipMulti,
-                                       const FieldIndexFilterContext* filterCtx) {
+                                       const FieldFilterContext* filterCtx) {
 
   // for numeric, if this range is at either end of the filter, we need
   // to check each record.
@@ -552,7 +552,7 @@ IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange 
  * the filter */
 IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
-                                     const FieldIndexFilterContext* filterCtx) {
+                                     const FieldFilterContext* filterCtx) {
 
   Vector *v = NumericRangeTree_Find(t, f);
   if (!v || Vector_Size(v) == 0) {
@@ -620,7 +620,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
 
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
-                                               const FieldIndexFilterContext* filterCtx) {
+                                               const FieldFilterContext* filterCtx) {
   RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;

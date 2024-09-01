@@ -736,7 +736,8 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   tok.str = (char *)r;
   tok.len = n;
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = NewTermIndexReaderEx(invidx, q->sctx, RS_FIELDMASK_ALL, term, ctx->weight);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = ctx->opts->fieldIndex};
+  IndexReader *ir = NewTermIndexReaderEx(invidx, q->sctx, fieldMaskOrIndex, term, ctx->weight);
   if (!ir) {
     Term_Free(term);
     return;
@@ -905,7 +906,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
     return NULL;
   }
 
-  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field.isFieldMask = false, .field.value.index = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
 
@@ -940,7 +941,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
-  FieldIndexFilterContext filterCtx = {.fieldIndex = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field.isFieldMask = false, .field.value.index = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
   IndexIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
     QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index: %s",
@@ -1074,7 +1075,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                               IndexIteratorArray *iterout, double weight,
-                                              int withSuffixTrie) {
+                                              int withSuffixTrie, t_fieldIndex fieldIndex) {
   RSToken *tok = &qn->pfx.tok;
   if (qn->type != QN_PREFIX) {
     return NULL;
@@ -1116,7 +1117,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     int hasNext;
     while ((hasNext = nextFunc(it, &s, &sl, &ptr)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1);
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;
 
       // Add the reader to the iterator array
@@ -1147,7 +1148,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
           q->status->reachedMaxPrefixExpansions = true;
           break;
         }
-        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1);
+        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1, fieldIndex);
         if (!ret) continue;
 
         // Add the reader to the iterator array
@@ -1173,7 +1174,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              IndexIteratorArray *iterout, double weight) {
+                                              IndexIteratorArray *iterout, double weight, t_fieldIndex fieldIndex) {
   if (qn->type != QN_WILDCARD_QUERY) {
     return NULL;
   }
@@ -1203,7 +1204,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
           q->status->reachedMaxPrefixExpansions = true;
           break;
         }
-        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1);
+        IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1, fieldIndex);
         if (!ret) continue;
 
           // Add the reader to the iterator array
@@ -1232,7 +1233,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
     int hasNext;
     while ((hasNext = TrieMapIterator_NextWildcard(it, &s, &sl, &ptr)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
-      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1);
+      IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;
 
       // Add the reader to the iterator array
@@ -1297,14 +1298,14 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight);
+      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs));
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs), fs->index);
 
     case QN_WILDCARD_QUERY:
-      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight);
+      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index);
 
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
@@ -1321,7 +1322,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
 
-      ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), weight);
+      ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), weight, fs->index);
       sdsfree(s);
       break;
     }

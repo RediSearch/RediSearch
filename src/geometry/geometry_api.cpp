@@ -51,7 +51,7 @@ namespace {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
     return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
   }                                                                                         \
-  auto Index_##variant##_Query(const RedisSearchCtx *sctx, const FieldIndexFilterContext* filterCtx, \
+  auto Index_##variant##_Query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, \
                                const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
                                RedisModuleString **err_msg) -> IndexIterator * {            \

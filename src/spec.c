@@ -97,7 +97,6 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
   t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "PEXPIRETIME", "s", keystr);
   if (rep == NULL) {
-    size_t length = 0;
     RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, error: %d", errno);
     return zero;
   }
@@ -114,6 +113,7 @@ static inline FieldExpiration* callHashFieldExpirationTime(RedisModuleCtx* ctx, 
   long long fieldCount = vectorElementCount;
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
   if (rep == NULL) {
+    RedisModule_Log(ctx, "warning", "Error calling HPEXPIRETIME, error: %d", errno);
     return NULL;
   }
   RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY, "HPEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));

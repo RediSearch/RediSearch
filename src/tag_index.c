@@ -256,10 +256,11 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 }
 
 IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
-                                   double weight) {
+                                   double weight, t_fieldIndex fieldIndex) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReaderEx(iv, sctx, RS_FIELDMASK_ALL, t, weight);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
+  IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
   if (!r) {
     return NULL;
   }
@@ -269,13 +270,13 @@ IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv,
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight) {
+                                   double weight, t_fieldIndex fieldIndex) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(sctx, iv, value, len, weight);
+  return TagIndex_GetReader(sctx, iv, value, len, weight, fieldIndex);
 }
 
 /* Format the key name for a tag index */

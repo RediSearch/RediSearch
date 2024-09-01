@@ -480,11 +480,13 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
+QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
@@ -494,6 +496,11 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
   if (end) {
     ret->lxrng.end = end ? rm_strdup(end) : NULL;
     ret->lxrng.includeEnd = includeEnd;
+  }
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
 }

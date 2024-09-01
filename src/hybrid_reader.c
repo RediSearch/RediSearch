@@ -308,7 +308,7 @@ static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) 
   }
   *hit = mmh_pop_min(hr->topResults);
 
-  if (hr->sctx && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx, &hr->sctx->time.current)) {
+  if (hr->sctx && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx.field.value.index, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
   array_append(hr->returnedResults, *hit);
@@ -345,7 +345,8 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  if (hr->sctx && !DocTable_VerifyFieldIndexExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx, &hr->sctx->time.current)) {
+  const FieldFilterContext* ctx = &hr->filterCtx;
+  if (hr->sctx && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &ctx->field.value.index, 1, ctx->predicate, &hr->sctx->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
 

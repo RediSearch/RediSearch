@@ -74,6 +74,10 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
   return !((field->tv_sec > now->tv_sec) || (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec));
 }
 
+bool TimeToLiveTable_HasExpiration(TimeToLiveTable *table, t_docId docId) {
+  return dictFind(table, (void*)docId) != NULL;
+}
+
 bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
@@ -84,30 +88,36 @@ bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const 
   return DidExpire(&ttlEntry->documentExpirationPoint, expirationPoint);
 }
 
-static inline bool verifyFieldIndices(TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+bool TimeToLiveTable_VerifyDocAndFields(TimeToLiveTable *table, t_docId docId, const t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
-    // the document did not have a ttl for itself or its children
+    // the document did not have a ttl for itself or its fields
     // if predicate is default then we know at least one field is valid
     // if predicate is missing then we know the field is indeed missing since the document has no expiration for it
     return true;
   }
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
+  if (ttlEntry->fieldExpirations == NULL) {
     // the document has no fields with expiration times, there exists at least one valid field
     return true;
   }
 
-  size_t currentRecord = 0;
-  const size_t recordCount = array_len(ttlEntry->fieldExpirations);
-  for (size_t runningIndex = 0; runningIndex < fieldCount && currentRecord < recordCount; ) {
-    t_fieldIndex fieldIndexToCheck = sortedFieldIndices[runningIndex];
-    FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[currentRecord];
+  const size_t fieldWithExpirationCount = array_len(ttlEntry->fieldExpirations);
+  if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_DEFAULT) {
+    // the document has less fields with expiration times than the fields we are checking
+    // at least one field is valid
+    return true;
+  }
+
+  size_t currentFieldIndex = 0;
+  for (size_t runningFieldIndex = 0; runningFieldIndex < fieldCount && currentFieldIndex < fieldWithExpirationCount; ) {
+    t_fieldIndex fieldIndexToCheck = sortedFieldIndices[runningFieldIndex];
+    FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[currentFieldIndex];
     if (fieldIndexToCheck > fieldExpiration->index) {
-      ++currentRecord;
+      ++currentFieldIndex;
     } else if (fieldIndexToCheck < fieldExpiration->index) {
-      ++runningIndex;
+      ++runningFieldIndex;
     } else {
       // the field has an expiration time
       const bool expired = DidExpire(&fieldExpiration->point, expirationPoint);
@@ -116,17 +126,9 @@ static inline bool verifyFieldIndices(TimeToLiveTable *table, t_docId docId, t_f
       } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
         return true;
       }
-      ++currentRecord;
-      ++runningIndex;
+      ++currentFieldIndex;
+      ++runningFieldIndex;
     }
   }
   return false;
-}
-
-bool TimeToLiveTable_VerifyDocAndFieldIndexPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  return verifyFieldIndices(table, docId, &fieldIndex, 1, predicate, expirationPoint);
-}
-
-bool TimeToLiveTable_VerifyFieldIndicesPredicate(TimeToLiveTable *table, t_docId docId, t_fieldIndex* sortedFieldIndices, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  return verifyFieldIndices(table, docId, sortedFieldIndices, array_len(sortedFieldIndices), predicate, expirationPoint);
 }
