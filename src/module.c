@@ -1120,7 +1120,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND("search", ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  // TODO: Verify categories of `FT.DEBUG`.
   RM_CREATE_COMMAND("search admin dangerous slow", ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
   RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
@@ -1139,13 +1138,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
   RM_CREATE_COMMAND("search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  // TODO: Verify
   RM_CREATE_COMMAND("search", ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
          1);
   RM_CREATE_COMMAND("search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
 
   RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
-  // TODO: Verify
   RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
          1);
 #else
@@ -1156,7 +1153,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND("write search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0);
 
   RM_CREATE_COMMAND("write search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
-  // TODO: Verify
   RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
          0);
 #endif
