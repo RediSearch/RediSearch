@@ -946,6 +946,34 @@ int CheckSupportedVestion() {
   return REDISMODULE_OK;
 }
 
+int RMCreateCommand(RedisModuleCtx *ctx, const char *name,
+                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
+                  int lastkey, int keystep, const char *aclCategories) {
+  if (RedisModule_CreateCommand(ctx, name, callback, flags, firstkey, lastkey, keystep) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
+    return REDISMODULE_ERR;
+  }
+
+  RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
+  if (!command) {
+    RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
+    return REDISMODULE_ERR;
+  }
+
+  if (aclCategories != NULL && RedisModule_SetCommandACLCategories(command, aclCategories) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command: %s. Got error code: %d", name, errno);
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
+int RMCreateDeprecatedCommand(RedisModuleCtx *ctx, const char *name,
+                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
+                  int lastkey, int keystep) {
+  return RMCreateCommand(ctx, name, callback, flags, firstkey, lastkey, keystep, NULL);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
@@ -1017,9 +1045,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
   RedisModule_FreeString(ctx, cat_name);
 
-  RM_CREATE_COMMAND("search slow admin", ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+  if (RMCreateCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0, "search slow admin") == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+  RMCreateDeprecatedCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
                     INDEX_DOC_CMD_ARGS);
 
 #ifdef RS_CLUSTER_ENTERPRISE
@@ -1027,134 +1057,134 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // to be able to replicate from an old RediSearch version.
   // If this is the light version then the _ft.safeadd/_ft.del does not exists
   // and we will get the normal ft.safeadd/ft.del command.
-  RM_CREATE_DEPRECATED_COMMAND(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
+  RMCreateDeprecatedCommand(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS);
-  RM_CREATE_DEPRECATED_COMMAND(ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
+  RMCreateDeprecatedCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
          INDEX_DOC_CMD_ARGS);
 #endif
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
+  RMCreateDeprecatedCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
+  RMCreateDeprecatedCommand(ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
-  RM_CREATE_COMMAND("read search", ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "read search");
 
-  RM_CREATE_COMMAND("read search", ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "read search");
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+  RMCreateDeprecatedCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS);
 
 #ifndef RS_COORDINATOR
   // in case coordinator is not defined, all docs and index name should go to the same slot
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
+  RMCreateDeprecatedCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
 #else
   // in case coordinator is defined, do not force cross slot validation
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
+  RMCreateDeprecatedCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
 #endif
 
-  RM_CREATE_COMMAND("write search", ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
+         INDEX_ONLY_CMD_ARGS, "write search");
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
+  RMCreateDeprecatedCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_CMD, DropIndexCommand, "write",
+  RMCreateDeprecatedCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
+  RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RMCreateDeprecatedCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search read admin dangerous", ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search read admin dangerous");
 
-  RM_CREATE_COMMAND("read search", ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "read search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("write search", ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
-         1);
+  RMCreateCommand(ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
+         1, "write search");
 
-  RM_CREATE_COMMAND("write search", ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1);
+  RMCreateCommand(ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1, "write search");
 
-  RM_CREATE_COMMAND("read search", ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1);
+  RMCreateCommand(ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1, "read search");
 
-  RM_CREATE_COMMAND("read search", ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
+  RMCreateCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read search");
 
 #ifndef RS_COORDINATOR
-  RM_CREATE_COMMAND("read search", ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
+  RMCreateCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1, "read search");
 #else
   // we do not want to raise a move error on cluster with coordinator
-  RM_CREATE_COMMAND("read search", ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0, "read search");
 #endif
 
   // todo: what to do with this?
-  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+  RMCreateDeprecatedCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND("search", ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search admin dangerous slow", ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS);
+  RMCreateCommand(ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS, "search admin dangerous slow");
   RM_TRY(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG));
 
-  RM_CREATE_COMMAND("search", ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS);
+  RMCreateCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, "search");
 
-  RM_CREATE_COMMAND("search admin", ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0, "search admin");
 
 // alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
-         1);
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
+  RMCreateCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1, "search");
+  RMCreateCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
+         1, "search");
+  RMCreateCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1, "search");
 
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
-         1);
+  RMCreateCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1, "search");
+  RMCreateCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
+         1, "search");
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
-         0);
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0);
+  RMCreateCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, "search");
+  RMCreateCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
+         0, "search");
+  RMCreateCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, "write search");
 
-  RM_CREATE_COMMAND("write search", ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
-  RM_CREATE_COMMAND("search", ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
-         0);
+  RMCreateCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, "write search");
+  RMCreateCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
+         0, "search");
 #endif
   return REDISMODULE_OK;
 }
