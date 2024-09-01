@@ -35,8 +35,6 @@ int RMCreateDeprecatedCommand(RedisModuleCtx *ctx, const char *name,
                   RedisModuleCmdFunc callback, const char *flags, int firstkey,
                   int lastkey, int keystep);
 
-/** Indicates that RediSearch_Init was called */
-extern int RS_Initialized;
 /** Module-level dummy context for certain dummy RM_XXX operations */
 extern RedisModuleCtx *RSDummyContext;
 /** Indicates that RediSearch_Init was called */
@@ -50,6 +48,12 @@ do {                                            \
 
 #define RedisModule_ReplyWithLiteral(ctx, literal) \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
+
+#define RM_TRY(expr)                                                  \
+  if (expr == REDISMODULE_ERR) {                                      \
+    RedisModule_Log(ctx, "warning", "Could not run " __STRING(expr)); \
+    return REDISMODULE_ERR;                                           \
+  }
 
 #ifdef __cplusplus
 }
