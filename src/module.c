@@ -1017,11 +1017,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
   RedisModule_FreeString(ctx, cat_name);
 
-  int result;
-
   RM_CREATE_COMMAND("search slow admin", ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
                     INDEX_DOC_CMD_ARGS);
 
 #ifdef RS_CLUSTER_ENTERPRISE
@@ -1029,16 +1027,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // to be able to replicate from an old RediSearch version.
   // If this is the light version then the _ft.safeadd/_ft.del does not exists
   // and we will get the normal ft.safeadd/ft.del command.
-  RM_CREATE_COMMAND(NULL, ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
+  RM_CREATE_DEPRECATED_COMMAND(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS);
-  RM_CREATE_COMMAND(NULL, ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
          INDEX_DOC_CMD_ARGS);
 #endif
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
   RM_CREATE_COMMAND("read search", ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
@@ -1046,33 +1044,33 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_CREATE_COMMAND("read search", ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS);
 
 #ifndef RS_COORDINATOR
   // in case coordinator is not defined, all docs and index name should go to the same slot
-  RM_CREATE_COMMAND(NULL, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
 #else
   // in case coordinator is defined, do not force cross slot validation
-  RM_CREATE_COMMAND(NULL, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
 #endif
 
   RM_CREATE_COMMAND("write search", ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DROP_CMD, DropIndexCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
-  RM_CREATE_COMMAND(NULL, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   RM_CREATE_COMMAND("search", ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
@@ -1107,7 +1105,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   // todo: what to do with this?
-  RM_CREATE_COMMAND(NULL, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+  RM_CREATE_DEPRECATED_COMMAND(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   RM_CREATE_COMMAND("search", ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",

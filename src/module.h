@@ -60,14 +60,16 @@ do {                                            \
       return REDISMODULE_ERR;                                                  \
     }                                                                          \
     if (aclCategories != NULL) {                                               \
-      result = RedisModule_SetCommandACLCategories(command, aclCategories);    \
-      if (result == REDISMODULE_ERR) {                                         \
+      if (RedisModule_SetCommandACLCategories(command, aclCategories) == REDISMODULE_ERR) {\
         RedisModule_Log(ctx, "warning",                                        \
           "Failed to set ACL categories for command " STRINGIFY(SECOND_ARG(__VA_ARGS__)) ". Got error code: %d", errno); \
         return REDISMODULE_ERR;                                                \
       }                                                                        \
     }                                                                          \
   }
+
+#define RM_CREATE_DEPRECATED_COMMAND(...) \
+  RM_CREATE_COMMAND(NULL, __VA_ARGS__)
 
 #ifdef __cplusplus
 }

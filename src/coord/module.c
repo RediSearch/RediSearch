@@ -2132,8 +2132,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
-  int result;
-
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {
     RM_CREATE_COMMAND("read search", ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2);
@@ -2169,8 +2167,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_CREATE_COMMAND("search", ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND("search", ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND("search", ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
     RM_CREATE_COMMAND("search", ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND("search", ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
     RM_CREATE_COMMAND("search", ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1);
@@ -2188,14 +2186,14 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_CREATE_COMMAND("search", ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1);
 
   // Deprecated commands. Grouped here for easy tracking
-  RM_CREATE_COMMAND(NULL, ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1);
-  RM_CREATE_COMMAND(NULL, ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1);
+  RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1);
   if (RSBuildType_g == RSBuildType_OSS) {
-    RM_CREATE_COMMAND(NULL, ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
-    RM_CREATE_COMMAND(NULL, ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
+    RM_CREATE_DEPRECATED_COMMAND(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1);
   }
 
   return REDISMODULE_OK;

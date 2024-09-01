@@ -41,7 +41,7 @@ def test_acl_search_commands(env):
 def test_acl_non_default_user(env):
     """Tests that a user with a non-default ACL can't access the search
     category"""
-    # Create a user with no command permissions
+    # Create a user with no command permissions (full keyspace and pubsub access)
     env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~*', '&*').ok()
     env.expect('AUTH', 'test', '123').true()
 
