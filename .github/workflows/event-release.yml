@@ -7,7 +7,7 @@ on:
 jobs:
   update-version:
     # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -72,7 +72,7 @@ jobs:
 
   set-artifacts:
     needs: update-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
