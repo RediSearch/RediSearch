@@ -354,10 +354,10 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards or no_json):
+            if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
                 raise SkipTest()
             if cluster == CLUSTER:
                 raise SkipTest()
@@ -368,8 +368,6 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if asan and SANITIZER == 'address':
                 raise SkipTest()
             if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if noWorkers and not MT_BUILD:
                 raise SkipTest()
             if redis_less_than and server_version_is_less_than(redis_less_than):
                 raise SkipTest()

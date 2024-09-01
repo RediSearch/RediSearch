@@ -207,7 +207,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CursorList_Init(&g_CursorsList, false);
   CursorList_Init(&g_CursorsListCoord, true);
 
-#ifdef MT_BUILD
   // Handle deprecated MT configurations
   UpgradeDeprecatedMTConfigs();
 
@@ -217,11 +216,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
   DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
                     "when possible", RSGlobalConfig.highPriorityBiasNum);
-#else
-  // If we don't have a thread pool,
-  // we have to make sure that we tell the vecsim library to add and delete in place (can't use submit at all)
-  VecSim_SetWriteMode(VecSim_WriteInPlace);
-#endif
 
   IndexAlias_InitGlobal();
 

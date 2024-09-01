@@ -5,8 +5,7 @@ class TestDebugCommands(object):
     def __init__(self):
         skipTest(cluster=True)
         self.workers_count = 2
-        module_args = f'WORKERS {self.workers_count}' if MT_BUILD else ''
-        self.env = Env(testName="testing debug commands", moduleArgs=module_args)
+        self.env = Env(testName="testing debug commands", moduleArgs=f'WORKERS {self.workers_count}')
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE',
@@ -26,11 +25,9 @@ class TestDebugCommands(object):
                      'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
                      'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
                      'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
-                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW']
-        if MT_BUILD:
-            help_list.append('WORKERS')
-            coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
-            help_list.extend(coord_help_list)
+                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW', 'WORKERS']
+        coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
+        help_list.extend(coord_help_list)
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
@@ -216,8 +213,6 @@ class TestDebugCommands(object):
 
 
     def testStopAndResumeWorkersPool(self):
-        if not MT_BUILD:
-            self.env.skip()
         self.env.expect(debug_cmd(), 'WORKERS').error().contains(
             f"wrong number of arguments for '{debug_cmd()}|WORKERS' command")
         self.env.expect(debug_cmd(), 'WORKERS', 'invalid').error().contains(
@@ -230,8 +225,6 @@ class TestDebugCommands(object):
             .contains("Operation failed: workers thread pool doesn't exists or is already running")
 
     def testWorkersPoolDrain(self):
-        if not MT_BUILD:
-            self.env.skip()
         # test stats and drain
         orig_stats = getWorkersThpoolStats(self.env)
         self.env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
@@ -260,8 +253,6 @@ class TestDebugCommands(object):
                                      'numThreadsAlive': self.workers_count})
 
     def testWorkersNumThreads(self):
-        if not MT_BUILD:
-            self.env.skip()
         # test stats and drain
         self.env.expect(debug_cmd(), 'WORKERS', 'n_threads').equal(self.workers_count)
 

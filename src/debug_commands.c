@@ -1174,7 +1174,6 @@ DEBUG_COMMAND(dumpHNSWData) {
   return REDISMODULE_OK;
 }
 
-#ifdef MT_BUILD
 /**
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
  */
@@ -1218,7 +1217,6 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   }
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
-#endif
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
@@ -1248,9 +1246,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
-#ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
-#endif
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
