@@ -605,14 +605,10 @@ def doTest(env: Env, test_name, rdb_name, expected_index):
     name, ext = os.path.splitext(rdb_name)
     fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
 
-    if MT_BUILD:
-        env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
-        sendShortReads(env, fullPath, expected_index)
-        if server_version_at_least(env, "7.0.0"):
-            env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '2') # test with MT
-            sendShortReads(env, fullPath, expected_index)
-    else:
-        # test without MT (no need to change configuration)
+    env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
+    sendShortReads(env, fullPath, expected_index)
+    if server_version_at_least(env, "7.0.0"):
+        env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '2') # test with MT
         sendShortReads(env, fullPath, expected_index)
 
 # Dynamically create a test function for each rdb file
