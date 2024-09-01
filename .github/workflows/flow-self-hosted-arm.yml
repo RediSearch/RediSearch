@@ -55,7 +55,7 @@ env:
 jobs:
   start-runner:
     name: Start self-hosted EC2 runner
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       label: ${{ steps.start-ec2-runner.outputs.label }}
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
@@ -111,7 +111,7 @@ jobs:
       - start-runner # required to get output from the start-runner job
       - test  # required to wait when the main job is done
       - build # required to wait when the main job is done
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
