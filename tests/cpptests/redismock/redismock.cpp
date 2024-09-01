@@ -627,7 +627,7 @@ static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd,
   return NULL;
 }
 
-static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                               va_list ap) {
   const char *id = NULL;
   if (*fmt == 'c') {
@@ -664,7 +664,7 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
   if (strcasecmp(cmd, "HGETALL") == 0) {
-    reply = RMCK_CallHgelall(ctx, cmd, fmt, ap);
+    reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
   }
 
   if (strcasecmp(cmd, "HSET") == 0) {
@@ -770,6 +770,17 @@ static int RMCK_ExitFromChild(int retcode) {
 
 static int RMCK_KillForkChild(int child_pid) {
   return waitpid(child_pid, NULL, 0);
+}
+
+static int RMCK_AddACLCategory(RedisModuleCtx *ctx, const char *category) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd,
+                                                    const char *categories) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
 }
 
 /** Misc */
@@ -890,6 +901,8 @@ static void registerApis() {
   REGISTER_API(KillForkChild);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
+  REGISTER_API(AddACLCategory);
+  REGISTER_API(SetCommandACLCategories);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

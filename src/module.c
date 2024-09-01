@@ -1037,13 +1037,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   // Create the `search` ACL command category
-  RedisModuleString* catName = RedisModule_CreateString(ctx, "search", strlen("search"));
-  if (RedisModule_AddACLCategory(ctx, RedisModule_StringPtrLen(catName, NULL)) == REDISMODULE_ERR) {
-      RedisModule_Assert(errno == ENOMEM);
-      RedisModule_FreeString(ctx, catName);
+  if (RedisModule_AddACLCategory(ctx, "search") == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not add `search` ACL category, errno: %d\n", errno);
       return REDISMODULE_ERR;
   }
-  RedisModule_FreeString(ctx, catName);
 
   RM_TRY(RMCreateCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0, "search slow admin"))
 
