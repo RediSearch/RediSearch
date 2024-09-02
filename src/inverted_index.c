@@ -956,7 +956,7 @@ IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, co
 }
 
 IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
 }
@@ -1234,7 +1234,7 @@ IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx
 }
 
 IndexReader *NewTermIndexReader(InvertedIndex *idx) {
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   return NewTermIndexReaderEx(idx, NULL, fieldMaskOrIndex, NULL, 1);
 }
 

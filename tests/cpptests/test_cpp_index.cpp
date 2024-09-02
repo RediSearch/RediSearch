@@ -818,7 +818,7 @@ TEST_F(IndexTest, testHybridVector) {
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=NULL,
@@ -979,7 +979,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   // child isn't the first child (since inOrder=true will trigger sorting).
   IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = RS_INVALID_FIELD_INDEX};
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Create hybrid iterator - should return NULL.
   HybridIteratorParams hParams = {.sctx = NULL,

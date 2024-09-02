@@ -245,7 +245,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         opt->type = Q_OPT_NONE;
         const char* sortByNodeFieldName = opt->sortbyNode->nn.nf->fieldName;
         const FieldSpec *fs = IndexSpec_GetField(spec, sortByNodeFieldName, strlen(sortByNodeFieldName));
-        FieldFilterContext filterCtx = {.field.isFieldMask = false, .field.value.index = fs->index, .predicate = FIELD_EXPIRATION_DEFAULT};
+        FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
                                                              &filterCtx);

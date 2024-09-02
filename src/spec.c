@@ -95,16 +95,19 @@ static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
 
 static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr) {
   t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "PEXPIRETIME", "s", keystr);
-  if (rep == NULL) {
-    RedisModule_Log(ctx, "warning", "Error calling PEXPIRETIME, error: %d", errno);
+  RedisModuleKey *openedKey = RedisModule_OpenKey(ctx, keystr, REDISMODULE_READ);
+  if (!openedKey) {
     return zero;
   }
 
-  RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER, "PEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));
-  const int64_t totalMilliseconds = RedisModule_CallReplyInteger(rep);
+  mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
+  RedisModule_CloseKey(openedKey);
+
+  if (totalMilliseconds == REDISMODULE_NO_EXPIRE) {
+    return zero;
+  }
+
   t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
-  RedisModule_FreeCallReply(rep);
   return result;
 }
 
