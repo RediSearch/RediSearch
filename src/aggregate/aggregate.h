@@ -100,11 +100,9 @@ typedef enum {
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
-#ifdef MT_BUILD
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
-#endif
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout, bool reachedMaxPrefixExpansions);
 

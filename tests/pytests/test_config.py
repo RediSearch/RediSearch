@@ -19,9 +19,8 @@ def testConfigErrors(env):
         .equal('Max depth for range cannot be higher than max depth for balance')
     env.expect(config_cmd(), 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
-    if MT_BUILD:
-        env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
-            .contains('Number of worker threads cannot exceed')
+    env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
+        .contains('Number of worker threads cannot exceed')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -36,14 +35,13 @@ def testGetConfigOptions(env):
     check_config('MAXEXPANSIONS')
     check_config('MAXPREFIXEXPANSIONS')
     check_config('TIMEOUT')
-    if MT_BUILD:
-        check_config('WORKERS')
-        check_config('MIN_OPERATION_WORKERS')
-        check_config('WORKER_THREADS')
-        check_config('MT_MODE')
-        check_config('TIERED_HNSW_BUFFER_LIMIT')
-        check_config('PRIVILEGED_THREADS_NUM')
-        check_config('WORKERS_PRIORITY_BIAS_THRESHOLD')
+    check_config('WORKERS')
+    check_config('MIN_OPERATION_WORKERS')
+    check_config('WORKER_THREADS')
+    check_config('MT_MODE')
+    check_config('TIERED_HNSW_BUFFER_LIMIT')
+    check_config('PRIVILEGED_THREADS_NUM')
+    check_config('WORKERS_PRIORITY_BIAS_THRESHOLD')
     check_config('FRISOINI')
     check_config('MAXSEARCHRESULTS')
     check_config('MAXAGGREGATERESULTS')
@@ -78,11 +76,10 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
-    if MT_BUILD:
-        env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
-        env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
-        env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
-        env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
+    env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
+    env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
@@ -99,9 +96,8 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
-    if MT_BUILD:
-        env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
-        env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+    env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
+    env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
 
 
 @skip(cluster=True)
@@ -122,12 +118,11 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
-    if MT_BUILD:
-        env.assertEqual(res_dict['WORKERS'][0], '0')
-        env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
-        env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
-        env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
-        env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
+    env.assertEqual(res_dict['WORKERS'][0], '0')
+    env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
+    env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
+    env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
+    env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
@@ -165,12 +160,11 @@ def testInitConfig():
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
     test_arg_num('MAXPREFIXEXPANSIONS', 5)
-    if MT_BUILD:
-        test_arg_num('WORKERS', 3)
-        test_arg_num('MIN_OPERATION_WORKERS', 3)
-        test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
-        test_arg_num('PRIVILEGED_THREADS_NUM', 4)
-        test_arg_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
+    test_arg_num('WORKERS', 3)
+    test_arg_num('MIN_OPERATION_WORKERS', 3)
+    test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
+    test_arg_num('PRIVILEGED_THREADS_NUM', 4)
+    test_arg_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
     test_arg_num('GCSCANSIZE', 3)
     test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
@@ -236,10 +230,9 @@ def testImmutable(env):
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
-    if MT_BUILD:
-        env.expect(config_cmd(), 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
-        env.expect(config_cmd(), 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable) # deprecated
-        env.expect(config_cmd(), 'set', 'WORKERS_PRIORITY_BIAS_THRESHOLD').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'TIERED_HNSW_BUFFER_LIMIT').error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'PRIVILEGED_THREADS_NUM').error().contains(not_modifiable) # deprecated
+    env.expect(config_cmd(), 'set', 'WORKERS_PRIORITY_BIAS_THRESHOLD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'FRISOINI').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'GC_POLICY').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NO_MEM_POOLS').error().contains(not_modifiable)
@@ -254,7 +247,7 @@ def testImmutable(env):
 workers_default = 0
 min_operation_workers_default = 4
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_full():
     workers = '3'
     env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL')
@@ -265,7 +258,7 @@ def testDeprecatedMTConfig_full():
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', workers]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_operations():
     workers = '3'
     env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
@@ -276,7 +269,7 @@ def testDeprecatedMTConfig_operations():
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_off():
     env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF')
     # Check old config values
@@ -287,26 +280,26 @@ def testDeprecatedMTConfig_off():
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '0']])
 
 # Check invalid combination
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0')
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0')
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3')
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_ignore_full():
     # Check deprecated configs are ignored when new configs are set
     env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL WORKERS 5 MIN_OPERATION_WORKERS 6')
@@ -315,7 +308,7 @@ def testDeprecatedMTConfig_ignore_full():
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '5']]) # follows WORKERS
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_ignore_operations():
     # Check deprecated configs are ignored when new configs are set
     env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5 MIN_OPERATION_WORKERS 6')
@@ -324,7 +317,7 @@ def testDeprecatedMTConfig_ignore_operations():
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '6']]) # follows MIN_OPERATION_WORKERS
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_full():
     # Check allowed combination of deprecated and new configs
     env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6')
@@ -333,7 +326,7 @@ def testDeprecatedMTConfig_address_combination_full():
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '3']]) # follows WORKERS
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_operations():
     # Check allowed combination of deprecated and new configs
     env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5')

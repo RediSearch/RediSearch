@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: "${{ vars.RUNS_ON }}"
         type: string
       container:
         type: string
@@ -29,7 +29,6 @@ on:
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
-  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   VERBOSE_UTESTS: 1
 

@@ -2796,9 +2796,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
-#ifdef MT_BUILD
     workersThreadPool_OnEventStart();
-#endif
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2812,20 +2810,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (hasLegacyIndexes) {
       Indexes_ScanAndReindex();
     }
-#ifdef MT_BUILD
     workersThreadPool_OnEventEnd(true);
-#endif
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
-  }
-#ifdef MT_BUILD
-  else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
     workersThreadPool_OnEventEnd(true);
   }
-#endif
 }
 
-#ifdef MT_BUILD
 static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
@@ -2833,7 +2825,6 @@ static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, u
                   ((RedisModuleLoadingProgress *)data)->progress);
   workersThreadPool_Drain(ctx, 100);
 }
-#endif
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
@@ -2854,9 +2845,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, Indexes_LoadingEvent);
-#ifdef MT_BUILD
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
-#endif
   return REDISMODULE_OK;
 }
 
@@ -2972,9 +2961,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   Indexes_Free(specDict_g);
-#ifdef MT_BUILD
   workersThreadPool_Drain(ctx, 0);
-#endif
   Dictionary_Clear();
   RSGlobalConfig.used_dialects = 0;
 }

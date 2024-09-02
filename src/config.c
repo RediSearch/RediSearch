@@ -70,8 +70,8 @@ CONFIG_GETTER(getMinPrefix) {
 CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
-  if (minStemLen < MIN_MIN_STEM_LENGHT) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
+  if (minStemLen < MIN_MIN_STEM_LENGTH) {
+    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -172,8 +172,6 @@ CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
 }
-
-#ifdef MT_BUILD
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
@@ -335,7 +333,6 @@ CONFIG_SETTER(setPrivilegedThreadsNum) {
   RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting WORKERS_PRIORITY_BIAS_THRESHOLD instead.");
   return setHighPriorityBiasNum(config, ac, -1, status);
 }
-#endif // MT_BUILD
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
@@ -791,7 +788,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
-#ifdef MT_BUILD
         {.name = "WORKERS",
          .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
          #ifdef RS_COORDINATOR
@@ -843,7 +839,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getHighPriorityBiasNum,
          .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-#endif
         {.name = "FRISOINI",
          .helpText = "Path to Chinese dictionary configuration file (for Chinese tokenization)",
          .setValue = setFrisoINI,
@@ -987,8 +982,6 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
   RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
 
-#ifdef MT_BUILD
-
 // Upgrade deprecated configurations if needed.
 // Unless MT_MODE is OFF, only the relevant configuration is set, while the other keeps its default value.
 void UpgradeDeprecatedMTConfigs() {
@@ -1040,8 +1033,6 @@ void UpgradeDeprecatedMTConfigs() {
       break;
   }
 }
-
-#endif // MT_BUILD
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();

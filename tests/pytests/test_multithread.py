@@ -2,10 +2,7 @@
 from common import *
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
-    if(moduleArgs == ''):
-        raise SkipTest('moduleArgs cannot be empty')
-    if not MT_BUILD:
-        raise SkipTest('MT_BUILD is not set')
+    assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
 
@@ -415,7 +412,7 @@ def test_switch_loader_modes():
 
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
 
-@skip(cluster=False, noWorkers=True)
+@skip(cluster=False)
 def test_change_num_connections(env: Env):
 
     # Validate the default values

@@ -37,7 +37,7 @@ env:
 
 jobs:
   benchmark-steps:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     container: ${{ inputs.container }}
     steps:
       - name: Checkout
@@ -67,7 +67,6 @@ jobs:
         run: make build
             COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
-            REDISEARCH_MT_BUILD=0
             SHOW=1
       - name: Prepare automation
         run: |

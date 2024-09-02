@@ -103,12 +103,11 @@ typedef struct {
   size_t maxSearchResults;
   size_t maxAggregateResults;
 
-#ifdef MT_BUILD
+  // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
-#endif
 
   size_t minPhoneticTermLen;
 
@@ -224,9 +223,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
-#ifdef MT_BUILD
 void UpgradeDeprecatedMTConfigs();
-#endif
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
@@ -242,18 +239,8 @@ void UpgradeDeprecatedMTConfigs();
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_MIN_STEM_LENGTH 4
-#define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
+#define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
-
-#ifdef MT_BUILD
-#define MT_BUILD_CONFIG \
-    .numWorkerThreads = 0,                                                                                            \
-    .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
-    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
-#else
-#define MT_BUILD_CONFIG
-#endif
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
@@ -267,7 +254,10 @@ void UpgradeDeprecatedMTConfigs();
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-     MT_BUILD_CONFIG                                                                                                  \
+    .numWorkerThreads = 0,                                                                                            \
+    .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
+    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
