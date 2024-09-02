@@ -17,6 +17,10 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/flow-build-artifacts.yml
 
+  mirror-snapshot:
+    secrets: inherit
+    uses: ./.github/workflows/flow-mirror.yml
+
   notify-failure:
     needs: deploy-snapshots
     if: failure()

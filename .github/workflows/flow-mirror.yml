@@ -1,8 +1,7 @@
 name: Mirror Release
 
 on:
-  release:
-    types: [published]
+  workflow_call:
 
 jobs:
   mirror:

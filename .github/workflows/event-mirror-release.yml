@@ -1,0 +1,10 @@
+name: Mirror Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  mirror-release:
+    secrets: inherit
+    uses: ./.github/workflows/flow-mirror.yml
