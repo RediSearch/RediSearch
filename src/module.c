@@ -1089,13 +1089,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS))
 
-  RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
+  // TODO: Fix
+  RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "search write slow dangerous",
          INDEX_ONLY_CMD_ARGS))
 
   RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS))
 
-  RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  // TODO: Fix
+  RM_TRY(RMCreateDeprecatedCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "search write slow dangerous",
          INDEX_ONLY_CMD_ARGS))
 
   RM_TRY(RMCreateCommand(ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
@@ -1175,9 +1177,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, "search"))
   RM_TRY(RMCreateCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
          0, "search"))
-  RM_TRY(RMCreateCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, "write search"))
+  RM_TRY(RMCreateCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, "search"))
 
-  RM_TRY(RMCreateCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, "write search"))
+  RM_TRY(RMCreateCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, "search"))
   RM_TRY(RMCreateCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
          0, "search"))
 #endif
