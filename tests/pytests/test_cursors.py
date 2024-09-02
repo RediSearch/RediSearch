@@ -54,13 +54,12 @@ def testCursors(env):
     res = exhaustCursor(env, 'idx', res)
     env.assertEqual(11, len(res))
 
-@skip(noWorkers=True)
 def testCursorsBG():
     env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
     count = 100
@@ -235,7 +234,6 @@ def testIndexDropWhileIdle(env: Env):
     else:
         env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
-@skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')
     testIndexDropWhileIdle(env)
@@ -257,12 +255,12 @@ def exceedCursorCapacity(env):
 def testExceedCursorCapacity(env):
     exceedCursorCapacity(env)
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
 
-@skip(noWorkers=True, cluster=False)
+@skip(cluster=False)
 def testCursorOnCoordinatorBG():
     env = Env(moduleArgs='WORKERS 1')
     CursorOnCoordinator(env)

@@ -12,7 +12,6 @@
 
 #include <pthread.h>
 
-#ifdef MT_BUILD
 //------------------------------------------------------------------------------
 // Thread pool
 //------------------------------------------------------------------------------
@@ -194,5 +193,3 @@ void workersThreadPool_wait() {
   }
   redisearch_thpool_wait(_workers_thpool);
 }
-
-#endif // MT_BUILD

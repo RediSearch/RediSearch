@@ -6,8 +6,6 @@
 
 #pragma once
 
-#ifdef MT_BUILD
-
 #include "redismodule.h"
 #include "thpool/thpool.h"
 #include <stdbool.h>
@@ -57,5 +55,3 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
-
-#endif // MT_BUILD
