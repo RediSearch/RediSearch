@@ -49,6 +49,8 @@ do {                                            \
 #define RedisModule_ReplyWithLiteral(ctx, literal) \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
+#define SEARCH_ACL_CATEGORY "search"
+
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
     RedisModule_Log(ctx, "warning", "Could not run " __STRING(expr)); \

@@ -2123,58 +2123,58 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read " SEARCH_ACL_CATEGORY))
   } else {
-    RM_TRY(RMCreateCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
   }
-  RM_TRY(RMCreateCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "search"))
-  RM_TRY(RMCreateCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read search"))
-  RM_TRY(RMCreateCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read search"))
+  RM_TRY(RMCreateCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+  RM_TRY(RMCreateCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
+  RM_TRY(RMCreateCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read " SEARCH_ACL_CATEGORY))
   } else {
-    RM_TRY(RMCreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
   }
-  RM_TRY(RMCreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, "search"))
+  RM_TRY(RMCreateCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
   if (RSBuildType_g == RSBuildType_OSS && !isClusterEnabled) {
     // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-    RM_TRY(RMCreateCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "search admin"))
+    RM_TRY(RMCreateCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin " SEARCH_ACL_CATEGORY))
   }
 
   if (RSBuildType_g == RSBuildType_OSS) {
     RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
-    RM_TRY(RMCreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.SUGGET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write " SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.SUGGET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write " SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read " SEARCH_ACL_CATEGORY))
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
     //  TODO: Fix both below! Not deprecated
-    RM_TRY(RMCreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "search write slow dangerous"))
-    RM_TRY(RMCreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "search write slow dangerous"))
+    RM_TRY(RMCreateCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous " SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous " SEARCH_ACL_CATEGORY))
     // search write slow dangerous
-    RM_TRY(RMCreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, "search"))
-    RM_TRY(RMCreateCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, "search"))
+    RM_TRY(RMCreateCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
+    RM_TRY(RMCreateCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, SEARCH_ACL_CATEGORY))
   }
 
   // cluster set commands
-  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1, "search"))
-  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1, "search"))
-  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1, "search"))
+  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1, SEARCH_ACL_CATEGORY))
+  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1, SEARCH_ACL_CATEGORY))
+  RM_TRY(RMCreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1, SEARCH_ACL_CATEGORY))
 
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateDeprecatedCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1))
