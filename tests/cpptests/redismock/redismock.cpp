@@ -777,8 +777,7 @@ static int RMCK_AddACLCategory(RedisModuleCtx *ctx, const char *category) {
   return REDISMODULE_OK;
 }
 
-static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd,
-                                                    const char *categories) {
+static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd, const char *categories) {
   // Nothing for the mock.
   return REDISMODULE_OK;
 }
