@@ -2421,4 +2421,5 @@ def test_switch_write_mode_multiple_indexes(env):
         vector_index_info = get_vecsim_debug_dict(env, f'index:{index_prefix}', 'v')
         env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
                         message=(index_prefix, vector_index_info))
-    print(f'{bg_indexing}/{n_indexes} indexes were still reindexing after switching back to in-place mode')
+    if bg_indexing == 0:
+        print(f'Note: all indexes were done reindexing before switching back to in-place mode')
