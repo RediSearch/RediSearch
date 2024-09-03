@@ -54,16 +54,27 @@ $OP cd RedisJSON
 runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
 
+# Patch RedisJSON to build in Alpine - disable static linking
+# This is to fix RedisJSON build in Alpine, which is used only for testing
+# See https://github.com/rust-lang/rust/pull/58575#issuecomment-496026747
+OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
+OS_NAME=${OS_NAME#"NAME="}
+if [[ $OS_NAME == "Alpine Linux" ]]; then
+	$OP sed -i "s/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g" Makefile
+fi
+
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 	source $HOME/.cargo/env
 	rustup update 
 	rustup update nightly
-	# for RedisJSON build with addess santizer
-	rustup component add rust-src --toolchain nightly
-	rustup show 
+	rustup show
 
+	# for RedisJSON build with addess santizer if required
+	if [[ -n $SAN ]]; then
+		rustup component add rust-src --toolchain nightly
+	fi
 	BINROOT=$TARGET_DIR make SAN=$SAN
 	echo "Created ${TARGET_DIR}/rejson.so"
 fi

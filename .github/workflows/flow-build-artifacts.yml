@@ -18,6 +18,7 @@ on:
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
+          - alpine:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
@@ -41,7 +42,7 @@ on:
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
@@ -73,7 +74,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}

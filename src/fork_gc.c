@@ -1121,7 +1121,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen;
   char *fieldName = NULL;
-  
+
   if (FGC_recvBuffer(gc, (void **)&fieldName, &fieldNameLen) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
@@ -1306,11 +1306,9 @@ static int periodicCb(void *privdata) {
     RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
 
-#ifdef MT_BUILD
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);
     }
-#endif
   }
 
   gc->execState = FGC_STATE_IDLE;
