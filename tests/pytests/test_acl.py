@@ -27,7 +27,10 @@ def test_acl_search_commands(env):
         'search.CLUSTERREFRESH', 'FT._ALIASADDIFNX', '_FT._ALTERIFNX',
         '_FT.SUGADD', 'FT._ALTERIFNX', '_FT._ALIASDELIFX', 'search.CLUSTERSET',
         'search.CLUSTERINFO', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        'FT._DROPINDEXIFX', '_FT.DROPINDEX', 'FT.DROPINDEX'
+        'FT._DROPINDEXIFX', '_FT.DROPINDEX', 'FT.DROPINDEX','_FT.ADD',
+        '_FT.DROP', 'FT.TAGVALS', '_FT.GET', 'FT._DROPIFX', '_FT._CREATEIFNX',
+        'FT.DROP', 'FT.GET', '_FT.MGET', 'FT.SYNADD', 'FT.ADD', '_FT.DEL',
+        'FT.MGET', '_FT._DROPIFX', '_FT.SAFEADD', 'FT.DEL'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')

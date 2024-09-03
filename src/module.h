@@ -27,13 +27,9 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RMCreateCommand(RedisModuleCtx *ctx, const char *name,
+int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
                   RedisModuleCmdFunc callback, const char *flags, int firstkey,
                   int lastkey, int keystep, const char *aclCategories);
-
-int RMCreateDeprecatedCommand(RedisModuleCtx *ctx, const char *name,
-                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
-                  int lastkey, int keystep);
 
 /** Module-level dummy context for certain dummy RM_XXX operations */
 extern RedisModuleCtx *RSDummyContext;
