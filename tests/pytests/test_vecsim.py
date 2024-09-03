@@ -2424,4 +2424,5 @@ def test_switch_write_mode_multiple_indexes(env):
     # if bg_indexing == 0:
     prefix = "::warning title=Bad test scenario::"
     env.debugPrint(f'gha ci env={GHA} and ci env={CI}', force=True)
-    env.debugPrint(f'{prefix} All indexes were done reindexing before switching back to in-place mode', force=True)
+    print(f"{prefix} All indexes were done reindexing before switching back to in-place mode")
+    # env.debugPrint(f'{prefix} All indexes were done reindexing before switching back to in-place mode', force=True)
