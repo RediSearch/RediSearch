@@ -34,7 +34,8 @@ add_compile_definitions(
     _GNU_SOURCE)
 
 if (LITE)
-    add_compile_definitions(REDISEARCH_LIGHT)
+    message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will
+    be activated in clustered environment")
 endif()
 
 if (USE_REDIS_ALLOCATOR)
