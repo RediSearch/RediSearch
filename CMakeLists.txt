@@ -33,9 +33,8 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
-if (LITE)
-    message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will
-    be activated in clustered environment")
+if (BUILD_LITE)
+    message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
 endif()
 
 if (USE_REDIS_ALLOCATOR)

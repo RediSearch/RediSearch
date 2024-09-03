@@ -187,6 +187,10 @@ ifeq ($(STATIC),1)
 CMAKE_STATIC += -DBUILD_STATIC=ON
 endif
 
+ifeq ($(LITE),1)
+CMAKE_LITE = -DBUILD_LITE=ON
+endif
+
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
@@ -196,7 +200,7 @@ _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
+_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
 
 include $(MK)/defs
 
