@@ -2421,8 +2421,6 @@ def test_switch_write_mode_multiple_indexes(env):
         vector_index_info = get_vecsim_debug_dict(env, f'index:{index_prefix}', 'v')
         env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
                         message=(index_prefix, vector_index_info))
-    # if bg_indexing == 0:
-    prefix = "::warning title=Bad test scenario::"
-    env.debugPrint(f'gha ci env={GHA} and ci env={CI}', force=True)
-    print(f"{prefix} All indexes were done reindexing before switching back to in-place mode")
-    # env.debugPrint(f'{prefix} All indexes were done reindexing before switching back to in-place mode', force=True)
+    if bg_indexing == 0:
+        prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
+        print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
