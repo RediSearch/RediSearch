@@ -2422,4 +2422,5 @@ def test_switch_write_mode_multiple_indexes(env):
         env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
                         message=(index_prefix, vector_index_info))
     if bg_indexing == 0:
-        print(f'Note: all indexes were done reindexing before switching back to in-place mode')
+        prefix = "::warning title=Bad test scenario::"
+        env.debugPrint(f'{prefix} All indexes were done reindexing before switching back to in-place mode')
