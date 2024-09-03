@@ -2381,3 +2381,46 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+@skip(cluster=True)
+def test_switch_write_mode_multiple_indexes(env):
+    conn = getConnectionByEnv(env)
+    dim = 32
+    n_indexes = 100
+    n_vectors = 100
+    for index_i in range(n_indexes):
+        # Create an index and insert vectors synchronously.
+        index_prefix = f'idx_{index_i}z'
+        conn.execute_command('FT.CREATE', f'index:{index_prefix}', 'PREFIX', 1, index_prefix, 'SCHEMA',
+                         'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', 64)
+        for vec_i in range(n_vectors):
+            conn.execute_command('HSET', f'{index_prefix}_vec_{vec_i}', 'v',
+                                 create_np_array_typed(np.random.random((1, dim))).tobytes())
+
+    # While reindexing occurs in the background for all indexes, switch the vecsim write mode to 'async'.
+    workers_info = getWorkersThpoolStats(env)
+    env.assertEqual(workers_info['totalJobsDone'], 0)
+    env.assertEqual(workers_info['totalPendingJobs'], 0)
+    env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+
+    # Delete half of the vectors from each index.
+    for index_i in range(n_indexes):
+        index_prefix = f'idx_{index_i}z'
+        for vec_i in range(0, n_vectors, 2):
+            conn.execute_command('DEL', f'{index_prefix}_vec_{vec_i}')
+
+    # Return to in-place mode, wait for async jobs to be finished so that reindexing that was done async is finished
+    # (insert to HNSW jobs are done), and validate indexes status.
+    env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
+    conn.execute_command(debug_cmd(), 'WORKERS', 'DRAIN')
+
+    bg_indexing = 0
+    for index_i in range(n_indexes):
+        index_prefix = f'idx_{index_i}z'
+        bg_indexing += index_info(env, f'index:{index_prefix}')['indexing']
+        vector_index_info = get_vecsim_debug_dict(env, f'index:{index_prefix}', 'v')
+        env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
+                        message=(index_prefix, vector_index_info))
+    if bg_indexing == 0:
+        prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
+        print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
