@@ -2178,7 +2178,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read admin"))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "admin"))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
   if (RSBuildType_g == RSBuildType_OSS) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))

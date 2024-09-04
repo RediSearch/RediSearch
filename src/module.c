@@ -1088,10 +1088,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
-         INDEX_ONLY_CMD_ARGS, "write"))
+         INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "admin"))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
