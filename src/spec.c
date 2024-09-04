@@ -2699,8 +2699,8 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "warning", "RDB Load: %s",
-                      status.detail ? status.detail : "general failure");
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s",
+                             status.detail ? status.detail : "general failure");
       return REDISMODULE_ERR;
     }
   }
