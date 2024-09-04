@@ -42,6 +42,7 @@ if (USE_REDIS_ALLOCATOR)
 endif()
 
 if (APPLE)
+    message(STATUS "Building on MacOS")
     include_directories(/usr/local/opt/openssl/include)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 
