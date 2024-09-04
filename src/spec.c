@@ -2453,6 +2453,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
+  // `indexError` must be initialized before attempting to free the spec
+  sp->stats.indexError = IndexError_Init();
+
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -2492,7 +2495,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-  if (SchemaRule_RdbLoad(spec_ref, rdb, encver) != REDISMODULE_OK) {
+  if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
@@ -2542,9 +2545,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
-
-  // `indexError` must be initialized before attempting to free the spec
-  sp->stats.indexError = IndexError_Init();
 
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
