@@ -111,12 +111,12 @@ CONFIG_GETTER(getMaxDocTableSize) {
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
 }
 
-// max-doc-table-size
-CONFIG_API_NUMERIC_GETTER(get_max_doc_table_size) {
+// max-doctablesize
+CONFIG_API_NUMERIC_GETTER(get_max_doctablesize) {
   return RSGlobalConfig.maxDocTableSize;
 }
 
-CONFIG_API_NUMERIC_SETTER(set_max_doc_table_size) {
+CONFIG_API_NUMERIC_SETTER(set_max_doctablesize) {
   RSGlobalConfig.maxDocTableSize = val;
   return REDISMODULE_OK;
 }
@@ -1233,12 +1233,12 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-doc-table-size", DEFAULT_DOC_TABLE_SIZE,
+        ctx, "max-doctablesize", DEFAULT_DOC_TABLE_SIZE,
         REDISMODULE_CONFIG_IMMUTABLE, 1, MAX_DOC_TABLE_SIZE, 
         get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
-    RedisModule_Log(ctx, "notice", "max-doc-table-size registered");
+    RedisModule_Log(ctx, "notice", "max-doctablesize registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
