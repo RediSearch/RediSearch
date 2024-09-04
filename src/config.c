@@ -111,6 +111,16 @@ CONFIG_GETTER(getMaxDocTableSize) {
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
 }
 
+// max-doc-table-size
+CONFIG_API_NUMERIC_GETTER(get_max_doc_table_size) {
+  return RSGlobalConfig.maxDocTableSize;
+}
+
+CONFIG_API_NUMERIC_SETTER(set_max_doc_table_size) {
+  RSGlobalConfig.maxDocTableSize = val;
+  return REDISMODULE_OK;
+}
+
 // MAXSEARCHRESULTS
 CONFIG_SETTER(setMaxSearchResults) {
   long long newsize = 0;
@@ -397,6 +407,16 @@ CONFIG_GETTER(getGcScanSize) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcScanSize);
 }
 
+// gc-scan-size
+CONFIG_API_NUMERIC_SETTER(set_gc_scan_size) {
+  RSGlobalConfig.gcConfigParams.gcScanSize = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_gc_scan_size) {
+  return RSGlobalConfig.gcConfigParams.gcScanSize;
+}
+
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setForkGcInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
@@ -501,6 +521,10 @@ CONFIG_API_BOOL_GETTER(get_print_profile_clock, requestConfigParams.printProfile
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
 CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
+
+// raw-docid-encoding
+CONFIG_API_BOOL_SETTER(set_raw_docid_encoding, invertedIndexRawDocidEncoding)
+CONFIG_API_BOOL_GETTER(get_raw_docid_encoding, invertedIndexRawDocidEncoding)
 
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
@@ -1198,23 +1222,31 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 }
 
 
-// Module configuration parameters
-CONFIG_API_NUMERIC_GETTER(get_default_dialect);
-CONFIG_API_NUMERIC_SETTER(set_default_dialect);
-
-CONFIG_API_STRING_SETTER(set_friso_ini);
-CONFIG_API_STRING_GETTER(get_friso_ini);
-
-CONFIG_API_ENUM_SETTER(set_on_timeout); 
-CONFIG_API_ENUM_GETTER(get_on_timeout);
-
 int ModuleConfig_Register(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
-        ctx, "default-dialect", 1, REDISMODULE_CONFIG_DEFAULT, 1, 4, 
-        get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "default-dialect", 1, REDISMODULE_CONFIG_DEFAULT,
+        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION, get_default_dialect,
+        set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "default-dialect registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "max-doc-table-size", DEFAULT_DOC_TABLE_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE, 1, MAX_DOC_TABLE_SIZE, 
+        get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "max-doc-table-size registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "gc-scan-size", 100, REDISMODULE_CONFIG_DEFAULT, 1, 999999999,
+        get_gc_scan_size, set_gc_scan_size, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "gc-scan-size registered");
   }
 
   // // TODO: How to init string to NULL?
@@ -1236,15 +1268,23 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
   }
 
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "free-resource-on-thread",
-      get_free_resource_on_thread, set_free_resource_on_thread, 1);
+      get_free_resource_on_thread, set_free_resource_on_thread, 1,
+      REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_numeric-compress",
-      get_numeric_compress, set_numeric_compress, 0);
+      get_numeric_compress, set_numeric_compress, 0,
+      REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_print-profile-clock",
-      get_print_profile_clock, set_print_profile_clock, 0);
+      get_print_profile_clock, set_print_profile_clock, 0,
+      REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
-      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children, 0);
+      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children,
+      0, REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "fork-gc-clean-numeric-empty-nodes",
-      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes, 1);
+      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
+      1, REDISMODULE_CONFIG_DEFAULT);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "raw-docid-encoding",
+      get_raw_docid_encoding, set_raw_docid_encoding, 0,
+      REDISMODULE_CONFIG_IMMUTABLE);
 
   // Apply configuration
   if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {

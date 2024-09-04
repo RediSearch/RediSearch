@@ -69,9 +69,9 @@ static int name(const char *name, int val, void *privdata, RedisModuleString **e
   return REDISMODULE_OK;                                                       \
 }
 
-#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val) \
+#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val, flags) \
   if(RedisModule_RegisterBoolConfig(                                          \
-        ctx, name, default_val, REDISMODULE_CONFIG_DEFAULT,                   \
+        ctx, name, default_val, flags,                   \
         getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                       \
   } else {                                                                    \
     RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");             \
