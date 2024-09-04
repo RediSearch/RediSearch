@@ -196,7 +196,7 @@ BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
 
 ifeq ($(OS),macos)
-_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
+_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
 endif
 
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
