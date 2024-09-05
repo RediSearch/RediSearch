@@ -124,7 +124,7 @@ def testAllConfig(env):
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
     if MT_BUILD:
         env.assertEqual(res_dict['WORKERS'][0], '0')
-        env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
+        env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], str(min_operation_workers_default))
         env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
         env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
         env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
@@ -244,7 +244,7 @@ def testImmutable(env):
 ############################ TEST DEPRECATED MT CONFIGS ############################
 
 workers_default = 0
-min_operation_workers_default = 4
+min_operation_workers_default = 0 # todo: this is a temp workaround - switch back to 4 after MOD-7732 is fixed
 
 @skip(cluster=True, noWorkers=True)
 def testDeprecatedMTConfig_full():
