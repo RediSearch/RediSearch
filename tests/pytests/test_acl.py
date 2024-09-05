@@ -69,14 +69,6 @@ def test_acl_non_default_user(env):
     env.expect('ACL', 'SETUSER', 'test', '+@search').ok()
     env.expect('AUTH', 'test', '123').true()
 
-    # `test` should now be able to run `write` commands like `FT.CREATE`
+    # `test` should now be able to run `search` commands like `FT.CREATE`
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').ok()
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
-
-    # A user with the `search` category should be able to run RediSearch commands
-    env.expect('AUTH', 'default', '').true()
-    env.expect('ACL', 'SETUSER', 'search_user', '+@search').ok()
-    env.expect('AUTH', 'search_user', '123').true()
-
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'txt', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx2', '*').equal([0])
