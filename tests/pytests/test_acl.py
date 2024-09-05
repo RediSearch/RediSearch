@@ -1,5 +1,9 @@
 from common import *
 
+READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
+                 'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
+WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
+
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
     load"""
@@ -49,20 +53,34 @@ def test_acl_non_default_user(env):
     env.expect('AUTH', 'test', '123').true()
 
     # Such a user shouldn't be able to run any RediSearch commands (or any other commands)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').error().contains(
-        "User test has no permissions to run the 'FT.CREATE' command")
+    env.expect('FT.SEARCH', 'idx', '*').error().contains(
+        "User test has no permissions to run the 'FT.SEARCH' command")
 
-    env.expect('AUTH', 'default', '').true()
     # Add `test` read permissions
+    env.expect('AUTH', 'default', '').true()
     env.expect('ACL', 'SETUSER', 'test', '+@read').ok()
     env.expect('AUTH', 'test', '123').true()
 
     # `test` should now be able to run `read` commands like `FT.SEARCH', but not
     # `search` commands like `FT.CREATE`
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').error().contains(
+    for cmd in READ_SEARCH_COMMANDS:
+        env.expect(cmd).error().notContains(
+            "User test has no permissions")
+
+    # `test` should not be able to run `search` commands that are not `read`,
+    # like `FT.CREATE`
+    env.expect('FT.CREATE', 'idx', '*').error().contains(
         "User test has no permissions to run the 'FT.CREATE' command")
-    env.expect('FT.SEARCH', 'idx', 'hello').error().contains(
-        "no such index")
+
+    # Let's add `write` permissions to `test`
+    env.expect('AUTH', 'default', '').true()
+    env.expect('ACL', 'SETUSER', 'test', '+@write').ok()
+    env.expect('AUTH', 'test', '123').true()
+
+    # `test` should now be able to run `write` commands
+    for cmd in WRITE_SEARCH_COMMANDS:
+        env.expect(cmd).error().notContains(
+            "User test has no permissions")
 
     # Add `test` `search` permissions
     env.expect('AUTH', 'default', '').true()
