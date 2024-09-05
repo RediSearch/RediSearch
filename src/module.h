@@ -10,6 +10,11 @@
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
 
+// Hack to support Alpine Linux 3 where __STRING is not defined
+#if !defined(__GLIBC__) && !defined(__STRING)
+#include <sys/cdefs.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
