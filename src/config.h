@@ -236,7 +236,7 @@ void UpgradeDeprecatedMTConfigs();
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
-#define MIN_OPERATION_WORKERS 4
+#define MIN_OPERATION_WORKERS 0  // todo: this is a temp workaround - switch back to 4 after MOD-7732 is fixed
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
