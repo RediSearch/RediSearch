@@ -1040,7 +1040,6 @@ int IR_Read(void *ctx, RSIndexResult **e) {
         ++numFieldIndices;
       }
       const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, numFieldIndices, ir->filterCtx.predicate, &ir->sctx->time.current);
-      array_free(sortedFieldIndices);
       if (!validValue) {
         continue;
       }
