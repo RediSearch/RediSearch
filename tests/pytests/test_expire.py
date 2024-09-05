@@ -420,7 +420,9 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
 def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
+    # We added not_text_field to make sure that the expandFieldMask function hits the continue clause
+    # Meaning that at least one field ftid during the expiration check will be RS_INVALID_FIELD_ID
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
     conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')

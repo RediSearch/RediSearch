@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <stdbool.h>
 #include "util/dllist.h"
 #include "stemmer.h"
 
@@ -81,8 +82,8 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_HasExpiration = 0x10,
-  Document_FailedToOpen = 0x20,// Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
@@ -94,7 +95,7 @@ enum FieldExpirationPredicate {
 typedef struct {
   // tells us the actual type of the field member
   // true - fieldMask, false - fieldIndex
-  uint8_t isFieldMask;
+  bool isFieldMask;
   union {
     // For textual fields, allows to host multiple field indices at once
     t_fieldMask mask;

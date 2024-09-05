@@ -144,14 +144,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
       RedisModule_FreeString(ctx, key);
       break;
-    case expire_cmd:
-    case persist_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-    case hexpire_cmd:
-    case hpersist_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
-      break;
+
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:
@@ -165,6 +158,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 /********************************************************
  *              Handling Redis commands                 *
  ********************************************************/
+    case expire_cmd:
+    case persist_cmd:
+    case hexpire_cmd:
+    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);

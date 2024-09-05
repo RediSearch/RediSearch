@@ -966,19 +966,21 @@ size_t IR_NumEstimated(void *ctx) {
   return ir->idx->numDocs;
 }
 
-static t_fieldIndex* expandFieldMask(t_fieldMask mask, IndexSpec* spec) {
-  t_fieldIndex* sortedFieldIndices = NULL;
+static size_t expandFieldMask(t_fieldMask mask, IndexSpec* spec, t_fieldIndex* sortedFieldIndices) {
+  size_t count = 0;
   for (size_t index = 0; index < spec->numFields; ++index) {
     FieldSpec* fs = &spec->fields[index];
     if (fs->ftId == RS_INVALID_FIELD_ID) {
       continue;
     }
     if (mask & FIELD_BIT(fs)) {
-      array_ensure_append_1(sortedFieldIndices, fs->index);
+      sortedFieldIndices[count++] = fs->index;
     }
   }
-  return sortedFieldIndices;
+  return count;
 }
+
+#define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
 int IR_Read(void *ctx, RSIndexResult **e) {
 
@@ -1027,13 +1029,17 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     if (ir->sctx && ir->sctx->spec && DocTable_HasExpiration(&ir->sctx->spec->docs, record->docId)) {
-      t_fieldIndex* sortedFieldIndices = NULL;
+      size_t numFieldIndices = 0;
+      // Use a stack allocated array for the field indices, if the field mask is not a single field
+      t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
+      t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
       if (ir->filterCtx.field.isFieldMask) {
-        sortedFieldIndices = expandFieldMask(ir->filterCtx.field.value.mask, ir->sctx->spec);
+        numFieldIndices = expandFieldMask(ir->filterCtx.field.value.mask, ir->sctx->spec, fieldIndicesArray);
       } else {
-        array_ensure_append_1(sortedFieldIndices, ir->filterCtx.field.value.index);
+        sortedFieldIndices = &ir->filterCtx.field.value.index;
+        ++numFieldIndices;
       }
-      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, array_len(sortedFieldIndices), ir->filterCtx.predicate, &ir->sctx->time.current);
+      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, numFieldIndices, ir->filterCtx.predicate, &ir->sctx->time.current);
       array_free(sortedFieldIndices);
       if (!validValue) {
         continue;

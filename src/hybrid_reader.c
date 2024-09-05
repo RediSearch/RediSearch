@@ -345,8 +345,7 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  const FieldFilterContext* ctx = &hr->filterCtx;
-  if (hr->sctx && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &ctx->field.value.index, 1, ctx->predicate, &hr->sctx->time.current)) {
+  if (hr->sctx && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &hr->filterCtx.field.value.index, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
 

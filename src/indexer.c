@@ -269,7 +269,6 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
   dict *df_fields_dict = dictCreate(&dictTypeHeapStrings, NULL);
-  t_fieldIndex last_ind = 0;
 
   // collect missing fields in schema
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
