@@ -11,7 +11,6 @@ def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
     res = env.cmd('ACL', 'CAT', 'search')
-    # TODO: Do we want to hide the internal commands (e.g., "_FT.*")?
     commands = [
         'FT.EXPLAINCLI', '_FT.ALIASDEL', 'FT.SPELLCHECK', 'FT.SYNUPDATE',
         'FT.ALIASUPDATE', '_FT.AGGREGATE', '_FT.ALIASADD', 'FT._LIST',
