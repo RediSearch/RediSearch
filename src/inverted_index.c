@@ -966,20 +966,6 @@ size_t IR_NumEstimated(void *ctx) {
   return ir->idx->numDocs;
 }
 
-static size_t expandFieldMask(t_fieldMask mask, IndexSpec* spec, t_fieldIndex* sortedFieldIndices) {
-  size_t count = 0;
-  for (size_t index = 0; index < spec->numFields; ++index) {
-    FieldSpec* fs = &spec->fields[index];
-    if (fs->ftId == RS_INVALID_FIELD_ID) {
-      continue;
-    }
-    if (mask & FIELD_BIT(fs)) {
-      sortedFieldIndices[count++] = fs->index;
-    }
-  }
-  return count;
-}
-
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
 int IR_Read(void *ctx, RSIndexResult **e) {
@@ -1034,7 +1020,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
       t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
       if (ir->filterCtx.field.isFieldMask) {
-        numFieldIndices = expandFieldMask(ir->filterCtx.field.value.mask, ir->sctx->spec, fieldIndicesArray);
+        numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec, ir->filterCtx.field.value.mask, fieldIndicesArray);
       } else {
         sortedFieldIndices = &ir->filterCtx.field.value.index;
         ++numFieldIndices;

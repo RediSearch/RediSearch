@@ -128,7 +128,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   int numTypes = 0;
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSpec_CreateTextId(sp);
+    int txtId = IndexSpec_CreateTextId(sp, fs->index);
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
