@@ -30,6 +30,8 @@ add_compile_definitions(
 
 setup_cc_options()
 
+# TODO - check if needed
+add_compile_options("-fvisibility=hidden")
 #----------------------------------------------------------------------------------------------
 
 include_directories(
