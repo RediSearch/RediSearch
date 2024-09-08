@@ -41,8 +41,10 @@ if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
 
+# Todo: is it needed?
+add_compile_options("-fvisibility=hidden")
+
 if (APPLE)
-    message(STATUS "Building on MacOS")
     include_directories(/usr/local/opt/openssl/include)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 
