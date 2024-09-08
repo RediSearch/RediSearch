@@ -18,7 +18,7 @@
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
+                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight);
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,

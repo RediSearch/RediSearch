@@ -126,6 +126,18 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     }
   }
 
+  if (args->index_all) {
+    // Validate the arg (if it's not ENABLE or DISABLE -> throw an error)
+    if (!strcasecmp(args->index_all, "enable")) {
+      rule->index_all = true;
+    } else if (!strcasecmp(args->index_all, "disable")) {
+      rule->index_all = false;
+    } else {
+      QueryError_SetError(status, QUERY_EADDARGS, "Invalid argument for `INDEXALL`, use ENABLE/DISABLE");
+      goto error;
+    }
+  }
+
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
     SchemaPrefixes_Add(rule->prefixes[i], sdslen(rule->prefixes[i]), ref);
   }
@@ -386,6 +398,10 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   }
   double score_default = LoadDouble_IOError(rdb, goto cleanup);
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  bool index_all = false;
+  if (encver >= INDEX_INDEXALL_VERSION) {
+    index_all = LoadUnsigned_IOError(rdb, goto cleanup);
+  }
 
   QueryError status = {0};
   SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
@@ -395,6 +411,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   }
   rule->score_default = score_default;
   rule->lang_default = lang_default;
+  rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
   IndexSpec *sp = StrongRef_Get(ref);
@@ -463,6 +480,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   }
   RedisModule_SaveDouble(rdb, rule->score_default);
   RedisModule_SaveUnsigned(rdb, rule->lang_default);
+  RedisModule_SaveUnsigned(rdb, rule->index_all);
 }
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
