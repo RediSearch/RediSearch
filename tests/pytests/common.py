@@ -305,13 +305,12 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-COORD_BUILD = any('coord-oss' in m for m in Defaults.module) or 'coord-oss' in Defaults.module
 
 def debug_cmd():
-    return '_FT.DEBUG' if COORD_BUILD else 'FT.DEBUG'
+    return '_FT.DEBUG'
 
 def config_cmd():
-    return '_FT.CONFIG' if COORD_BUILD else 'FT.CONFIG'
+    return '_FT.CONFIG'
 
 
 def run_command_on_all_shards(env, *args):

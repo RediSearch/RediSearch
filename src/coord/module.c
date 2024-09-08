@@ -20,7 +20,6 @@
 #include "info_command.h"
 #include "version.h"
 #include "cursor.h"
-#include "build-info/info.h"
 #include "aggregate/aggregate.h"
 #include "value.h"
 #include "cluster_spell_check.h"
@@ -2027,7 +2026,7 @@ int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
  * All coordinator handlers must be wrapped in this decorator.
  */
 static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (RSBuildType_g == RSBuildType_Enterprise && clusterConfig.type != ClusterType_RedisLabs) {
+  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
     /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
     return DisabledCommandHandler;
   }
@@ -2139,12 +2138,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
-  if (RSBuildType_g == RSBuildType_OSS && !isClusterEnabled) {
-    // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"))
-  }
-
-  if (RSBuildType_g == RSBuildType_OSS) {
+  if (!IsEnterprise()) {
+    if (!isClusterEnabled) {
+      // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
+      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
+    }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
     RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
@@ -2178,7 +2176,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read admin"))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
-  if (RSBuildType_g == RSBuildType_OSS) {
+  if (!IsEnterprise()) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))

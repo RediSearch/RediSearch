@@ -970,7 +970,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command: %s. Got error code: %d", name, errno);  
+    RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command: %s. Got error code: %d", name, errno);
     rc = REDISMODULE_ERR;
   }
 
@@ -1032,16 +1032,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY_F(NumericIndexType_Register, ctx);
 
-#ifndef RS_COORDINATOR
-// on a none coordinator version (for RS light/lite) we want to raise cross slot if
-// the index and the document do not go to the same shard
-#define INDEX_ONLY_CMD_ARGS 1, 1, 1
-#define INDEX_DOC_CMD_ARGS 1, 2, 1
-#else
-// on coordinator we do not want to raise a move error so we do not specify any key
+
+// With coordinator we do not want to raise a move error for index commands so we do not specify
+// any key.
 #define INDEX_ONLY_CMD_ARGS 0, 0, 0
 #define INDEX_DOC_CMD_ARGS 2, 2, 1
-#endif
 
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
@@ -1079,13 +1074,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS, "read admin"))
 
-#ifndef RS_COORDINATOR
-  // in case coordinator is not defined, all docs and index name should go to the same slot
-  RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1, "read admin"))
-#else
-  // in case coordinator is defined, do not force cross slot validation
+
+  // Do not force cross slot validation since coordinator will handle it.
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0, "read admin"))
-#endif
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
@@ -1129,12 +1120,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read"))
 
-#ifndef RS_COORDINATOR
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1, "read"))
-#else
-  // we do not want to raise a move error on cluster with coordinator
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0, "read"))
-#endif
+  // Do not force cross slot validation since coordinator will handle it.
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0, "read"));
 
   // todo: what to do with this?
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
@@ -1166,19 +1153,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0, "admin"))
 
-// alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
-#ifndef RS_COORDINATOR
-  // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
-         1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
-         1, ""))
-#else
-  // Cluster is manage outside of module lets trust it and not raise cross slot error.
+  // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
+  // Cluster is managed outside of module lets trust it and not raise cross slot error.
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, ""))
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
          0, ""))
@@ -1187,7 +1163,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, ""))
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
          0, ""))
-#endif
   return REDISMODULE_OK;
 }
 
