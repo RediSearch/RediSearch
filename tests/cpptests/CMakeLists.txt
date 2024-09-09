@@ -12,7 +12,7 @@ endif()
 # redismock is a mock library for using redis module API in tests, defined in main CMakeLists.txt.
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
-add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
+add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp ${root}/tests/ctests/coord_tests/init-rm.c)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)
@@ -27,6 +27,6 @@ add_test(name test_distagg COMMAND test_distagg)
 
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
-add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
+add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp ${root}/tests/ctests/coord_tests/init-rm.c)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
