@@ -1448,6 +1448,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   IndexSpecCache_Decref(spec->spcache);
   spec->spcache = NULL;
 
+  array_free(spec->fieldIdToIndex);
+  spec->fieldIdToIndex = NULL;
+
   // Free fields formatted names
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
