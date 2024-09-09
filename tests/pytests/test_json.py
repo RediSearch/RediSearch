@@ -612,12 +612,12 @@ def testDemo(env):
 @skip(cluster=True, no_json=True)
 def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT').ok()
-    env.stop()
+    env.stop() # Save state to RDB
     env.assertEqual(len(env.envRunner.modulePath), len(env.envRunner.moduleArgs))
     env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
-    env.start()
+    env.start() # Restart without JSON module. Attempt to load RDB
     env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
 
 @skip(msan=True, no_json=True)
