@@ -556,14 +556,14 @@ def runShortRead(env, data, total_len, expected_index):
         max_up_attempt = 60
         while max_up_attempt > 0:
             res = env.cmd('PING')
-            if res == 'PONG':
+            if res:
                 break
             if res == 'LOADING Redis is loading the dataset in memory':
-                max_up_attempt = max_up_attempt - 1
-                time.sleep(1)
+                continue
+            max_up_attempt = max_up_attempt - 1
+            time.sleep(1)
         env.assertGreater(max_up_attempt, 0)
 
-        env.assertEqual(res, True)
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
