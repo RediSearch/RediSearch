@@ -610,6 +610,17 @@ def testDemo(env):
     res =env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'SORTBY', '1', '@iata', 'LOAD', '1', '$')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
+@skip(cluster=True, no_json=True, asan=True)
+def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT').ok()
+    env.stop() # Save state to RDB
+    env.assertEqual(len(env.envRunner.modulePath), len(env.envRunner.moduleArgs))
+    env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    env.start() # Restart without JSON module. Attempt to load RDB
+    env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
+
 @no_msan
 def testIndexSeparation(env):
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
@@ -1159,7 +1170,7 @@ def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
     # We are using ',' as tag SEPARATOR to get the same results of HASH index
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
             'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
