@@ -558,6 +558,7 @@ def runShortRead(env, data, total_len, expected_index):
         while max_up_attempt > 0:
             try:
                 res = env.cmd('PING')
+                break
             except redis.exceptions.BusyLoadingError:
                 max_up_attempt = max_up_attempt - 1
                 time.sleep(0.1)
