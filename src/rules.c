@@ -349,7 +349,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver, QueryError *status) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -389,11 +389,10 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   double score_default = LoadDouble_IOError(rdb, goto cleanup);
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
+  SchemaRule *rule = SchemaRule_Create(&args, sp, status);
   if (!rule) {
-    RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    RedisModule_Assert(rule);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
   } else {
     rule->score_default = score_default;
     rule->lang_default = lang_default;
@@ -490,12 +489,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   int ret = true;
   SchemaRule *rule = sp->rule;
   if (rule->filter_exp) {
-    EvalCtx *r = NULL;     
+    EvalCtx *r = NULL;
     // load hash only if required
     r = EvalCtx_Create();
 
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, rule, keyCstr);
- 
+
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
         !RSValue_BoolTest(&r->res)) {
       ret = false;
