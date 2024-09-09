@@ -347,7 +347,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 //---------------------------------------------------------------------------------------------
 
-int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
+int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError *status) {
   SchemaRuleArgs args = {0};
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
@@ -387,11 +387,10 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver) {
   double score_default = LoadDouble_IOError(rdb, goto cleanup);
   RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  QueryError status = {0};
-  SchemaRule *rule = SchemaRule_Create(&args, ref, &status);
+  SchemaRule *rule = SchemaRule_Create(&args, ref, status);
   if (!rule) {
-    RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    RedisModule_Assert(rule);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
   }
   rule->score_default = score_default;
   rule->lang_default = lang_default;
