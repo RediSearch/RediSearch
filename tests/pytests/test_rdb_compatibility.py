@@ -59,7 +59,7 @@ def testRDBCompatibility(env):
         env.expect('DBSIZE').equal(1000)
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
+        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload', 'indexes_all', 'false'])
         env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
