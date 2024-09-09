@@ -78,11 +78,6 @@ void workersThreadPool_SetNumWorkers() {
     worker_count = RSGlobalConfig.minOperationWorkers;
   }
   size_t curr_workers = redisearch_thpool_get_num_threads(_workers_thpool);
-  // Todo: this is a temp workaround for not allowing closing the threadpool after it was
-  // already openned - remove after MOD-7732 is fixed.
-  if (curr_workers != 0 && worker_count == 0) {
-    worker_count = 1;
-  }
   size_t new_num_threads = worker_count;
 
   if (worker_count == 0 && curr_workers > 0) {
