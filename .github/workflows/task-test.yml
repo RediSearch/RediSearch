@@ -132,7 +132,7 @@ jobs:
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
       - name: Build
-        run: make SAN=${{ inputs.san }}
+        run: make SAN=${{ inputs.san }} VERBOSE=1 SHOW=1
       - name: Unit tests
         id: test1
         continue-on-error: true
