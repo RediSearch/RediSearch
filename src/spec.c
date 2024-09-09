@@ -1244,9 +1244,6 @@ static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translatio
 }
 
 uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-  if (!sp->fieldIdToIndex) {
-    return 0;
-  }
 
   uint16_t count = 0;
   const uint8_t LOW_OFFSET = 0;
@@ -1819,14 +1816,9 @@ IndexSpec *NewIndexSpec(const char *name) {
 
 // Assuming the spec is properly locked before calling this function.
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
-  if (sp->numFields + 1 == RS_INVALID_FIELD_INDEX) {
-    return NULL;
-  }
   FieldSpec* fields = sp->fields;
   fields = rm_realloc(fields, sizeof(*fields) * (sp->numFields + 1));
-  if (fields == NULL) {
-    return NULL;
-  }
+  RS_LOG_ASSERT_FMT(fields, "Failed to allocate memory for %d fields", sp->numFields + 1);
   sp->fields = fields;
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
