@@ -45,7 +45,7 @@ jobs:
         with:
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_number }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
