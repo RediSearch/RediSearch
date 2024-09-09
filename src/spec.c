@@ -1216,8 +1216,8 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
-          .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
 
@@ -1406,6 +1406,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free missingFieldDict
   if (spec->missingFieldDict) {
     dictRelease(spec->missingFieldDict);
+  }
+  // Free existing docs inverted index
+  if (spec->existingDocs) {
+    InvertedIndex_Free(spec->existingDocs);
   }
   // Free synonym data
   if (spec->smap) {
