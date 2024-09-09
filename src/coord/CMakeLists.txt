@@ -29,9 +29,6 @@ add_compile_definitions(
 	RMUTIL_NO_SDS)
 
 setup_cc_options()
-
-# TODO - check if needed
-add_compile_options("-fvisibility=hidden")
 #----------------------------------------------------------------------------------------------
 
 include_directories(

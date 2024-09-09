@@ -194,7 +194,6 @@ endif
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
 _CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR)
-$(info OS VAR IS $(OS))
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
