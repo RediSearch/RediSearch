@@ -3,7 +3,6 @@
 import collections
 import random
 import re
-import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -552,6 +551,16 @@ def runShortRead(env, data, total_len, expected_index):
 
         # Close during replica is waiting for more RDB data (so replica will re-connect to master)
         conn.close()
+
+        # Wait until replica is up (finished flushing and loading the RDB)
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            master_link_status = env.cmd('INFO', 'replication')['master_link_status']
+            if master_link_status == 'up':
+                break
+            max_up_attempt = max_up_attempt - 1
+            time.sleep(1)
+        env.assertGreater(max_up_attempt, 0)
 
         # Make sure replica did not crash
         res = env.cmd('PING')
