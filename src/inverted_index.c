@@ -1021,7 +1021,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
       if (ir->filterCtx.field.isFieldMask) {
         numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec, ir->filterCtx.field.value.mask, fieldIndicesArray);
-      } else {
+      } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
         sortedFieldIndices = &ir->filterCtx.field.value.index;
         ++numFieldIndices;
       }
@@ -1230,13 +1230,13 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx) {
 }
 
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   t_fieldIndex fieldIndex) {
+                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
   IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
   if (!decoder.decoder) {
     return NULL;
   }
-  FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = FIELD_EXPIRATION_MISSING };
+  FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = predicate };
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = freq;
   return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);

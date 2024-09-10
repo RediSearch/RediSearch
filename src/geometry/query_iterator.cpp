@@ -24,7 +24,8 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
     return INDEXREAD_EOF;
   }
   t_docId docId = iter_[index_++];
-  if (sctx_ && !DocTable_VerifyFieldExpirationPredicate(&sctx_->spec->docs, docId, &filterCtx_->field.value.index, 1, filterCtx_->predicate, &sctx_->time.current)) {
+  const t_fieldIndex fieldIndex = filterCtx_.field.value.index;
+  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_VerifyFieldExpirationPredicate(&sctx_->spec->docs, docId, &fieldIndex, 1, filterCtx_.predicate, &sctx_->time.current)) {
     return INDEXREAD_NOTFOUND;
   }
 

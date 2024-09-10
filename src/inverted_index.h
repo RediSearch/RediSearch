@@ -232,7 +232,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx);
 
 /* Create a new index reader on an inverted index of "missing values". */
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   t_fieldIndex fieldIndex);
+                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
 
 void IR_Abort(void *ctx);
 

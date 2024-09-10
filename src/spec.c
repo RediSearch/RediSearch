@@ -1191,7 +1191,6 @@ static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translatio
 }
 
 uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-
   uint16_t count = 0;
   const uint8_t LOW_OFFSET = 0;
   if (sizeof(mask) == sizeof(uint64_t)) {
