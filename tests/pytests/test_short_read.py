@@ -12,6 +12,7 @@ import tempfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import redis
 
 from common import *
 from includes import *
@@ -568,8 +569,17 @@ def runShortRead(env, data, total_len, expected_index):
         conn.close()
 
         # Make sure replica did not crash
-        res = env.cmd('PING')
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            try:
+                res = env.cmd('PING')
+                break
+            except redis.exceptions.BusyLoadingError:
+                max_up_attempt = max_up_attempt - 1
+                time.sleep(0.1)
+        env.assertGreater(max_up_attempt, 0)
         env.assertEqual(res, True)
+
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
