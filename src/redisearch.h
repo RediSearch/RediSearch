@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
 
@@ -23,6 +24,7 @@ typedef uint16_t t_fieldId;
 // Used to identify any field index within the spec, not just textual fields
 typedef uint16_t t_fieldIndex;
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
+struct timespec;
 typedef struct timespec t_expirationTimePoint;
 
 #define DOCID_MAX UINT64_MAX

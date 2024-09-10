@@ -870,6 +870,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
     sp->monitorFieldExpiration = options.fields && !options.notFields;
   }
   RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
 }
 
 DEBUG_COMMAND(GitSha) {
