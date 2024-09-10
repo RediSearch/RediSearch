@@ -43,7 +43,6 @@ typedef struct {
   char *payload_field;
   char *lang_default;
   char *score_default;
-  char *index_all;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
@@ -58,7 +57,6 @@ typedef struct SchemaRule {
   char *payload_field;
   double score_default;
   RSLanguage lang_default;
-  bool index_all;
 } SchemaRule;
 
 /*

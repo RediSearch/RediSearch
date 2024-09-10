@@ -383,12 +383,6 @@ def test_info():
       'index_definition': {'default_score': 1.0, 'key_type': 'HASH', 'prefixes': ['doc'] },
       'index_name': 'idx1',
       'index_options': [],
-      'index_definition': {
-          'default_score': 1.0,
-          'key_type': 'HASH',
-          'prefixes': ['doc'],
-          'indexes_all': 'false'
-        },
       'indexing': 0,
       'inverted_sz_mb': ANY,
       'key_table_size_mb': ANY,
@@ -1258,8 +1252,7 @@ def test_ft_info():
         'index_definition': {
           'default_score': 1.0,
           'key_type': 'HASH',
-          'prefixes': [''],
-          'indexes_all': 'false'
+          'prefixes': ['']
         },
         'index_name': 'idx',
         'index_options': [],
@@ -1337,9 +1330,7 @@ def test_ft_info():
         'index_definition': {
           'default_score': 1.0,
           'key_type': 'HASH',
-          'prefixes': [''],
-          'indexes_all': 'false'
-          },
+          'prefixes': ['']},
         'index_name': 'idx',
         'index_options': [],
         'indexing': 0,

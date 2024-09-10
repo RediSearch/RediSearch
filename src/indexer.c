@@ -290,38 +290,19 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
     if (!found_df) {
       InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
       if(iiMissingDocs == NULL) {
-        size_t index_size;
-        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
-        aCtx->spec->stats.invertedSize += index_size;
+        size_t dummy_mem;
+        iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
         dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
       }
       // Add docId to inverted index
       t_docId docId = aCtx->doc->docId;
       IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
       RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-      aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
+      InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
     }
   }
 
   dictRelease(df_fields_dict);
-}
-
-// Index the doc in the existing docs inverted index
-static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (sctx->spec->rule && !sctx->spec->rule->index_all) {
-    return;
-  }
-  if (!sctx->spec->existingDocs) {
-    // Create the inverted index if it doesn't exist
-    size_t index_size;
-    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
-    aCtx->spec->stats.invertedSize += index_size;
-  }
-
-  t_docId docId = aCtx->doc->docId;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, enc, docId, &rec);
 }
 
 /**
@@ -366,9 +347,6 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
     doAssignIds(firstZeroId, &ctx);
   }
-
-  // Index the document in the `existing docs` inverted index
-  writeExistingDocs(aCtx, &ctx);
 
   // Handle missing values indexing
   writeMissingFieldDocs(aCtx, &ctx);

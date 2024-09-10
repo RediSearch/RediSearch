@@ -11,11 +11,10 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
+
   if (ir->idx->flags == Index_DocIdsOnly) {
-    if (ir->record->term.term != NULL) {
-      printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
-    }
+    printProfileType("TAG");
+    REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {

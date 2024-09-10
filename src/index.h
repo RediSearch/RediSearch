@@ -16,7 +16,6 @@
 #include "varint.h"
 #include "query_node.h"
 #include "reply.h"
-#include "query_ctx.h"
 
 #include "util/logging.h"
 
@@ -68,15 +67,17 @@ void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter);
 void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool asc);
 
 /* Create a NOT iterator by wrapping another index iterator */
-IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
-  double weight, struct timespec timeout, QueryEvalCtx *q);
+IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight, struct timespec timeout);
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
-/* Create a wildcard iterator, to iterate all the existing docs in the*/
-IndexIterator *NewWildcardIterator(QueryEvalCtx *q);
+/* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only
+ * - purely negative queries. If the root of the query is a negative expression, we cannot process
+ * it without a positive expression. So we create a wildcard iterator that basically just iterates
+ * all the incremental document ids, and matches every skip within its range. */
+IndexIterator *NewWildcardIterator(t_docId maxId, size_t numDocs);
 
 /* Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
  * are sorted in this function, so there is no need to sort them. They are automatically freed in
@@ -85,6 +86,9 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 /** Create a new iterator which returns no results */
 IndexIterator *NewEmptyIterator(void);
+
+/** Return a string containing the type of the iterator */
+const char *IndexIterator_GetTypeString(const IndexIterator *it);
 
 /** Add Profile iterator layer between iterators */
 void Profile_AddIters(IndexIterator **root);
