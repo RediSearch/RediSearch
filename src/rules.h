@@ -82,7 +82,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
                                           RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
-int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
+int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver, QueryError *status);
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 

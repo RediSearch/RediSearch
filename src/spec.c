@@ -2229,7 +2229,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-  if (SchemaRule_RdbLoad(sp, rdb, encver) != REDISMODULE_OK) {
+  if (SchemaRule_RdbLoad(sp, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
@@ -2426,10 +2426,8 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
-    IndexSpec *sp = IndexSpec_CreateFromRdb(ctx, rdb, encver, &status);
-    if (!sp) {
-      RedisModule_Log(ctx, "warning", "RDB Load: %s",
-                      status.detail ? status.detail : "general failure");
+    if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) == NULL) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetError(&status));
       return REDISMODULE_ERR;
     }
   }
