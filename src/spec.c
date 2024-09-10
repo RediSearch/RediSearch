@@ -81,9 +81,6 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 }
 
-#define MILLISECOND_IN_ONE_SECOND 1000
-#define NANOSECOND_IN_ONE_MILLISECOND 1000000
-
 /*
  * Initialize the spec's fields that are related to the cursors.
  */
