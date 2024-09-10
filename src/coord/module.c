@@ -2145,19 +2145,18 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   if (RSBuildType_g == RSBuildType_OSS) {
-    RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "write deny-oom", 0, 0, -1, "write"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGGET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "write", 0, 0, -1, "write"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
     // write commands (on enterprise we do not define them, the dmc take care of them)
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "write",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "write",0, 0, -1, "write slow dangerous"))
     // search write slow dangerous
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
@@ -2180,10 +2179,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
   if (RSBuildType_g == RSBuildType_OSS) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "write deny-oom", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "write", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "write",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "write",0, 0, -1, "write admin"))
   }
 
   return REDISMODULE_OK;

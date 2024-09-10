@@ -1087,11 +1087,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0, "read admin"))
 #endif
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
+         "deny-oom", INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
@@ -1137,19 +1137,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   // todo: what to do with this?
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "admin"))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL, RS_DEBUG_FLAGS, "admin dangerous slow"))
