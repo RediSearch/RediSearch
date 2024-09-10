@@ -1162,6 +1162,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   if (idx->numDocs == 0) {
     // inverted index was cleaned entirely lets free it
     if (sctx->spec->missingFieldDict) {
+      info.nbytesCollected += InvertedIndex_MemUsage(idx);
       dictDelete(sctx->spec->missingFieldDict, fieldName);
     }
   }
