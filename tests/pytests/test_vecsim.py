@@ -2419,11 +2419,7 @@ def test_switch_write_mode_multiple_indexes(env):
         index_prefix = f'idx_{index_i}z'
         bg_indexing += index_info(env, f'index:{index_prefix}')['indexing']
         vector_index_info = get_vecsim_debug_dict(env, f'index:{index_prefix}', 'v')
-        # Todo: this is a temp workaround - switch back to checking the backend index after MOD-7732 is fixed (in the
-        #  meantime we cannot know when the BG indexing is done since the thread pool is always running)
-        # env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
-        #                 message=(index_prefix, vector_index_info))
-        env.assertEqual(vector_index_info['INDEX_LABEL_COUNT'], n_vectors // 2,
+        env.assertEqual(to_dict(vector_index_info['BACKEND_INDEX'])['INDEX_LABEL_COUNT'], n_vectors // 2,
                         message=(index_prefix, vector_index_info))
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
