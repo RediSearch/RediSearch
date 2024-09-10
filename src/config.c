@@ -179,7 +179,9 @@ CONFIG_GETTER(getTimeout) {
 // and to prevent the system from running out of resources.
 // The number of worker threads should be proportional to the number of cores in the system at most,
 // otherwise no performance improvement will be achieved.
-#define MAX_WORKER_THREADS (1 << 13)
+#ifndef MAX_WORKER_THREADS
+#define MAX_WORKER_THREADS (1 << 4)
+#endif
 
 static inline int errorTooManyThreads(QueryError *status) {
   QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);

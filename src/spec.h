@@ -69,6 +69,7 @@ struct DocumentIndexer;
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 #define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
+#define SPEC_INDEXALL_STR "INDEXALL"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
@@ -99,6 +100,10 @@ struct DocumentIndexer;
        .type = AC_ARGTYPE_STRING},                                          \
       {.name = "PAYLOAD_FIELD",                                             \
        .target = &(rule)->payload_field,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = SPEC_INDEXALL_STR,                                           \
+       .target = &(rule)->index_all,                                        \
        .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
@@ -195,7 +200,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 23
+#define INDEX_CURRENT_VERSION 24
+#define INDEX_INDEXALL_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
 #define INDEX_VECSIM_TIERED_VERSION 22
 #define INDEX_VECSIM_MULTI_VERSION 21
@@ -324,6 +330,9 @@ typedef struct IndexSpec {
 
   // Contains inverted indexes of missing fields
   dict *missingFieldDict;
+
+  // Contains all the existing documents (for wildcard search)
+  InvertedIndex *existingDocs;
 
 } IndexSpec;
 

@@ -29,7 +29,7 @@ jobs:
             {
               "branch": "${{ github.ref_name }}",
               "workflow_page": "${{ github.server_url }}/${{ github.repository }}/actions/workflows/event-deploy-snapshots.yml/?query=branch%3A${{ github.ref_name }}",
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}
