@@ -229,7 +229,11 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
+#define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
+#define MAX_KNN_K (1ULL << 58)
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
@@ -238,14 +242,14 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 
-#ifdef MT_BUILD  
+#ifdef MT_BUILD
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
     .mt_mode = MT_MODE_OFF,                                                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                            \
     .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
-#else 
+#else
 #define MT_BUILD_CONFIG
-#endif 
+#endif
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
@@ -273,8 +277,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                                      \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
-    .maxAggregateResults = -1,                                                                                        \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                                                               \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                         \
     .iteratorsConfigParams.minUnionIterHeap = 20,                                                                                           \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
