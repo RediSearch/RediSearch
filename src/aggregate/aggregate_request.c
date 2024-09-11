@@ -1195,22 +1195,16 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
+  size_t maxResults = astp->offset + astp->limit;
+  if (!maxResults) {
+    maxResults = DEFAULT_LIMIT;
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
-  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxSearchResults);
-  }
+  maxResults = MIN(maxResults, IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults);
 
-  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxAggregateResults);
-  }
-
-  if (IsCount(req) || !limit) {
+  if (IsCount(req) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
@@ -1248,12 +1242,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys), forceLoad);
         up = pushRP(req, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(req, rp, up);
     } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(limit);
+      rp = RPSorter_NewByScore(maxResults);
       up = pushRP(req, rp, up);
     }
   }
@@ -1262,7 +1256,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
   } else if (IsSearch(req) && IsOptimized(req) && !rp) {
-    rp = RPPager_New(0, limit);
+    rp = RPPager_New(0, maxResults);
     up = pushRP(req, rp, up);
   }
 
