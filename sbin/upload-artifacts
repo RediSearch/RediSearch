@@ -83,8 +83,10 @@ if [[ $FORCE != 1 ]]; then
 	fi
 
 	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
-		eprint "No credentials for S3 upload."
-		exit 1
+		if [[ -z $AWS_SESSION_TOKEN ]]; then
+			eprint "No credentials for S3 upload."
+			exit 1
+		fi
 	fi
 fi
 
