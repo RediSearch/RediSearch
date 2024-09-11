@@ -74,6 +74,12 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
     REPLY_KVSTR_SAFE("payload_field", rule->payload_field);
   }
 
+  if (rule->index_all) {
+    REPLY_KVSTR_SAFE("indexes_all", "true");
+  } else {
+    REPLY_KVSTR_SAFE("indexes_all", "false");
+  }
+
   RedisModule_Reply_MapEnd(reply); // index_definition
 }
 

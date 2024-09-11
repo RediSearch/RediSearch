@@ -479,21 +479,14 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
 }
 
 IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_TOKEN) {
-    return NULL;
-  }
-
-  // if there's only one word in the query and no special field filtering,
-  // and we are not paging beyond MAX_SCOREINDEX_SIZE
-  // we can just use the optimized score index
-  int isSingleWord = q->numTokens == 1 && q->opts->fieldmask == RS_FIELDMASK_ALL;
+  RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
     Term_Free(term);
@@ -516,7 +509,7 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
   // Open an index reader
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                      q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
   if (!ir) {
@@ -762,7 +755,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);
   if (!ir) {
@@ -783,7 +776,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   }
   RSToken tok = {.str = (char *)s, .len = n};
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   if (!ir) {
     Term_Free(term);
@@ -795,6 +788,8 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
+  RS_LOG_ASSERT(lx->type == QN_LEXRANGE, "query node type should be lexrange");
+
   Trie *t = q->sctx->spec->terms;
   LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
 
@@ -879,32 +874,30 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
 }
 
 static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_WILDCARD || !q->docTable) {
-    return NULL;
-  }
+  RS_LOG_ASSERT(qn->type == QN_WILDCARD, "query node type should be wildcard");
+  RS_LOG_ASSERT(q->docTable, "DocTable is NULL");
 
-  return NewWildcardIterator(q->docTable->maxDocId, q->docTable->size);
+  return NewWildcardIterator(q);
 }
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_NOT) {
-    return NULL;
-  }
+  RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
 
-  return NewNotIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight, q->sctx->timeout);
+  return NewNotIterator(qn ? Query_EvalNode(q, qn->children[0]) : NULL,
+                        q->docTable->maxDocId, qn->opts.weight, q->sctx->timeout,
+                        q);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_OPTIONAL) {
-    return NULL;
-  }
+  RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
 
   return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
+  RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
@@ -915,6 +908,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
                                               double weight) {
+  RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
 
   if (!GeoFilter_Validate(node->gn.gf, q->status)) {
     return NULL;
@@ -929,6 +923,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 }
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
+  RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
@@ -953,9 +948,8 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
 
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_VECTOR) {
-    return NULL;
-  }
+  RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
+
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
@@ -1013,9 +1007,7 @@ static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
 }
 
 static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_UNION) {
-    return NULL;
-  }
+  RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
 
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
@@ -1408,6 +1400,7 @@ done:
 }
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
+  RS_LOG_ASSERT(qn->type == QN_MISSING, "query qn type should be missing")
   const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
   if (!fs) {
     // Field does not exist
@@ -1429,7 +1422,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Create a reader for the missing values InvertedIndex.
-  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+  IndexReader *ir = NewGenericIndexReader(missingII, q->sctx->spec, 0, 0);
 
   return NewReadIterator(ir);
 }

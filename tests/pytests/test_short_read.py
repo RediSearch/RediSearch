@@ -3,7 +3,6 @@
 import collections
 import random
 import re
-import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -13,6 +12,7 @@ import tempfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import redis
 
 from common import *
 from includes import *
@@ -31,6 +31,7 @@ RDBS_SHORT_READS = {
     'short-reads/redisearch_2.8.4.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
     'short-reads/redisearch_2.10.3.rdb.zip'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
     'short-reads/redisearch_2.10.3_missing.rdb.zip'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/redisearch_existing_3.0.rdb.zip'      : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
 }
 RDBS_COMPATIBILITY = {
     'redisearch_2.0.9.rdb': ExpectedIndex(1, 'idx', [1000]),
@@ -124,7 +125,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
     '''
 
     # Create the index
-    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON']
+    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON', 'INDEXALL', 'ENABLE']
     # With prefixes
     if num_prefs > 0:
         cmd_create.extend(['prefix', num_prefs])
@@ -202,7 +203,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
 def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
-    create_indices(env, 'redisearch_2.10.3.rdb', 'idxSearch', True, False)
+    create_indices(env, 'redisearch_existing_3.0.rdb', 'idxSearch', True, False)
 
 def _testCreateIndexRdbFilesWithJSON(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -554,8 +555,17 @@ def runShortRead(env, data, total_len, expected_index):
         conn.close()
 
         # Make sure replica did not crash
-        res = env.cmd('PING')
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            try:
+                res = env.cmd('PING')
+                break
+            except redis.exceptions.BusyLoadingError:
+                max_up_attempt = max_up_attempt - 1
+                time.sleep(0.1)
+        env.assertGreater(max_up_attempt, 0)
         env.assertEqual(res, True)
+
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 

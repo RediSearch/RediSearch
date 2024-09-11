@@ -1216,8 +1216,8 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
-          .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
 
@@ -1406,6 +1406,10 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free missingFieldDict
   if (spec->missingFieldDict) {
     dictRelease(spec->missingFieldDict);
+  }
+  // Free existing docs inverted index
+  if (spec->existingDocs) {
+    InvertedIndex_Free(spec->existingDocs);
   }
   // Free synonym data
   if (spec->smap) {
@@ -2453,6 +2457,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
+  // `indexError` must be initialized before attempting to free the spec
+  sp->stats.indexError = IndexError_Init();
+
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -2492,7 +2499,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-  if (SchemaRule_RdbLoad(spec_ref, rdb, encver) != REDISMODULE_OK) {
+  if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
   }
@@ -2542,9 +2549,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
-
-  // `indexError` must be initialized before attempting to free the spec
-  sp->stats.indexError = IndexError_Init();
 
   RefManager *oldSpec = dictFetchValue(specDict_g, sp->name);
   if (oldSpec) {
@@ -2699,8 +2703,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "warning", "RDB Load: %s",
-                      status.detail ? status.detail : "general failure");
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetError(&status));
       return REDISMODULE_ERR;
     }
   }
