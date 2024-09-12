@@ -445,11 +445,11 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   } else if (IsProfile(r)) {
     RedisModule_ReplyWithArray(ctx, 2);
-    sendChunk(r, ctx, -1);
+    sendChunk(r, ctx, UINT64_MAX);
     printAggProfile(ctx, r);
     AREQ_Free(r);
   } else {
-    sendChunk(r, ctx, -1);
+    sendChunk(r, ctx, UINT64_MAX);
     AREQ_Free(r);
   }
   return;

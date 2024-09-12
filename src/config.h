@@ -178,7 +178,11 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
+#define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
+#define MAX_KNN_K (1ULL << 58)
 #define NR_MAX_DEPTH_BALANCE 2
 #define MAX_DIALECT_VERSION 2
 
@@ -194,7 +198,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS, .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
