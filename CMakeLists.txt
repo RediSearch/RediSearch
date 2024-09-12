@@ -37,6 +37,10 @@ if (BUILD_LITE)
     message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
 endif()
 
+if (MAX_WORKER_THREADS)
+    set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
+endif()
+
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
