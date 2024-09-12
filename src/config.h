@@ -225,12 +225,18 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+#define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
-#define MAX_DOC_TABLE_SIZE 100000000
-#define GC_SCANSIZE 100
+#define DEFAULT_GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
+#define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
+#define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define DEFAULT_MAX_AGGREGATE_RESULTS -1
+#define DEFAULT_MAX_CURSOR_IDLE 300000
+#define DEFAULT_MAX_PREFIX_EXPANSIONS 200
+#define DEFAULT_MAX_SEARCH_RESULTS 1000000
+#define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
@@ -248,27 +254,27 @@ void UpgradeDeprecatedMTConfigs();
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
-    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
+    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
-    .cursorMaxIdle = 300000,                                                                                          \
+    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
     .numWorkerThreads = 0,                                                                                            \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
-    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
+    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
+    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,                                                                   \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,                                                                \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
-    .maxAggregateResults = -1,                                                                                        \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_RESULTS,                                                                   \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                                                                                        \
     .iteratorsConfigParams.minUnionIterHeap = 20,                                                                     \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
@@ -276,7 +282,7 @@ void UpgradeDeprecatedMTConfigs();
     .invertedIndexRawDocidEncoding = false,                                                                           \
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
-    .requestConfigParams.dialectVersion = 1,                                                                          \
+    .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \

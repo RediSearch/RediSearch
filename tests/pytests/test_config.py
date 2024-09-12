@@ -379,8 +379,7 @@ def testImmutableCoord(env):
 def testConfigAPI():
     env = Env(noDefaultModuleArgs=True)
 
-    def _test_config(env, config_name, config_value):
-        env = Env(noDefaultModuleArgs=True)
+    def _test_config_valid_value(env, config_name, config_value):
         env.expect('CONFIG SET ', config_name, config_value).equal('OK')
         env.expect('CONFIG GET ', config_name).equal([config_name, config_value])
 
@@ -388,27 +387,50 @@ def testConfigAPI():
         env.expect('CONFIG SET ', config_name, config_value).error()\
             .contains('CONFIG SET failed')
 
-    def _test_boolean_config(env, config_name, old_config_name):
+    def _test_boolean_config(env, config_name, ft_config_name):
         for val in ['yes', 'no']:
             old_val = 'true' if val == 'yes' else 'false'
             
             # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
             env.expect('CONFIG SET ', config_name, val).equal('OK')
             env.expect('CONFIG GET ', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'get', old_config_name)\
-                .equal([[old_config_name, old_val]])
+            env.expect(config_cmd(), 'get', ft_config_name)\
+                .equal([[ft_config_name, old_val]])
 
             # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-            env.expect(config_cmd(), 'set', old_config_name, old_val).ok()
+            env.expect(config_cmd(), 'set', ft_config_name, old_val).ok()
             env.expect('CONFIG GET ', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'get', old_config_name)\
-                .equal([[old_config_name, old_val]])
+            env.expect(config_cmd(), 'get', ft_config_name)\
+                .equal([[ft_config_name, old_val]])
 
         _test_config_invalid_value(env, config_name, 'invalid_boolean')
+    
+    def _test_numeric_config(env, config_name, ft_config_name, default, min, max):
+        # Check default value
+        env.expect('CONFIG GET ', config_name).equal([config_name, str(default)])
+
+        # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+        env.expect('CONFIG SET ', config_name, max).equal('OK')
+        env.expect('CONFIG GET ', config_name).equal([config_name, str(max)])
+        env.expect(config_cmd(), 'get', ft_config_name)\
+            .equal([[ft_config_name, str(max)]])
+
+        # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+        env.expect(config_cmd(), 'set', ft_config_name, min).ok()
+        env.expect('CONFIG GET ', config_name).equal([config_name, str(min)])
+        env.expect(config_cmd(), 'get', ft_config_name)\
+            .equal([[ft_config_name, str(min)]])
+
+        _test_config_invalid_value(env, config_name, 'invalid_numeric')
+        _test_config_invalid_value(env, config_name, str(min - 1))
+        _test_config_invalid_value(env, config_name, str(max + 1))
+        _test_config_valid_value(env, config_name, str(min))
+        _test_config_valid_value(env, config_name, str(max))
+
 
     # Test enum parameters
-    _test_config(env, 'search.on-timeout', 'RETURN')
-    _test_config(env, 'search.on-timeout', 'FAIL')
+    _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
+    _test_config_valid_value(env, 'search.on-timeout', 'FAIL')
     _test_config_invalid_value(env, 'search.on-timeout', 'invalid_value')
 
     # Test boolean parameters
@@ -420,10 +442,43 @@ def testConfigAPI():
                          '_PRINT_PROFILE_CLOCK')
     _test_boolean_config(env, 'search._prioritize-intersect-union-children',
                          '_PRIORITIZE_INTERSECT_UNION_CHILDREN')
-    _test_boolean_config(env, 'search.fork-gc-clean-numeric-empty-nodes',
+    _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
                          '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # Test numeric parameters
-    _test_config(env, 'search.default-dialect', '2')
-    _test_config_invalid_value(env, 'search.default-dialect', '0')
-    _test_config_invalid_value(env, 'search.default-dialect', '5')
+    _test_numeric_config(env, 'search.default-dialect', 'DEFAULT_DIALECT',
+                         1, 1, 4)
+    _test_numeric_config(env, 'search.gc-scan-size', 'GCSCANSIZE',
+                         100, 1, 999999999)
+    _test_numeric_config(env, 'search._numeric-ranges-parents',
+                         '_NUMERIC_RANGES_PARENTS', 0, 0, 2)
+    _test_numeric_config(env, 'search.max-cursor-idle', 'CURSOR_MAX_IDLE',
+                         300_000, 1, 999999999)
+    _test_numeric_config(env, 'search.fork-gc-clean-threshold',
+                         'FORK_GC_CLEAN_THRESHOLD', 100, 1, 999999999)
+    _test_numeric_config(env, 'search.fork-gc-retry-interval',
+                         'FORK_GC_RETRY_INTERVAL', 5, 1, 999999999)
+    _test_numeric_config(env, 'search.fork-gc-run-interval',
+                         'FORK_GC_RUN_INTERVAL', 30, 1, 999999999)
+    _test_numeric_config(env, 'search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT',
+                         0, 0, 999999999)
+    # TODO:
+    # _test_numeric_config(env, 'search.max-aggregate-results', 'MAXAGGREGATERESULTS',
+    #                      -1, 1, 999999999)
+    _test_numeric_config(env, 'search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS',
+                         200, 1, 999999999)
+    # TODO:
+    # _test_numeric_config(env, 'search.max-search-results', 'MAXSEARCHRESULTS',
+    #                      -1, 1, 999999999)
+    _test_numeric_config(env, 'search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN',
+                         3, 1, 999999999)
+    
+
+    # Numeric Immutable parameters
+#    _test_numeric_config(env, 'max-doctablesize', 'MAXDOCTABLESIZE',
+#                          1_000_000, 1, 100_000_000)
+
+
+    
+    
+    

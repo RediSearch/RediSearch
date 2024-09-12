@@ -1001,6 +1001,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  // TODO: Fix CONFIG parameters priority
+  // module loadex redisearch.so ARGS DEFAULT_DIALECT 4
+  // module loadex redisearch.so CONFIG search.default-dialect 3 ARGS DEFAULT_DIALECT 4
+
   GetRedisVersion();
 
   char ver[64];
