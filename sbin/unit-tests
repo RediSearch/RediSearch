@@ -146,13 +146,13 @@ echo "# Running coordinator unit tests"
 for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
   if [[ -z $TEST ]]; then
     if [[ $NOP != 1 ]]; then
-  	  for test in $(find $TESTS_DIR -name "test_*" -maxdepth 1 -type f -print); do
+  	  for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
   		  TEST_NAME="$(basename $test)" sanitizer_defs
   		  echo $TEST_NAME
   		  { $test; (( E |= $? )); } || true
   	  done
     else
-  	  find $TESTS_DIR -name "test_*" -maxdepth 1 -type f -print
+  	  find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print
     fi
   else
     $OP $GDB_CMD $TESTS_DIR/$TEST
