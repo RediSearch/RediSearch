@@ -1,5 +1,4 @@
 
-#define REDISMODULE_MAIN
 #include "redismodule.h"
 
 #include "module.h"

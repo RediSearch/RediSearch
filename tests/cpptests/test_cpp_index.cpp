@@ -1513,7 +1513,7 @@ TEST_F(IndexTest, testDocTable) {
     sprintf(buf, "doc_%d", i);
     const sds key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
-    sdsfree(key);
+    //sdsfree(key);
 
     const RSDocumentMetadata *dmd = DocTable_Borrow(&dt, i + 1);
     ASSERT_TRUE(dmd != NULL);

@@ -31,7 +31,8 @@ add_compile_definitions(
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
-    _GNU_SOURCE)
+    _GNU_SOURCE
+    RMUTIL_NO_SDS)
 
 if (BUILD_LITE)
     message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
@@ -64,6 +65,7 @@ include(${root}/build/hiredis/hiredis.cmake)
 include_directories(
     ${root}/src
     ${root}/src/coord
+    ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
@@ -97,6 +99,7 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/module-init/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -120,8 +123,8 @@ set(FINAL_OBJECTS
 #----------------------------------------------------------------------------------------------
 
 if (BUILD_STATIC)
-    add_library(redisearch-static STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
-    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+    add_library(redisearch-static STATIC ${FINAL_OBJECTS})
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
@@ -131,7 +134,7 @@ if (BUILD_STATIC)
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 else() # OSS RediSearch
-    add_library(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
