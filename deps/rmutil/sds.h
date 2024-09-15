@@ -38,6 +38,11 @@
 
 #pragma once
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef RMUTIL_NO_SDS
 
 #include "hiredis/sds.h"
@@ -47,10 +52,6 @@
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 typedef char *sds;
 
@@ -283,8 +284,8 @@ void sds_free(void *ptr);
 int sdsTest(int argc, char *argv[]);
 #endif
 
+#endif // RMUTIL_NO_SDS
+
 #ifdef __cplusplus
 }
 #endif
-
-#endif // RMUTIL_NO_SDS
