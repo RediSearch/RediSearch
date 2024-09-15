@@ -1,4 +1,5 @@
 import copy
+import time
 from itertools import chain
 
 from common import *
@@ -143,7 +144,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
                 'FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', *sortable_arg)
             conn.execute_command('HSET', 'doc1', 't', 'bar')
             conn.execute_command('HSET', 'doc2', 't', 'arr')
-
+        conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
         # Both docs exist.
         res = conn.execute_command('FT.SEARCH', 'idx', '*')
         env.assertEqual(res, expected_results[both_docs_no_sortby], message='both docs exist')
@@ -225,6 +226,7 @@ def test_expire_aggregate(env):
     # Use "lazy" expire (expire only when key is accessed)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')
@@ -237,7 +239,7 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    env.assertEqual(res, [1, None, ['t', 'arr']])
+    env.assertEqual(res, [1, ['t', 'arr'], None])
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
@@ -330,7 +332,7 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
 
 
 # Aims to expire a single field in a document and make sure that document expires as well
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testSingleExpireField(env):
     field_to_additional_schema_keywords = {'x': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -339,7 +341,7 @@ def testSingleExpireField(env):
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
 # Aims to test that the expiration of a single field will not affect the search results
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testTwoFieldsOneOfThemWillExpire(env):
     field_to_additional_schema_keywords = {'x': [], 'y': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -348,7 +350,7 @@ def testTwoFieldsOneOfThemWillExpire(env):
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
 # Aims to test that the expiration of a single sortable field will cause the document to expire
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testSingleSortableFieldWithExpiration(env):
     field_to_additional_schema_keywords = {'x': ['SORTABLE']}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -357,7 +359,7 @@ def testSingleSortableFieldWithExpiration(env):
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
 # Aims to test that the expiration of a single sortable field will not affect the search results
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testSortableFieldWithExpirationAndRegularField(env):
     field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -367,7 +369,7 @@ def testSortableFieldWithExpirationAndRegularField(env):
 
 
 # Aims to test that the expiration of a single non sortable field will not affect the search results
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testFieldWithExpirationAndSortableField(env):
     field_to_additional_schema_keywords = {'x': [], 'y': ['SORTABLE']}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -377,7 +379,7 @@ def testFieldWithExpirationAndSortableField(env):
 
 
 # Aims to test that two fields with different expiration times will eventually cause the key itself to expire
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testExpireMultipleFields(env):
     field_to_additional_schema_keywords = {'x': [], 'y': [], 'z': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
@@ -387,10 +389,98 @@ def testExpireMultipleFields(env):
 
 
 # Aims to test that the expectation that for 2 fields with the same expiration time we will get a single notification
-@skip(redis_less_than='7.4')
+@skip(redis_less_than='7.3')
 def testExpireMultipleFieldsWhereOneIsSortable(env):
     field_to_additional_schema_keywords = {'x': ['SORTABLE'], 'y': [], 'z': []}
     schema = createTextualSchema(field_to_additional_schema_keywords)
     commonFieldExpiration(env, schema, field_to_additional_schema_keywords.keys(),
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
+
+@skip(redis_less_than='7.3')
+def testLazyTextFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    # We added not_text_field to make sure that the expandFieldMask function hits the continue clause
+    # Meaning that at least one field ftid during the expiration check will be RS_INVALID_FIELD_ID
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.5)
+    # there shouldn't be an active expiration for field x in doc:1
+    # but due to the ttl table we should not return doc:1 when searching for x
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+    # Test the field mask element, hello term should have a bit mask of 2 fields
+    # For doc:1 the mask should have two bits for its two fields
+    # since the field y is still valid we should still get doc:1 in the results
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+
+@skip(redis_less_than='7.3')
+def testLazyGeoshapeFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT', 'INDEXMISSING').ok()
+    first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    time.sleep(0.5)
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+
+
+@skip(redis_less_than='7.3')
+def testLazyVectorFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 INDEXMISSING t TEXT n NUMERIC').ok()
+    conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
+    conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
+    time.sleep(0.5)
+    env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+
+
+@skip(redis_less_than='7.3')
+def testLastFieldNoExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
+    conn.execute_command('HEXPIRE', 'doc:1', '300', 'FIELDS', '1', 'y')
+    # We want to hit this line:
+    # } else if (fieldIndexToCheck < fieldExpiration->index) {
+    #   ++runningIndex;
+    # for that we need a field with a high index that is set for expiration
+    # we use a free text search that will return both documents
+    # the mask for doc:1 will be for both x and y
+    # doc:1 will see it has fields set for expiration
+    # it will check if all of the fields are expired
+    # this should lead to the line being hit
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+
+def testDocWithLongExpiration(env):
+    # We want to cover this snippet of code:
+    # if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
+    #   // the document has no fields with expiration times, there exists at least one valid field
+    #   return true;
+    # }
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
+    # Set an expiration that will take a long time to expire
+    conn.execute_command('EXPIRE', 'doc:1', '30000')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])

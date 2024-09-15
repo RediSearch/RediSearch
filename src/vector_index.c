@@ -70,7 +70,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
@@ -85,6 +85,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -108,7 +109,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->timeout,
+                                      .timeout = q->sctx->time.timeout,
+                                      .sctx = q->sctx,
+                                      .filterCtx = &filterCtx,
       };
       return NewHybridVectorIterator(hParams, q->status);
     }
@@ -131,7 +134,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
+      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->time.timeout, .counter = 0 };
       VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);

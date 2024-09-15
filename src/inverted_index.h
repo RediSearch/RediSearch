@@ -146,7 +146,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
-  const IndexSpec *sp;
+  const RedisSearchCtx *sctx;
 
   // the underlying data buffer
   BufferReader br;
@@ -182,6 +182,8 @@ typedef struct IndexReader {
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
+
+  FieldFilterContext filterCtx;
 } IndexReader;
 
 // On Reopen callback for term index
@@ -208,8 +210,11 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, int skipMulti);
+IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax, int skipMulti,
+                              const FieldFilterContext* filterCtx);
+
+IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -220,11 +225,14 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  * If singleWordMode is set to 1, we ignore the skip index and use the score
  * index.
  */
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                 RSQueryTerm *term, double weight);
 
+IndexReader *NewTermIndexReader(InvertedIndex *idx);
+
 /* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp);
+ IndexReader *NewMissingIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx,
+                                    t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
 
 void IR_Abort(void *ctx);
 

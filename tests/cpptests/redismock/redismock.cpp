@@ -834,6 +834,10 @@ static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
   return fnregistry[name];
 }
 
+static mstime_t RMCK_GetAbsExpire(RedisModuleKey *key) {
+  return REDISMODULE_NO_EXPIRE;
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -847,6 +851,7 @@ static void registerApis() {
   REGISTER_API(KeyType);
   REGISTER_API(DeleteKey);
   REGISTER_API(ValueLength);
+  REGISTER_API(GetAbsExpire);
 
   REGISTER_API(HashSet);
   REGISTER_API(HashGet);
