@@ -25,8 +25,7 @@ project(RSCoordinator)
 add_compile_definitions(
 	REDISMODULE_SDK_RLEC
 	_GNU_SOURCE
-	REDIS_MODULE_TARGET
-	RMUTIL_NO_SDS)
+	REDIS_MODULE_TARGET)
 
 setup_cc_options()
 #----------------------------------------------------------------------------------------------

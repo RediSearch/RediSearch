@@ -8,10 +8,6 @@ add_library(rmutil OBJECT
     util.c
     vector.c)
 
-if(RMUTIL_NO_SDS)
-	target_compile_definitions(rmutil PRIVATE RMUTIL_NO_SDS)
-endif()
-
 if (RMUTIL_TESTS)
 	function(_rmutilTest name)
 		add_executable(${name} "${name}.c" $<TARGET_OBJECTS:rmutil>)

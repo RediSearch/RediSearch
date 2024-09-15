@@ -4,7 +4,6 @@ if (NOT TEST_MODULE)
 endif()
 
 include_directories(${root}/src/coord/rmr)
-add_compile_definitions(RMUTIL_NO_SDS)
 
 function(RMRTEST name)
     add_executable(${name} ${name}.c)
