@@ -7,7 +7,7 @@ include_directories(${root}/src/coord/rmr)
 add_compile_definitions(RMUTIL_NO_SDS)
 
 function(RMRTEST name)
-    add_executable(${name} ${name}.c init-rm.c)
+    add_executable(${name} ${name}.c)
     add_dependencies(${name} ${TEST_MODULE} redismock)
     target_link_libraries("${name}" redismock ${TEST_MODULE} ${CMAKE_LD_LIBS})
     add_test(NAME "${name}" COMMAND "${name}")

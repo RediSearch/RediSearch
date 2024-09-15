@@ -22,7 +22,6 @@ add_test(NAME rstest COMMAND rstest)
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
 target_link_libraries(test_distagg ${TEST_MODULE} redismock)
 set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
-target_compile_definitions(test_distagg PRIVATE REDISMODULE_MAIN)
 add_test(name test_distagg COMMAND test_distagg)
 
 
