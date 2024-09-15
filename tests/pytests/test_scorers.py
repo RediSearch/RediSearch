@@ -2,7 +2,7 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env
+from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env, debug_cmd
 
 
 def testHammingScorer(env):
@@ -273,9 +273,9 @@ def testScoreReplace(env):
     env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
     env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0'])
-    if not env.isCluster:
+    if not env.isCluster():
         env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
-        env.expect('ft.debug GC_FORCEINVOKE idx').equal('DONE')
+        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
         env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
 
 def testScoreDecimal(env):
