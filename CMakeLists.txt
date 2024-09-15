@@ -31,8 +31,7 @@ add_compile_definitions(
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
-    _GNU_SOURCE
-    RMUTIL_NO_SDS)
+    _GNU_SOURCE)
 
 if (BUILD_LITE)
     message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")

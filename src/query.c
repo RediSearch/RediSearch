@@ -19,7 +19,7 @@
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "tag_index.h"
 #include "err.h"
 #include "concurrent_ctx.h"

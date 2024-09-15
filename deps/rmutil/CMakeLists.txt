@@ -4,8 +4,7 @@ add_library(rmutil OBJECT
     cmdparse.c
     heap.c
     priority_queue.c
-    sds.c
-    strings.c
+	strings.c
     util.c
     vector.c)
 
