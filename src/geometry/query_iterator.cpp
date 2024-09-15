@@ -5,6 +5,8 @@
  */
 
 #include "query_iterator.hpp"
+#include "doc_table.h"
+#include "util/timeout.h"
 
 #include <utility>    // std::move
 #include <iterator>   // ranges::distance
@@ -17,14 +19,31 @@ auto QueryIterator::base() noexcept -> IndexIterator * {
   return &base_;
 }
 
-int QueryIterator::read(RSIndexResult *&hit) noexcept {
+int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
   if (!base_.isValid || !has_next()) {
     return INDEXREAD_EOF;
   }
+  t_docId docId = iter_[index_++];
+  const t_fieldIndex fieldIndex = filterCtx_.field.value.index;
+  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_VerifyFieldExpirationPredicate(&sctx_->spec->docs, docId, &fieldIndex, 1, filterCtx_.predicate, &sctx_->time.current)) {
+    return INDEXREAD_NOTFOUND;
+  }
 
-  base_.current->docId = iter_[index_++];
+  base_.current->docId = docId;
   hit = base_.current;
   return INDEXREAD_OK;
+}
+
+int QueryIterator::read(RSIndexResult *&hit) noexcept {
+  size_t timeoutCounter = 0;
+  int rc = INDEXREAD_OK;
+  do {
+    if (TimedOut_WithCounter(&sctx_->time.timeout, &timeoutCounter)) {
+      return INDEXREAD_TIMEOUT;
+    }
+    rc = read_single(hit);
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
 }
 int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
   if (!base_.isValid || !has_next()) {
@@ -98,13 +117,14 @@ void QIter_Abort(void *ctx) {
 void QIter_Rewind(void *ctx) {
   static_cast<QueryIterator *>(ctx)->rewind();
 }
+
 }  // anonymous namespace
 
 IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
       .isValid = 1,
       .ctx = ctx,
-      .current = NewVirtualResult(0, 0),
+      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .type = ID_LIST_ITERATOR,
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
