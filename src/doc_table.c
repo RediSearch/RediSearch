@@ -209,6 +209,33 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  if (hasExpirationTimeInformation(dmd->flags)) {
+    TimeToLiveTable_VerifyInit(&t->ttl);
+    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+  }
+}
+
+bool DocTable_HasExpiration(DocTable *t, t_docId docId)
+{
+  return t->ttl && TimeToLiveTable_HasExpiration(t->ttl, docId);
+}
+
+bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
+  if (!hasExpirationTimeInformation(dmd->flags)) {
+      return false;
+  }
+  RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
+  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+}
+
+bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
+  if (!t->ttl || !fieldIndices || fieldCount == 0) {
+    return true;
+  }
+  return TimeToLiveTable_VerifyDocAndFields(t->ttl, docId, fieldIndices, fieldCount, predicate, expirationPoint);
+}
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
@@ -319,6 +346,7 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
 }
 
@@ -346,6 +374,14 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     if (!md) {
       return NULL;
     }
+
+    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+      TimeToLiveTable_Remove(t->ttl, md->id);
+      if (TimeToLiveTable_IsEmpty(t->ttl)) {
+        TimeToLiveTable_Destroy(&t->ttl);
+      }
+    }
+
     // Assuming we already locked the spec for write, and we don't have multiple writers,
     // all the next operations don't need to be atomic
     md->flags |= Document_Deleted;
