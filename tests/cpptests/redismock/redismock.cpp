@@ -658,6 +658,15 @@ static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *c
   return r;
 }
 
+static RedisModuleCallReply *RMCK_CallHashFieldExpireTime(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  // return an empty array of expire times
+  // the bare minimum to get the code to not issue an error
+  RedisModuleCallReply *r = new RedisModuleCallReply(ctx);
+  r->type = REDISMODULE_REPLY_ARRAY;
+  return r;
+}
+
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
   // We only support HGETALL for now
   va_list ap;
@@ -665,14 +674,15 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
   va_start(ap, fmt);
   if (strcasecmp(cmd, "HGETALL") == 0) {
     reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
-  }
-
-  if (strcasecmp(cmd, "HSET") == 0) {
+  } else if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HPEXPIRETIME") == 0) {
+    reply = RMCK_CallHashFieldExpireTime(ctx, cmd, fmt, ap);
+  } else {
+    errno = EPERM;
   }
 
   va_end(ap);
-
   return reply;
 }
 
