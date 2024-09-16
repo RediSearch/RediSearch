@@ -10,7 +10,7 @@ on:
         default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
-        default: bad_path
+        default: bin/linux-x64-release/search-community/redisearch.so
       profile_env:
         type: number # for default of 0
       benchmark_glob:
