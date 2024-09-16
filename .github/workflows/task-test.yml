@@ -140,6 +140,7 @@ jobs:
           echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
           echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Build
         run: make SAN=${{ inputs.san }}
       - name: Unit tests
