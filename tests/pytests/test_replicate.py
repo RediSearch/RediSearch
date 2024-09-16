@@ -318,3 +318,42 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         master.execute_command('FLUSHALL')
         res = master.execute_command('WAIT', '1', '10000')
         env.assertEqual(res, 1)
+
+@skip(cluster=True)
+def test_WriteCommandsOnReplica():
+  """Tests that the RediSearch write commands are not allowed on a replica"""
+
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  write_commands = ['FT.CREATE', 'FT.SUGADD', 'FT.SUGDEL', 'FT.CREATE',
+                    'FT._CREATEIFNX', 'FT.ALTER', 'FT._ALTERIFNX', 'FT.DROPINDEX',
+                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.SYNFORCEUPDATE']
+
+  read_commands = ['FT.AGGREGATE', 'FT.INFO', 'FT.SEARCH', 'FT.PROFILE', 'FT.CURSOR',
+                   'FT.SPELLCHECK', 'FT.SUGGET', 'FT.SUGLEN', 'FT.DICTADD',
+                   'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
+                   'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
+
+  # Run read commands on the slave - should not raise RO exception
+  for command in write_commands + read_commands:
+    try:
+      master.execute_command(command)
+    except Exception as e:
+      env.assertNotContains("You can't write against a read only replica.", str(e))
+
+  # Run read commands on the slave - should not raise RO exception
+  for command in read_commands:
+    try:
+      master.execute_command(command)
+    except Exception as e:
+      env.assertNotContains("You can't write against a read only replica.", str(e))
+
+  # Run write commands on the slave - should raise RO exception
+  for command in write_commands:
+    try:
+      slave.execute_command(command)
+      env.assertTrue(False, message=f'Command {command} should have failed on the slave')
+    except Exception as e:
+      env.assertContains("You can't write against a read only replica.", str(e))
