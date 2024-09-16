@@ -1,5 +1,5 @@
 
-get_filename_component(root ../../.. ABSOLUTE)
+get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
 message("# coord/rmr: root: " ${root})
 
 file(GLOB RMR_SRC

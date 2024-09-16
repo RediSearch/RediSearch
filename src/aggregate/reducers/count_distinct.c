@@ -9,7 +9,6 @@
 #include "util/khash.h"
 #include "util/fnv.h"
 #include "hll/hll.h"
-#include "rmutil/sds.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024

@@ -13,7 +13,7 @@
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
 

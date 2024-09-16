@@ -10,7 +10,7 @@
 #include "commands.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
-#include "coord_module.h"
+#include "module.h"
 #include "profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
