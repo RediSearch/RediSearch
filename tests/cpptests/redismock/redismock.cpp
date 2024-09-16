@@ -672,6 +672,7 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
   va_list ap;
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
+  errno = 0;
   if (strcasecmp(cmd, "HGETALL") == 0) {
     reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
   } else if (strcasecmp(cmd, "HSET") == 0) {
@@ -679,7 +680,7 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
   } else if (strcasecmp(cmd, "HPEXPIRETIME") == 0) {
     reply = RMCK_CallHashFieldExpireTime(ctx, cmd, fmt, ap);
   } else {
-    errno = EPERM;
+    errno = ENOTSUP;
   }
 
   va_end(ap);
