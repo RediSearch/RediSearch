@@ -10,7 +10,7 @@ MODE=$2
 if [[ $OS_TYPE == Darwin ]]; then
     brew install llvm@$VERSION
 else
-    $MODE apt install lsb-release wget software-properties-common gnupg
+    $MODE apt install -y lsb-release wget software-properties-common gnupg
     wget https://apt.llvm.org/llvm.sh
     chmod +x llvm.sh
     $MODE ./llvm.sh $VERSION
