@@ -658,21 +658,32 @@ static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *c
   return r;
 }
 
+static RedisModuleCallReply *RMCK_CallHashFieldExpireTime(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  // return an empty array of expire times
+  // the bare minimum to get the code to not issue an error
+  RedisModuleCallReply *r = new RedisModuleCallReply(ctx);
+  r->type = REDISMODULE_REPLY_ARRAY;
+  return r;
+}
+
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
   // We only support HGETALL for now
   va_list ap;
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
+  errno = 0;
   if (strcasecmp(cmd, "HGETALL") == 0) {
     reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
-  }
-
-  if (strcasecmp(cmd, "HSET") == 0) {
+  } else if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HPEXPIRETIME") == 0) {
+    reply = RMCK_CallHashFieldExpireTime(ctx, cmd, fmt, ap);
+  } else {
+    errno = ENOTSUP;
   }
 
   va_end(ap);
-
   return reply;
 }
 
@@ -833,6 +844,10 @@ static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
   return fnregistry[name];
 }
 
+static mstime_t RMCK_GetAbsExpire(RedisModuleKey *key) {
+  return REDISMODULE_NO_EXPIRE;
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -846,6 +861,7 @@ static void registerApis() {
   REGISTER_API(KeyType);
   REGISTER_API(DeleteKey);
   REGISTER_API(ValueLength);
+  REGISTER_API(GetAbsExpire);
 
   REGISTER_API(HashSet);
   REGISTER_API(HashGet);

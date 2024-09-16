@@ -7,7 +7,7 @@
 #pragma once
 
 #include "redismodule.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "query_error.h"
 #include "fields_global_stats.h"
 #include "util/config_macros.h"

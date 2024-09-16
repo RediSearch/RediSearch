@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdint.h>
-#include "sds.h"
+#include "hiredis/sds.h"
 #include "redismodule.h"
 
 #ifdef __cplusplus

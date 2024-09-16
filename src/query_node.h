@@ -178,6 +178,7 @@ typedef struct {
 typedef struct {
   QueryNodeFlags flags;
   t_fieldMask fieldMask;
+  t_fieldIndex fieldIndex;
   int maxSlop;
   int inOrder;
   double weight;

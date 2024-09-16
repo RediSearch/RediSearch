@@ -50,8 +50,6 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     RedisModule_Reply_MapEnd(reply);
 }
 
-#ifdef RS_COORDINATOR
-
 #include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
@@ -94,5 +92,3 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
 
     return info;
 }
-
-#endif

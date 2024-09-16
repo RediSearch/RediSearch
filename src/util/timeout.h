@@ -59,7 +59,7 @@ typedef struct TimeoutCtx {
 
 typedef int(*TimeoutCb)(TimeoutCtx *);
 
-static inline int TimedOut(struct timespec *timeout) {
+static inline int TimedOut(const struct timespec *timeout) {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
@@ -69,7 +69,7 @@ static inline int TimedOut(struct timespec *timeout) {
 }
 
 // Check if time has been reached (run once every 100 calls)
-static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
+static inline int TimedOut_WithCounter(const struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
@@ -80,7 +80,7 @@ static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter
 }
 
 // Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCounter_Gran(struct timespec *timeout, size_t *counter, uint32_t gran) {
+static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, size_t *counter, uint32_t gran) {
   if (RS_IsMock) return 0;
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
@@ -107,21 +107,6 @@ static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *stat
     QueryError_SetCode(status, QUERY_ETIMEDOUT);
   }
   return rc;
-}
-
-static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
-  if (RS_IsMock) return;
-
-  // 0 disables the timeout
-  if (durationNS == 0) {
-    durationNS = INT32_MAX;
-  }
-
-  struct timespec now = { .tv_sec = 0, .tv_nsec = 0 };
-  struct timespec duration = { .tv_sec = durationNS / 1000,
-                               .tv_nsec = ((durationNS % 1000) * 1000000) };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  rs_timeradd(&now, &duration, timeout);
 }
 
 #ifdef __cplusplus

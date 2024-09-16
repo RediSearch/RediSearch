@@ -77,8 +77,4 @@ static int name(const char *name, int val, void *privdata, RedisModuleString **e
     RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");             \
   }
 
-#ifdef RS_COORDINATOR
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)
-#else
-#define COORDINATOR_TRIGGER()
-#endif

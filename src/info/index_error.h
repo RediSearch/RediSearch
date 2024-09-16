@@ -51,7 +51,6 @@ void IndexError_Clear(IndexError error);
 // Reply the index errors to the client.
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time);
 
-#ifdef RS_COORDINATOR
 #include "coord/rmr/reply.h"
 
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
@@ -59,8 +58,6 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other);
 
 IndexError IndexError_Deserialize(MRReply *reply);
-
-#endif // RS_COORDINATOR
 
 #ifdef __cplusplus
 }

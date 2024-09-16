@@ -11,6 +11,7 @@
 #include <limits.h>
 #include "fork_gc.h"
 #include "info_command.h"
+#include "rules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -212,6 +213,8 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
 // #define RediSearch_CreateGeometryField(idx, name) \
 //   RediSearch_CreateField(idx, name, RSFLDTYPE_GEOMETRY, RSFLDOPT_NONE)
 
+MODULE_API_FUNC(void, RediSearch_IndexExisting)(RSIndex* sp, SchemaRuleArgs* args);
+
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSFieldID fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetSeparator)(RSIndex* sp, RSFieldID fs, char sep);
 MODULE_API_FUNC(void, RediSearch_TagFieldSetCaseSensitive)(RSIndex* sp, RSFieldID fs, int enable);
@@ -294,7 +297,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagContainsNode)
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagSuffixNode)
 (RSIndex* sp, const char* s);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagLexRangeNode)
-(RSIndex* sp, const char* begin, const char* end, int includeBegin,
+(RSIndex* sp, const char* fieldName, const char* begin, const char* end, int includeBegin,
  int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
