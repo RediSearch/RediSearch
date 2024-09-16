@@ -47,6 +47,7 @@ jobs:
       san: address
       env: ubuntu-latest
       rejson: 0
+      container: ubuntu:jammy
 
   pr-validation:
     needs:
