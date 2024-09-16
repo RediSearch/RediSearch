@@ -322,7 +322,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
 
 // Index the doc in the existing docs inverted index
 static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (sctx->spec->rule && !sctx->spec->rule->index_all) {
+  if (!sctx->spec->rule || !sctx->spec->rule->index_all) {
     return;
   }
   if (!sctx->spec->existingDocs) {
