@@ -45,7 +45,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
@@ -59,7 +58,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
@@ -73,7 +71,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
@@ -87,7 +84,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
@@ -103,7 +99,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
@@ -119,7 +114,6 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
@@ -136,7 +130,7 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "search*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
@@ -152,7 +146,7 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search/redisearch.so
+      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "vecsim*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}

@@ -10,11 +10,9 @@ on:
         default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
-        default: bin/linux-x64-release/coord-oss/redisearch.so
+        default: bin/linux-x64-release/search-community/redisearch.so
       profile_env:
         type: number # for default of 0
-      cluster_env:
-        type: number # for default of 0 (string has "" as default)
       benchmark_glob:
         type: string
         default: "*.yml"
@@ -65,7 +63,6 @@ jobs:
         run: make install
       - name: Build RediSearch
         run: make build
-            COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
             SHOW=1
       - name: Prepare automation
