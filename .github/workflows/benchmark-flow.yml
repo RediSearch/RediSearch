@@ -10,7 +10,7 @@ on:
         default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
-        default: bin/linux-x64-release/search-community/redisearch.so
+        default: bad_path
       profile_env:
         type: number # for default of 0
       benchmark_glob:
@@ -76,6 +76,7 @@ jobs:
         run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
+        id: benchmark
         timeout-minutes: 240 # timeout for the step
         working-directory: tests/benchmarks
         continue-on-error: true
@@ -111,6 +112,7 @@ jobs:
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
       - name: Generate Pull Request Performance info
+        id: upload_results
         if: github.event.number
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
@@ -123,3 +125,7 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+
+      - name: Fail flow if benchmark failed
+        if: steps.benchmark.outcome == 'failure' || steps.upload_results.outcome == 'failure'
+        run: exit 1
