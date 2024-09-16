@@ -123,11 +123,12 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 
   // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
-  int numTypes = 0;
+  RS_LOG_ASSERT_FMT(fs, "Failed to create field %s", name);
 
+  int numTypes = 0;
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSpec_CreateTextId(sp);
+    int txtId = IndexSpec_CreateTextId(sp, fs->index);
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
@@ -477,11 +478,13 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
+QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
@@ -491,6 +494,11 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
   if (end) {
     ret->lxrng.end = end ? rm_strdup(end) : NULL;
     ret->lxrng.includeEnd = includeEnd;
+  }
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
 }
@@ -543,6 +551,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 
 typedef struct RS_ApiIter {
   IndexIterator* internal;
+  RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
   ScoringFunctionArgs scargs;
@@ -575,7 +584,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
@@ -584,9 +592,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
+  it->sctx = SEARCH_CTX_STATIC(NULL, sp);
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
+    if (QAST_Parse(&it->qast, &it->sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -597,11 +606,11 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // set queryAST configuration parameters
   iteratorsConfig_init(&it->qast.config);
 
-  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  if (QAST_Expand(&it->qast, NULL, &options, &it->sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, 0, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, NULL, 0, &status);
   if (!it->internal) {
     goto end;
   }
