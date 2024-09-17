@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expire-doc-10-ms"
+name: "search-expire-doc-1000-seconds"
 description: "
              We want to check our ttl table performance, edge cases we need to consider when modifying expiration tests:
              - we want to keep an existing dataset, if we actually expire documents during the test we will decrease our keyspace size
