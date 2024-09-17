@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-numeric"
+name: "search-expire-doc-10-ms"
 
 metadata:
   component: "search"
