@@ -18,6 +18,7 @@ on:
 jobs:
   benchmark-search-oss-standalone:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -29,6 +30,7 @@ jobs:
 
   benchmark-vecsim-oss-standalone:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -40,6 +42,7 @@ jobs:
 
   benchmark-search-oss-cluster-02-primaries:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -53,6 +56,7 @@ jobs:
 
   benchmark-search-oss-cluster-04-primaries:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -66,6 +70,7 @@ jobs:
 
   benchmark-search-oss-cluster-08-primaries:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -79,6 +84,7 @@ jobs:
 
   benchmark-search-oss-cluster-16-primaries:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -94,6 +100,7 @@ jobs:
   benchmark-search-oss-cluster-20-primaries:
     if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -109,6 +116,7 @@ jobs:
   benchmark-search-oss-cluster-24-primaries:
     if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -122,6 +130,7 @@ jobs:
 
   benchmark-search-oss-standalone-profiler:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -138,6 +147,7 @@ jobs:
 
   benchmark-vecsim-oss-standalone-profiler:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
