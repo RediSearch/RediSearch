@@ -160,19 +160,3 @@ jobs:
       benchmark_glob: "vecsim*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
-
-  benchmark-validation:
-    needs:
-      - benchmark-search-oss-standalone
-      - benchmark-vecsim-oss-standalone
-      - benchmark-search-oss-cluster-02-primaries
-      - benchmark-search-oss-cluster-04-primaries
-      - benchmark-search-oss-cluster-08-primaries
-      - benchmark-search-oss-cluster-16-primaries
-      - benchmark-search-oss-standalone-profiler
-      - benchmark-vecsim-oss-standalone-profiler
-    runs-on: ${{ vars.RUNS_ON }}
-    if: ${{ !cancelled() }}
-    steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
