@@ -26,6 +26,8 @@ setup_cc_options()
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
+message(STATUS "SAN: ${SAN}")
+
 # check if env sanitizers are set, and set ld_flags accordingly
 if (SAN)
     if (SAN STREQUAL "address")
