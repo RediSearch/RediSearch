@@ -321,7 +321,7 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
 
 @skip(cluster=True)
 def test_WriteCommandsOnReplica():
-  """Tests that the RediSearch write commands are not allowed on a replica"""
+  """Tests that the RediSearch write commands are not allowed on a readonly replica"""
 
   env = initEnv()
   master = env.getConnection()
@@ -329,28 +329,28 @@ def test_WriteCommandsOnReplica():
 
   write_commands = ['FT.CREATE', 'FT.SUGADD', 'FT.SUGDEL', 'FT.CREATE',
                     'FT._CREATEIFNX', 'FT.ALTER', 'FT._ALTERIFNX', 'FT.DROPINDEX',
-                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.SYNFORCEUPDATE']
+                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.SYNFORCEUPDATE', 'FT.DICTADD',
+                    'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
+                    'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
 
   read_commands = ['FT.AGGREGATE', 'FT.INFO', 'FT.SEARCH', 'FT.PROFILE', 'FT.CURSOR',
-                   'FT.SPELLCHECK', 'FT.SUGGET', 'FT.SUGLEN', 'FT.DICTADD',
-                   'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
-                   'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
+                   'FT.SPELLCHECK', 'FT.SUGGET', 'FT.SUGLEN']
 
-  # Run read commands on the slave - should not raise RO exception
+  # Run read and write commands on the master - should not raise RO exception
   for command in write_commands + read_commands:
     try:
       master.execute_command(command)
     except Exception as e:
       env.assertNotContains("You can't write against a read only replica.", str(e))
 
-  # Run read commands on the slave - should not raise RO exception
+  # Run read commands on the replica - should not raise RO exception
   for command in read_commands:
     try:
-      master.execute_command(command)
+      slave.execute_command(command)
     except Exception as e:
       env.assertNotContains("You can't write against a read only replica.", str(e))
 
-  # Run write commands on the slave - should raise RO exception
+  # Run write commands on the replica - should raise RO exception
   for command in write_commands:
     try:
       slave.execute_command(command)
