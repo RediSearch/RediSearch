@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expired-field-10-ms"
+name: "search-expired-numeric-field-10-ms"
 
 metadata:
   component: "search"
