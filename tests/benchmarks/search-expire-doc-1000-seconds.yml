@@ -1,5 +1,10 @@
 version: 0.2
-name: "search-expired-numeric-field-10-ms"
+name: "search-expire-doc-10-ms"
+description: "
+             We want to check our ttl table performance, edge cases we need to consider when modifying expiration tests:
+             - we want to keep an existing dataset, if we actually expire documents during the test we will decrease our keyspace size
+             - if we reach a point where every single key is set to be expired then there will be a hot path which might not represent real world usage 
+             "
 
 metadata:
   component: "search"
@@ -29,4 +34,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0' --command-ratio 90 --command 'HPEXPIRE __key__  10 FIELDS 1 trip_distance' --command-ratio 10"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0' --command-ratio 90 --command 'EXPIRE __key__  10' --command-ratio 10"
