@@ -380,11 +380,11 @@ def testConfigAPI():
     env = Env(noDefaultModuleArgs=True)
 
     def _test_config_valid_value(env, config_name, config_value):
-        env.expect('CONFIG SET ', config_name, config_value).equal('OK')
-        env.expect('CONFIG GET ', config_name).equal([config_name, config_value])
+        env.expect('CONFIG', 'SET', config_name, config_value).equal('OK')
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, config_value])
 
     def _test_config_invalid_value(env, config_name, config_value):
-        env.expect('CONFIG SET ', config_name, config_value).error()\
+        env.expect('CONFIG', 'SET', config_name, config_value).error()\
             .contains('CONFIG SET failed')
 
     def _test_boolean_config(env, config_name, ft_config_name):
@@ -392,33 +392,33 @@ def testConfigAPI():
             old_val = 'true' if val == 'yes' else 'false'
             
             # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-            env.expect('CONFIG SET ', config_name, val).equal('OK')
-            env.expect('CONFIG GET ', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'get', ft_config_name)\
+            env.expect('CONFIG', 'SET', config_name, val).equal('OK')
+            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'GET', ft_config_name)\
                 .equal([[ft_config_name, old_val]])
 
             # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-            env.expect(config_cmd(), 'set', ft_config_name, old_val).ok()
-            env.expect('CONFIG GET ', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'get', ft_config_name)\
+            env.expect(config_cmd(), 'SET', ft_config_name, old_val).ok()
+            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'GET', ft_config_name)\
                 .equal([[ft_config_name, old_val]])
 
         _test_config_invalid_value(env, config_name, 'invalid_boolean')
     
     def _test_numeric_config(env, config_name, ft_config_name, default, min, max):
         # Check default value
-        env.expect('CONFIG GET ', config_name).equal([config_name, str(default)])
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
 
         # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-        env.expect('CONFIG SET ', config_name, max).equal('OK')
-        env.expect('CONFIG GET ', config_name).equal([config_name, str(max)])
-        env.expect(config_cmd(), 'get', ft_config_name)\
+        env.expect('CONFIG', 'SET', config_name, max).equal('OK')
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(max)])
+        env.expect(config_cmd(), 'GET', ft_config_name)\
             .equal([[ft_config_name, str(max)]])
 
         # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-        env.expect(config_cmd(), 'set', ft_config_name, min).ok()
-        env.expect('CONFIG GET ', config_name).equal([config_name, str(min)])
-        env.expect(config_cmd(), 'get', ft_config_name)\
+        env.expect(config_cmd(), 'SET', ft_config_name, min).ok()
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(min)])
+        env.expect(config_cmd(), 'GET', ft_config_name)\
             .equal([[ft_config_name, str(min)]])
 
         _test_config_invalid_value(env, config_name, 'invalid_numeric')
@@ -427,6 +427,16 @@ def testConfigAPI():
         _test_config_valid_value(env, config_name, str(min))
         _test_config_valid_value(env, config_name, str(max))
 
+    def _test_immutable_numeric_config(env, config_name, ft_config_name,
+                                       default):
+        # Check default value
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
+        env.expect(config_cmd(), 'GET', ft_config_name).\
+            equal([[ft_config_name, str(default)]])
+        
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', config_name, str(default)).error()\
+            .contains('CONFIG SET failed')
 
     # Test enum parameters - search.on-timeout
     _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
@@ -444,6 +454,7 @@ def testConfigAPI():
                          '_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
                          '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+    
 
     # Test numeric parameters
     _test_numeric_config(env, 'search.default-dialect', 'DEFAULT_DIALECT',
@@ -481,9 +492,21 @@ def testConfigAPI():
     _test_numeric_config(env, 'search.workers', 'WORKERS', 0, 0, 8192)
 
     # Numeric Immutable parameters
-#    _test_numeric_config(env, 'max-doctablesize', 'MAXDOCTABLESIZE',
-#                          1_000_000, 1, 100_000_000)
+    _test_immutable_numeric_config(env, 'search.bg-index-sleep-gap',
+                                   'BG_INDEX_SLEEP_GAP', 100)
+    _test_immutable_numeric_config(env, 'search.max-doctablesize',
+                                   'MAXDOCTABLESIZE', 1_000_000)
+    _test_immutable_numeric_config(env, 'search.multi-text-slop',
+                                   'MULTI_TEXT_SLOP', 100)
+    _test_immutable_numeric_config(env, 'search.tiered-hnsw-buffer-limit',
+                                   'TIERED_HNSW_BUFFER_LIMIT', 1024)
+    _test_immutable_numeric_config(env, 'search.workers-priority-bias-threshold',
+                                   'WORKERS_PRIORITY_BIAS_THRESHOLD', 1)
 
+    # TODO:
+    # Boolean Immutable parameters
+    # _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
+    #                                'RAW_DOCID_ENCODING')
 
     
     

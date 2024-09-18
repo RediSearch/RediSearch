@@ -197,7 +197,7 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
 /* Register module configuration parameters using Module Configuration API */
-int ModuleConfig_Register(RedisModuleCtx *ctx);
+int RegisterModuleConfig(RedisModuleCtx *ctx);
 
 /**
  * Writes the retrieval of the configuration value to the network.
@@ -225,6 +225,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+#define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define DEFAULT_GC_SCANSIZE 100
@@ -238,6 +239,7 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_MAX_SEARCH_RESULTS 1000000
 #define DEFAULT_MIN_TERM_PREFIX 2
 #define DEFAULT_MIN_STEM_LENGTH 4
+#define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
@@ -280,7 +282,7 @@ void UpgradeDeprecatedMTConfigs();
     .filterCommands = 0,                                                                                              \
     .maxSearchResults = DEFAULT_MAX_SEARCH_RESULTS,                                                                   \
     .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                                                             \
-    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                                                \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                                            \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
     .requestConfigParams.printProfileClock = 1,                                                                       \
@@ -288,10 +290,10 @@ void UpgradeDeprecatedMTConfigs();
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
-    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                                                \
-    .multiTextOffsetDelta = 100,                                                                                      \
+    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                           \
+    .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                                                                  \
     .used_dialects = 0,                                                                                               \
-    .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                                        \
     .prioritizeIntersectUnionChildren = false                                                                         \
   }
 

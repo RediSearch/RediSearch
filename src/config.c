@@ -420,6 +420,16 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
 
+// tiered-hnsw-buffer-limit
+CONFIG_API_NUMERIC_SETTER(set_tiered_hnsw_buffer_limit) {
+  RSGlobalConfig.tieredVecSimIndexBufferLimit = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_tiered_hnsw_buffer_limit) {
+  return RSGlobalConfig.tieredVecSimIndexBufferLimit;
+}
+
 // WORKERS_PRIORITY_BIAS_THRESHOLD
 CONFIG_SETTER(setHighPriorityBiasNum) {
   int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
@@ -429,6 +439,16 @@ CONFIG_SETTER(setHighPriorityBiasNum) {
 CONFIG_GETTER(getHighPriorityBiasNum) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->highPriorityBiasNum);
+}
+
+// workers-priority-bias-threshold
+CONFIG_API_NUMERIC_SETTER(set_workers_priority_bias_threshold) {
+  RSGlobalConfig.highPriorityBiasNum = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_workers_priority_bias_threshold) {
+  return RSGlobalConfig.highPriorityBiasNum;
 }
 
 // PRIVILEGED_THREADS_NUM
@@ -763,6 +783,7 @@ CONFIG_API_NUMERIC_GETTER(get_vss_max_resize) {
   return RSGlobalConfig.vssMaxResize;
 }
 
+// MULTI_TEXT_SLOP
 CONFIG_SETTER(setMultiTextOffsetDelta) {
   int acrc = AC_GetUnsigned(ac, &config->multiTextOffsetDelta, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -771,6 +792,16 @@ CONFIG_SETTER(setMultiTextOffsetDelta) {
 CONFIG_GETTER(getMultiTextOffsetDelta) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
+}
+
+// multi-text-slop
+CONFIG_API_NUMERIC_SETTER(set_multi_text_slop) {
+  RSGlobalConfig.multiTextOffsetDelta = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_multi_text_slop) {
+  return RSGlobalConfig.multiTextOffsetDelta;
 }
 
 CONFIG_SETTER(setGcPolicy) {
@@ -883,6 +914,16 @@ CONFIG_GETTER(getBGIndexSleepGap) {
   return sdscatprintf(ss, "%u", config->numBGIndexingIterationsBeforeSleep);
 }
 
+// bg-index-sleep-gap
+CONFIG_API_NUMERIC_SETTER(set_bg_index_sleep_gap) {
+  RSGlobalConfig.numBGIndexingIterationsBeforeSleep = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_bg_index_sleep_gap) {
+  return RSGlobalConfig.numBGIndexingIterationsBeforeSleep;
+}
+
 // _PRIORITIZE_INTERSECT_UNION_CHILDREN
 CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
@@ -927,13 +968,26 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
-    // If we don't have a coordinator or this configuration has no trigger, this value
-    // is meaningless and should be ignored
-    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-      *err = rm_strdup(QueryError_GetError(&status));
-      QueryError_ClearError(&status);
-      return REDISMODULE_ERR;
+    // if the value is different from default, we can't set it, because the
+    // CONFIG SET has higher priority than the FT.CONFIG SET
+    RSConfig RSDefaultConfig = RS_DEFAULT_CONFIG;
+    sds currValue = curVar->getValue(&RSGlobalConfig);
+    sds currValueDefault = curVar->getValue(&RSDefaultConfig);
+
+    if (sdscmp(currValue, currValueDefault) == 0) {
+      // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+      // If we don't have a coordinator or this configuration has no trigger, this value
+      // is meaningless and should be ignored
+      if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
+        *err = rm_strdup(QueryError_GetError(&status));
+        QueryError_ClearError(&status);
+        return REDISMODULE_ERR;
+      }
+    } else {
+      // TODO: Fix parameters which doesn't require a value: 
+      // Consume the value
+      RedisModule_Log(NULL, "notice", "Can't set %s, because it was already set by CONFIG", curVar->name);
+      const char *value = AC_GetStringNC(&ac, NULL);
     }
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
@@ -1400,7 +1454,17 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 }
 
 
-int ModuleConfig_Register(RedisModuleCtx *ctx) {
+int RegisterModuleConfig(RedisModuleCtx *ctx) {
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+      ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
+      REDISMODULE_CONFIG_IMMUTABLE, 1, 999999999,
+      get_multi_text_slop, set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "default-dialect registered");
+  }
+
   if (RedisModule_RegisterNumericConfig(
         ctx, "default-dialect", DEFAULT_DIALECT_VERSION,
         REDISMODULE_CONFIG_DEFAULT, MIN_DIALECT_VERSION, MAX_DIALECT_VERSION,
@@ -1548,6 +1612,25 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
   }
 
   if (RedisModule_RegisterNumericConfig(
+        ctx, "multi-text-slop", DEFAULT_MULTI_TEXT_SLOP,
+        REDISMODULE_CONFIG_IMMUTABLE, 1, 999999999, get_multi_text_slop,
+        set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "multi-text-slop registered");
+  }
+
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "tiered-hnsw-buffer-limit", DEFAULT_BLOCK_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE, 0, 999999999, get_tiered_hnsw_buffer_limit,
+        set_tiered_hnsw_buffer_limit, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "tiered-hnsw-buffer-limit registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
         ctx, "timeout", DEFAULT_QUERY_TIMEOUT_MS,
         REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_timeout,
         set_timeout, NULL, NULL) == REDISMODULE_ERR) {
@@ -1582,6 +1665,16 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "workers registered");
+  }
+
+  // workers-priority-bias-threshold
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "workers-priority-bias-threshold", DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
+        REDISMODULE_CONFIG_IMMUTABLE, 0, 999999999, get_workers_priority_bias_threshold,
+        set_workers_priority_bias_threshold, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "workers-priority-bias-threshold registered");
   }
 
   // String parameters
