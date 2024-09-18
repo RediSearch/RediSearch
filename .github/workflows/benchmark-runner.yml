@@ -9,9 +9,16 @@ on:
         type: boolean
         description: 'Run extended benchmarks'
         default: false
+      profiler:
+        type: boolean
+        description: 'Run profiler on standalone benchmarks'
+        default: false
   workflow_call:
     inputs:
       extended:
+        type: boolean
+        default: false
+      profiler:
         type: boolean
         default: false
 
@@ -20,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1, 2, 3, 4, 5, 6]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -69,6 +76,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-08-primaries:
+    if: inputs.extended
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +91,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-16-primaries:
+    if: inputs.extended
     strategy:
       fail-fast: false
       matrix:
@@ -129,6 +138,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
+    if: inputs.profiler
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +156,7 @@ jobs:
 
 
   benchmark-vecsim-oss-standalone-profiler:
+    if: inputs.profiler
     strategy:
       fail-fast: false
       matrix:
