@@ -428,7 +428,7 @@ def testConfigAPI():
         _test_config_valid_value(env, config_name, str(max))
 
 
-    # Test enum parameters
+    # Test enum parameters - search.on-timeout
     _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
     _test_config_valid_value(env, 'search.on-timeout', 'FAIL')
     _test_config_invalid_value(env, 'search.on-timeout', 'invalid_value')
@@ -460,19 +460,25 @@ def testConfigAPI():
                          'FORK_GC_RETRY_INTERVAL', 5, 1, 999999999)
     _test_numeric_config(env, 'search.fork-gc-run-interval',
                          'FORK_GC_RUN_INTERVAL', 30, 1, 999999999)
-    _test_numeric_config(env, 'search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT',
-                         0, 0, 999999999)
+    _test_numeric_config(env, 'search.fork-gc-sleep-before-exit',
+                         'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, 999999999)
     # TODO:
     # _test_numeric_config(env, 'search.max-aggregate-results', 'MAXAGGREGATERESULTS',
     #                      -1, 1, 999999999)
-    _test_numeric_config(env, 'search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS',
-                         200, 1, 999999999)
+    _test_numeric_config(env, 'search.max-prefix-expansions',
+                         'MAXPREFIXEXPANSIONS', 200, 1, 999999999)
     # TODO:
     # _test_numeric_config(env, 'search.max-search-results', 'MAXSEARCHRESULTS',
     #                      -1, 1, 999999999)
-    _test_numeric_config(env, 'search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN',
-                         3, 1, 999999999)
-    
+    _test_numeric_config(env, 'search.min-phonetic-term-len',
+                         'MIN_PHONETIC_TERM_LEN', 3, 1, 999999999)
+    _test_numeric_config(env, 'search.min-prefix', 'MINPREFIX', 2, 1, 999999999)
+    _test_numeric_config(env, 'search.min-stem-len', 'MINSTEMLEN', 4, 2, 999999999)
+    _test_numeric_config(env, 'search.timeout', 'TIMEOUT', 500, 1, 999999999)
+    _test_numeric_config(env, 'search.union-iterator-heap',
+                         'UNION_ITERATOR_HEAP', 20, 1, 999999999)
+    _test_numeric_config(env, 'search.vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, 999999999)
+    _test_numeric_config(env, 'search.workers', 'WORKERS', 0, 0, 8192)
 
     # Numeric Immutable parameters
 #    _test_numeric_config(env, 'max-doctablesize', 'MAXDOCTABLESIZE',

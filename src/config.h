@@ -236,6 +236,12 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_RESULTS 1000000
+#define DEFAULT_MIN_TERM_PREFIX 2
+#define DEFAULT_MIN_STEM_LENGTH 4
+#define DEFAULT_QUERY_TIMEOUT_MS 500
+#define DEFAULT_UNION_ITERATOR_HEAP 20
+#define DEFAULT_VSS_MAX_RESIZE 0
+#define DEFAULT_WORKER_THREADS 0
 #define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
@@ -244,7 +250,6 @@ void UpgradeDeprecatedMTConfigs();
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
-#define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 
@@ -252,30 +257,30 @@ void UpgradeDeprecatedMTConfigs();
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
-    .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
+    .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,                                                   \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
-    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,                                                                 \
-    .requestConfigParams.queryTimeoutMS = 500,                                                                        \
+    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,                                       \
+    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,                                                   \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
-    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                                                                          \
+    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                                                         \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .numWorkerThreads = 0,                                                                                            \
+    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                                                                            \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
-    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                                                                         \
+    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                                                                 \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,                                                                   \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,                                                                \
+    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,                                      \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,                                    \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
     .maxSearchResults = DEFAULT_MAX_SEARCH_RESULTS,                                                                   \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                                                                                        \
-    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                     \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                                                             \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                                                \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
     .requestConfigParams.printProfileClock = 1,                                                                       \
@@ -283,7 +288,7 @@ void UpgradeDeprecatedMTConfigs();
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
-    .vssMaxResize = 0,                                                                                                \
+    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
     .used_dialects = 0,                                                                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \

@@ -1527,6 +1527,63 @@ int ModuleConfig_Register(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "min-phonetic-term-len registered");
   }
 
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "min-prefix", DEFAULT_MIN_TERM_PREFIX,
+        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_min_prefix,
+        set_min_prefix, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "min-prefix registered");
+  }
+
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "min-stem-len", DEFAULT_MIN_STEM_LENGTH,
+        REDISMODULE_CONFIG_DEFAULT, 2, 999999999, get_min_stem_len,
+        set_min_stem_len, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "min-stem-len registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "timeout", DEFAULT_QUERY_TIMEOUT_MS,
+        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_timeout,
+        set_timeout, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "timeout registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
+        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_union_iterator_heap,
+        set_union_iterator_heap, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "union-iterator-heap registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
+        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_vss_max_resize,
+        set_vss_max_resize, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "vss-max-resize registered");
+  }
+
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "workers", DEFAULT_WORKER_THREADS,
+        REDISMODULE_CONFIG_DEFAULT, 0, 8192, get_workers,
+        set_workers, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "workers registered");
+  }
+
   // String parameters
   // // TODO: How to init string to NULL?
   // if (RedisModule_RegisterStringConfig(
