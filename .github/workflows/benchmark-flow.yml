@@ -27,6 +27,7 @@ on:
         default: "oss-standalone"
       allowed_setups:
         type: string
+        default: "oss-standalone"
       benchmark_runner_group_member_id:
         type: number
         default: 1

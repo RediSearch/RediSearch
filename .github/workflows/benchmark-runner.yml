@@ -32,6 +32,8 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
@@ -44,6 +46,8 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
@@ -151,6 +155,8 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
@@ -169,5 +175,7 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
