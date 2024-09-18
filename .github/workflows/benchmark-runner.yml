@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2]
+        member_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -66,6 +66,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-04-primaries:
+    if: inputs.extended
     strategy:
       fail-fast: false
       matrix:
