@@ -387,7 +387,10 @@ def testConfigAPI():
         env.expect('CONFIG', 'SET', config_name, config_value).error()\
             .contains('CONFIG SET failed')
 
-    def _test_boolean_config(env, config_name, ft_config_name):
+    def _test_boolean_config(env, config_name, ft_config_name, default):
+        # Check default value
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
+
         for val in ['yes', 'no']:
             old_val = 'true' if val == 'yes' else 'false'
             
@@ -437,6 +440,20 @@ def testConfigAPI():
         # Check that the value is immutable
         env.expect('CONFIG', 'SET', config_name, str(default)).error()\
             .contains('CONFIG SET failed')
+        
+    def _test_immutable_boolean_config(env, config_name, ft_config_name,
+                                       default):
+        # Check default value
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
+
+        old_val = 'true' if default == 'yes' else 'false'
+        env.expect(config_cmd(), 'GET', ft_config_name).\
+            equal([[ft_config_name, str(old_val)]])
+        
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', config_name, str(default)).error()\
+            .contains('CONFIG SET failed')
+        
 
     # Test enum parameters - search.on-timeout
     _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
@@ -444,16 +461,18 @@ def testConfigAPI():
     _test_config_invalid_value(env, 'search.on-timeout', 'invalid_value')
 
     # Test boolean parameters
-    _test_boolean_config(env, 'search.free-resource-on-thread',
-                         '_FREE_RESOURCE_ON_THREAD')
+    _test_boolean_config(env, 'search._free-resource-on-thread',
+                         '_FREE_RESOURCE_ON_THREAD', 'yes')
     _test_boolean_config(env, 'search._numeric-compress',
-                         '_NUMERIC_COMPRESS')
+                         '_NUMERIC_COMPRESS', 'no')
     _test_boolean_config(env, 'search._print-profile-clock',
-                         '_PRINT_PROFILE_CLOCK')
+                         '_PRINT_PROFILE_CLOCK', 'yes')
     _test_boolean_config(env, 'search._prioritize-intersect-union-children',
-                         '_PRIORITIZE_INTERSECT_UNION_CHILDREN')
-    _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
-                         '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
+                         '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no')
+    # TODO: Confirm if we need to test this parameter, because it will be
+    # deprecated in  8.0
+    # _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
+    #                      '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
     
 
     # Test numeric parameters
@@ -505,8 +524,12 @@ def testConfigAPI():
 
     # TODO:
     # Boolean Immutable parameters
-    # _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
-    #                                'RAW_DOCID_ENCODING')
+    _test_immutable_boolean_config(env, 'search.no-mem-pools',
+                                   'NO_MEM_POOLS', 'no')
+    _test_immutable_boolean_config(env, 'search.no-gc',
+                                   'NOGC', 'no')
+    _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
+                                   'RAW_DOCID_ENCODING', 'no')
 
     
     

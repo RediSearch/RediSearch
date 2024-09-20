@@ -54,9 +54,13 @@
 #define CONFIG_API_NUMERIC_GETTER(name) long long name(const char *name, void *privdata)
 #define CONFIG_API_ENUM_GETTER(name) int name(const char *name, void *privdata)
 
-#define CONFIG_API_BOOL_GETTER(name, var)           \
+#define CONFIG_API_BOOL_GETTER(name, var, invert)   \
 static int name(const char *name, void *privdata) { \
+  if (invert) {                                     \
+    return !RSGlobalConfig.var;                     \
+  } else {                                          \
   return RSGlobalConfig.var;                        \
+  }                                                 \
 }
 
 #define CONFIG_API_STRING_SETTER(name) int name(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err)

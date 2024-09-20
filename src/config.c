@@ -48,12 +48,21 @@ CONFIG_SETTER(setNoGc) {
 
 CONFIG_BOOLEAN_GETTER(getNoGc, gcConfigParams.enableGC, 1)
 
+// no-gc
+CONFIG_API_BOOL_SETTER(set_no_gc, gcConfigParams.enableGC)
+CONFIG_API_BOOL_GETTER(get_no_gc, gcConfigParams.enableGC, 1)
+
+// NO_MEM_POOLS
 CONFIG_SETTER(setNoMemPools) {
   config->noMemPool = 1;
   return REDISMODULE_OK;
 }
 
 CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
+
+// no-mem-pools
+CONFIG_API_BOOL_SETTER(set_no_mem_pools, noMemPool)
+CONFIG_API_BOOL_GETTER(get_no_mem_pools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
@@ -647,9 +656,10 @@ CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.for
 CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
 CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
 
+// TODO: Confirm if we need this, because it should be deprecated in 8.0
 // _fork_gc_clean_numeric_empty_nodes
-CONFIG_API_BOOL_SETTER(set_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-CONFIG_API_BOOL_GETTER(get_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
+// CONFIG_API_BOOL_SETTER(set_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
+// CONFIG_API_BOOL_GETTER(get_fork_gc_clean_numeric_empty_nodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -678,7 +688,7 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
 // _numeric-compress
 CONFIG_API_BOOL_SETTER(set_numeric_compress, numericCompress)
-CONFIG_API_BOOL_GETTER(get_numeric_compress, numericCompress)
+CONFIG_API_BOOL_GETTER(get_numeric_compress, numericCompress, 0)
 
 // _FREE_RESOURCE_ON_THREAD
 CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
@@ -686,7 +696,7 @@ CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
 // _free-resource-on-thread
 CONFIG_API_BOOL_SETTER(set_free_resource_on_thread, freeResourcesThread)
-CONFIG_API_BOOL_GETTER(get_free_resource_on_thread, freeResourcesThread)
+CONFIG_API_BOOL_GETTER(get_free_resource_on_thread, freeResourcesThread, 0)
 
 // _PRINT_PROFILE_CLOCK
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
@@ -694,7 +704,7 @@ CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileCloc
 
 // _print-profile-clock
 CONFIG_API_BOOL_SETTER(set_print_profile_clock, requestConfigParams.printProfileClock)
-CONFIG_API_BOOL_GETTER(get_print_profile_clock, requestConfigParams.printProfileClock)
+CONFIG_API_BOOL_GETTER(get_print_profile_clock, requestConfigParams.printProfileClock, 0)
 
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
@@ -702,7 +712,7 @@ CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
 
 // raw-docid-encoding
 CONFIG_API_BOOL_SETTER(set_raw_docid_encoding, invertedIndexRawDocidEncoding)
-CONFIG_API_BOOL_GETTER(get_raw_docid_encoding, invertedIndexRawDocidEncoding)
+CONFIG_API_BOOL_GETTER(get_raw_docid_encoding, invertedIndexRawDocidEncoding, 0)
 
 // _NUMERIC_RANGES_PARENTS
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
@@ -930,7 +940,7 @@ CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 
 // _prioritize-intersect-union-children
 CONFIG_API_BOOL_SETTER(set_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
-CONFIG_API_BOOL_GETTER(get_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
+CONFIG_API_BOOL_GETTER(get_prioritize_intersect_union_children, prioritizeIntersectUnionChildren, 0)
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
@@ -974,6 +984,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     sds currValue = curVar->getValue(&RSGlobalConfig);
     sds currValueDefault = curVar->getValue(&RSDefaultConfig);
 
+    // TODO: Fix this for string values. Fail test_ext:testExt
     if (sdscmp(currValue, currValueDefault) == 0) {
       // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
       // If we don't have a coordinator or this configuration has no trigger, this value
@@ -984,10 +995,11 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
         return REDISMODULE_ERR;
       }
     } else {
-      // TODO: Fix parameters which doesn't require a value: 
       // Consume the value
       RedisModule_Log(NULL, "notice", "Can't set %s, because it was already set by CONFIG", curVar->name);
-      const char *value = AC_GetStringNC(&ac, NULL);
+      if (!(curVar->flags & RSCONFIGVAR_F_FLAG)) {
+        const char *value = AC_GetStringNC(&ac, NULL);
+      }
     }
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
@@ -1134,7 +1146,8 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = setForkGCCleanNumericEmptyNodes,
-         .getValue = getForkGCCleanNumericEmptyNodes},
+         .getValue = getForkGCCleanNumericEmptyNodes,
+         .flags = RSCONFIGVAR_F_FLAG},
         {.name = "_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = set_ForkGCCleanNumericEmptyNodes,
@@ -1153,7 +1166,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
          .getValue = getNoMemPools,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
+         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "PARTIAL_INDEXED_DOCS",
          .helpText = "Enable commands filter which optimize indexing on partial hash updates",
          .setValue = setFilterCommand,
@@ -1698,21 +1711,27 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   }
 
   // Boolean parameters
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "free-resource-on-thread",
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_free-resource-on-thread",
       get_free_resource_on_thread, set_free_resource_on_thread, 1,
       REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_numeric-compress",
       get_numeric_compress, set_numeric_compress, 0,
       REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_print-profile-clock",
-      get_print_profile_clock, set_print_profile_clock, 0,
+      get_print_profile_clock, set_print_profile_clock, 1,
       REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
       get_prioritize_intersect_union_children, set_prioritize_intersect_union_children,
       0, REDISMODULE_CONFIG_DEFAULT);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_fork-gc-clean-numeric-empty-nodes",
-      get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
-      1, REDISMODULE_CONFIG_DEFAULT);
+  // CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_fork-gc-clean-numeric-empty-nodes",
+  //     get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
+  //     1, REDISMODULE_CONFIG_DEFAULT);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-mem-pools",
+      get_no_mem_pools, set_no_mem_pools, 0,
+      REDISMODULE_CONFIG_IMMUTABLE);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-gc",
+      get_no_gc, set_no_gc, 1,
+      REDISMODULE_CONFIG_IMMUTABLE);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "raw-docid-encoding",
       get_raw_docid_encoding, set_raw_docid_encoding, 0,
       REDISMODULE_CONFIG_IMMUTABLE);
