@@ -27,6 +27,8 @@ typedef uint16_t t_fieldIndex;
 struct timespec;
 typedef struct timespec t_expirationTimePoint;
 
+typedef uint64_t t_uniqueId;
+
 #define DOCID_MAX UINT64_MAX
 
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
