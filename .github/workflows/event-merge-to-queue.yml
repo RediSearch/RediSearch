@@ -31,7 +31,7 @@ jobs:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: 'unstable'
+      redis-ref: '8.0'
 
   test-macos:
     needs: [docs-only, get-latest-redis-tag]
@@ -39,7 +39,7 @@ jobs:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      redis-ref: 'unstable'
+      redis-ref: '8.0'
 
   coverage:
     needs: docs-only
