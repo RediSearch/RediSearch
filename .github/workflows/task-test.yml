@@ -29,7 +29,7 @@ on:
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  BOOST_VERSION: 1.86.0
   VERBOSE_UTESTS: 1
 
 jobs:
