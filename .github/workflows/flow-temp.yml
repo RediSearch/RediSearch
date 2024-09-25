@@ -20,7 +20,7 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
-  test-debian:
+  test-rockylinux:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
@@ -32,6 +32,19 @@ jobs:
       test-config: QUICK=1
       fail-fast: false
       platform: "rockylinux:8"
+
+  test-amz2amazonlinux:2:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      coordinator: true
+      # redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
+      redis-ref: meiravg_add_cpp_compilation_flags
+      test-config: QUICK=1
+      fail-fast: false
+      platform: "amazonlinux:2"
 
   # test-debian:
   #   needs: [docs-only, get-latest-redis-tag]
