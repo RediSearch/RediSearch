@@ -33,7 +33,7 @@ jobs:
       fail-fast: false
       platform: "rockylinux:8"
 
-  test-amz2amazonlinux:2:
+  test-amz2amazonlinux:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
