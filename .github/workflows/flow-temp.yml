@@ -27,7 +27,7 @@ jobs:
     secrets: inherit
     with:
       coordinator: true
-      redis-ref: 7b69183a8d556f6a624b97c93b59e69e55fb9934
+      redis-ref: af7fca797a531c90a54ea79a56929f3e5598c01f
       test-config: QUICK=1
       fail-fast: false
       platform: "rockylinux:8"
