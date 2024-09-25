@@ -1,11 +1,10 @@
 version: 0.2
-name: "search-expire-doc-1000-seconds"
+name: "search-expired-numeric-field-1000-seconds"
 description: "
              We want to check our ttl table performance, edge cases we need to consider when modifying expiration tests:
              - we want to keep an existing dataset, if we actually expire documents during the test we will decrease our keyspace size
-             - if we reach a point where every single key is set to be expired then there will be a hot path which might not represent real world usage 
+             - if we reach a point where every single field is set to be expired then there will be a hot path which might not represent real world usage 
              "
-
 metadata:
   component: "search"
 setups:
@@ -26,6 +25,7 @@ dbconfig:
     - requests: 100000
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
   - init_commands:
+      - '"DEBUG SET-ACTIVE-EXPIRE 0"'
       - '"FT.CREATE" "nyc" "SCHEMA" "total_amount" "NUMERIC" "SORTABLE" "improvement_surcharge" "NUMERIC" "SORTABLE" "fare_amount" "NUMERIC" "SORTABLE" "trip_distance" "NUMERIC" "SORTABLE"'
   - dataset_load_timeout_secs: 180
   - check:
@@ -34,4 +34,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --key-prefix '' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0' --command-ratio 90 --command 'EXPIRE __key__  1000' --command-ratio 10"
+  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --key-prefix '' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0' --command-ratio 95 --command 'HPEXPIRE __key__  10 FIELDS 1 trip_distance' --command-ratio 5"
