@@ -17,7 +17,6 @@
 
 ## Overview
 
-Hello,
 RediSearch is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use RediSearch, you first declare indexes on your Redis data. You can then use the RediSearch query language to query that data.
 
 RediSearch uses compressed, inverted indexes for fast indexing with a low memory footprint.
