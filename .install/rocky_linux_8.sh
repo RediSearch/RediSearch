@@ -15,11 +15,11 @@ $MODE dnf config-manager --set-enabled powertools
 # get epel to install gcc13
 $MODE dnf install epel-release -yqq
 
-$MODE dnf install -y gcc-toolset-12-gcc gcc-toolset-12-gcc-c++ \
-    gcc-toolset-12-libatomic-devel make wget git openssl openssl-devel \
+$MODE dnf install -y gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ \
+    gcc-toolset-11-libatomic-devel make wget git openssl openssl-devel \
     bzip2-devel libffi-devel zlib-devel tar xz which rsync python3.11-devel \
     clang --nobest --skip-broken
 
-cp /opt/rh/gcc-toolset-12/enable /etc/profile.d/gcc-toolset-12.sh
+cp /opt/rh/gcc-toolset-11/enable /etc/profile.d/gcc-toolset-11.sh
 
 source install_cmake.sh $MODE
