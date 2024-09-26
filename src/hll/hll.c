@@ -17,9 +17,9 @@
 #include "rmalloc.h"
 
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
-  uint8_t max = 1 + 32 - bits;
-  uint8_t rank = 1 + __builtin_ctz(hash); // index of first set bit
-  return rank > max ? max : rank;
+  uint8_t max = 32 - bits;
+  uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
+  return (rank > max ? max : rank) + 1;
 }
 
 int hll_init(struct HLL *hll, uint8_t bits) {
