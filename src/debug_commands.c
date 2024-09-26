@@ -214,6 +214,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(numIdxSum));
   REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
   REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("Memory", NumericIndexType_MemUsage(rt), ARRAY_LEN_VAR(numIdxSum));
   END_POSTPONED_LEN_ARRAY(numIdxSum);
 
 end:
@@ -350,10 +351,10 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
   if (r) {
     REPLY_WITH_DOUBLE("minVal", r->minVal, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_DOUBLE("maxVal", r->maxVal, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_DOUBLE("unique_sum", r->unique_sum, ARRAY_LEN_VAR(numericRangeInfo));
+    // REPLY_WITH_DOUBLE("unique_sum", r->unique_sum, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_DOUBLE("invertedIndexSize [bytes]", r->invertedIndexSize, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_LONG_LONG("card", r->card, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_LONG_LONG("card", hll_count(&r->hll), ARRAY_LEN_VAR(numericRangeInfo));
+    // REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_LONG_LONG("splitCard", r->splitCard, ARRAY_LEN_VAR(numericRangeInfo));
 
     REPLY_WITH_STR("entries", ARRAY_LEN_VAR(numericRangeInfo))

@@ -16,16 +16,10 @@
 
 #include "rmalloc.h"
 
-static __inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
-  uint8_t i;
-
-  for (i = 1; i <= 32 - bits; i++) {
-    if (hash & 1) break;
-
-    hash >>= 1;
-  }
-
-  return i;
+static inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
+  uint8_t max = 1 + 32 - bits;
+  uint8_t rank = 1 + __builtin_ctz(hash); // index of first set bit
+  return rank > max ? max : rank;
 }
 
 int hll_init(struct HLL *hll, uint8_t bits) {
@@ -47,7 +41,7 @@ void hll_destroy(struct HLL *hll) {
   hll->registers = NULL;
 }
 
-static __inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
+static inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
   uint32_t index = hash >> (32 - hll->bits);
   uint8_t rank = _hll_rank(hash, hll->bits);
 
@@ -61,7 +55,7 @@ void hll_add_hash(struct HLL *hll, uint32_t h) {
 }
 
 void hll_add(struct HLL *hll, const void *buf, size_t size) {
-  uint32_t hash = rs_fnv_32a_buf((void *)buf, (uint32_t)size, 0x5f61767a);
+  uint32_t hash = rs_fnv_32a_buf(buf, (uint32_t)size, 0x5f61767a);
 
   _hll_add_hash(hll, hash);
 }
@@ -124,16 +118,8 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
 }
 
 int hll_load(struct HLL *hll, const void *registers, size_t size) {
-  uint8_t bits = 0;
+  uint8_t bits = size ? __builtin_ctz(size) : 0;
   size_t s = size;
-
-  while (s) {
-    if (s & 1) break;
-
-    bits++;
-
-    s >>= 1;
-  }
 
   if (!bits || ((size_t)1 << bits) != size) {
     errno = EINVAL;
