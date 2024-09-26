@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -133,6 +132,7 @@ typedef struct {
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
+  size_t totalQueries;
 } IndexStats;
 
 typedef enum {
@@ -575,6 +575,10 @@ void IndexSpec_ClearAliases(StrongRef ref);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_SetTempSpecsTimers(TimerOp op);
+
+static inline void IndexSpec_CountExecution(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.totalQueries, 1, __ATOMIC_RELAXED);
+}
 
 //---------------------------------------------------------------------------------------------
 
