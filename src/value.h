@@ -16,7 +16,7 @@
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 
 #include <string.h>
 #include <sys/param.h>

@@ -65,7 +65,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
+export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
 
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
@@ -110,11 +110,11 @@ E=0
 if [[ $C_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C unit tests"
-	TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
 	cd $ROOT/tests/ctests
 	if [[ -z $TEST ]]; then
 		if [[ $NOP != 1 ]]; then
-			for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
+			for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
 				test_name="$(basename $test)"
 				if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
 					TEST_NAME="$test_name" sanitizer_defs
@@ -132,7 +132,7 @@ fi
 if [[ $CPP_TESTS == 1 ]]; then
 	$READIES/bin/sep1
 	echo "# Running C++ unit tests"
-	TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
+	TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
 	cd $ROOT/tests/cpptests
 	TEST_NAME=rstest sanitizer_defs
 	if [[ -z $TEST ]]; then
@@ -142,22 +142,22 @@ if [[ $CPP_TESTS == 1 ]]; then
 	fi
 fi
 
-$READIES/bin/sep1
 echo "# Running coordinator unit tests"
-TESTS_DIR="$(cd $BINROOT/coord-oss/tests/unit; pwd)"
-cd $ROOT/src/coord/tests/unit
-if [[ -z $TEST ]]; then
-	if [[ $NOP != 1 ]]; then
-		for test in $(find $TESTS_DIR -name "test_*" -type f -executable -print); do
-			TEST_NAME="$(basename $test)" sanitizer_defs
-			{ $test; (( E |= $? )); } || true
-		done
-	else
-		find $TESTS_DIR -name "test_*" -type f -executable -print
-	fi
-else
-	$OP $GDB_CMD $TESTS_DIR/$TEST
-fi
+for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
+  if [[ -z $TEST ]]; then
+    if [[ $NOP != 1 ]]; then
+  	  for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+  		  TEST_NAME="$(basename $test)" sanitizer_defs
+  		  echo $TEST_NAME
+  		  { $test; (( E |= $? )); } || true
+  	  done
+    else
+  	  find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print
+    fi
+  else
+    $OP $GDB_CMD $TESTS_DIR/$TEST
+  fi
+done
 
 #-------------------------------------------------------------------------------------- Summary
 
