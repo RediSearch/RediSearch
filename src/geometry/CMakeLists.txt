@@ -1,5 +1,5 @@
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 
 # find_package(absl 20230125.1)
 file(GLOB SOURCES "*.cpp")
