@@ -24,15 +24,15 @@ dbconfig:
     - workers: 64
     - reporting-period: 1s
     - requests: 100000
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
   - init_commands:
       - '"DEBUG SET-ACTIVE-EXPIRE 0"'
-      - '"FT.CREATE" "nyc" "SCHEMA" "total_amount" "NUMERIC" "SORTABLE" "improvement_surcharge" "NUMERIC" "SORTABLE" "fare_amount" "NUMERIC" "SORTABLE" "trip_distance" "NUMERIC" "SORTABLE"'
+      - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
   - dataset_load_timeout_secs: 180
   - check:
-      keyspacelen: 100000
+      keyspacelen: 5204050
 
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 120 -c 32 -t 1 --hide-histogram --key-prefix '' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH nyc @trip_distance:[6,8] LIMIT 0 0' --command-ratio 95 --command 'PEXPIRE __key__  10' --command-ratio 5"
+  arguments: "--test-time 180 -c 4 -t 1 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH idx10 \"(( @field3: (1) @field6: [-inf 76.761 ] @field7: [76.761 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] )| ( @field3: (2) @field6: [-inf 137.894 ] @field7: [137.894 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] ))\"' --command-ratio 95 --command 'PEXPIRE __key__  10' --command-ratio 5"
