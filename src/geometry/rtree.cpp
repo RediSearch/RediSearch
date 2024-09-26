@@ -106,6 +106,7 @@ auto doc_to_string(doc_type<cs> const& doc) -> string {
 template <typename cs>
 auto from_wkt(std::string_view wkt) -> geom_type<cs> {
   const auto geom = [&]() -> geom_type<cs> {
+    RedisModule_Log(NULL, "notice", "wkt: %s", wkt.data());
     if (wkt.starts_with("POI")) {
       return bg::from_wkt<point_type<cs>>(std::string{wkt});
     } else if (wkt.starts_with("POL")) {
