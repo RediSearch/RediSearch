@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expired-numeric-field-1000-seconds"
+name: "search-expired-numeric-field-10-milliseconds"
 description: "
              We want to check our ttl table performance, edge cases we need to consider when modifying expiration tests:
              - we want to keep an existing dataset, if we actually expire documents during the test we will decrease our keyspace size
