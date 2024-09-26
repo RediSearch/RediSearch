@@ -29,7 +29,7 @@ on:
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
 
 env:
-  BOOST_VERSION: 1.86.0
+  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -121,7 +121,7 @@ jobs:
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
+        run: ${{ steps.mode.outputs.mode }} make install noopt BUILD_TLS=yes
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
