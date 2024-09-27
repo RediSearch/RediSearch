@@ -23,14 +23,13 @@ dbconfig:
   - parameters:
     - workers: 64
     - reporting-period: 1s
-    - requests: 100000
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
   - init_commands:
       - '"DEBUG SET-ACTIVE-EXPIRE 0"'
       - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
   - dataset_load_timeout_secs: 180
   - check:
-      keyspacelen: 100000
+      keyspacelen: 5204050
 
 clientconfig:
   benchmark_type: "read-only"
