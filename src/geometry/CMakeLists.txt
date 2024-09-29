@@ -11,7 +11,7 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
 if(NOT BOOST_DIR STREQUAL "" AND EXISTS ${BOOST_DIR})
  	message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
-	 target_include_directories(${BOOST_DIR})
+	 target_include_directories(redisearch-geometry PRIVATE ${BOOST_DIR})
 else()
  	message(STATUS "BOOST_DIR is not defined or empty")
 		# set(BOOST_INCLUDE_LIBRARIES boost geometry optional unordered)
