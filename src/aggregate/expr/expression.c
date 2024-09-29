@@ -203,7 +203,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetErrorFmt(eval->err, QUERY_ENOPROPVAL, "%s: has no value, consider using EXISTS if applicable", e->lookupObj->name);
+      QueryError_SetErrorFmt(eval->err, QUERY_ENOPROPVAL, "Could not lookup the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -238,20 +238,20 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 }
 
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
-#define RECURSE(v)                                                                             \
-  if (!v) {                                                                                    \
-    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
-    return EXPR_EVAL_ERR;                                                                      \
-  }                                                                                            \
-  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                 \
-    return EXPR_EVAL_ERR;                                                                      \
+#define RECURSE(v)                                                                                 \
+  if (!v) {                                                                                        \
+    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for", " %s", #v); \
+    return EXPR_EVAL_ERR;                                                                          \
+  }                                                                                                \
+  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                     \
+    return EXPR_EVAL_ERR;                                                                          \
   }
 
   switch (expr->t) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in pipeline",
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }
@@ -321,12 +321,12 @@ EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
   return r;
 }
 
-EvalCtx *EvalCtx_FromString(const char *expr) {
+EvalCtx *EvalCtx_FromString(const HiddenString *expr) {
   EvalCtx *r = EvalCtx_Create();
   if (!expr) {
   	r->ee.root = NULL;
   } else {
-    r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    r->_expr = ExprAST_Parse(expr, r->ee.err);
     if (r->ee.root == NULL) {
   	  goto error;
     }
@@ -371,11 +371,11 @@ int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
   return EvalCtx_Eval(r);
 }
 
-int EvalCtx_EvalExprStr(EvalCtx *r, const char *expr) {
+int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
   if (r->_expr && r->_own_expr) {
     ExprAST_Free(r->_expr);
   }
-  r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  r->_expr = ExprAST_Parse(expr, r->ee.err);
   r->_own_expr = true;
 
   return EvalCtx_Eval(r);

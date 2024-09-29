@@ -536,12 +536,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
-  arrayof(sds) prefixes = sp->rule->prefixes;
+  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
   for (uint i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, (const char *)prefixes[i]);
+    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);

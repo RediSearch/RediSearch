@@ -53,9 +53,9 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
   if (japi_ver >= 2) {
-    return japi->pathParse(path, RSDummyContext, err_msg);
+    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
   } else {
     *err_msg = NULL;
     return NULL;
@@ -263,7 +263,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   for (int i = 0; i < len; ++i) {
     RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, target) != REDISMODULE_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       return REDISMODULE_ERR;
     }
     target += step;
@@ -322,7 +322,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
@@ -668,4 +668,11 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
   }
   return rv;
+}
+
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
+  QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
+                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
+                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
+  RedisModule_FreeString(RSDummyContext, err_msg);
 }

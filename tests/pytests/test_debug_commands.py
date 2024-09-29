@@ -53,6 +53,9 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            "INDEXES",
+            "INFO",
+            'GET_HIDE_USER_DATA_FROM_LOGS',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -60,7 +63,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -362,29 +365,73 @@ def testSpecIndexesInfo(env: Env):
 
 def testVecsimInfo_badParams(env: Env):
 
-    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
 
     # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
     dim = 2
     env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
-                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
     env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
         .contains("Can't open vector index")
 
 def testHNSWdump_badParams(env: Env):
-    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
 
     # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
     dim = 2
     env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
-                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
-    
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
     # Test dump HNSW with invalid index name
     # If index error is "Can't open vector index" then function tries to accsses null pointer
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
-    
+
+
+def testIndexes(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    debug_output = env.cmd(debug_cmd(), 'INDEXES')
+    env.assertEqual(debug_output, ['Index@4e7f626df794f6491574a236f22c100c34ed804f'])
+
+# For now allowing access to the value through the debug command
+# Maybe in the future it should be accessible through the FT.CONFIG command and the test move to test_config.py
+# Didn't want to "break" the API by adding a new config parameter
+def test_hideUserDataFromLogs(env):
+    env.skipOnCluster()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 1)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+
+def testIndexObfuscatedInfo(env: Env):
+    # we create more indexes to cover the found case in the code(it should break from the loop)
+    env.expect('FT.CREATE', 'first', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'last', 'SCHEMA', 'name', 'TEXT').ok()
+
+    obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
+    debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
+    info = to_dict(debug_output[0])
+    env.assertEqual(info['index_name'], obfuscated_name)
+    index_definition = to_dict(info['index_definition'])
+    env.assertEqual(index_definition['prefixes'][0], 'Text')
+    attr_list = info['attributes']
+    field_stats_list = info['field statistics']
+    field_count = len(attr_list)
+    env.assertEqual(field_count, 1)
+    env.assertEqual(len(field_stats_list), field_count)
+    for i in range(field_count):
+        attr = to_dict(attr_list[i])
+        env.assertEqual(attr['identifier'], f'FieldPath@{i}')
+        env.assertEqual(attr['attribute'], f'Field@{i}')
+        field_stats = to_dict(field_stats_list[i])
+        env.assertEqual(field_stats['identifier'], f'FieldPath@{i}')
+        env.assertEqual(field_stats['attribute'], f'Field@{i}')

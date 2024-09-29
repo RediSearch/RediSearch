@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 #ifdef __cplusplus
 }
 #endif

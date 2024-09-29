@@ -31,7 +31,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   errno = 0;
   *target = strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
+    QERR_MKBADARGS_FMT(status, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
@@ -58,7 +58,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  */
 NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
+    QERR_MKBADARGS(status, "FILTER requires 3 arguments");
     return NULL;
   }
 
@@ -70,7 +70,9 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   nf->min = 0;
   nf->max = 0;
   // Store the field name at the field spec pointer, to validate later
-  nf->field = (const FieldSpec*)AC_GetStringNC(ac, NULL);
+  const char *fieldName = AC_GetStringNC(ac, NULL);
+  nf->field.resolved = false;
+  nf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
@@ -94,6 +96,9 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
 }
 
 void NumericFilter_Free(NumericFilter *nf) {
+  if (!nf->field.resolved && nf->field.u.name) {
+    HiddenString_Free(nf->field.u.name, false);
+  }
   rm_free(nf);
 }
 
@@ -103,7 +108,8 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 
   f->min = min;
   f->max = max;
-  f->field = NULL;
+  f->field.u.name = NULL;
+  f->field.resolved = false;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;

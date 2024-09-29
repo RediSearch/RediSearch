@@ -690,7 +690,6 @@
     "summary": "Sets runtime configuration options",
     "complexity": "O(1)",
     "deprecated_since": "8.0.0",
-    "replaced_by": "CONFIG SET",
     "arguments": [
       {
         "name": "option",
@@ -708,7 +707,6 @@
     "summary": "Retrieves runtime configuration options",
     "complexity": "O(1)",
     "deprecated_since": "8.0.0",
-    "replaced_by": "CONFIG GET",
     "arguments": [
       {
         "name": "option",
@@ -722,7 +720,6 @@
     "summary": "Help description of runtime configuration options",
     "complexity": "O(1)",
     "deprecated_since": "8.0.0",
-    "replaced_by": "CONFIG HELP",
     "arguments": [
       {
         "name": "option",

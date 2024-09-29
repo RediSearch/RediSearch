@@ -1,5 +1,10 @@
+extern "C" {
+#include "hiredis/sds.h"
+}
+
 #include "gtest/gtest.h"
 #include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -9,82 +14,104 @@ class HiddenTest : public ::testing::Test {};
 TEST_F(HiddenTest, testHiddenOwnership) {
   const char *expected = "Text";
   size_t length = 0;
-  HiddenName *view = NewHiddenName(expected, strlen(expected), false);
-  HiddenName *name = NewHiddenName(expected, strlen(expected), true);
-  ASSERT_EQ(HiddenName_GetUnsafe(view, &length), expected);
+  HiddenString *view = NewHiddenString(expected, strlen(expected), false);
+  HiddenString *name = NewHiddenString(expected, strlen(expected), true);
+  ASSERT_EQ(HiddenString_GetUnsafe(view, &length), expected);
   ASSERT_EQ(length, strlen(expected));
-  ASSERT_NE(HiddenName_GetUnsafe(name, NULL), expected);
-  HiddenName_TakeOwnership(view);
-  ASSERT_NE(HiddenName_GetUnsafe(view, NULL), expected);
-  HiddenName_Free(view, true);
-  HiddenName_Free(name, true);
+  ASSERT_NE(HiddenString_GetUnsafe(name, NULL), expected);
+  HiddenString_TakeOwnership(view);
+  ASSERT_NE(HiddenString_GetUnsafe(view, NULL), expected);
+  HiddenString_Free(view, true);
+  HiddenString_Free(name, true);
 }
 
 TEST_F(HiddenTest, testHiddenCompare) {
   const char *expected = "Text";
-  HiddenName *first = NewHiddenName(expected, strlen(expected), true);
-  HiddenName *second = NewHiddenName(expected, strlen(expected), true);
-  ASSERT_EQ(HiddenName_Compare(first, second), 0);
-  ASSERT_EQ(HiddenName_CompareC(first, expected, strlen(expected)), 0);
-  ASSERT_NE(HiddenName_CompareC(first, expected, strlen(expected) + 1), 0);
+  HiddenString *first = NewHiddenString(expected, strlen(expected), true);
+  HiddenString *second = NewHiddenString(expected, strlen(expected), true);
+  ASSERT_EQ(HiddenString_Compare(first, second), 0);
+  ASSERT_EQ(HiddenString_CompareC(first, expected, strlen(expected)), 0);
+  ASSERT_NE(HiddenString_CompareC(first, expected, strlen(expected) + 1), 0);
   const char *lowerCase = "text";
-  HiddenName *lower = NewHiddenName(lowerCase, strlen(lowerCase), true);
-  ASSERT_EQ(HiddenName_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase)), 0);
-  ASSERT_EQ(HiddenName_CaseInsensitiveCompare(first, lower), 0);
-  ASSERT_NE(HiddenName_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase) + 1), 0);
-  HiddenName_Free(first, true);
-  HiddenName_Free(second, true);
-  HiddenName_Free(lower, true);
+  HiddenString *lower = NewHiddenString(lowerCase, strlen(lowerCase), true);
+  ASSERT_EQ(HiddenString_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase)), 0);
+  ASSERT_EQ(HiddenString_CaseInsensitiveCompare(first, lower), 0);
+  ASSERT_NE(HiddenString_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase) + 1), 0);
+  HiddenString_Free(first, true);
+  HiddenString_Free(second, true);
+  HiddenString_Free(lower, true);
+}
+
+TEST_F(HiddenTest, testHiddenUnicodeCompare) {
+  sds expected = sdsnew("¥£€$®a");
+  HiddenUnicodeString *first = NewHiddenUnicodeString(expected);
+  const char *internalExpected = HiddenUnicodeString_GetUnsafe(first, NULL);
+  sds unicode = sdsnew("¥£€$®A");
+  HiddenUnicodeString *second = NewHiddenUnicodeString(unicode);
+  const char *internalUnicode = HiddenUnicodeString_GetUnsafe(second, NULL);
+  ASSERT_NE(expected, internalExpected);
+  ASSERT_NE(unicode, internalUnicode);
+
+  // Compare Hidden with Hidden
+  ASSERT_NE(HiddenUnicodeString_Compare(first, second), 0);
+  // Compare Hidden with sds
+  ASSERT_EQ(HiddenUnicodeString_CompareC(first, expected), 0);
+  ASSERT_NE(HiddenUnicodeString_CompareC(first, unicode), 0);
+
+  HiddenUnicodeString_Free(first);
+  HiddenUnicodeString_Free(second);
+  sdsfree(expected);
+  sdsfree(unicode);
 }
 
 TEST_F(HiddenTest, testHiddenDuplicate) {
   const char *expected = "Text";
-  HiddenName *name = NewHiddenName(expected, strlen(expected), true);
-  HiddenName *clone = HiddenName_Duplicate(name);
-  ASSERT_EQ(HiddenName_Compare(name, clone), 0);
-  HiddenName_Free(name, true);
-  HiddenName_Free(clone, true);
+  HiddenString *name = NewHiddenString(expected, strlen(expected), true);
+  HiddenString *clone = HiddenString_Duplicate(name);
+  ASSERT_EQ(HiddenString_Compare(name, clone), 0);
+  HiddenString_Free(name, true);
+  HiddenString_Free(clone, true);
 }
 
-void testCloning(HiddenName *first, HiddenName *second) {
-  HiddenName *clone = NULL;
-  HiddenName_Clone(first, &clone);
+void testCloning(HiddenString *first, HiddenString *second) {
+  HiddenString *clone = NULL;
+  HiddenString_Clone(first, &clone);
   size_t firstLength = 0;
-  HiddenName_GetUnsafe(first, &firstLength);
+  HiddenString_GetUnsafe(first, &firstLength);
 
   size_t length = 0;
-  HiddenName_GetUnsafe(clone, &length);
+  HiddenString_GetUnsafe(clone, &length);
   ASSERT_EQ(length, firstLength);
-  HiddenName_Clone(second, &clone);
-  HiddenName_GetUnsafe(clone, &length);
+  HiddenString_Clone(second, &clone);
+  HiddenString_GetUnsafe(clone, &length);
 
   size_t secondLength = 0;
-  HiddenName_GetUnsafe(second, &secondLength);
+  HiddenString_GetUnsafe(second, &secondLength);
   ASSERT_EQ(length, secondLength);
-  HiddenName_Free(clone, true);
+  HiddenString_Free(clone, true);
 }
 
 TEST_F(HiddenTest, testHiddenClone) {
   const char *longText = "LongerText";
   const char *shortText = "ShortText";
 
-  HiddenName *l = NewHiddenName(longText, strlen(longText), true);
-  HiddenName *s = NewHiddenName(shortText, strlen(shortText), true);
+  HiddenString *l = NewHiddenString(longText, strlen(longText), true);
+  HiddenString *s = NewHiddenString(shortText, strlen(shortText), true);
   testCloning(l, s);
   testCloning(s, l);
-  HiddenName_Free(l, true);
-  HiddenName_Free(s, true);
+  HiddenString_Free(l, true);
+  HiddenString_Free(s, true);
 }
 
 TEST_F(HiddenTest, testHiddenCreateString) {
     const char *expected = "Text";
-    HiddenName *name = NewHiddenName(expected, strlen(expected), true);
-    RedisModuleString* string = HiddenName_CreateString(name, NULL);
+    HiddenString *name = NewHiddenString(expected, strlen(expected), true);
+    RedisModuleString* string = HiddenString_CreateRedisModuleString(name, NULL);
     const char *text = RedisModule_StringPtrLen(string, NULL);
     ASSERT_EQ(strlen(expected), strlen(text));
     ASSERT_EQ(strncmp(text, expected, strlen(expected)), 0);
     RedisModule_FreeString(NULL, string);
-    HiddenName_Free(name, true);
+    HiddenString_Free(name, true);
 }
 
 TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
@@ -102,10 +129,10 @@ TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
     ASSERT_EQ(RedisModule_CallReplyType(reply), REDISMODULE_REPLY_STRING);
     RedisModule_FreeCallReply(reply);
 
-    HiddenName *name = NewHiddenName(key, strlen(key), true);
-    HiddenName_DropFromKeySpace(ctx, key, name);
+    HiddenString *name = NewHiddenString(key, strlen(key), true);
+    HiddenString_DropFromKeySpace(ctx, key, name);
     ASSERT_EQ(RedisModule_Call(ctx, "GET", "ss", redisKey), noReply);
     RedisModule_FreeString(ctx, redisKey);
-    HiddenName_Free(name, true);
+    HiddenString_Free(name, true);
     RedisModule_FreeThreadSafeContext(ctx);
 }
