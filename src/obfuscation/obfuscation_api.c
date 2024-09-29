@@ -4,22 +4,16 @@
 
 #include <string.h>
 
-char *Obfuscate_Index(t_uniqueId indexId) {
-  char* buffer = NULL;
-  rm_asprintf(&buffer, "Index@%zu", indexId);
-  return buffer;
+void Obfuscate_Index(t_uniqueId indexId, char* buffer) {
+  sprintf(buffer, "Index@%zu", indexId);
 }
 
-char *Obfuscate_Field(t_uniqueId fieldId) {
-  char* buffer = NULL;
-  rm_asprintf(&buffer, "Field@%zu", fieldId);
-  return buffer;
+void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
+  sprintf(buffer, "Field@%zu", fieldId);
 }
 
-char *Obfuscate_Document(t_uniqueId docId) {
-  char* buffer = NULL;
-  rm_asprintf(&buffer, "Document@%zu", docId);
-  return buffer;
+void Obfuscate_Document(t_uniqueId docId, char* buffer) {
+  sprintf(buffer, "Document@%zu", docId);
 }
 
 char *Obfuscate_Text(const char* text) {
@@ -46,7 +40,7 @@ char *Obfuscate_GeoShape() {
   return "GeoShape";
 }
 
-char *Obfuscate_QueryNode(QueryNode *node) {
+char *Obfuscate_QueryNode(struct QueryNode *node) {
   switch (node->type) {
     case QN_PHRASE:
       return "Phrase";
