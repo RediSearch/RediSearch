@@ -208,8 +208,7 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     }
   } else {
     // Not yet initialized - make this our first register and continue.
-    hll_init(ctr, hdr->bits);
-    memcpy(ctr->registers, registers, regsz);
+    hll_load(ctr, registers, regsz);
   }
   return 1;
 }

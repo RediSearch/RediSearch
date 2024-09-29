@@ -16,8 +16,7 @@
 
 #include "rmalloc.h"
 
-static inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
-  uint8_t max = 32 - bits;
+static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
   return (rank > max ? max : rank) + 1;
 }
@@ -29,6 +28,7 @@ int hll_init(struct HLL *hll, uint8_t bits) {
   }
 
   hll->bits = bits;
+  hll->rank_bits = 32 - bits;
   hll->size = 1ULL << bits;
   hll->registers = rm_calloc(hll->size, sizeof(*hll->registers));
 
@@ -37,13 +37,12 @@ int hll_init(struct HLL *hll, uint8_t bits) {
 
 void hll_destroy(struct HLL *hll) {
   rm_free(hll->registers);
-
   hll->registers = NULL;
 }
 
 static inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
-  uint32_t index = hash >> (32 - hll->bits);
-  uint8_t rank = _hll_rank(hash, hll->bits);
+  uint32_t index = hash >> hll->rank_bits;
+  uint8_t rank = _hll_rank(hash, hll->rank_bits);
 
   if (rank > hll->registers[index]) {
     hll->registers[index] = rank;
@@ -123,11 +122,7 @@ int hll_load(struct HLL *hll, const void *registers, size_t size) {
 
   if (hll_init(hll, bits) == -1) return -1;
 
-  memcpy(hll->registers, registers, size);
+  memcpy(hll->registers, registers, size * sizeof(*hll->registers));
 
   return 0;
-}
-
-extern uint32_t _hll_hash(const struct HLL *hll) {
-  return rs_fnv_32a_buf(hll->registers, (uint32_t)hll->size, 0);
 }
