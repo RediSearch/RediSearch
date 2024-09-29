@@ -96,7 +96,7 @@ class FGCTest : public ::testing::Test {
   RefManager *createIndex(RedisModuleCtx *ctx) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
-    auto ism = RediSearch_CreateIndex("idx", &opts);
+    auto ism = RediSearch_CreateIndex(NewHiddenName("idx", 3), &opts);
     EXPECT_FALSE(ism == NULL);
     EXPECT_FALSE(get_spec(ism)->gc == NULL);
 

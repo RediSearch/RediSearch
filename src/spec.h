@@ -26,6 +26,7 @@
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -266,8 +267,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  char *name;                     // Index name
-  size_t nameLen;                 // Index name length
+  HiddenName *name;                // Index name
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
@@ -289,7 +289,7 @@ typedef struct IndexSpec {
   GCContext *gc;                  // Garbage collection
 
   SynonymMap *smap;               // List of synonym
-  char **aliases;                 // Aliases to self-remove when the index is deleted
+  HiddenName **aliases;                 // Aliases to self-remove when the index is deleted
 
   struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
@@ -470,7 +470,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(HiddenName *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
@@ -580,7 +580,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
-IndexSpec *NewIndexSpec(const char *name);
+IndexSpec *NewIndexSpec(HiddenName *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
@@ -599,7 +599,7 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   WeakRef spec_ref;
-  char *spec_name;
+  t_uniqueId spec_id;
   size_t scannedKeys, totalKeys;
 } IndexesScanner;
 
