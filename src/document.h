@@ -264,7 +264,7 @@ typedef struct RSAddDocumentCtx {
   RedisSearchCtx *sctx;
 
   IndexSpec *spec;
-  char *specName;
+  HiddenName *specName;
   size_t specNameLen;
   uint64_t specId;
 

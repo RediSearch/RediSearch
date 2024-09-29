@@ -15,6 +15,7 @@
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
+#include "obfuscation/obfuscation_api.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -406,8 +407,10 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
 
   indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   indexer->specId = spec->uniqueId;
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(spec->uniqueId, name);
   indexer->specKeyName =
-      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
+      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, name);
 
   ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx, reopenCb);
   return indexer;
