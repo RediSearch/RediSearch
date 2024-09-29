@@ -29,7 +29,7 @@ int hll_init(struct HLL *hll, uint8_t bits) {
   }
 
   hll->bits = bits;
-  hll->size = (size_t)1 << bits;
+  hll->size = 1ULL << bits;
   hll->registers = rm_calloc(hll->size, 1);
 
   return 0;
@@ -62,8 +62,6 @@ void hll_add(struct HLL *hll, const void *buf, size_t size) {
 
 double hll_count(const struct HLL *hll) {
   double alpha_mm;
-  uint32_t i;
-
   switch (hll->bits) {
     case 4:
       alpha_mm = 0.673;
@@ -82,7 +80,7 @@ double hll_count(const struct HLL *hll) {
   alpha_mm *= ((double)hll->size * (double)hll->size);
 
   double sum = 0;
-  for (i = 0; i < hll->size; i++) {
+  for (uint32_t i = 0; i < hll->size; i++) {
     sum += 1.0 / (1 << hll->registers[i]);
   }
 
@@ -91,7 +89,7 @@ double hll_count(const struct HLL *hll) {
   if (estimate <= 5.0 / 2.0 * (double)hll->size) {
     int zeros = 0;
 
-    for (i = 0; i < hll->size; i++) zeros += (hll->registers[i] == 0);
+    for (uint32_t i = 0; i < hll->size; i++) zeros += (hll->registers[i] == 0);
 
     if (zeros) estimate = (double)hll->size * log((double)hll->size / zeros);
 
@@ -103,14 +101,12 @@ double hll_count(const struct HLL *hll) {
 }
 
 int hll_merge(struct HLL *dst, const struct HLL *src) {
-  uint32_t i;
-
   if (dst->bits != src->bits) {
     errno = EINVAL;
     return -1;
   }
 
-  for (i = 0; i < dst->size; i++) {
+  for (uint32_t i = 0; i < dst->size; i++) {
     if (src->registers[i] > dst->registers[i]) dst->registers[i] = src->registers[i];
   }
 
@@ -118,10 +114,9 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
 }
 
 int hll_load(struct HLL *hll, const void *registers, size_t size) {
-  uint8_t bits = size ? __builtin_ctz(size) : 0;
-  size_t s = size;
+  uint8_t bits = size ? __builtin_ctz(size) + 1 : 0;
 
-  if (!bits || ((size_t)1 << bits) != size) {
+  if (!bits || (1ULL << bits) != size) {
     errno = EINVAL;
     return -1;
   }
