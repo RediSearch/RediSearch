@@ -77,7 +77,7 @@ void NumericRange_Dump(NumericRange *r, int indent) {
   printf("NumericRange {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
+  // printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
   InvertedIndex_Dump(r->entries, indent + 1);
   --indent;
   PRINT_INDENT(indent);
@@ -124,10 +124,57 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
   return size;
 }
 
+// static double NumericRange_EstimateMedian(NumericRange *n) {
+//   size_t numSamples = 10 * (31 - __builtin_clz(n->entries->numDocs));
+//   // Sample the range uniformly
+//   // Pick values with IR_SkipTo
+//   // Get the median value of the samples
+// }
+
+typedef union {
+  void *ptr;
+  double val;
+} value_holder;
+static_assert(sizeof(void*) >= sizeof(double));
+
+static int cmp_values(const void *p1, const void *p2, const void *udata) {
+  (void)udata;
+  const value_holder v1 = { .ptr = (void*)p1 };
+  const value_holder v2 = { .ptr = (void*)p2 };
+  if (v1.val < v2.val) return -1;
+  return (v1.val > v2.val) ? 1 : 0;
+}
+static double NumericRange_GetMedian(IndexReader *ir) {
+  size_t media_idx = ir->idx->numDocs / 2;
+  heap_t *low_half = rm_malloc(heap_sizeof(media_idx));
+  heap_init(low_half, cmp_values, NULL, media_idx);
+  RSIndexResult *cur;
+
+  for (size_t i = 0; i < media_idx; i++) {
+    IR_Read(ir, &cur);
+    value_holder val = { .val = cur->num.value };
+    heap_offerx(low_half, val.ptr);
+  }
+  while (INDEXREAD_OK == IR_Read(ir, &cur)) {
+    value_holder cur_val = { .val = cur->num.value };
+    value_holder heap_head = { .ptr = heap_peek(low_half) };
+    if (cur_val.val < heap_head.val) {
+      heap_replace(low_half, cur_val.ptr);
+    }
+  }
+
+  value_holder median = { .ptr = heap_peek(low_half) };
+
+  heap_free(low_half);
+  IR_Rewind(ir); // Rewind iterator
+  return median.val;
+}
+
 static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
 
-  double split = n->minVal + (n->maxVal - n->minVal) / 2; // TODO: this is a naive split. we should estimate the median
+  // double split = n->minVal + (n->maxVal - n->minVal) / 2; // TODO: this is a naive split. we should estimate the median
+  // double split = NumericRange_EstimateMedian(n);
 
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
@@ -137,6 +184,14 @@ static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, Numeric
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewMinimalNumericReader(n->entries, false);
+  double split = NumericRange_GetMedian(ir);
+  // if (split == n->minVal || split == n->maxVal) {
+  //   split = n->minVal + (n->maxVal - n->minVal) / 2;
+  // }
+  if (split == n->minVal) {
+    // make sure the split is not the same as the min value
+    split = nextafter(split, INFINITY);
+  }
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     NumericRange *cur = res->num.value < split ? (*lp)->range : (*rp)->range;
     checkCardinality(cur, res->num.value);
