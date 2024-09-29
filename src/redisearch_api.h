@@ -12,6 +12,7 @@
 #include "fork_gc.h"
 #include "info_command.h"
 #include "rules.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -175,7 +176,7 @@ MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
 
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
-(const char* name, const RSIndexOptions* options);
+(HiddenName* name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
