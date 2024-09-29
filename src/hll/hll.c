@@ -30,7 +30,7 @@ int hll_init(struct HLL *hll, uint8_t bits) {
 
   hll->bits = bits;
   hll->size = 1ULL << bits;
-  hll->registers = rm_calloc(hll->size, 1);
+  hll->registers = rm_calloc(hll->size, sizeof(*hll->registers));
 
   return 0;
 }
