@@ -516,7 +516,7 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
   return deleted;
 }
 
-size_t TrieMap_MemUsage(TrieMap *t) {
+size_t TrieMap_MemUsage(const TrieMap *t) {
   return t->size * (sizeof(TrieMapNode) +    // size of struct
                     sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
                     1 +                      // char key to children in parent node

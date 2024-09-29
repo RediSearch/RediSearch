@@ -136,7 +136,7 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
   if (!RSValue_ToNumber(argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(argv[0], &sz);
-    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
+    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -154,7 +154,7 @@ int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
 static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
   if (argc < 1) {
-    QERR_MKBADARGS_FMT(err, "Need at least one argument for format");
+    QERR_MKBADARGS(err, "Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
@@ -172,7 +172,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
 
     if (ii == fmtsz - 1) {
       // ... %"
-      QERR_MKBADARGS_FMT(err, "Bad format string!");
+      QERR_MKBADARGS(err, "Bad format string!");
       goto error;
     }
 
@@ -188,7 +188,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     }
 
     if (argix == argc) {
-      QERR_MKBADARGS_FMT(err, "Not enough arguments for format");
+      QERR_MKBADARGS(err, "Not enough arguments for format");
       goto error;
     }
 
@@ -216,7 +216,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
         out = sdscatlen(out, str, sz);
       }
     } else {
-      QERR_MKBADARGS_FMT(err, "Unknown format specifier passed");
+      QERR_MKBADARGS(err, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -249,7 +249,7 @@ static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
 static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                             QueryError *err) {
   if (argc < 1 || argc > 3) {
-    QERR_MKBADARGS_FMT(err, "Invalid number of arguments for split");
+    QERR_MKBADARGS(err, "Invalid number of arguments for split");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("split", argv, 0);

@@ -112,13 +112,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %f", msg, tok->pos, tok->numval);
   } else {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", msg, tok->pos);
   }
 }
 
@@ -1347,7 +1347,7 @@ static void yyStackOverflow(yyParser *yypParser){
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
 
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
    RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument var */
@@ -2604,7 +2604,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
     "Syntax error at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/

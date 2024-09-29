@@ -8,6 +8,7 @@
 #include "resp3.h"
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "../src/util/hash/hash.h"
 
 // Type of field returned in INFO
 typedef enum {
@@ -104,7 +105,7 @@ typedef struct {
   MRReply *indexOptions;
   size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
-  FieldSpecInfo *fieldSpecInfo_arr;
+  AggregatedFieldSpecInfo *fieldSpecInfo_arr;
   IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
@@ -170,18 +171,18 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   size_t len = MRReply_Length(src);
   if (!fields->fieldSpecInfo_arr) {
     // Lazy initialization
-    fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
+    fields->fieldSpecInfo_arr = array_new(AggregatedFieldSpecInfo, len);
     for (size_t i = 0; i < len; i++) {
-      FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
+      AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Init();
       array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
     }
   }
 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
-    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
-    FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
+    AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    AggregatedFieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
 
@@ -293,7 +294,7 @@ static void cleanInfoReply(InfoFields *fields) {
   if (fields->fieldSpecInfo_arr) {
     // Clear the info fields
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); i++) {
-      FieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
+      AggregatedFieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
     }
     array_free(fields->fieldSpecInfo_arr);
     fields->fieldSpecInfo_arr = NULL;
@@ -329,7 +330,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
-static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
+static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -370,12 +371,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0);
+  IndexError_Reply(&fields->indexError, reply, 0, obfuscate);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
-      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0);
+      AggregatedFieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0, obfuscate);
     }
     RedisModule_Reply_ArrayEnd(reply); // >Field statistics
   }
@@ -427,7 +428,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else {
-    generateFieldsReply(&fields, reply);
+    generateFieldsReply(&fields, reply, false);
   }
 
   cleanInfoReply(&fields);

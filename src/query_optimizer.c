@@ -28,7 +28,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name);
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -74,7 +74,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !strcmp(name, node->nn.nf->fieldName)) {
+      if (name && !HiddenString_CompareC(node->nn.nf->field->fieldName, name, strlen(name))) {
         ret = node;
       }
       break;

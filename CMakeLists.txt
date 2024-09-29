@@ -65,6 +65,10 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+include(${root}/build/boost/boost.cmake)
+set(BOOST_ROOT ${BOOST_DIR})
+set(Boost_NO_WARN_NEW_VERSIONS ON)
+
 include_directories(
     ${root}/src
     ${root}/deps
@@ -84,6 +88,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/util/hash)
 
 #----------------------------------------------------------------------------------------------
 
@@ -149,7 +154,7 @@ elseif (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -159,7 +164,7 @@ else() # OSS RediSearch
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometryredisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
 

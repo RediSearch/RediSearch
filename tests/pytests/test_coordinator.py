@@ -113,8 +113,8 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('No index exists with provided name idx')
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('No index exists with provided name idx')
 
     # Bad query
     # create the index

@@ -196,7 +196,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -204,7 +204,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_SIZE:
       if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }

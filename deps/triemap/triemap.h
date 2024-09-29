@@ -95,7 +95,7 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
  * call it to free individual payload values. If not, free() is used instead. */
 void TrieMap_Free(TrieMap *t, freeCB func);
 
-size_t TrieMap_MemUsage(TrieMap *t);
+size_t TrieMap_MemUsage(const TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet
  * ***********/

@@ -13,6 +13,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "info/field_spec_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -89,8 +90,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  char *name;
-  char *path;
+  HiddenString *fieldName;
+  HiddenString *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
@@ -151,12 +152,19 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
+
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */
-void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+void FieldSpec_AddError(FieldSpec *, const char *shortError, const char *detailedError, RedisModuleString *key);
+
+static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
+  FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 

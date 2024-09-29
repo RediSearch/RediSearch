@@ -11,6 +11,7 @@
 #include <limits.h>
 #include "fork_gc.h"
 #include "info/indexes_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -101,8 +102,8 @@ struct RSIdxOptions {
 };
 
 struct RSIdxField {
-  char *path;
-  char *name;
+  HiddenString *path;
+  HiddenString *name;
 
   int types;
   int options;
@@ -174,7 +175,7 @@ MODULE_API_FUNC(int, RediSearch_ValidateLanguage)(const char*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
 
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
-(const char* name, const RSIndexOptions* options);
+(const char *name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
@@ -236,15 +237,15 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, RedisModuleString* s, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
-(RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, const char* s, size_t n, unsigned indexAsTypes);
 #define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.
@@ -252,7 +253,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
  * otherwise, returns REDISMODULE_OK
  */
 MODULE_API_FUNC(int, RediSearch_DocumentAddFieldGeo)
-(RSDoc* d, const char* fieldName, double lat, double lon, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldname, double lat, double lon, unsigned indexAsTypes);
 
 /**
  * Replace document if it already exists
@@ -314,6 +315,8 @@ MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
 MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
+
+MODULE_API_FUNC(const char*, RediSearch_HiddenStringGet)(const HiddenString* hs);
 
 /**
  * Return an iterator over the results of the specified query string

@@ -31,7 +31,7 @@ int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
   errno = 0;
   *target = strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
+    QERR_MKBADARGS_FMT(status, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
