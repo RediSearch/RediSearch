@@ -3,7 +3,8 @@ name: "search-expired-numeric-field-10-milliseconds"
 description: "
              We want to check our ttl table performance, edge cases we need to consider when modifying expiration tests:
              - we want to keep an existing dataset, if we actually expire documents during the test we will decrease our keyspace size
-             - if we reach a point where every single field is set to be expired then there will be a hot path which might not represent real world usage 
+             - if we reach a point where every single field is set to be expired then there will be a hot path which might not represent real world usage
+             This specific benchmark focuses on lazy expiration by disabling active expiration 
              "
 metadata:
   component: "search"
