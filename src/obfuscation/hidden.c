@@ -1,6 +1,8 @@
 #include "hidden.h"
 #include "rmalloc.h"
 #include "obfuscation_api.h"
+#include "minmax.h"
+#include "redisindex.h"
 
 typedef struct {
   const char* user;
@@ -14,11 +16,11 @@ typedef struct {
 } UserAndObfuscatedUInt64;
 
 typedef struct {
-  const char *user;
+  char *user;
   uint64_t length;
 } UserString;
 
-HiddenString* NewHiddenString(const char* str, uint64_t length) {
+HiddenString* HideAndObfuscateString(const char* str, uint64_t length) {
   UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
   value->user = str;
   value->length = length;
@@ -26,7 +28,7 @@ HiddenString* NewHiddenString(const char* str, uint64_t length) {
   return (HiddenString*)value;
 }
 
-HiddenSize* NewHiddenSize(uint64_t num) {
+HiddenSize* HideAndObfuscateNumber(uint64_t num) {
   UserAndObfuscatedUInt64* value = rm_malloc(sizeof(*value));
   value->user = num;
   value->obfuscated = 0;
@@ -35,22 +37,76 @@ HiddenSize* NewHiddenSize(uint64_t num) {
 
 HiddenName* NewHiddenName(const char* name, uint64_t length) {
   UserString* value = rm_malloc(sizeof(*value));
-  value->user = name;
+  value->user = rm_strndup(name, length);
   value->length = length;
   return (HiddenName*)value;
 };
 
-void FreeHiddenString(HiddenString* hs) {
+void HiddenString_Free(HiddenString* hs) {
   UserAndObfuscatedString* value = (UserAndObfuscatedString*)hs;
   rm_free(value);
 };
 
-void FreeHiddenSize(HiddenSize* hn) {
+void HiddenSize_Free(HiddenSize* hn) {
   UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
   rm_free(value);
 };
 
-void FreeHiddenName(HiddenName* hn) {
-  UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
+void HiddenName_Free(HiddenName* hn) {
+  UserString* value = (UserString*)hn;
+  rm_free(value->user);
   rm_free(value);
 };
+
+int HiddenName_Compare(HiddenName* left, HiddenName* right) {
+  UserString* l = (UserString*)left;
+  UserString* r = (UserString*)right;
+  int result = strncmp(l->user, r->user, MIN(l->length, r->length));
+  if (result != 0 || l->length == r->length) {
+    return result;
+  } else {
+    return l->length < r->length ? -1 : 1;
+  }
+}
+
+void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
+  UserString* s = (UserString*)src;
+  if (*dst == NULL) {
+    *dst = NewHiddenName(s->user, s->length);
+  } else {
+    UserString* d = (UserString*)*dst;
+    if (s->length > d->length) {
+      d->user = rm_realloc(d->user, s->length);
+      d->length = s->length;
+    }
+    strncpy(d->user, s->user, s->length);
+    if (d->length > s->length) {
+      memset(d->user + s->length, 0, d->length - s->length);
+    }
+  }
+}
+
+void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
+  UserString* text = (UserString*)value;
+  RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
+}
+
+void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply) {
+  UserString* text = (UserString*)value;
+  REPLY_KV_
+  if (isUnsafeForSimpleString(text->user)) {
+    char *escaped = escapeSimpleString(text->user);
+    RedisModule_Reply_SimpleString(reply, escaped);
+    rm_free(escaped);
+  } else {
+    RedisModule_Reply_SimpleString(reply, text->user);
+  }
+}
+
+void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value) {
+  UserString* text = (UserString*)value;
+  RedisModuleString *str =
+      RedisModule_CreateStringPrintf(redisCtx, fmt, text->user);
+  Redis_DeleteKey(redisCtx, str);
+  RedisModule_FreeString(redisCtx, str);
+}
