@@ -939,7 +939,9 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
-    info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
+    size_t index_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += index_mem;
+    if (info.total_mem < index_mem) info.total_mem = index_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
