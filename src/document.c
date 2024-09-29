@@ -182,14 +182,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    size_t len = sp->nameLen + 1;
-    if (aCtx->specName == NULL) {
-      aCtx->specName = rm_malloc(len);
-    } else if (len > aCtx->specNameLen) {
-      aCtx->specName = rm_realloc(aCtx->specName, len);
-      aCtx->specNameLen = len;
-    }
-    strncpy(aCtx->specName, sp->name, len);
+    HiddenName_Clone(sp->name, &aCtx->specName);
     aCtx->specId = sp->uniqueId;
   }
   RS_LOG_ASSERT(sp->indexer, "No indexer");

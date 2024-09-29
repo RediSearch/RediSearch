@@ -8,6 +8,7 @@
 #include "geometry/geometry_api.h"
 #include "rmalloc.h"
 #include "field_spec.h"
+#include "obfuscation/obfuscation_api.h"
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
@@ -21,7 +22,9 @@ RedisModuleType *GeometryIndexType = NULL;
 #define GEOMETRYINDEX_KEY_FMT "gm:%s/%s"
 
 RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, ctx->spec->name, field);
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(ctx->spec->uniqueId, name);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, name, field);
 }
 
 static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleString *keyName,

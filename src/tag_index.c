@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
+#include "obfuscation/obfuscation_api.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -281,7 +282,9 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 
 /* Format the key name for a tag index */
 RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(sctx->spec->uniqueId, name);
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, name, field);
 }
 
 static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {

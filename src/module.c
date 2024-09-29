@@ -719,9 +719,11 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_ERR;
   }
 
-  const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef alias_ref = IndexAlias_Get(alias);
+  size_t length = 0;
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  StrongRef alias_ref = IndexAlias_Get(rawAlias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
+    HiddenName *alias = NewHiddenName(rawAlias, length);
     return IndexAlias_Add(alias, ref, 0, error);
   }
   return REDISMODULE_OK;
@@ -762,8 +764,11 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
 
+  size_t length = 0;
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenName *alias = NewHiddenName(rawAlias, length);
   QueryError status = {0};
-  if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), ref, 0, &status) != REDISMODULE_OK) {
+  if (IndexAlias_Del(alias, ref, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
@@ -795,7 +800,9 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
-    if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
+    size_t length = 0;
+    HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length);
+    if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
       return QueryError_ReplyAndClear(ctx, &status);
     }
   }
@@ -803,7 +810,8 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {
       QueryError e2 = {0};
-      const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
+      size_t length = 0;
+      HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length);
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
@@ -867,13 +875,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      if (isUnsafeForSimpleString(sp->name)) {
-        char *escaped = escapeSimpleString(sp->name);
-        RedisModule_Reply_SimpleString(reply, escaped);
-        rm_free(escaped);
-      } else {
-        RedisModule_Reply_SimpleString(reply, sp->name);
-      }
+      HiddenName_SendInReply(sp->name, reply);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

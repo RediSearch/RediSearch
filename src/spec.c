@@ -30,6 +30,7 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
+#include "obfuscation/obfuscation_api.h"
 #include "util/workers.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -211,7 +212,9 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
+  size_t length = 0;
+  HiddenName* hiddenName = NewHiddenName(RedisModule_StringPtrLen(name, &length), length);
+  return IndexSpec_Parse(hiddenName, args, argc, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -262,7 +265,9 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     // the spec was already deleted, nothing to do here
     return;
   }
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", sp->name);
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(sp->uniqueId, name);
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", name);
 
   sp->isTimerSet = false;
   if (RS_IsMock) {
@@ -276,7 +281,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     }
   }
 
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer: done", sp->name);
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index '%s' by timer: done", name);
   StrongRef_Release(spec_ref);
 }
 
@@ -1208,7 +1213,7 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_Parse(HiddenName *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
@@ -1720,13 +1725,12 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *NewIndexSpec(const char *name) {
+IndexSpec *NewIndexSpec(HiddenName *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = rm_strdup(name);
-  sp->nameLen = strlen(name);
+  sp->name = name;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -1847,8 +1851,11 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
     sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
-    RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
-    RedisModule_Log(ctx, "debug", "Starting GC %p for index %s", sp->gc, sp->name);
+
+    char name[MAX_OBFUSCATED_INDEX_NAME];
+    Obfuscate_Index(sp->uniqueId, name);
+    RedisModule_Log(ctx, "verbose", "Starting GC for index %s", name);
+    RedisModule_Log(ctx, "debug", "Starting GC %p for index %s", sp->gc, name);
   }
 }
 
@@ -2085,14 +2092,15 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
-  scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
+  scanner->spec_id = spec->uniqueId;
 
   // scan already in progress?
   if (spec->scanner) {
     // cancel ongoing scan, keep on_progress indicator on
+    char name[MAX_OBFUSCATED_INDEX_NAME];
+    Obfuscate_Index(spec->uniqueId, name);
     IndexesScanner_Cancel(spec->scanner);
-    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted",
-                    spec->name);
+    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
@@ -2115,7 +2123,6 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
     }
     WeakRef_Release(scanner->spec_ref);
   }
-  if (scanner->spec_name) rm_free(scanner->spec_name);
   rm_free(scanner);
 }
 
@@ -2189,7 +2196,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name);
+    char name[MAX_OBFUSCATED_INDEX_NAME];
+    Obfuscate_Index(scanner->spec_id, name);
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background", name);
   }
 
   size_t counter = 0;
@@ -2219,8 +2228,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
                     scanner->scannedKeys);
   } else {
+    char name[MAX_OBFUSCATED_INDEX_NAME];
+    Obfuscate_Index(scanner->spec_id, name);
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                    scanner->spec_name, scanner->scannedKeys);
+                    name, scanner->scannedKeys);
   }
 
 end:
@@ -2242,7 +2253,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
 #ifdef _DEBUG
-  RedisModule_Log(NULL, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
+  Obfuscate_Index(spec->uniqueId, name);
+  RedisModule_Log(NULL, "notice", "Register index %s for async scan", name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(spec_ref);
   redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
@@ -2438,10 +2452,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
     }
   }
-  RedisModuleString *str =
-      RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
-  Redis_DeleteKey(ctx.redisCtx, str);
-  RedisModule_FreeString(ctx.redisCtx, str);
+  HiddenName_DropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->name);
 }
 
 void Indexes_UpgradeLegacyIndexes() {
@@ -2495,11 +2506,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->sortables = NewSortingTable();
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-  sp->nameLen = strlen(sp->name);
-  char *tmpName = rm_strdup(sp->name);
-  RedisModule_Free(sp->name);
-  sp->name = tmpName;
+  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  size_t len = strlen(rawName);
+  sp->name = NewHiddenName(rawName, len);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -2575,9 +2584,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    int rc = IndexAlias_Add(s, spec_ref, 0, &_status);
+    HiddenName* alias = NewHiddenName(s, strlen(s));
+    int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
+      HiddenName_Free(alias);
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
   }
@@ -2620,7 +2631,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
-  char *name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
@@ -2631,9 +2642,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = rm_strdup(name);
-  sp->nameLen = strlen(sp->name);
-  RedisModule_Free(name);
+
+  sp->name = NewHiddenName(legacyName, strlen(legacyName));
+  RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -2687,17 +2698,20 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      int rc = IndexAlias_Add(s, spec_ref, 0, &status);
+      HiddenName* alias = NewHiddenName(s, strlen(s));
+      int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
   }
   sp->indexer = NewIndexer(sp);
 
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(sp->uniqueId, name);
   SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->name);
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
-                           "Could not find upgrade definition for legacy index '%s'", sp->name);
+                           "Could not find upgrade definition for legacy index '%s'", name);
     StrongRef_Release(spec_ref);
     return NULL;
   }
@@ -2710,7 +2724,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
-                           sp->name, QueryError_GetError(&status));
+                           name, QueryError_GetError(&status));
     StrongRef_Release(spec_ref);
     return NULL;
   }
@@ -2759,7 +2773,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     // we save the name plus the null terminator
-    RedisModule_SaveStringBuffer(rdb, sp->name, sp->nameLen + 1);
+    HiddenName_SaveToRdb(sp->name, rdb);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {
@@ -2787,7 +2801,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     if (sp->aliases) {
       RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
       for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-        RedisModule_SaveStringBuffer(rdb, sp->aliases[ii], strlen(sp->aliases[ii]) + 1);
+        HiddenName_SaveToRdb(sp->aliases[ii], rdb);
       }
     } else {
       RedisModule_SaveUnsigned(rdb, 0);
@@ -2892,7 +2906,9 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
-    RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
+    char name[MAX_OBFUSCATED_INDEX_NAME];
+    Obfuscate_Index(spec->uniqueId, name);
+    RedisModule_Log(ctx, "warning", "Index spec '%s': no rule found", name);
     return REDISMODULE_ERR;
   }
 

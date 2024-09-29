@@ -16,8 +16,8 @@ extern "C" {
 
 typedef struct {
   struct dict *d;
-  void (*on_add)(const char *alias, const IndexSpec *spec);
-  void (*on_del)(const char *alias, const IndexSpec *spec);
+  void (*on_add)(const HiddenName *alias, const IndexSpec *spec);
+  void (*on_del)(const HiddenName *alias, const IndexSpec *spec);
 } AliasTable;
 
 extern AliasTable *AliasTable_g;
@@ -31,8 +31,8 @@ AliasTable *AliasTable_New(void);
 void IndexAlias_InitGlobal(void);
 void IndexAlias_DestroyGlobal(AliasTable **t);
 
-int IndexAlias_Add(const char *alias, StrongRef spec, int options, QueryError *status);
-int IndexAlias_Del(const char *alias, StrongRef spec, int options, QueryError *status);
+int IndexAlias_Add(HiddenName *alias, StrongRef spec, int options, QueryError *status);
+int IndexAlias_Del(HiddenName *alias, StrongRef spec, int options, QueryError *status);
 StrongRef IndexAlias_Get(const char *alias);
 
 #ifdef __cplusplus
