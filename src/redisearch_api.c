@@ -941,7 +941,7 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     pthread_rwlock_rdlock(&sp->rwlock);
     size_t index_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
     info.total_mem += index_mem;
-    if (info.total_mem < index_mem) info.total_mem = index_mem;
+    if (info.largest_index_mem < index_mem) info.largest_index_mem = index_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
