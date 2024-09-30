@@ -342,12 +342,11 @@ def testFtInfo(env):
   res = to_dict(env.cmd('FT.INFO idx1'))
   env.assertEqual(float(res[info_key_name]), cur_usage)
 
-  doc_num = 1000
+  doc_num = 10000
 
   # Memory usage should increase
   usage = 0
   for i in range(1, doc_num + 1):
-    print("running doc", i)
     conn.execute_command('HSET', f'doc{i}', 'geom', f'POLYGON(({2*i} {2*i}, {2*i} {100+2*i}, {100+2*i} {100+2*i}, {100+2*i} {2*i}, {2*i} {2*i}))')
     # Ingest of geoshape attribute should increase mem usage
     res = to_dict(env.cmd('FT.INFO idx1'))
