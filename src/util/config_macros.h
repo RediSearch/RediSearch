@@ -49,8 +49,4 @@
     RETURN_STATUS(acrc);                       \
   }
 
-#ifdef RS_COORDINATOR
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)
-#else
-#define COORDINATOR_TRIGGER()
-#endif

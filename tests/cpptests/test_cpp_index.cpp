@@ -1,3 +1,7 @@
+extern "C" {
+#include "hiredis/sds.h"
+}
+
 #include "src/buffer.h"
 #include "src/index.h"
 #include "src/inverted_index.h"

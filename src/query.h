@@ -16,7 +16,7 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "redisearch.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
 #include "query_error.h"

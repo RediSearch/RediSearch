@@ -1311,12 +1311,10 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithCString(ctx, c->name);
     ++len;
   }
-#ifdef RS_COORDINATOR
   for (size_t i = 0; coordCommandsNames[i]; i++) {
     RedisModule_ReplyWithCString(ctx, coordCommandsNames[i]);
     ++len;
   }
-#endif
   RedisModule_ReplySetArrayLength(ctx, len);
   return REDISMODULE_OK;
 }
