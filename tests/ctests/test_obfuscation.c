@@ -1,25 +1,28 @@
-
 #include "test_util.h"
+#include "src/obfuscation/obfuscation_api.h"
 
 #include <stdlib.h>
 #include <string.h>
-#include <cstdint>
 
-struct QueryNode;
-char *Obfuscate_QueryNode(struct QueryNode *node);
+struct RSQueryNode;
+char *Obfuscate_QueryNode(struct RSQueryNode *node);
+
+enum {
+    IndexSize = MAX_OBFUSCATED_INDEX_NAME,
+    FieldSize = MAX_OBFUSCATED_FIELD_NAME,
+    DocumentSize = MAX_OBFUSCATED_DOCUMENT_NAME
+};
 
 #define DEFINE_OBJECT_OBFUSCATION_TESTS(name)                      \
 int testSimple ## name ## Obfuscation() {                          \
-    char *obfuscated = Obfuscate_##name(1);                        \
-    int result = strcmp(obfuscated, #name"@1");                    \
-    rm_free(obfuscated);                                           \
-    return result;                                                 \
+    char obfuscated[name##Size];                                   \
+    Obfuscate_##name(1, obfuscated);                               \
+    return strcmp(obfuscated, #name"@1");                          \
 }                                                                  \
 int testMax ## name ## Obfuscation() {                             \
-    char *obfuscated = Obfuscate_##name(UINT64_MAX);               \
-    int result = strcmp(obfuscated, #name"@18446744073709551615"); \
-    rm_free(obfuscated);                                           \
-    return result;                                                 \
+    char obfuscated[name##Size];                                   \
+    Obfuscate_##name(UINT64_MAX, obfuscated);                      \
+    return strcmp(obfuscated, #name"@18446744073709551615");       \
 }
 
 DEFINE_OBJECT_OBFUSCATION_TESTS(Index)
