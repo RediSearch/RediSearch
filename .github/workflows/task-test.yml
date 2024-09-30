@@ -108,14 +108,14 @@ jobs:
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
         with:
-          repository: redis/redis
+          repository: meiravgri/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
         uses: actions/checkout@v3
         with:
-          repository: redis/redis
+          repository: meiravgri/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis

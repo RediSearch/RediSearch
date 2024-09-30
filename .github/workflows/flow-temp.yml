@@ -27,8 +27,9 @@ jobs:
     secrets: inherit
     with:
       coordinator: true
-      redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
+      # redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
       # redis-ref: unstable
+      redis-ref: meiravg_add_cpp_compilation_flags
       test-config: QUICK=1
       fail-fast: false
       platform: "rockylinux:8"
@@ -41,9 +42,9 @@ jobs:
     secrets: inherit
     with:
       coordinator: true
-      redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
+      # redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
       # redis-ref: unstable
-      # redis-ref: meiravg_add_cpp_compilation_flags
+      redis-ref: meiravg_add_cpp_compilation_flags
       test-config: QUICK=1
       fail-fast: false
       platform: "amazonlinux:2"
