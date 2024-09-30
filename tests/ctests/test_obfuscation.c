@@ -1,4 +1,5 @@
 #include "test_util.h"
+#include "src/query_node.h"
 #include "src/obfuscation/obfuscation_api.h"
 
 #include <stdlib.h>
@@ -59,6 +60,34 @@ int testGeoShapeObfuscation() {
     return strcmp(obfuscated, "GeoShape");
 }
 
+int testQueryNodeObfuscation() {
+    const char* expected[] = {
+        "Phrase",
+        "Union",
+        "Token",
+        "Numeric",
+        "Not",
+        "Optional",
+        "Geo",
+        "Geometry",
+        "Prefix",
+        "Ids",
+        "Wildcard",
+        "Tag",
+        "Fuzzy",
+        "Lexrange",
+        "Vector"
+    };
+    for (int i = QN_PHRASE; i < QN_MAX; ++i) {
+        struct RSQueryNode node = {
+            .type = i,
+        };
+        char *obfuscated = Obfuscate_QueryNode(&node);
+        ASSERT(strcmp(obfuscated, expected[i - 1]) == 0);
+    }
+    return 0;
+}
+
 TEST_MAIN({
     TESTFUNC(testSimpleIndexObfuscation);
     TESTFUNC(testMaxIndexObfuscation);
@@ -72,4 +101,5 @@ TEST_MAIN({
     TESTFUNC(testTagObfuscation);
     TESTFUNC(testGeoObfuscation);
     TESTFUNC(testGeoShapeObfuscation);
+    TESTFUNC(testQueryNodeObfuscation);
 })
