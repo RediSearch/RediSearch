@@ -27,6 +27,9 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      test-timeout:
+        type: number
+        default: 50
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
@@ -134,15 +137,18 @@ jobs:
       - name: Build
         run: make SAN=${{ inputs.san }}
       - name: Unit tests
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test1
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: true
