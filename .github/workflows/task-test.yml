@@ -108,14 +108,14 @@ jobs:
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
         with:
-          repository: meiravgri/redis
+          repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
         uses: actions/checkout@v3
         with:
-          repository: meiravgri/redis
+          repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Build Redis
@@ -141,12 +141,12 @@ jobs:
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} TEST=test_geometry_flat:testSanitySearchPointWithin
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         id: test3
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} TEST=test_geometry_flat:testSanitySearchPointWithin
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
