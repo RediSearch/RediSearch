@@ -98,6 +98,7 @@ jobs:
         with:
           submodules: recursive
       - name: Setup common
+        timeout-minutes: 60 # We expect this to be fast
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Install Boost
