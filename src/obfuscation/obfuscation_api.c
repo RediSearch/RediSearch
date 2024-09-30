@@ -40,7 +40,7 @@ char *Obfuscate_GeoShape() {
   return "GeoShape";
 }
 
-char *Obfuscate_QueryNode(struct QueryNode *node) {
+char *Obfuscate_QueryNode(struct RSQueryNode *node) {
   switch (node->type) {
     case QN_PHRASE:
       return "Phrase";

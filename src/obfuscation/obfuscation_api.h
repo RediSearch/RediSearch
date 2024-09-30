@@ -21,7 +21,7 @@ char *Obfuscate_Tag(const char* tag);
 char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
 char *Obfuscate_GeoShape();
 
-struct QueryNode;
-char *Obfuscate_QueryNode(struct QueryNode *node);
+struct RSQueryNode;
+char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 #endif //OBFUSCATION_API_H
