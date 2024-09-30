@@ -36,12 +36,12 @@ int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
-RefManager* RediSearch_CreateIndex(HiddenName* name, const RSIndexOptions* options) {
+RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
   RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK, .stopwordsLen = -1};
   if (!options) {
     options = &opts_s;
   }
-  IndexSpec* spec = NewIndexSpec(name);
+  IndexSpec* spec = NewIndexSpec(NewHiddenName(name, strlen(name)));
   StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!

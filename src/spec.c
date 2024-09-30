@@ -222,9 +222,7 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  size_t length = 0;
-  HiddenName* hiddenName = NewHiddenName(RedisModule_StringPtrLen(name, &length), length);
-  return IndexSpec_Parse(hiddenName, args, argc, status);
+  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1268,8 +1266,10 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(HiddenName *name, const char **argv, int argc, QueryError *status) {
-  IndexSpec *spec = NewIndexSpec(name);
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+  size_t length = 0;
+  HiddenName* hiddenName = NewHiddenName(name, length);
+  IndexSpec *spec = NewIndexSpec(hiddenName);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
