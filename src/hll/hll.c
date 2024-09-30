@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <math.h>
-#include <stdbit.h>
 #include <string.h>
 
 #include <stdio.h>
@@ -18,7 +17,7 @@
 #include "rmalloc.h"
 
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
-  uint8_t rank = hash ? stdc_trailing_zeros(hash) : 32; // index of first set bit
+  uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
   return (rank > max ? max : rank) + 1;
 }
 
@@ -114,13 +113,13 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
 }
 
 int hll_load(struct HLL *hll, const void *registers, size_t size) {
-  if (!stdc_has_single_bit(size)) {
+  if (__builtin_popcountll(size) != 1) {
     errno = EINVAL; // size must be a power of 2 - a single bit set
     return -1;
   }
 
   // Since `size` is a power of 2, the number of training zeros is the log2 of `size`
-  if (hll_init(hll, stdc_trailing_zeros(size)) == -1) return -1;
+  if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
 
