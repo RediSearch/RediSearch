@@ -100,7 +100,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  REPLY_KVSTR_SAFE("index_name", sp->name);
+  HiddenName_SendInReplyAsKeyValue(sp->name, "index_name", reply);
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);
