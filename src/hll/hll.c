@@ -122,7 +122,7 @@ int hll_load(struct HLL *hll, const void *registers, size_t size) {
     return -1;
   }
 
-  // Since `size` is a power of 2, the number of training zeros is the log2 of `size`
+  // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
   if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
