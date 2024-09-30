@@ -21,6 +21,10 @@ static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   return (rank > max ? max : rank) + 1;
 }
 
+/*
+ * @param bits: The number of bits to use for the register index.
+ *              The expected error rate is 1.04 / sqrt(2^bits)
+ */
 int hll_init(struct HLL *hll, uint8_t bits) {
   if (bits < 4 || bits > 20) {
     errno = ERANGE;

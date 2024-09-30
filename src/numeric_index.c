@@ -203,7 +203,7 @@ static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, Numeric
   return split;
 }
 
-#define BIT_PRECISION 6 // TODO: what is the right precision here?
+#define BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
 
 NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
@@ -220,7 +220,6 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .minVal = INFINITY,
       .maxVal = -INFINITY,
       .splitCard = splitCard,
-      //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
       .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
   };
 
