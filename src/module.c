@@ -875,7 +875,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      HiddenName_SendInReply(sp->name, reply);
+      HiddenName_SendInReplyAsString(sp->name, reply);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

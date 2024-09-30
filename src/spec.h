@@ -470,7 +470,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(HiddenName *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
