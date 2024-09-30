@@ -1,8 +1,10 @@
 #include "hidden.h"
 #include "rmalloc.h"
 #include "obfuscation_api.h"
-#include "minmax.h"
-#include "redisindex.h"
+#include "util/minmax.h"
+#include "redis_index.h"
+#include "query_node.h"
+#include "reply_macros.h"
 
 typedef struct {
   const char* user;
@@ -93,7 +95,6 @@ void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
 
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply) {
   UserString* text = (UserString*)value;
-  REPLY_KV_
   if (isUnsafeForSimpleString(text->user)) {
     char *escaped = escapeSimpleString(text->user);
     RedisModule_Reply_SimpleString(reply, escaped);
@@ -101,6 +102,11 @@ void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply)
   } else {
     RedisModule_Reply_SimpleString(reply, text->user);
   }
+}
+
+void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply) {
+  UserString* text = (UserString*)value;
+  REPLY_KVSTR_SAFE(key, text->user);
 }
 
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value) {

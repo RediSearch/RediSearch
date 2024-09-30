@@ -25,7 +25,8 @@ void HiddenName_Free(HiddenName *value);
 
 int HiddenName_Compare(HiddenName *left, HiddenName *right);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
-void HiddenName_SendInReply(HiddenName* value, RedisModule_Reply* reply);
+void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
+void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply);
 
 void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
