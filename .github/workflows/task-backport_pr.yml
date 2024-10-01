@@ -7,11 +7,9 @@ on:
     types: [closed]
   issue_comment:
     types: [created]
-
 permissions:
   contents: write # so it can comment
   pull-requests: write # so it can create pull requests
-
 jobs:
   backport:
     name: Backport pull request
