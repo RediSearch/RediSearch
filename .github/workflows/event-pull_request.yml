@@ -27,7 +27,7 @@ jobs:
     with:
       env: ${{ vars.RUNS_ON }}
       test-config: QUICK=1
-      get-redis: meiravg_static_link_libstc++
+      get-redis: unstable
     secrets: inherit
 
   coverage:
