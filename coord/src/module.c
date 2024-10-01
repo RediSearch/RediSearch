@@ -27,6 +27,7 @@
 #include "profile.h"
 #include "resp3.h"
 #include "debug_commands.h"
+#include "global_stats.h"
 
 #include "libuv/include/uv.h"
 
@@ -1496,6 +1497,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   } else {
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
   }
+
+  TotalGlobalStats_CountQuery();
 
 cleanup:
   RedisModule_EndReply(reply);
