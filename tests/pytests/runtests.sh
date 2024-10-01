@@ -215,11 +215,11 @@ setup_clang_sanitizer() {
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-unstable}
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-8.0}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			V="$VERBOSE" runn $READIES/bin/getredis --force -b unstable --own-openssl --no-run \
-				--suffix asan-${unstable} --clang-asan --clang-san-blacklist $ignorelist
+			V="$VERBOSE" runn $READIES/bin/getredis --force -b 8.0 --own-openssl --no-run \
+				--suffix asan-8.0 --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
 		# RLTest places log file details in ASAN_OPTIONS
