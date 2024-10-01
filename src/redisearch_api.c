@@ -192,6 +192,16 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   return fs->index;
 }
 
+void RediSearch_IndexExisting(RefManager* rm, SchemaRuleArgs* args) {
+  RWLOCK_ACQUIRE_WRITE();
+  IndexSpec *sp = __RefManager_Get_Object(rm);
+  if (!sp->rule) {
+    sp->rule = SchemaRule_Create(args, IndexSpec_GetStrongRefUnsafe(sp), NULL);
+  }
+  sp->rule->index_all = true;
+  RWLOCK_RELEASE();
+}
+
 void RediSearch_TextFieldSetWeight(RefManager* rm, RSFieldID id, double w) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
   FieldSpec* fs = sp->fields + id;
