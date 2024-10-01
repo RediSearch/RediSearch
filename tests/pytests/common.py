@@ -10,11 +10,14 @@ from functools import wraps
 import signal
 import platform
 import itertools
+from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
+import RLTest
 from typing import Any, Callable
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
+from scipy import spatial
 from pprint import pprint as pp
 from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
