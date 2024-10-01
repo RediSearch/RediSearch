@@ -4,8 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_FIELDSSTATS_H_
-#define RS_FIELDSSTATS_H_
+#pragma once
 
 #include "spec.h"
 
@@ -31,6 +30,18 @@ typedef struct {
   size_t numVectorFieldsHNSW;
 } FieldsGlobalStats;
 
+typedef struct {
+  size_t total_queries;
+} TotalGlobalStats;
+
+// The global stats object type
+typedef struct {
+  FieldsGlobalStats fieldsStats;
+  TotalGlobalStats totalStats;
+} GlobalStats;
+
+extern GlobalStats RSGlobalStats;
+
 /**
  * Check the type of the the given field and update RSGlobalConfig.fieldsStats
  * according to the given toAdd value.
@@ -42,4 +53,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
  */
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
-#endif
+/**
+ * Increase the total number of executed queries by 1.
+ */
+void TotalGlobalStats_CountQuery(void);

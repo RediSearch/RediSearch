@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "util/workers.h"
+#include "global_stats.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

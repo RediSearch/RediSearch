@@ -260,6 +260,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
   REPLY_KVINT("number_of_uses", sp->counter);
+  REPLY_KVINT("unique_queries", sp->stats.totalUniqueQueries);
 
   REPLY_KVINT("cleaning", CleanInProgressOrPending());
 

@@ -1604,6 +1604,9 @@ void AREQ_Free(AREQ *req) {
       thctx = req->sctx->redisCtx;
       req->sctx->redisCtx = NULL;
     }
+    if (req->stateflags & QEXEC_S_ITERDONE) {
+      IndexSpec_CountExecution(req->sctx->spec);
+    }
     // Here we unlock the spec
     SearchCtx_Free(req->sctx);
   }

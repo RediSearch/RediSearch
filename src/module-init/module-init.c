@@ -27,6 +27,7 @@
 #include "fork_gc.h"
 #include "info_command.h"
 #include "profile.h"
+#include "global_stats.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -143,7 +144,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Query statistics
   RedisModule_InfoAddSection(ctx, "queries");
-  RedisModule_InfoAddFieldLongLong(ctx, "total_queries", total_info.total_queries);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_queries", RSGlobalStats.totalStats.total_queries);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_unique_queries", total_info.unique_queries);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);

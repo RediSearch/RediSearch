@@ -9,7 +9,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
-#include "fields_global_stats.h"
+#include "reply.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -109,8 +109,6 @@ typedef struct {
   size_t minPhoneticTermLen;
 
   GCConfig gcConfigParams;
-
-  FieldsGlobalStats fieldsStats;
 
   // Chained configuration data
   void *chainedConfig;

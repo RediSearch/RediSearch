@@ -85,6 +85,9 @@ typedef enum {
   // Set the score of the doc to an RLookupKey in the result
   QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
 
+  // The query is internal (responding to a command from the coordinator)
+  QEXEC_F_INTERNAL = 0x400000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -97,6 +100,7 @@ typedef enum {
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
