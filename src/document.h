@@ -54,9 +54,9 @@ typedef enum {
   FLD_VAR_T_NULL = 0x80,
 } FieldVarType;
 
-typedef struct DocumentField{
-  const char *name;  // Can either be char or RMString
-  const char *path;
+typedef struct DocumentField {
+  const HiddenName *name;
+  // const HiddenString *path;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -206,10 +206,6 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
 void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t nargs);
 void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 
-/**
- * Print contents of document to screen
- */
-void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
