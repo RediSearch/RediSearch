@@ -15,7 +15,7 @@ typedef struct HiddenSizeStruct HiddenSize;
 typedef struct HiddenNameStruct HiddenName;
 
 // Hides the string and obfustaces it
-HiddenString *HideAndObfuscateString(const char *str, uint64_t length, bool takeOwnership);
+HiddenString *HideAndObfuscateString(char *str, uint64_t length, bool takeOwnership);
 // Hides the size and obfustaces it
 HiddenSize *HideAndObfuscateNumber(uint64_t num);
 // Hides the string, obfuscation is done elsewhere

@@ -7,7 +7,7 @@
 #include "reply_macros.h"
 
 typedef struct {
-  const char* user;
+  char* user;
   uint64_t length;
   char* obfuscated;
 } UserAndObfuscatedString;
@@ -22,7 +22,7 @@ typedef struct {
   uint64_t length;
 } UserString;
 
-HiddenString* HideAndObfuscateString(const char* str, uint64_t length, bool takeOwnership) {
+HiddenString* HideAndObfuscateString(char* str, uint64_t length, bool takeOwnership) {
   UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
   value->user = str;
   if (takeOwnership) {
@@ -60,6 +60,7 @@ void HiddenString_Free(HiddenString* hs, bool tookOwnership) {
 
 void HiddenSize_Free(HiddenSize* hn) {
   UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
+  rm_free(value->user);
   rm_free(value);
 };
 

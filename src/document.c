@@ -23,6 +23,7 @@
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/obfuscation_api.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -75,7 +76,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->name);
     if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
@@ -239,17 +240,6 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
-
-// LCOV_EXCL_START debug
-void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-         doc->docId);
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
-           RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
-  }
-}
-// LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
@@ -961,7 +951,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }
@@ -972,7 +962,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, f->name);
+      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, HiddenString_Get(sctx->spec->fields[f->index].name, false));
       if (idx < 0) continue;
 
       if (!md->sortVector) {

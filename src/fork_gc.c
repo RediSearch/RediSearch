@@ -433,7 +433,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = numericFields[i]->name,
+                           .field = HiddenString_Get(numericFields[i]->name, false),
                            .uniqueId = rt->uniqueId};
 
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
@@ -486,7 +486,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = tagFields[i]->name,
+                             .field = HiddenName_GetUnsafe(tagFields[i]->name, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);

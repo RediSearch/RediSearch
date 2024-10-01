@@ -66,10 +66,10 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, HiddenString_Get(fs->path, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, HiddenString_Get(fs->name, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }
