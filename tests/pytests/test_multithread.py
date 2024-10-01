@@ -310,7 +310,7 @@ def test_async_updates_sanity():
 
         # Invoke GC, so we clean zombies for which all their repair jobs are done. We run in background
         # so in case child process is not receiving cpu time, we do not hang the gc thread in the parent process.
-        forceInvokeGC(env, idx='idx', timeout=None, run_in_background=True)
+        forceInvokeGC(env, run_in_background=True)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
@@ -324,7 +324,7 @@ def test_async_updates_sanity():
     env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'RESUME']), ['OK']*n_shards)
     env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'DRAIN']), ['OK']*n_shards)
 
-    forceInvokeGC(env, idx='idx', timeout=0)
+    forceInvokeGC(env, timeout=0)
     debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
