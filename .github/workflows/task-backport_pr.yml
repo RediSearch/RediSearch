@@ -60,5 +60,10 @@ jobs:
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
             gh pr ready $pr --undo
             gh pr ready $pr
-            gh pr edit  $pr --add-reviewer ${{ github.event.pull_request.user.login || github.event.issue.user.login || github.actor }}
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              /repos/${{ github.repository }}/pulls/$pr/requested_reviewers \
+              -f "reviewers[]=${{ github.event.pull_request.user.login || github.event.issue.user.login || github.actor }}"
           done
