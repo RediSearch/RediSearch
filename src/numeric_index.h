@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define NR_CARD_CHECK 10
+#define NR_CARD_CHECK 1
 
 typedef struct {
   double value;
