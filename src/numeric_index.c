@@ -274,7 +274,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   ++rv.numRecords;
   int card = n->range->card;
 
-  if (card * NR_CARD_CHECK >= n->range->splitCard ||
+  if (card >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
@@ -333,7 +333,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
   Vector *leaves = NewVector(NumericRange *, 8);
   __recursiveAddRange(leaves, n, min, max);
-  
+
   return leaves;
 }
 
