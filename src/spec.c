@@ -96,14 +96,22 @@ static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
+const FieldSpec *IndexSpec_GetFieldC(const IndexSpec *spec, const char* name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
-    if (STR_EQ(name, len, fs->name)) {
+    size_t fsLen = 0;
+    const char *fsName = HiddenName_GetUnsafe(fs->name, &fsLen);
+    if (STR_EQ(name, len, fsName)) {
       return fs;
     }
   }
   return NULL;
+}
+
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, HiddenName *name) {
+  size_t len = 0;
+  const char* text = HiddenName_GetUnsafe(name, &len);
+  return IndexSpec_GetFieldC(spec, text, len);
 }
 
 // Assuming the spec is properly locked before calling this function.

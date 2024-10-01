@@ -7,7 +7,7 @@
 #include "reply_macros.h"
 
 typedef struct {
-  const char* user;
+  char* user;
   uint64_t length;
   char* obfuscated;
 } UserAndObfuscatedString;
@@ -22,7 +22,7 @@ typedef struct {
   uint64_t length;
 } UserString;
 
-HiddenString* HideAndObfuscateString(const char* str, uint64_t length) {
+HiddenString* HideAndObfuscateString(char* str, uint64_t length) {
   UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
   value->user = str;
   value->length = length;
@@ -46,11 +46,13 @@ HiddenName* NewHiddenName(const char* name, uint64_t length) {
 
 void HiddenString_Free(HiddenString* hs) {
   UserAndObfuscatedString* value = (UserAndObfuscatedString*)hs;
+  rm_free(value->user);
   rm_free(value);
 };
 
 void HiddenSize_Free(HiddenSize* hn) {
   UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
+  rm_free(value->user);
   rm_free(value);
 };
 
@@ -59,6 +61,17 @@ void HiddenName_Free(HiddenName* hn) {
   rm_free(value->user);
   rm_free(value);
 };
+
+const char* HiddenString_Get(HiddenString *value, bool obfuscate) {
+  UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
+  return obfuscate ? v->obfuscated : v->user;
+}
+
+bool HiddenString_Equal(HiddenString *left, HiddenString *right) {
+  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
+  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
+  return l->length == r->length && strncmp(l->obfuscated, r->obfuscated, l->length) == 0;
+}
 
 int HiddenName_Compare(HiddenName* left, HiddenName* right) {
   UserString* l = (UserString*)left;
@@ -115,4 +128,22 @@ void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, Hidd
       RedisModule_CreateStringPrintf(redisCtx, fmt, text->user);
   Redis_DeleteKey(redisCtx, str);
   RedisModule_FreeString(redisCtx, str);
+}
+
+const char* HiddenName_GetUnsafe(HiddenName* value, size_t* length) {
+  UserString* text = (UserString*)value;
+  if (length != NULL) {
+    *length = text->length;
+  }
+  return text->user;
+}
+
+RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx) {
+  UserAndObfuscatedString* text = (UserAndObfuscatedString*)value;
+  return RedisModule_CreateString(ctx, text->user, text->length);
+}
+
+RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx) {
+  UserString* text = (UserString*)value;
+  return RedisModule_CreateString(ctx, text->user, text->length);
 }

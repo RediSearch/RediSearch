@@ -29,12 +29,7 @@ static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
-  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-    f->name = rm_strdup(fieldname);
-  } else {
-    f->name = fieldname;
-  }
-  f->path = NULL;
+  f->name = NewHiddenName(fieldname, strlen(fieldname));
   return f;
 }
 
@@ -85,10 +80,6 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    if (f->path != f->name) {
-      f->name = rm_strdup(f->name);
-    }
-    f->path = rm_strdup(f->path);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -148,7 +139,7 @@ static inline FieldExpiration* getHashFieldExpirationTime(const IndexSpec *spec,
   arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
   for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
     const FieldSpec *f = spec->fields + field;
-    fields[f->index] = RedisModule_CreateString(ctx, f->name, strlen(f->name));
+    fields[f->index] = HiddenName_CreateString(f->name, ctx);
   }
   FieldExpiration* result = callHashFieldExpirationTime(ctx, key, fields);
   for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
@@ -210,9 +201,8 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].path = rm_strdup(field->path);
-    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
-                                                         : rm_strdup(field->name);
+    //doc->fields[oix].path = rm_strdup(field->path);
+    doc->fields[oix].name = rm_strdup(field->name);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -271,7 +261,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, field->path);
+    jsonIter = japi->get(jsonRoot, HiddenString_Get(field->path, false));
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
         continue;
@@ -285,14 +275,12 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].path = rm_strdup(field->path);
-    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
-                                                         : rm_strdup(field->name);
+    doc->fields[oix].name = rm_strdup(field->name);
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", HiddenString_Get(field->path, true));
       goto done;
     }
     japi->freeIter(jsonIter);
@@ -426,12 +414,6 @@ void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
       DocumentField *field = &d->fields[ii];
-      if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free((void *)field->name);
-        if (field->path && (field->path != field->name)) {
-          rm_free((void *)field->path);
-        }
-      }
       switch (field->unionType) {
         case FLD_VAR_T_RMS:
           RedisModule_FreeString(RSDummyContext, field->text);
