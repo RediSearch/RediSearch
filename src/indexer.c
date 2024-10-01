@@ -254,7 +254,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
     FieldSpec *fs = spec->fields + i;
     if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void *)fs->name, fs);
+      dictAdd(df_fields_dict, (void*)HiddenString_Get(fs->name, false), fs);
     }
   }
 
@@ -266,7 +266,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
 
   // remove fields that are in the document
   for (uint32_t j = 0; j < doc->numFields; j++) {
-    dictDelete(df_fields_dict, (void *)doc->fields[j].name);
+    dictDelete(df_fields_dict, (void*)HiddenString_Get(spec->fields[doc->fields[j].index].name, false));
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
@@ -276,7 +276,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    dictAdd(df_fields_dict, (void *)fs->name, fs);
+    dictAdd(df_fields_dict, (void *)HiddenString_Get(fs->name, false), fs);
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index

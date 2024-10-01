@@ -69,7 +69,7 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
                                           FieldType t) {
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
-  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldC(spec, fieldName, len);
   if (!fieldSpec) {
     return NULL;
   }
@@ -276,7 +276,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   GET_SEARCH_CTX(argv[2])
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(argv[3], &len);
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, len);
+  const FieldSpec *fs = IndexSpec_GetFieldC(sctx->spec, fieldName, len);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
@@ -1052,7 +1052,15 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      char name[MAX_OBFUSCATED_FIELD_NAME] = "???";
+      const char *path = "!!!";
+      if (fs) {
+        Obfuscate_Field(fs->index, name);
+        path = HiddenString_Get(fs->path, true);
+      }
+
+      RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);

@@ -302,7 +302,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   }
 }
 
-int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
+int RediSearch_DocumentAddFieldGeo(Document* d, RSFieldID fieldId,
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
@@ -310,11 +310,11 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   }
 
   if (as == RSFLDTYPE_GEO) {
-    Document_AddGeoField(d, fieldname, lon, lat, as);
+    Document_AddGeoField(d, fieldId, lon, lat, as);
   } else {
     char buf[24];
     size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
-    Document_AddFieldC(d, fieldname, buf, len, as);
+    Document_AddFieldC(d, fieldId, buf, len, as);
   }
 
   return REDISMODULE_OK;
