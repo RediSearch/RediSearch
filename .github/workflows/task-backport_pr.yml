@@ -36,7 +36,7 @@ jobs:
         with:
           app-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: redislabsdev
+          owner: RediSearch
       - name: Checkout
         uses: actions/checkout@v4
         with:
