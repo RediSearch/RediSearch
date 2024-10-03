@@ -59,7 +59,7 @@ TrieMapNode *__newTrieMapNode(const char *str, tm_len_t offset, tm_len_t len, tm
 
 TrieMap *NewTrieMap() {
   TrieMap *tm = rm_malloc(sizeof(TrieMap));
-  tm->size = 0;
+  tm->size = 1; // root node
   tm->cardinality = 0;
   tm->root = __newTrieMapNode("", 0, 0, 0, NULL, 0);
   return tm;
@@ -120,7 +120,8 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   return n;
 }
 
-int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
+int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len,
+      void *value, TrieMapReplaceFunc cb, int *existing) {
   TrieMapNode *n = *np;
   int rv = 0;
 
@@ -174,9 +175,10 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value
     // if it was deleted, make sure it's not now
     n->flags &= ~TM_NODE_DELETED;
     *np = n;
-    // if the node existed - we return 0, otherwise return 1 as it's a new node
-    rv += term && !deleted ? 0 : 1;
-    return rv;
+    // it is an existing node, the size is the same but cardinality increases
+    *existing = 1;
+    // we are using an existing node, so we return 0
+    return 0;
   }
 
   // proceed to the next child or add a new child for the current char
@@ -186,7 +188,7 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value
   if (ptr != NULL) {
     const size_t char_offset = ptr - childKeys;
     TrieMapNode *child = __trieMapNode_children(n)[char_offset];
-    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
+    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb, existing);
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
@@ -198,9 +200,10 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value
 }
 
 int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
-  int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
+  int existing = 0;
+  int rc = TrieMapNode_Add(&t->root, str, len, value, cb, &existing);
   t->size += rc;
-  int added = rc ? 1 : 0;
+  int added = rc ? 1 : existing;
   t->cardinality += added;
   return added;
 }
@@ -441,7 +444,8 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
   return rc;
 }
 
-int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len, void (*freeCB)(void *)) {
+int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len,
+                        void (*freeCB)(void *), int *deleted) {
   tm_len_t offset = 0;
   int stackCap = 8;
   TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
@@ -467,6 +471,7 @@ int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len, void (*fre
         if (!(n->flags & TM_NODE_DELETED)) {
           n->flags |= TM_NODE_DELETED;
           n->flags &= ~TM_NODE_TERMINAL;
+          *deleted = 1;
 
           if (n->value) {
             if (freeCB) {
@@ -509,15 +514,16 @@ end:
 }
 
 int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
-  int rc = TrieMapNode_Delete(t->root, str, len, func);
+  int deleted = 0;
+  int rc = TrieMapNode_Delete(t->root, str, len, func, &deleted);
   t->size -= rc;
-  int deleted = rc ? 1 : 0;
   t->cardinality -= deleted;
   return deleted;
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
-  return t->size * (sizeof(TrieMapNode) +    // size of struct
+  // (t->size - 1) because we are not counting the root node in the size
+  return (t->size - 1) * (sizeof(TrieMapNode) +   // size of struct
                     sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
                     1 +                      // char key to children in parent node
                     sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
