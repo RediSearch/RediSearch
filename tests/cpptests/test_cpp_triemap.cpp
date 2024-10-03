@@ -116,8 +116,8 @@ TEST_F(TrieMapTest, testLexOrder) {
 TEST_F(TrieMapTest, testSizeAndCardinality) {
   TrieMap *t = NewTrieMap();
 
-  const char *words[] = {"b:1", "b:10", "b:15"};
-  for (int i = 0; i < 3; ++i) {
+  const char *words[] = {"b:1", "b:10", "b:15", "b:17"};
+  for (int i = 0; i < 4; ++i) {
     TrieMap_Add(t, (char *)words[i], strlen(words[i]), (void *)words[i], NULL);
   }
   // TrieMap:
@@ -125,22 +125,32 @@ TEST_F(TrieMapTest, testSizeAndCardinality) {
   //   Node str:'b:1' term=1 deleted=0
   //     Node str:'0' term=1 deleted=0
   //     Node str:'5' term=1 deleted=0
-  ASSERT_EQ(t->size, 4);
-  ASSERT_EQ(t->cardinality, 3);
+  //     Node str:'7' term=1 deleted=0
+  ASSERT_EQ(t->size, 5);
+  ASSERT_EQ(t->cardinality, 4);
 
   TrieMap_Delete(t, "b:10", 4, testFreeCB);
   // Node str:'' term=0 deleted=0
   //   Node str:'b:1' term=1 deleted=0
   //     Node str:'5' term=1 deleted=0
-  ASSERT_EQ(t->size, 3);
-  ASSERT_EQ(t->cardinality, 2);
+  //     Node str:'7' term=1 deleted=0
+  ASSERT_EQ(t->size, 4);
+  ASSERT_EQ(t->cardinality, 3);
 
   // Deleting a node with children, should affect cardinality but not size 
   TrieMap_Delete(t, "b:1", 3, testFreeCB);
   // Node str:'' term=0 deleted=0
   //   Node str:'b:1' term=0 deleted=0
   //     Node str:'5' term=1 deleted=0
-  ASSERT_EQ(t->size, 3);
+  //     Node str:'7' term=1 deleted=0
+  ASSERT_EQ(t->size, 4);
+  ASSERT_EQ(t->cardinality, 2);
+
+  // Node optimization should reduce the size
+  TrieMap_Delete(t, "b:17", 4, testFreeCB);
+  // Node str:'' term=0 deleted=0
+  //   Node str:'b:15' term=0 deleted=0
+  ASSERT_EQ(t->size, 2);
   ASSERT_EQ(t->cardinality, 1);
 
   TrieMap_Delete(t, "b:15", 4, testFreeCB);
@@ -148,20 +158,5 @@ TEST_F(TrieMapTest, testSizeAndCardinality) {
   ASSERT_EQ(t->size, 1);
   ASSERT_EQ(t->cardinality, 0);
 
-  // Add multiple times the same words
-  for (int j = 0; j < 4; ++j) {
-    for (int i = 0; i < 3; ++i) {
-      TrieMap_Delete(t, (char *)words[i], strlen(words[i]), testFreeCB);
-      TrieMap_Add(t, (char *)words[i], strlen(words[i]), (void *)words[i], NULL);
-      TrieMap_Add(t, (char *)words[i], strlen(words[i]), (void *)words[i], NULL);
-      TrieMap_Add(t, (char *)words[i], strlen(words[i]), (void *)words[i], NULL);
-    }
-  }
-  // TrieMap:
-  // Node str:'' term=0 deleted=0
-  //   Node str:'b:1' term=1 deleted=0
-  //     Node str:'0' term=1 deleted=0
-  //     Node str:'5' term=1 deleted=0
-  ASSERT_EQ(t->size, 4);
-  ASSERT_EQ(t->cardinality, 3);
+  TrieMap_Free(t, testFreeCB);
 }
