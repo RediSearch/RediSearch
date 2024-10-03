@@ -434,7 +434,8 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
     } else {
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1) {
+      if (nodes[i] && nodes[i]->numChildren == 1 && 
+            !__trieMapNode_isTerminal(nodes[i])) {
         nodes[i] = __trieMapNode_MergeWithSingleChild(nodes[i]);
         rc++;
       }
@@ -522,7 +523,7 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
-  // (t->size - 1) because we are not counting the root node in the size
+  // (t->size - 1) because we are not counting the root node in memory usage
   return (t->size - 1) * (sizeof(TrieMapNode) +   // size of struct
                     sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
                     1 +                      // char key to children in parent node

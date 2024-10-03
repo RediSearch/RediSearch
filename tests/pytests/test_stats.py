@@ -397,42 +397,45 @@ def testInfoIndexingTime(env):
     d = index_info(env, 'idx2')
     env.assertGreater(float(d['total_indexing_time']), 0)
 
-# def testKeyTableInfo(env):
-#     conn = getConnectionByEnv(env)
-#     env.cmd('FT.CREATE', 'idx', 'PREFIX', 1, 'b:', 'SCHEMA', 'txt', 'TEXT')
+def testKeyTableInfo(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'PREFIX', 1, 'b:', 'SCHEMA', 'txt', 'TEXT')
 
-#     # Size reserved for root node is 13 bytes:
-#     # 12 bytes sizeof(TrieMapNode)   // size of struct
-#     #  1 byte                        // char key to children in parent node
-#     root_node_size = 13 / (1024 * 1024)
-#     d = index_info(env, 'idx')
-#     env.assertEqual(float(d['key_table_size_mb']), root_node_size)
+    d = index_info(env, 'idx')
+    key_table_size = float(d['key_table_size_mb'])
+    env.assertEqual(key_table_size, 0)
 
-#     # Size of each node is 29 bytes:
-#     # 12 bytes sizeof(TrieMapNode)   // size of struct
-#     #  8 bytes sizeof(TrieMapNode *) // size of ptr to struct in parent node
-#     #  1 byte                        // char key to children in parent node
-#     #  8 bytes sizeof(char *));      // == 8, string size rounded up to 8 bits due to padding
+    # Add and delete keys, size should remain the same as the initial size
+    env.cmd('HSET', 'b:1', 'txt', '1')
+    env.cmd('HSET', 'b:10', 'txt', '10')
+    env.cmd('HSET', 'b:15', 'txt', '15')
+    env.cmd('DEL', 'b:10')
+    env.cmd('DEL', 'b:1') # Term node with a single child
+    env.cmd('DEL', 'b:15')
+    d = index_info(env, 'idx')
+    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
 
-#     # Add and delete keys, size should remain the same
-#     key_table_size = float(d['key_table_size_mb'])
-#     env.cmd('HSET', 'b:1', 'txt', '1')
-#     env.cmd('HSET', 'b:10', 'txt', '10')
-#     env.cmd('HSET', 'b:15', 'txt', '15')
-#     env.cmd('DEL', 'b:10')
-#     env.cmd('DEL', 'b:1') # Term node with a single child
-#     env.cmd('DEL', 'b:15')
-#     d = index_info(env, 'idx')
-#     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
-
-#     # Delete a node with children, should affect the cardinality but not the 
-#     # memory size
-#     d = index_info(env, 'idx')
-#     env.cmd('HSET', 'b:1', 'txt', '1')
-#     env.cmd('HSET', 'b:10', 'txt', '10')
-#     env.cmd('HSET', 'b:15', 'txt', '15')
-#     key_table_size = float(d['key_table_size_mb'])
-#     env.cmd('DEL', 'b:1')
-#     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
+    # Delete a node with children, should not affect the key table size, it
+    # only affects the cardinality of the trie
+    d = index_info(env, 'idx')
+    env.cmd('HSET', 'b:1', 'txt', '1')
+    env.cmd('HSET', 'b:10', 'txt', '10')
+    env.cmd('HSET', 'b:15', 'txt', '15')
+    key_table_size = float(d['key_table_size_mb'])
+    env.cmd('DEL', 'b:1')
+    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
     
+    # update a key, should not affect the key table size
+    env.cmd('HSET', 'b:1', 'txt', '1')
+    env.cmd('HSET', 'b:10', 'txt', '10')
+    env.cmd('HSET', 'b:15', 'txt', '15')
+    key_table_size = float(d['key_table_size_mb'])
+    env.cmd('HSET', 'b:1', 'txt', 'x')
+    env.cmd('HSET', 'b:1', 'txt', 'y')
+    env.cmd('HSET', 'b:1', 'txt', 'z')
+    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
 
+    # Delete unexisting key, should not affect the key table size
+    env.cmd('DEL', 'b:20')
+    env.cmd('DEL', 'b:25')
+    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
