@@ -1347,3 +1347,21 @@ def testTagAutoescaping(env):
 
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"  }')
     env.assertEqual(res, expected_result)
+
+def testLimitations(env):
+    """ highlight/summarize is not supported on JSON indexes """
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA',  '$.txt', 'AS', 'txt', 'TEXT').ok()
+
+    error_msg = "HIGHLIGHT/SUMMARIZE is not supported on JSON indexes"
+
+    env.expect('FT.SEARCH', 'idx', 'jacob', 'HIGHLIGHT').error()\
+        .contains(error_msg)
+    env.expect('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHT',
+               'fields', 1, 'txt').error().contains(error_msg)
+
+    env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
+        .contains(error_msg)
+    env.expect('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHT',
+               'fields', 1, 'txt').error().contains(error_msg)
