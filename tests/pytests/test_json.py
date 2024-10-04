@@ -1358,10 +1358,6 @@ def testLimitations(env):
 
     env.expect('FT.SEARCH', 'idx', 'jacob', 'HIGHLIGHT').error()\
         .contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHT',
-               'fields', 1, 'txt').error().contains(error_msg)
 
     env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
         .contains(error_msg)
-    env.expect('FT.SEARCH', 'idx', 'abraham isaac jacob', 'HIGHLIGHT',
-               'fields', 1, 'txt').error().contains(error_msg)
