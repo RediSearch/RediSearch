@@ -1969,7 +1969,7 @@ fail:
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   HiddenString_SaveToRdb(f->name, rdb);
-  if (!HiddenString_Equal(f->path, f->name)) {
+  if (!HiddenString_Compare(f->path, f->name)) {
     RedisModule_SaveUnsigned(rdb, 1);
     HiddenString_SaveToRdb(f->path, rdb);
   } else {
@@ -3168,9 +3168,10 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
 
   // TODO: improve implementation to avoid O(n^2)
   for (size_t i = 0; hashFields[i] != NULL; ++i) {
-    const char *field = RedisModule_StringPtrLen(hashFields[i], NULL);
+  	size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(hashFields[i], &length);
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (HiddenString_EqualC(spec->fields[j].name, field)) {
+      if (HiddenString_CompareC(spec->fields[j].name, field, length)) {
         return true;
       }
     }

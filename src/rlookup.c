@@ -82,7 +82,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
   const FieldSpec *fs = NULL;
   for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (HiddenString_EqualC(cc->fields[ii].name, name)) {
+    if (!HiddenString_CompareC(cc->fields[ii].name, name, strlen(name))) {
       fs = cc->fields + ii;
       break;
     }

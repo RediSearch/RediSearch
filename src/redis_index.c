@@ -178,7 +178,6 @@ RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, 
   }
 
   memcpy(buf + offset, name, nameLen);
-  rm_free(name);
   offset += nameLen;
   buf[offset++] = '/';
   memcpy(buf + offset, term, len);
