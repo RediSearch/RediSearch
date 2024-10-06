@@ -1198,26 +1198,26 @@ TEST_F(LLApiTest, testInfo) {
 
   // fields stats
   ASSERT_EQ(info.numFields, 5);
-  ASSERT_STREQ(info.fields[0].path, "ft1");
+  ASSERT_STREQ(HiddenString_Get(info.fields[0].path, false), "ft1");
   ASSERT_EQ(info.fields[0].types, RSFLDTYPE_FULLTEXT);
   ASSERT_EQ(info.fields[0].options, RSFLDOPT_NONE);
   ASSERT_EQ(info.fields[0].textWeight, 2.3);
 
-  ASSERT_STREQ(info.fields[1].path, "ft2");
+  ASSERT_STREQ(HiddenString_Get(info.fields[1].path, false), "ft2");
   ASSERT_TRUE(info.fields[1].options & RSFLDOPT_TXTNOSTEM);
   ASSERT_EQ(info.fields[1].types, RSFLDTYPE_FULLTEXT);
 
-  ASSERT_STREQ(info.fields[2].path, "n1");
+  ASSERT_STREQ(HiddenString_Get(info.fields[2].path, false), "n1");
   ASSERT_EQ(info.fields[2].types, RSFLDTYPE_NUMERIC);
   ASSERT_TRUE(info.fields[2].options & RSFLDOPT_SORTABLE);
   ASSERT_TRUE(info.fields[2].options & RSFLDOPT_NOINDEX);
 
-  ASSERT_STREQ(info.fields[3].path, "tg1");
+  ASSERT_STREQ(HiddenString_Get(info.fields[3].path, false), "tg1");
   ASSERT_EQ(info.fields[3].types, RSFLDTYPE_TAG);
   ASSERT_EQ(info.fields[3].tagSeperator, '.');
   ASSERT_EQ(info.fields[3].tagCaseSensitive, 1);
 
-  ASSERT_STREQ(info.fields[4].path, "dynamic1");
+  ASSERT_STREQ(HiddenString_Get(info.fields[4].path, false), "dynamic1");
   ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
                                     RSFLDTYPE_TAG | RSFLDTYPE_GEO));
 

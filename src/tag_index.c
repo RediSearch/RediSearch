@@ -281,10 +281,11 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
+RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenString* field) {
   char name[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(sctx->spec->uniqueId, name);
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, name, field);
+  const char *obfuscatedField = HiddenString_Get(field, true);
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, name, obfuscatedField);
 }
 
 static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {

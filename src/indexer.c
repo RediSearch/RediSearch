@@ -287,7 +287,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
 
   // remove fields that are in the document
   for (uint32_t j = 0; j < doc->numFields; j++) {
-    dictDelete(df_fields_dict, (void*)HiddenString_Get(spec->fields[doc->fields[j].index].name, false));
+    dictDelete(df_fields_dict, (void*)HiddenName_GetUnsafe(doc->fields[j].name, NULL));
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point

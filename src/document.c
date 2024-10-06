@@ -962,7 +962,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, HiddenString_Get(sctx->spec->fields[f->index].name, false));
+      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, HiddenName_GetUnsafe(f->name, NULL));
       if (idx < 0) continue;
 
       if (!md->sortVector) {
@@ -1005,7 +1005,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!strcasecmp(d->fields[i].name, fieldName)) {
+    if (!HiddenName_CompareC(d->fields[i].name, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }

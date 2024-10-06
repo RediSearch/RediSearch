@@ -111,8 +111,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR_SAFE("identifier", sp->fields[i].path);
-    REPLY_KVSTR_SAFE("attribute", sp->fields[i].name);
+    REPLY_KVSTR_SAFE("identifier", HiddenString_Get(sp->fields[i].path, false));
+    REPLY_KVSTR_SAFE("attribute", HiddenString_Get(sp->fields[i].name, false));
 
     const FieldSpec *fs = &sp->fields[i];
 
