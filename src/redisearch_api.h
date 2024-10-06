@@ -103,8 +103,8 @@ struct RSIdxOptions {
 };
 
 struct RSIdxField {
-  char *path;
-  char *name;
+  HiddenString *path;
+  HiddenString *name;
 
   int types;
   int options;
@@ -240,15 +240,15 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, RSFieldID fieldId, RedisModuleString* s, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, RedisModuleString* s, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
-(RSDoc* d, RSFieldID fieldId, const char* s, size_t n, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, const char* s, size_t n, unsigned indexAsTypes);
 #define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, RSFieldID fieldId, double val, unsigned indexAsTypes);
+(RSDoc* d, const char *fieldname, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.
@@ -256,7 +256,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
  * otherwise, returns REDISMODULE_OK
  */
 MODULE_API_FUNC(int, RediSearch_DocumentAddFieldGeo)
-(RSDoc* d, RSFieldID fieldId, double lat, double lon, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldname, double lat, double lon, unsigned indexAsTypes);
 
 /**
  * Replace document if it already exists
