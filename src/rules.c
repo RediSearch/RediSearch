@@ -170,7 +170,7 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
       for (int j = 0; j < spec->numFields; ++j) {
         // a match. save the field index for fast access
         FieldSpec *fs = spec->fields + j;
-        if (!strcmp(properties[i], fs->name) || !strcmp(properties[i], fs->path)) {
+        if (HiddenString_EqualC(fs->name, properties[i]) || HiddenString_EqualC(fs->path, properties[i])) {
           rule->filter_fields_index[i] = j;
           break;
         }

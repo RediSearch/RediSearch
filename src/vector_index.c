@@ -26,7 +26,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
   FieldSpec *fieldSpec = NULL;
   for (int i = 0; i < spec->numFields; ++i) {
-    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
+    if (HiddenString_EqualC(spec->fields[i].name, fieldStr)) {
       fieldSpec = &spec->fields[i];
       break;
     }

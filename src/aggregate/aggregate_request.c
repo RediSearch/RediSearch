@@ -1176,10 +1176,9 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
-    HiddenName *metric_name = requests[i].metric_name;
-    size_t name_len = 0;
-    const char* name = HiddenName_GetUnsafe(metric_name, &name_len);
-    if (IndexSpec_GetFieldWithLength(req->sctx->spec, metric_name)) {
+    const char *name = requests[i].metric_name;
+    size_t name_len = strlen(name);
+    if (IndexSpec_GetFieldC(req->sctx->spec, name, name_len)) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }

@@ -108,7 +108,7 @@ typedef struct {
 
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
+RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenString *field);
 
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
