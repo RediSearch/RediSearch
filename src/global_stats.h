@@ -31,7 +31,8 @@ typedef struct {
 } FieldsGlobalStats;
 
 typedef struct {
-  size_t total_queries;
+  size_t total_unique_queries;  // Number of unique queries, not counting `FT.CURSOR READ` (an iteration of a previous query)
+  size_t total_query_commands;  // Number of total query commands, including `FT.CURSOR READ`
 } TotalGlobalStats;
 
 // The global stats object type
@@ -54,6 +55,6 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 /**
- * Increase the total number of executed queries by 1.
+ * Increase all relevant counters in the global stats object.
  */
-void TotalGlobalStats_CountQuery(void);
+void TotalGlobalStats_CountQuery(uint32_t reqflags);

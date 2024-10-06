@@ -5,6 +5,7 @@
  */
 
 #include "global_stats.h"
+#include "aggregate/aggregate.h"
 
 GlobalStats RSGlobalStats = {0};
 
@@ -116,6 +117,13 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 }
 
-void TotalGlobalStats_CountQuery() {
-  __atomic_add_fetch(&RSGlobalStats.totalStats.total_queries, 1, __ATOMIC_RELAXED);
+void TotalGlobalStats_CountQuery(uint32_t reqflags) {
+  if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
+
+  __atomic_add_fetch(&RSGlobalStats.totalStats.total_query_commands, 1, __ATOMIC_RELAXED);
+
+  if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
+    // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
+    __atomic_add_fetch(&RSGlobalStats.totalStats.total_unique_queries, 1, __ATOMIC_RELAXED);
+  }
 }

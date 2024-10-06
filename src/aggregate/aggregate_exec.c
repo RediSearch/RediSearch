@@ -399,9 +399,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool qu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  if (!IsInternal(req)) {
-    TotalGlobalStats_CountQuery();
-  }
+  TotalGlobalStats_CountQuery(req->reqflags);
 
   // Reset the total results length:
   req->qiter.totalResults = 0;
@@ -823,7 +821,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
   else if (type == COMMAND_AGGREGATE) {
-    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
+    (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
   }
 
   (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
@@ -1098,6 +1096,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
+  req->reqflags &= ~QEXEC_F_IS_AGGREGATE; // Second read was not triggered by FT.AGGREGATE
 
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
