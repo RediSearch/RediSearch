@@ -1,6 +1,7 @@
 from common import *
 from RLTest import Env
 import redis
+from inspect import getframeinfo, stack
 
 
 def info_modules_to_dict(conn):
@@ -187,13 +188,82 @@ def test_redis_info():
     conn.execute_command('DEL', f'h{i}')
 
   # Force-invoke the GC
-  forceInvokeGC(env, 'idx')
-
-  # Wait for GC to finish
-  time.sleep(2)
+  forceInvokeGC(env)
 
   # Call `INFO` and check that the data is updated accordingly
   res = env.cmd('INFO', 'MODULES')
   env.assertGreater(res['search_bytes_collected'], 0)
   env.assertGreater(res['search_total_cycles'], 0)
   env.assertGreater(res['search_total_ms_run'], 0)
+
+
+def test_counting_queries(env: Env):
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  # Add some data
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(10):
+      con.execute_command('HSET', i, 'n', i)
+
+  # Initiate counters
+  unique_queries_counter = 0
+  query_commands_counter = 0
+  def check_counters():
+    line_number = getframeinfo(stack()[1][0]).lineno
+    info = env.cmd('INFO', 'MODULES')
+    env.assertEqual(info['search_total_queries'], unique_queries_counter, message=f'line {line_number}')
+    env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
+
+  # Call `INFO` and check that the counters are 0
+  check_counters()
+
+  env.cmd('FT.SEARCH', 'idx', '*')
+  unique_queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  env.cmd('FT.AGGREGATE', 'idx', '*')
+  unique_queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 6)
+  env.assertNotEqual(cursor, 0) # Cursor is not done
+  unique_queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(cursor, 0) # Cursor is done
+  query_commands_counter += 1 # Another query command, but not a unique query
+
+  # Only the query commands counter should be updated
+  check_counters()
+
+  # Call commands that do not count as queries
+
+  # Search with a non-existing index
+  env.expect('FT.SEARCH', 'idx2', '*').error()
+  check_counters()
+
+  # Search with a syntax error
+  env.expect('FT.SEARCH', 'idx', '(*').error()
+  check_counters()
+
+  # Aggregate with a non-existing index
+  env.expect('FT.AGGREGATE', 'idx2', '*').error()
+  check_counters()
+
+  # Aggregate with a syntax error
+  env.expect('FT.AGGREGATE', 'idx', '(*').error()
+  check_counters()
+
+  # Cursor read with a non-existing cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
+  check_counters()
