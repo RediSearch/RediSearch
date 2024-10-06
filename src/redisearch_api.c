@@ -922,7 +922,6 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     pthread_rwlock_rdlock(&sp->rwlock);
     info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
     info.indexing_time += sp->stats.totalIndexTime;
-    info.unique_queries += sp->stats.totalUniqueQueries;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;

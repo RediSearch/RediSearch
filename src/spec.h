@@ -132,7 +132,6 @@ typedef struct {
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
-  size_t totalUniqueQueries;
 } IndexStats;
 
 typedef enum {
@@ -575,10 +574,6 @@ void IndexSpec_ClearAliases(StrongRef ref);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_SetTempSpecsTimers(TimerOp op);
-
-static inline void IndexSpec_CountExecution(IndexSpec *sp) {
-  __atomic_add_fetch(&sp->stats.totalUniqueQueries, 1, __ATOMIC_RELAXED);
-}
 
 //---------------------------------------------------------------------------------------------
 

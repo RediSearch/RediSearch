@@ -17,7 +17,6 @@ typedef struct TotalSpecsInfo {
     size_t total_mem;       // Total memory used by the index
     size_t indexing_time;   // Time spent on indexing
     InfoGCStats gc_stats;   // Garbage collection statistics
-    size_t unique_queries;  // Total number of queries
 } TotalSpecsInfo;
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
