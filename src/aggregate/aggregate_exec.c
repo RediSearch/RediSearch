@@ -388,6 +388,10 @@ long calc_results_len(AREQ *req, size_t limit) {
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
+static bool hasTimeoutError(QueryError *err) {
+  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
+}
+
 void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool query_done) {
   if (results) {
     destroyResults(results);
@@ -399,16 +403,14 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool qu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  TotalGlobalStats_CountQuery(req->reqflags);
+  if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
+    TotalGlobalStats_CountQuery(req->reqflags);
+  }
 
   // Reset the total results length:
   req->qiter.totalResults = 0;
 
   QueryError_ClearError(req->qiter.err);
-}
-
-static bool hasTimeoutError(QueryError *err) {
-  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
 /**
@@ -899,6 +901,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   QueryError status = {0};
 
 #ifdef RS_COORDINATOR
+  // If we got here, we know `argv[0]` is a valid registered command name.
+  // If it starts with an underscore, it is an internal command.
   if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
     r->reqflags |= QEXEC_F_INTERNAL;
   }
