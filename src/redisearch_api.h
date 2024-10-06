@@ -319,6 +319,8 @@ MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, 
 
 MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
 
+MODULE_API_FUNC(const char*, RediSearch_HiddenStringGet)(HiddenString* hs, bool obfuscate);
+
 /**
  * Return an iterator over the results of the specified query string
  * @param sp the index
