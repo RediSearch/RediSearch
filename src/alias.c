@@ -59,7 +59,7 @@ static int AliasTable_Del(AliasTable *table, HiddenName *alias, StrongRef spec_r
   ssize_t idx = -1;
   for (size_t ii = 0; ii < array_len(spec->aliases); ++ii) {
     // note, NULL might be here if we're clearing the spec's aliases
-    if (spec->aliases[ii] && !HiddenName_Compare(spec->aliases[ii], alias)) {
+    if (spec->aliases[ii] && !HiddenName_CaseSensitiveCompare(spec->aliases[ii], alias)) {
       idx = ii;
       break;
     }

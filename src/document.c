@@ -1005,7 +1005,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!HiddenName_CompareC(d->fields[i].name, fieldName, strlen(fieldName))) {
+    if (!HiddenName_CaseSensitiveCompareC(d->fields[i].name, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }
