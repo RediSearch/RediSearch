@@ -310,7 +310,7 @@ def test_async_updates_sanity():
 
         # Invoke GC, so we clean zombies for which all their repair jobs are done. We run in background
         # so in case child process is not receiving cpu time, we do not hang the gc thread in the parent process.
-        forceInvokeGC(env, run_in_background=True)
+        forceBGInvokeGC(env)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)

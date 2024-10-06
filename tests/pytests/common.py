@@ -319,17 +319,17 @@ def run_command_on_all_shards(env, *args):
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
-
-def forceInvokeGC(env, idx='idx', timeout=None, run_in_background=False):
+def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
-    if run_in_background:
-        env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
-    elif timeout is not None:
+    if timeout is not None:
         # Note: timeout==0 means infinite (no timeout)
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
 
+def forceBGInvokeGC(env, idx='idx'):
+    waitForRdbSaveToFinish(env)
+    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
 
 def no_msan(f):
     @wraps(f)
