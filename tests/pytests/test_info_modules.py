@@ -1,7 +1,7 @@
 from common import *
 from RLTest import Env
 import redis
-from inspect import getframeinfo, stack
+from inspect import currentframe
 
 
 def info_modules_to_dict(conn):
@@ -209,7 +209,7 @@ def test_counting_queries(env: Env):
   unique_queries_counter = 0
   query_commands_counter = 0
   def check_counters():
-    line_number = getframeinfo(stack()[1][0]).lineno
+    line_number = currentframe().f_back.f_lineno
     info = env.cmd('INFO', 'MODULES')
     env.assertEqual(info['search_total_queries'], unique_queries_counter, message=f'line {line_number}')
     env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
