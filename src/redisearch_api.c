@@ -168,7 +168,8 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    const char *name = HiddenString_Get(fs->name, false);
+    fs->sortIdx = RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -302,7 +303,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   }
 }
 
-int RediSearch_DocumentAddFieldGeo(Document* d, RSFieldID fieldId,
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
@@ -310,11 +311,11 @@ int RediSearch_DocumentAddFieldGeo(Document* d, RSFieldID fieldId,
   }
 
   if (as == RSFLDTYPE_GEO) {
-    Document_AddGeoField(d, fieldId, lon, lat, as);
+    Document_AddGeoField(d, fieldname, lon, lat, as);
   } else {
     char buf[24];
     size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
-    Document_AddFieldC(d, fieldId, buf, len, as);
+    Document_AddFieldC(d, fieldname, buf, len, as);
   }
 
   return REDISMODULE_OK;
@@ -488,7 +489,7 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldC(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -507,7 +508,7 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldC(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -813,8 +814,8 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
-  infoField->name = rm_strdup(specField->name);
-  infoField->path = rm_strdup(specField->path);
+  infoField->name = HiddenString_Clone(specField->name);
+  infoField->path = HiddenString_Clone(specField->path);
   if (specField->types & INDEXFLD_T_FULLTEXT) {
     infoField->types |= RSFLDTYPE_FULLTEXT;
     infoField->textWeight = specField->ftWeight;

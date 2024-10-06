@@ -202,7 +202,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     }
     size_t oix = doc->numFields++;
     //doc->fields[oix].path = rm_strdup(field->path);
-    doc->fields[oix].name = rm_strdup(field->name);
+    HiddenName_Clone(field->name, &doc->fields[oix].name);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -275,7 +275,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].name = rm_strdup(field->name);
+    HiddenName_Clone(field->name, &doc->fields[oix].name);
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
@@ -323,7 +323,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    doc->fields[n].name = rm_strndup(name, nlen);
+    doc->fields[n].name = NewHiddenName(name, nlen);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
     doc->fields[n].unionType = FLD_VAR_T_RMS;
   }
@@ -404,7 +404,7 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
   for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
     DocumentField *dst = d->fields + oix;
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
-    dst->name = name;
+    dst->name = NewHiddenName(name, strlen(name));
     dst->text = args[ii + 1];
     dst->unionType = FLD_VAR_T_RMS;
   }

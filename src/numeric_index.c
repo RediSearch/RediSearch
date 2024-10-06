@@ -597,10 +597,11 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field) {
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
   char name[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(ctx->spec->uniqueId, name);
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, name, field);
+  const char *obfuscatedField = HiddenString_Get(field, true);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, name, obfuscatedField);
 }
 
 static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,

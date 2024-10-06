@@ -22,9 +22,9 @@ typedef struct {
   uint64_t length;
 } UserString;
 
-HiddenString* HideAndObfuscateString(char* str, uint64_t length) {
+HiddenString* HideAndObfuscateString(const char* str, uint64_t length) {
   UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
-  value->user = str;
+  value->user = rm_strdup(str);
   value->length = length;
   value->obfuscated = Obfuscate_Text(str);
   return (HiddenString*)value;
@@ -52,7 +52,6 @@ void HiddenString_Free(HiddenString* hs) {
 
 void HiddenSize_Free(HiddenSize* hn) {
   UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
-  rm_free(value->user);
   rm_free(value);
 };
 
@@ -62,7 +61,12 @@ void HiddenName_Free(HiddenName* hn) {
   rm_free(value);
 };
 
-const char* HiddenString_Get(HiddenString *value, bool obfuscate) {
+HiddenString *HiddenString_Clone(const HiddenString* value) {
+    UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
+    return HideAndObfuscateString(v->user, v->length);
+}
+
+const char *HiddenString_Get(const HiddenString *value, bool obfuscate) {
   UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
   return obfuscate ? v->obfuscated : v->user;
 }
@@ -73,15 +77,29 @@ bool HiddenString_Equal(HiddenString *left, HiddenString *right) {
   return l->length == r->length && strncmp(l->obfuscated, r->obfuscated, l->length) == 0;
 }
 
-int HiddenName_Compare(HiddenName* left, HiddenName* right) {
-  UserString* l = (UserString*)left;
-  UserString* r = (UserString*)right;
-  int result = strncmp(l->user, r->user, MIN(l->length, r->length));
-  if (result != 0 || l->length == r->length) {
+bool HiddenString_EqualC(HiddenString *left, const char *right) {
+  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
+  return l->length == strlen(right) && strncmp(l->obfuscated, right, l->length) == 0;
+}
+
+void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
+  UserString* text = (UserString*)value;
+  RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
+}
+
+int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length) {
+  const UserString* l = (const UserString*)left;
+  int result = strncmp(l->user, right, MIN(l->length, right_length));
+  if (result != 0 || l->length == right_length) {
     return result;
   } else {
-    return l->length < r->length ? -1 : 1;
+    return l->length < right_length ? -1 : 1;
   }
+}
+
+int HiddenName_Compare(const HiddenName* left, const HiddenName* right) {
+  UserString* r = (UserString*)right;
+  HiddenName_CompareC(left, r->user, r->length);
 }
 
 void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
@@ -130,8 +148,8 @@ void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, Hidd
   RedisModule_FreeString(redisCtx, str);
 }
 
-const char* HiddenName_GetUnsafe(HiddenName* value, size_t* length) {
-  UserString* text = (UserString*)value;
+const char* HiddenName_GetUnsafe(const HiddenName* value, size_t* length) {
+  const UserString* text = (const UserString*)value;
   if (length != NULL) {
     *length = text->length;
   }

@@ -13,7 +13,7 @@ typedef struct Hidden HiddenSize;
 typedef struct Hidden HiddenName;
 
 // Hides the string and obfustaces it
-HiddenString *HideAndObfuscateString(char *str, uint64_t length);
+HiddenString *HideAndObfuscateString(const char *str, uint64_t length);
 // Hides the size and obfustaces it
 HiddenSize *HideAndObfuscateNumber(uint64_t num);
 // Hides the string, obfuscation is done elsewhere
@@ -23,10 +23,14 @@ void HiddenString_Free(HiddenString *value);
 void HiddenSize_Free(HiddenSize *value);
 void HiddenName_Free(HiddenName *value);
 
-const char* HiddenString_Get(HiddenString *value, bool obfuscate);
+HiddenString *HiddenString_Clone(const HiddenString* value);
+const char *HiddenString_Get(const HiddenString *value, bool obfuscate);
 bool HiddenString_Equal(HiddenString *left, HiddenString *right);
+bool HiddenString_EqualC(HiddenString *left, const char *right);
+void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 
-int HiddenName_Compare(HiddenName *left, HiddenName *right);
+int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
+int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
 void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply);
@@ -35,7 +39,7 @@ void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value);
 // Temporary for the sake of comparmentilization
-const char* HiddenName_GetUnsafe(HiddenName* value, size_t* length);
+const char* HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
 
 RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx);
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);

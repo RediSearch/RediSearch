@@ -63,7 +63,7 @@ int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opa
  */
 RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field);
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
 
 extern RedisModuleType *InvertedIndexType;
 
