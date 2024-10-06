@@ -25,12 +25,16 @@ void HiddenName_Free(HiddenName *value);
 
 HiddenString *HiddenString_Clone(const HiddenString* value);
 const char *HiddenString_Get(const HiddenString *value, bool obfuscate);
-bool HiddenString_Equal(HiddenString *left, HiddenString *right);
-bool HiddenString_EqualC(HiddenString *left, const char *right);
+int HiddenString_CompareC(HiddenString *left, const char *right, size_t right_length);
+int HiddenString_Compare(HiddenString *left, HiddenString *right);
+int HiddenString_CaseSensitiveCompareC(HiddenString *left, const char *right, size_t right_length);
+int HiddenString_CaseSensitiveCompare(HiddenString *left, HiddenString *right);
 void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 
 int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
+int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
+int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
 void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply);

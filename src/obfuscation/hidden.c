@@ -71,15 +71,43 @@ const char *HiddenString_Get(const HiddenString *value, bool obfuscate) {
   return obfuscate ? v->obfuscated : v->user;
 }
 
-bool HiddenString_Equal(HiddenString *left, HiddenString *right) {
-  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
-  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
-  return l->length == r->length && strncmp(l->obfuscated, r->obfuscated, l->length) == 0;
+static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
+  int result = strncmp(left, right, MIN(left_length, right_length));
+  if (result != 0 || left_length == right_length) {
+  	return result;
+  } else {
+    return left_length < right_length ? -1 : 1;
+  }
 }
 
-bool HiddenString_EqualC(HiddenString *left, const char *right) {
+static inline int CaseSensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
+  int result = strncasecmp(left, right, MIN(left_length, right_length));
+  if (result != 0 || left_length == right_length) {
+  	return result;
+  } else {
+    return left_length < right_length ? -1 : 1;
+  }
+}
+
+int HiddenString_Compare(HiddenString *left, HiddenString *right) {
   UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
-  return l->length == strlen(right) && strncmp(l->obfuscated, right, l->length) == 0;
+  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
+  return Compare(l->user, l->length, r->user, r->length);
+}
+
+int HiddenString_CompareC(HiddenString *left, const char *right, size_t right_length) {
+  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
+  return Compare(l->user, l->length, right, right_length);
+}
+
+int HiddenString_CaseSensitiveCompareC(HiddenString *left, const char *right, size_t right_length) {
+  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
+  return CaseSensitiveCompare(l->user, l->length, right, right_length);
+}
+
+int HiddenString_CaseSensitiveCompare(HiddenString *left, HiddenString *right) {
+  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
+  return HiddenString_CaseSensitiveCompareC(left, r->user, r->length);
 }
 
 void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
@@ -89,17 +117,22 @@ void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
 
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length) {
   const UserString* l = (const UserString*)left;
-  int result = strncmp(l->user, right, MIN(l->length, right_length));
-  if (result != 0 || l->length == right_length) {
-    return result;
-  } else {
-    return l->length < right_length ? -1 : 1;
-  }
+  return Compare(l->user, l->length, right, right_length);
 }
 
 int HiddenName_Compare(const HiddenName* left, const HiddenName* right) {
   UserString* r = (UserString*)right;
   HiddenName_CompareC(left, r->user, r->length);
+}
+
+int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length) {
+  UserString* l = (UserString*)left;
+  return CaseSensitiveCompare(l->user, l->length, right, right_length);
+}
+
+int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right) {
+  UserString* r = (UserString*)right;
+  return HiddenName_CaseSensitiveCompareC(left, r->user, r->length);
 }
 
 void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
