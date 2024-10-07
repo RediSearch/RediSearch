@@ -379,10 +379,7 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    if redis.__version__ < '5.1.0':
-        env.expect('FT._LIST').equal({'idx2', 'idx1'})
-    else:
-        env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    env.expect('FT._LIST').equal(['idx2', 'idx1'])
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -507,10 +504,7 @@ def test_dictdump():
     def sort_dict(dict_list):
         dict_list.sort()
         return dict_list
-    if redis.__version__ < '5.1.0':
-        env.expect("FT.DICTDUMP", "dict1").equal({'2', 'bar', 'foo', '1'})
-    else:
-        env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
+    env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -573,13 +567,9 @@ def test_tagvals():
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
-
-    list_or_set = list
-    if redis.__version__ < '5.1.0':
-        list_or_set = set
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(list_or_set('3'))
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(list_or_set('2', '3'))
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal(list_or_set())
+    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(['3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(['2', '3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f5').equal([])
 
 @skip(cluster=False)
 def test_clusterinfo():
