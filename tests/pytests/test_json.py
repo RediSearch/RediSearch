@@ -1180,7 +1180,7 @@ def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
     # We are using ',' as tag SEPARATOR to get the same results of HASH index
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
             'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
