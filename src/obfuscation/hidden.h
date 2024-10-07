@@ -13,15 +13,15 @@ typedef struct Hidden HiddenSize;
 typedef struct Hidden HiddenName;
 
 // Hides the string and obfustaces it
-HiddenString *HideAndObfuscateString(const char *str, uint64_t length);
+HiddenString *HideAndObfuscateString(const char *str, uint64_t length, bool takeOwnership);
 // Hides the size and obfustaces it
 HiddenSize *HideAndObfuscateNumber(uint64_t num);
 // Hides the string, obfuscation is done elsewhere
-HiddenName *NewHiddenName(const char *name, uint64_t length);
+HiddenName *NewHiddenName(const char *name, uint64_t length, bool takeOwnership);
 
-void HiddenString_Free(HiddenString *value);
+void HiddenString_Free(HiddenString *value, bool tookOwnership);
 void HiddenSize_Free(HiddenSize *value);
-void HiddenName_Free(HiddenName *value);
+void HiddenName_Free(HiddenName *value, bool tookOwnership);
 
 HiddenString *HiddenString_Clone(const HiddenString* value);
 const char *HiddenString_Get(const HiddenString *value, bool obfuscate);
@@ -35,6 +35,7 @@ int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right);
+void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
 void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply);

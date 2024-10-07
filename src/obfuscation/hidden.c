@@ -7,7 +7,7 @@
 #include "reply_macros.h"
 
 typedef struct {
-  char* user;
+  const char* user;
   uint64_t length;
   char* obfuscated;
 } UserAndObfuscatedString;
@@ -18,13 +18,16 @@ typedef struct {
 } UserAndObfuscatedUInt64;
 
 typedef struct {
-  char *user;
+  const char *user;
   uint64_t length;
 } UserString;
 
-HiddenString* HideAndObfuscateString(const char* str, uint64_t length) {
+HiddenString* HideAndObfuscateString(const char* str, uint64_t length, bool takeOwnership) {
   UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
-  value->user = rm_strdup(str);
+  value->user = str;
+  if (takeOwnership) {
+    value->user = rm_strndup(str, length);
+  }
   value->length = length;
   value->obfuscated = Obfuscate_Text(str);
   return (HiddenString*)value;
@@ -37,16 +40,21 @@ HiddenSize* HideAndObfuscateNumber(uint64_t num) {
   return (HiddenSize*)value;
 };
 
-HiddenName* NewHiddenName(const char* name, uint64_t length) {
+HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership) {
   UserString* value = rm_malloc(sizeof(*value));
-  value->user = rm_strndup(name, length);
+  value->user = name;
+  if (takeOwnership) {
+    value->user = rm_strndup(name, length);
+  }
   value->length = length;
   return (HiddenName*)value;
 };
 
-void HiddenString_Free(HiddenString* hs) {
+void HiddenString_Free(HiddenString* hs, bool tookOwnership) {
   UserAndObfuscatedString* value = (UserAndObfuscatedString*)hs;
-  rm_free(value->user);
+  if (tookOwnership) {
+    rm_free(value->user);
+  }
   rm_free(value);
 };
 
@@ -55,15 +63,17 @@ void HiddenSize_Free(HiddenSize* hn) {
   rm_free(value);
 };
 
-void HiddenName_Free(HiddenName* hn) {
+void HiddenName_Free(HiddenName* hn, bool tookOwnership) {
   UserString* value = (UserString*)hn;
-  rm_free(value->user);
+  if (tookOwnership) {
+    rm_free(value->user);
+  }
   rm_free(value);
 };
 
 HiddenString *HiddenString_Clone(const HiddenString* value) {
     UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
-    return HideAndObfuscateString(v->user, v->length);
+    return HideAndObfuscateString(v->user, v->length, true);
 }
 
 const char *HiddenString_Get(const HiddenString *value, bool obfuscate) {
@@ -135,19 +145,24 @@ int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right) {
   return HiddenName_CaseSensitiveCompareC(left, r->user, r->length);
 }
 
+void HiddenName_TakeOwnership(HiddenName *hidden) {
+  UserString* userString = (UserString*)hidden;
+  userString->user = rm_strndup(userString->user, userString->length);
+}
+
 void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
   UserString* s = (UserString*)src;
   if (*dst == NULL) {
-    *dst = NewHiddenName(s->user, s->length);
+    *dst = NewHiddenName(s->user, s->length, true);
   } else {
     UserString* d = (UserString*)*dst;
     if (s->length > d->length) {
-      d->user = rm_realloc(d->user, s->length);
+      d->user = rm_realloc((void*)d->user, s->length);
       d->length = s->length;
     }
-    strncpy(d->user, s->user, s->length);
+    strncpy((void*)d->user, s->user, s->length);
     if (d->length > s->length) {
-      memset(d->user + s->length, 0, d->length - s->length);
+      memset((void*)d->user + s->length, 0, d->length - s->length);
     }
   }
 }

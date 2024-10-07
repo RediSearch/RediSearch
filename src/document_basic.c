@@ -29,7 +29,8 @@ static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
-  f->name = NewHiddenName(fieldname, strlen(fieldname));
+  bool takeOwnership = d->flags & DOCUMENT_F_OWNSTRINGS;
+  f->name = NewHiddenName(rm_strdup(fieldname), strlen(fieldname), takeOwnership);
   return f;
 }
 
@@ -80,6 +81,7 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
+    HiddenName_TakeOwnership(f->name);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -323,7 +325,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    doc->fields[n].name = NewHiddenName(name, nlen);
+    doc->fields[n].name = NewHiddenName(name, nlen, true);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
     doc->fields[n].unionType = FLD_VAR_T_RMS;
   }
@@ -404,7 +406,7 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
   for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
     DocumentField *dst = d->fields + oix;
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
-    dst->name = NewHiddenName(name, strlen(name));
+    dst->name = NewHiddenName(name, strlen(name), false);
     dst->text = args[ii + 1];
     dst->unionType = FLD_VAR_T_RMS;
   }
@@ -414,6 +416,7 @@ void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
       DocumentField *field = &d->fields[ii];
+      HiddenName_Free(field->name, d->flags & DOCUMENT_F_OWNSTRINGS);
       switch (field->unionType) {
         case FLD_VAR_T_RMS:
           RedisModule_FreeString(RSDummyContext, field->text);
