@@ -617,8 +617,15 @@ def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
-    env.start() # Restart without JSON module. Attempt to load RDB
-    env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
+    try:
+        env.start() # Restart without JSON module. Attempt to load RDB
+    except Exception as e:
+        expected_msg = 'Redis server is dead'
+        env.assertContains(expected_msg, str(e))
+        if expected_msg not in str(e):
+            raise e
+    finally:
+        env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
 
 @skip(msan=True, no_json=True)
 def testIndexSeparation(env):
@@ -1173,7 +1180,7 @@ def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
     # We are using ',' as tag SEPARATOR to get the same results of HASH index
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
             'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
