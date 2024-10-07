@@ -988,7 +988,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
         status, QUERY_EINVAL,
-        "HIGHLIGHT/SUMMARIZE is not supported on JSON indexes");
+        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
     return REDISMODULE_ERR;
   }
 
