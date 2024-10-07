@@ -1,7 +1,6 @@
 from common import *
 from math import nan
 import json
-import redis
 from test_coordinator import test_error_propagation_from_shards
 from test_profile import TimedoutTest_resp3, TimedOutWarningtestCoord
 
