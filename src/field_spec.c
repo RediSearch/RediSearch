@@ -31,11 +31,12 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->path && fs->name != fs->path) {
-    rm_free(fs->path);
+    HiddenString_Free(fs->path, true);
+    fs->path = NULL;
   }
   fs->path = NULL;
   if (fs->name) {
-    rm_free(fs->name);
+    HiddenString_Free(fs->name, true);
     fs->name = NULL;
   }
 

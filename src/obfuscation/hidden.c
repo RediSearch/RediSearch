@@ -7,7 +7,7 @@
 #include "reply_macros.h"
 
 typedef struct {
-  char* user;
+  const char* user;
   uint64_t length;
   char* obfuscated;
 } UserAndObfuscatedString;
@@ -149,6 +149,11 @@ int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right) {
 HiddenName *HiddenName_Duplicate(const HiddenName *value) {
   const UserString* text = (const UserString*)value;
   return NewHiddenName(text->user, text->length, true);
+}
+
+void HiddenName_TakeOwnership(HiddenName *hidden) {
+  UserString* userString = (UserString*)hidden;
+  userString->user = rm_strndup(userString->user, userString->length);
 }
 
 void HiddenName_TakeOwnership(HiddenName *hidden) {
