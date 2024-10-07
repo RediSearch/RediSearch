@@ -10,7 +10,7 @@ def test_acl_category(env):
     res = env.cmd('ACL', 'CAT')
     env.assertTrue('search' in res)
 
-@skip(redis_less_than="7.4.1")
+@skip(redis_less_than="7.9.0")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
