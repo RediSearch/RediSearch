@@ -725,7 +725,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   StrongRef alias_ref = IndexAlias_Get(rawAlias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
-    HiddenName *alias = NewHiddenName(rawAlias, length);
+    HiddenName *alias = NewHiddenName(rawAlias, length, false);
     return IndexAlias_Add(alias, ref, 0, error);
   }
   return REDISMODULE_OK;
@@ -768,7 +768,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
-  HiddenName *alias = NewHiddenName(rawAlias, length);
+  HiddenName *alias = NewHiddenName(rawAlias, length, false);
   QueryError status = {0};
   if (IndexAlias_Del(alias, ref, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -801,19 +801,15 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
-  if (spOrig) {
-    size_t length = 0;
-    HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length);
-    if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  size_t length = 0;
+  HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length, false);
+  if (spOrig && IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
   }
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {
       QueryError e2 = {0};
-      size_t length = 0;
-      HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length);
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }

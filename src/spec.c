@@ -1276,8 +1276,7 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  size_t length = 0;
-  HiddenName* hiddenName = NewHiddenName(name, length);
+  HiddenName* hiddenName = NewHiddenName(name, strlen(name), false);
   IndexSpec *spec = NewIndexSpec(hiddenName);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
@@ -1404,9 +1403,9 @@ void Spec_AddToDict(RefManager *rm) {
 static void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     if (c->fields[ii].name != c->fields[ii].path) {
-      rm_free(c->fields[ii].name);
+      HiddenString_Free(c->fields[ii].name, true);
     }
-    rm_free(c->fields[ii].path);
+    HiddenString_Free(c->fields[ii].path, true);
   }
   rm_free(c->fields);
   rm_free(c);
@@ -1542,7 +1541,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   // Free spec name
-  rm_free(spec->name);
+  HiddenName_Free(spec->name, true);
   // Free sortable list
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
@@ -1848,8 +1847,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
-  fs->name = HideAndObfuscateString(name, strlen(name));
-  fs->path = (path) ? HideAndObfuscateString(path, strlen(path)) : fs->name;
+  fs->name = HideAndObfuscateString(name, strlen(name), true);
+  fs->path = (path) ? HideAndObfuscateString(path, strlen(path), true) : fs->name;
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -2563,7 +2562,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   size_t len = strlen(rawName);
-  sp->name = NewHiddenName(rawName, len);
+  sp->name = NewHiddenName(rawName, len, true);
+  RedisModule_Free(rawName);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -2638,11 +2638,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    HiddenName* alias = NewHiddenName(s, strlen(s));
+    HiddenName* alias = NewHiddenName(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
-      HiddenName_Free(alias);
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
   }
@@ -2697,7 +2696,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
-  sp->name = NewHiddenName(legacyName, strlen(legacyName));
+  sp->name = NewHiddenName(legacyName, strlen(legacyName), true);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2753,7 +2752,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      HiddenName* alias = NewHiddenName(s, strlen(s));
+      HiddenName* alias = NewHiddenName(s, strlen(s), false);
       int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);

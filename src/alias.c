@@ -80,7 +80,7 @@ static int AliasTable_Del(AliasTable *table, HiddenName *alias, StrongRef spec_r
   }
 
   if (toFree) {
-    rm_free(toFree);
+    HiddenName_Free(toFree, true);
   }
   return REDISMODULE_OK;
 }

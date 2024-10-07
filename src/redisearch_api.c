@@ -41,7 +41,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   if (!options) {
     options = &opts_s;
   }
-  IndexSpec* spec = NewIndexSpec(NewHiddenName(name, strlen(name)));
+  IndexSpec* spec = NewIndexSpec(NewHiddenName(name, strlen(name), false));
   StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
