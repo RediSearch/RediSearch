@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import redis
 from common import *
 
 def test_1282(env):
