@@ -985,10 +985,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
 
+  if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
+    QueryError_SetError(
+        status, QUERY_EINVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
+    return REDISMODULE_ERR;
+  }
+
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
         status, QUERY_EINVAL,
-        "Cannot use highlight/summarize because NOOFSETS was specified at index level");
+        "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
     return REDISMODULE_ERR;
   }
 
