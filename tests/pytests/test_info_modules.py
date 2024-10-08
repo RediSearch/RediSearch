@@ -206,26 +206,26 @@ def test_counting_queries(env: Env):
       con.execute_command('HSET', i, 'n', i)
 
   # Initiate counters
-  unique_queries_counter = 0
+  queries_counter = 0
   query_commands_counter = 0
   def check_counters():
     line_number = currentframe().f_back.f_lineno
     info = env.cmd('INFO', 'MODULES')
-    env.assertEqual(info['search_total_queries'], unique_queries_counter, message=f'line {line_number}')
+    env.assertEqual(info['search_total_queries_processed'], queries_counter, message=f'line {line_number}')
     env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
 
   # Call `INFO` and check that the counters are 0
   check_counters()
 
   env.cmd('FT.SEARCH', 'idx', '*')
-  unique_queries_counter += 1
+  queries_counter += 1
   query_commands_counter += 1
 
   # Both counters should be updated
   check_counters()
 
   env.cmd('FT.AGGREGATE', 'idx', '*')
-  unique_queries_counter += 1
+  queries_counter += 1
   query_commands_counter += 1
 
   # Both counters should be updated
@@ -233,7 +233,7 @@ def test_counting_queries(env: Env):
 
   _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 6)
   env.assertNotEqual(cursor, 0) # Cursor is not done
-  unique_queries_counter += 1
+  queries_counter += 1
   query_commands_counter += 1
 
   # Both counters should be updated
@@ -267,3 +267,8 @@ def test_counting_queries(env: Env):
   # Cursor read with a non-existing cursor
   env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
   check_counters()
+
+@skip(noWorkers=True)
+def test_counting_queries_BG():
+  env = Env(moduleArgs='WORKERS 2')
+  test_counting_queries(env)
