@@ -366,9 +366,14 @@ def test_MOD1544(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  res = [1, '1', ['name', '<b>John</b> Smith']]
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+  # res = [1, '1', ['name', '<b>John</b> Smith']]
+
+  # Highlight/summarize is not supported with JSON indexes
+  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT').error().contains(error_msg)
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
