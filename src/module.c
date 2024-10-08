@@ -43,6 +43,7 @@
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
+#include "global_stats.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -189,7 +190,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {

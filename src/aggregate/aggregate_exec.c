@@ -920,7 +920,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
 
 #ifdef MT_BUILD
   if (RunInThread()) {

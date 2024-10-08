@@ -143,9 +143,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
 
   // Query statistics
-  RedisModule_InfoAddSection(ctx, "queries");
-  RedisModule_InfoAddFieldLongLong(ctx, "total_queries", RSGlobalStats.totalStats.total_unique_queries);
-  RedisModule_InfoAddFieldLongLong(ctx, "total_query_commands", RSGlobalStats.totalStats.total_query_commands);
+  TotalGlobalStats_Queries_AddToInfo(ctx);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);

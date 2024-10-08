@@ -7,6 +7,9 @@
 #include "global_stats.h"
 #include "aggregate/aggregate.h"
 
+#define INCR(x) __atomic_add_fetch(&(x), 1, __ATOMIC_RELAXED)
+#define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
+
 GlobalStats RSGlobalStats = {0};
 
 // Assuming that the GIL is already acquired
@@ -120,10 +123,26 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
 void TotalGlobalStats_CountQuery(uint32_t reqflags) {
   if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
 
-  __atomic_add_fetch(&RSGlobalStats.totalStats.total_query_commands, 1, __ATOMIC_RELAXED);
+  INCR(RSGlobalStats.totalStats.total_query_commands);
 
   if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
     // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
-    __atomic_add_fetch(&RSGlobalStats.totalStats.total_unique_queries, 1, __ATOMIC_RELAXED);
+    INCR(RSGlobalStats.totalStats.total_queries_processed);
+  }
+}
+
+void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "queries");
+  RedisModule_InfoAddFieldLongLong(ctx, "total_queries_processed", READ(RSGlobalStats.totalStats.total_queries_processed));
+  RedisModule_InfoAddFieldLongLong(ctx, "total_query_commands", READ(RSGlobalStats.totalStats.total_query_commands));
+}
+
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "dialect_statistics");
+  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
+    char field[16] = {0};
+    snprintf(field, sizeof field, "dialect_%d", dialect);
+    // extract the d'th bit of the dialects bitfield.
+    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect));
   }
 }
