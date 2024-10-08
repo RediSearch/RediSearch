@@ -1147,7 +1147,7 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  env.expect('FT._LIST').equal([escape(unsafe_index)])
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])
