@@ -406,36 +406,36 @@ def testKeyTableInfo(env):
     env.assertEqual(key_table_size, 0)
 
     # Add and delete keys, size should remain the same as the initial size
-    env.cmd('HSET', 'b:1', 'txt', '1')
-    env.cmd('HSET', 'b:10', 'txt', '10')
-    env.cmd('HSET', 'b:15', 'txt', '15')
-    env.cmd('DEL', 'b:10')
-    env.cmd('DEL', 'b:1') # Term node with a single child
-    env.cmd('DEL', 'b:15')
+    conn.execute_command('HSET', 'b:1', 'txt', '1')
+    conn.execute_command('HSET', 'b:10', 'txt', '10')
+    conn.execute_command('HSET', 'b:15', 'txt', '15')
+    conn.execute_command('DEL', 'b:10')
+    conn.execute_command('DEL', 'b:1') # Term node with a single child
+    conn.execute_command('DEL', 'b:15')
     d = index_info(env, 'idx')
     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
 
     # Delete a node with children, should not affect the key table size, it
     # only affects the cardinality of the trie
     d = index_info(env, 'idx')
-    env.cmd('HSET', 'b:1', 'txt', '1')
-    env.cmd('HSET', 'b:10', 'txt', '10')
-    env.cmd('HSET', 'b:15', 'txt', '15')
+    conn.execute_command('HSET', 'b:1', 'txt', '1')
+    conn.execute_command('HSET', 'b:10', 'txt', '10')
+    conn.execute_command('HSET', 'b:15', 'txt', '15')
     key_table_size = float(d['key_table_size_mb'])
-    env.cmd('DEL', 'b:1')
+    conn.execute_command('DEL', 'b:1')
     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
     
     # update a key, should not affect the key table size
-    env.cmd('HSET', 'b:1', 'txt', '1')
-    env.cmd('HSET', 'b:10', 'txt', '10')
-    env.cmd('HSET', 'b:15', 'txt', '15')
+    conn.execute_command('HSET', 'b:1', 'txt', '1')
+    conn.execute_command('HSET', 'b:10', 'txt', '10')
+    conn.execute_command('HSET', 'b:15', 'txt', '15')
     key_table_size = float(d['key_table_size_mb'])
-    env.cmd('HSET', 'b:1', 'txt', 'x')
-    env.cmd('HSET', 'b:1', 'txt', 'y')
-    env.cmd('HSET', 'b:1', 'txt', 'z')
+    conn.execute_command('HSET', 'b:1', 'txt', 'x')
+    conn.execute_command('HSET', 'b:1', 'txt', 'y')
+    conn.execute_command('HSET', 'b:1', 'txt', 'z')
     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
 
     # Delete unexisting key, should not affect the key table size
-    env.cmd('DEL', 'b:20')
-    env.cmd('DEL', 'b:25')
+    conn.execute_command('DEL', 'b:20')
+    conn.execute_command('DEL', 'b:25')
     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
