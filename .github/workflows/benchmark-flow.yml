@@ -37,8 +37,8 @@ env:
 
 jobs:
   benchmark-steps:
-    runs-on: ubuntu-latest
-    container: ${{ inputs.container }}
+    runs-on: ubuntu-20.04
+    # container: ${{ inputs.container }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
