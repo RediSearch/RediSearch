@@ -27,6 +27,9 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      test-timeout:
+        type: number
+        default: 50
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
@@ -133,11 +136,13 @@ jobs:
         run: make COORD=1 SAN=${{ inputs.san }}
 
       - name: Unit tests (standalone)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test1
         if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test2
         if: ${{ inputs.standalone }}
         continue-on-error: true
@@ -148,6 +153,7 @@ jobs:
         continue-on-error: true
         run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (coordinator)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: test4
         if: ${{ inputs.coordinator }}
         continue-on-error: true
