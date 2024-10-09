@@ -69,5 +69,7 @@ void TotalGlobalStats_CountQuery(uint32_t reqflags);
  */
 void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx);
 
-
+/**
+ * Add all the dialect-related information to the INFO command.
+ */
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);

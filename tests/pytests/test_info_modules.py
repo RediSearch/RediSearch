@@ -268,6 +268,27 @@ def test_counting_queries(env: Env):
   env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
   check_counters()
 
+  if env.isCluster() and env.shardsCount > 1:
+    # Verify that the counters are updated correctly on a cluster
+    # We expect all the counters to sum up to the total number of queries
+
+    for i in range(1, env.shardsCount + 1):
+      env.getConnection(i).execute_command('FT.SEARCH', 'idx', '*')
+
+    queries_counter += env.shardsCount
+    query_commands_counter += env.shardsCount
+
+    actual_queries_counter = 0
+    actual_query_commands_counter = 0
+    for i in range(1, env.shardsCount + 1):
+      info = env.getConnection(i).execute_command('INFO', 'MODULES')
+      actual_queries_counter += info['search_total_queries_processed']
+      actual_query_commands_counter += info['search_total_query_commands']
+
+    env.assertEqual(actual_queries_counter, queries_counter)
+    env.assertEqual(actual_query_commands_counter, query_commands_counter)
+
+
 @skip(noWorkers=True)
 def test_counting_queries_BG():
   env = Env(moduleArgs='WORKERS 2')

@@ -392,14 +392,14 @@ static bool hasTimeoutError(QueryError *err) {
   return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
-void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool query_done) {
+void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
   } else {
     SearchResult_Destroy(r);
   }
 
-  if (query_done) {
+  if (cursor_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
@@ -423,18 +423,18 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
-    bool query_done = false;
+    bool cursor_done = false;
 
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      query_done = true;
+      cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
-      query_done = true;
+      cursor_done = true;
       goto done_2_err;
     }
 
@@ -493,14 +493,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    query_done = (rc != RS_RESULT_OK && !(rc == RS_RESULT_TIMEDOUT &&
-                                          req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
-                                          req->reqflags & QEXEC_F_IS_CURSOR));
+    cursor_done = (rc != RS_RESULT_OK
+                   && !(rc == RS_RESULT_TIMEDOUT
+                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      if (query_done) {
+      if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
           req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
@@ -519,7 +519,7 @@ done_2:
     }
 
 done_2_err:
-    finishSendChunk(req, results, &r, query_done);
+    finishSendChunk(req, results, &r, cursor_done);
 
     if (resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && resultsLen != nelem) {
       RedisModule_Log(RSDummyContext, "warning", "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", resultsLen, nelem);
@@ -536,17 +536,17 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
-    bool query_done = false;
+    bool cursor_done = false;
 
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(rp, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
-      query_done = true;
+      cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
-      query_done = true;
+      cursor_done = true;
       goto done_3_err;
     }
 
@@ -626,14 +626,14 @@ done_3:
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
-    query_done = (rc != RS_RESULT_OK && !(rc == RS_RESULT_TIMEDOUT &&
-                                          req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
-                                          req->reqflags & QEXEC_F_IS_CURSOR));
+    cursor_done = (rc != RS_RESULT_OK
+                   && !(rc == RS_RESULT_TIMEDOUT
+                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
     if (IsProfile(req)) {
-      if (!(req->reqflags & QEXEC_F_IS_CURSOR) || query_done) {
+      if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
         req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
       }
     }
@@ -641,7 +641,7 @@ done_3:
     RedisModule_Reply_MapEnd(reply);
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      if (query_done) {
+      if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -650,7 +650,7 @@ done_3:
     }
 
 done_3_err:
-    finishSendChunk(req, results, &r, query_done);
+    finishSendChunk(req, results, &r, cursor_done);
 }
 
 /**
