@@ -119,7 +119,8 @@ jobs:
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
-              --comparison-branch ${{ github.head_ref || github.ref_name }}
+              --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
+              --baseline-branch ${{ github.event.pull_request.base.ref }}
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
