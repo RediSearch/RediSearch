@@ -957,9 +957,6 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
 
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-    return NULL;
-  }
 
   if (qn->opts.distField) {
     if (qn->vn.vq->scoreField) {
@@ -986,6 +983,13 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->vn.vq->scoreField) {
     idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
+
+  // If the field is not found or not a vector field, return NULL
+  // We check this after registering the metric request, so we won't reply with a misleading syntax error.
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    return NULL;
+  }
+
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -1352,7 +1356,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
- 
+
   if (!idx) {
     // There are no documents to traverse.
     goto done;
