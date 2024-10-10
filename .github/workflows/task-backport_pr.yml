@@ -19,16 +19,9 @@ jobs:
     # or when a comment starting with `/backport` is created by someone other than the
     # https://github.com/backport-action bot user (user id: 97796249). Note that if you use your
     # own PAT as `github_token`, that you should replace this id with yours.
-    if: >
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.pull_request.merged
-      ) || (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        github.event.comment.user.id != 97796249 &&
-        startsWith(github.event.comment.body, '/backport')
-      )
+
+    env:
+      CONTEXT: ${{ toJson(github) }}
     steps:
       - name: 🔑 Generate GitHub App Token
         id: generate-app-token
