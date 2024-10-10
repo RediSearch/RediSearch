@@ -28,7 +28,7 @@ The following words are treated as stop words by default:
 
 ## Overriding the default stop word list
 
-Stop words for an index can be defined (or disabled completely) on index creation using the `STOPWORDS` argument with the [`FT.CREATE` command.
+Stop words for an index can be defined (or disabled completely) on index creation using the `STOPWORDS` argument with the [`FT.CREATE`](../../commands/ft.create.md) command.
 
 The format is `STOPWORDS {number} {stopword} ...` where number is the number of stop words given. The `STOPWORDS` argument must come before the `SCHEMA` argument. For example:
 
