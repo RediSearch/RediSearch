@@ -16,6 +16,11 @@ env:
   CONTEXT: ${{ toJson(github) }}
 
 jobs:
+  print:
+    name: Print context
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ env.CONTEXT }}"
   backport:
     name: Backport pull request
     runs-on: ${{ vars.RUNS_ON }}
