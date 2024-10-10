@@ -19,12 +19,12 @@ int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
   if (isMin && (
         (sign == 1 && !strcasecmp(s, "-inf")) ||
         (sign == -1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")))) {
-    *target = NF_NEGATIVE_INFINITY;
+    *target = -INFINITY;
     return REDISMODULE_OK;
   } else if (!isMin && (
         (sign == 1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")) ||
         (sign == -1 && !strcasecmp(s, "-inf")))){
-    *target = NF_INFINITY;
+    *target = INFINITY;
     return REDISMODULE_OK;
   }
   char *endptr = NULL;

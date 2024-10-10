@@ -16,18 +16,15 @@
 
 #include "rmalloc.h"
 
-static __inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
-  uint8_t i;
-
-  for (i = 1; i <= 32 - bits; i++) {
-    if (hash & 1) break;
-
-    hash >>= 1;
-  }
-
-  return i;
+static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
+  uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
+  return (rank > max ? max : rank) + 1;
 }
 
+/*
+ * @param bits: The number of bits to use for the register index.
+ *              The expected error rate is 1.04 / sqrt(2^bits)
+ */
 int hll_init(struct HLL *hll, uint8_t bits) {
   if (bits < 4 || bits > 20) {
     errno = ERANGE;
@@ -35,21 +32,21 @@ int hll_init(struct HLL *hll, uint8_t bits) {
   }
 
   hll->bits = bits;
-  hll->size = (size_t)1 << bits;
-  hll->registers = rm_calloc(hll->size, 1);
+  hll->rank_bits = 32 - bits;
+  hll->size = 1ULL << bits;
+  hll->registers = rm_calloc(hll->size, sizeof(*hll->registers));
 
   return 0;
 }
 
 void hll_destroy(struct HLL *hll) {
   rm_free(hll->registers);
-
   hll->registers = NULL;
 }
 
-static __inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
-  uint32_t index = hash >> (32 - hll->bits);
-  uint8_t rank = _hll_rank(hash, hll->bits);
+static inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
+  uint32_t index = hash >> hll->rank_bits;
+  uint8_t rank = _hll_rank(hash, hll->rank_bits);
 
   if (rank > hll->registers[index]) {
     hll->registers[index] = rank;
@@ -61,15 +58,13 @@ void hll_add_hash(struct HLL *hll, uint32_t h) {
 }
 
 void hll_add(struct HLL *hll, const void *buf, size_t size) {
-  uint32_t hash = rs_fnv_32a_buf((void *)buf, (uint32_t)size, 0x5f61767a);
+  uint32_t hash = rs_fnv_32a_buf(buf, (uint32_t)size, 0x5f61767a);
 
   _hll_add_hash(hll, hash);
 }
 
 double hll_count(const struct HLL *hll) {
   double alpha_mm;
-  uint32_t i;
-
   switch (hll->bits) {
     case 4:
       alpha_mm = 0.673;
@@ -88,7 +83,7 @@ double hll_count(const struct HLL *hll) {
   alpha_mm *= ((double)hll->size * (double)hll->size);
 
   double sum = 0;
-  for (i = 0; i < hll->size; i++) {
+  for (uint32_t i = 0; i < hll->size; i++) {
     sum += 1.0 / (1 << hll->registers[i]);
   }
 
@@ -97,7 +92,7 @@ double hll_count(const struct HLL *hll) {
   if (estimate <= 5.0 / 2.0 * (double)hll->size) {
     int zeros = 0;
 
-    for (i = 0; i < hll->size; i++) zeros += (hll->registers[i] == 0);
+    for (uint32_t i = 0; i < hll->size; i++) zeros += (hll->registers[i] == 0);
 
     if (zeros) estimate = (double)hll->size * log((double)hll->size / zeros);
 
@@ -109,14 +104,12 @@ double hll_count(const struct HLL *hll) {
 }
 
 int hll_merge(struct HLL *dst, const struct HLL *src) {
-  uint32_t i;
-
   if (dst->bits != src->bits) {
     errno = EINVAL;
     return -1;
   }
 
-  for (i = 0; i < dst->size; i++) {
+  for (uint32_t i = 0; i < dst->size; i++) {
     if (src->registers[i] > dst->registers[i]) dst->registers[i] = src->registers[i];
   }
 
@@ -124,29 +117,15 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
 }
 
 int hll_load(struct HLL *hll, const void *registers, size_t size) {
-  uint8_t bits = 0;
-  size_t s = size;
-
-  while (s) {
-    if (s & 1) break;
-
-    bits++;
-
-    s >>= 1;
-  }
-
-  if (!bits || ((size_t)1 << bits) != size) {
-    errno = EINVAL;
+  if (__builtin_popcountll(size) != 1) {
+    errno = EINVAL; // size must be a power of 2 - a single bit set
     return -1;
   }
 
-  if (hll_init(hll, bits) == -1) return -1;
+  // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
+  if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
 
-  memcpy(hll->registers, registers, size);
+  memcpy(hll->registers, registers, size * sizeof(*hll->registers));
 
   return 0;
-}
-
-extern uint32_t _hll_hash(const struct HLL *hll) {
-  return rs_fnv_32a_buf(hll->registers, (uint32_t)hll->size, 0);
 }

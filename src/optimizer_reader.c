@@ -226,7 +226,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
 
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, qOpt->asc);
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc);
     qOpt->nf->fieldName = rm_strdup(qOpt->fieldName);
     oi->flags |= OPTIM_OWN_NF;
   }

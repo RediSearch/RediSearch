@@ -767,9 +767,9 @@ typedef struct {
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
 
-  arrayof(CardinalityValue) cardValsArr;
-  size_t numCardVals;
-  double uniqueSum;
+  // TODO: some value to use with `hll_load` to update the cardinality
+  void *cardValsArr;
+  size_t cardValsArrSize;
 } NumGcInfo;
 
 static int recvCardvals(ForkGC *fgc, arrayof(CardinalityValue) *tgt, size_t *len, double *uniqueSum) {
@@ -813,10 +813,10 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  if (recvCardvals(gc, &ninfo->cardValsArr, &ninfo->numCardVals,
-                       &ninfo->uniqueSum) != REDISMODULE_OK) {
-    goto error;
-  }
+  // if (recvCardvals(gc, &ninfo->cardValsArr, &ninfo->numCardVals,
+  //                      &ninfo->uniqueSum) != REDISMODULE_OK) {
+  //   goto error;
+  // }
   return FGC_COLLECTED;
 
 error:
@@ -827,15 +827,8 @@ error:
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  arrayof(CardinalityValue) cardValsArr = info->cardValsArr;
-
   NumericRange *r = currNone->range;
-  array_free(r->values);
-  r->values = cardValsArr ? cardValsArr : array_new(CardinalityValue, 1);
-  info->cardValsArr = NULL;
-
-  r->unique_sum = info->uniqueSum;
-  r->card = array_len(r->values);
+  hll_load(&r->hll, info->cardValsArr, info->cardValsArrSize);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
