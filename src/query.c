@@ -1356,7 +1356,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-
+ 
   if (!idx) {
     // There are no documents to traverse.
     goto done;
