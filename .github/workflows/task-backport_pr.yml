@@ -15,6 +15,7 @@ permissions:
 env:
   CONTEXT: ${{ toJson(github) }}
 
+
 jobs:
   print:
     name: Print context
