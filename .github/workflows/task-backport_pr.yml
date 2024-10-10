@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write # so it can comment
   pull-requests: write # so it can create pull requests
+
+
+env:
+  CONTEXT: ${{ toJson(github) }}
+
 jobs:
   backport:
     name: Backport pull request
@@ -20,8 +25,6 @@ jobs:
     # https://github.com/backport-action bot user (user id: 97796249). Note that if you use your
     # own PAT as `github_token`, that you should replace this id with yours.
 
-    env:
-      CONTEXT: ${{ toJson(github) }}
     steps:
       - name: 🔑 Generate GitHub App Token
         id: generate-app-token
