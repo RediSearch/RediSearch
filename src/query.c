@@ -840,16 +840,10 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 }
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+  RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
+
   if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
     QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
-    return NULL;
-  }
-  if (qn->type != QN_VECTOR) {
-    return NULL;
-  }
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
 
@@ -878,6 +872,15 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->vn.vq->scoreField) {
     idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
+
+  // If the field is not found or not a vector field, return NULL
+  // We check this after registering the metric request, so we won't reply with a misleading syntax error.
+  const FieldSpec *fs =
+      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    return NULL;
+  }
+
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
