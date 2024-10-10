@@ -291,6 +291,8 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool monitorDocumentExpiration;
+  bool monitorFieldExpiration;
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
@@ -324,6 +326,8 @@ typedef struct IndexSpec {
 
   // Contains inverted indexes of missing fields
   dict *missingFieldDict;
+  // Maps between field ftid and field index in the fields array
+  arrayof(t_fieldIndex) fieldIdToIndex;
 
 } IndexSpec;
 
@@ -492,11 +496,15 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
  * Gets the next text id from the index. This does not currently
  * modify the index
  */
-int IndexSpec_CreateTextId(const IndexSpec *sp);
+int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
+
+// Translate the field mask to an array of field indices based on the "on" bits
+// Out capacity should be enough to hold 128 fields
+uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)

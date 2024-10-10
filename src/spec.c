@@ -997,23 +997,14 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-int IndexSpec_CreateTextId(const IndexSpec *sp) {
-  int maxId = -1;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-      if (fs->ftId == (t_fieldId)-1) {
-        // ignore
-        continue;
-      }
-      maxId = MAX(fs->ftId, maxId);
-    }
-  }
-
-  if (maxId + 1 >= SPEC_MAX_FIELD_ID) {
+int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
+  size_t length = array_len(sp->fieldIdToIndex);
+  if (length >= SPEC_MAX_FIELD_ID) {
     return -1;
   }
-  return maxId + 1;
+
+  array_ensure_append_1(sp->fieldIdToIndex, index);
+  return length;
 }
 
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
@@ -1062,12 +1053,17 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
 
     FieldSpec *fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
+    if (!fs) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is currently limited to %d fields",
+                             sp->numFields);
+      goto reset;
+    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
-      int textId = IndexSpec_CreateTextId(sp);
+      int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
         QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields",
                                SPEC_MAX_FIELD_ID);
@@ -1181,6 +1177,30 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   }
 
   return rc;
+}
+
+static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
+static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
+
+static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
+  for (int lsbPos = ffsll(maskPart); lsbPos; lsbPos = ffsll(maskPart)) {
+    out[n++] = translationTable[offset + lsbPos - 1];
+    maskPart &= ~(1 << (lsbPos - 1));
+  }
+  return n;
+}
+
+uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
+  uint16_t count = 0;
+  const uint8_t LOW_OFFSET = 0;
+  if (sizeof(mask) == sizeof(uint64_t)) {
+    count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
+  } else {
+    const uint8_t HIGH_OFFSET = 64;
+    count = TranslateMask(LowPart(mask), sp->fieldIdToIndex, out, count, LOW_OFFSET);
+    count = TranslateMask(HighPart(mask), sp->fieldIdToIndex, out, count, HIGH_OFFSET);
+  }
+  return count;
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -1419,6 +1439,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields cache data
   IndexSpecCache_Decref(spec->spcache);
   spec->spcache = NULL;
+
+  array_free(spec->fieldIdToIndex);
+  spec->fieldIdToIndex = NULL;
 
   // Free fields formatted names
   if (spec->indexStrs) {
@@ -1706,6 +1729,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->keysDict = NULL;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
 
   sp->timeout = 0;
   sp->isTimerSet = false;
@@ -1713,6 +1737,8 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->monitorDocumentExpiration = true;
+  sp->monitorFieldExpiration = true;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -1735,13 +1761,16 @@ IndexSpec *NewIndexSpec(const char *name) {
 
 // Assuming the spec is properly locked before calling this function.
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
-  sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+  FieldSpec* fields = sp->fields;
+  fields = rm_realloc(fields, sizeof(*fields) * (sp->numFields + 1));
+  RS_LOG_ASSERT_FMT(fields, "Failed to allocate memory for %d fields", sp->numFields + 1);
+  sp->fields = fields;
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->name = rm_strdup(name);
   fs->path = (path) ? rm_strdup(path) : fs->name;
-  fs->ftId = (t_fieldId)-1;
+  fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagOpts.tagFlags = TAG_FIELD_DEFAULT_FLAGS;
@@ -1894,7 +1923,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
 
   f->indexError = IndexError_Init();
-
+  f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -2458,6 +2487,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
+  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   sp->nameLen = strlen(sp->name);
@@ -2474,11 +2504,15 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
+    fs->index = i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load index field");
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load index field %d", i);
       goto cleanup;
     }
-    sp->fields[i].index = i;
+    if (fs->ftId != RS_INVALID_FIELD_ID) {
+      // Prefer not to rely on the ordering of fields in the RDB file
+      *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
+    }
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }

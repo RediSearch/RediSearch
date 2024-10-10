@@ -352,7 +352,7 @@ void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, Sear
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
       // Check timeout after aggregation
-      if (TimedOut(&RP_SCTX(rp)->timeout) == TIMED_OUT) {
+      if (TimedOut(&RP_SCTX(rp)->time.timeout) == TIMED_OUT) {
         *rc = RS_RESULT_TIMEDOUT;
       }
     } else {
@@ -770,8 +770,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-  sctx->timeout = req->timeoutTime;
+  SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
@@ -781,7 +780,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  TimedOut_WithStatus(&sctx->timeout, status);
+  TimedOut_WithStatus(&sctx->time.timeout, status);
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
@@ -1054,8 +1053,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 
   // update timeout for current cursor read
-  updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
-  SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
+  SearchCtx_UpdateTime(req->sctx, req->reqConfig.queryTimeoutMS);
 
   if (!num) {
     num = req->cursorChunkSize;

@@ -377,7 +377,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
-    if(TimedOut(&self->parent->sctx->timeout)) {
+    if (TimedOut(&self->parent->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -709,9 +709,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   }
 
-  // Set the timeout
-  updateTimeout(&r->timeoutTime, r->reqConfig.queryTimeoutMS);
-
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 
@@ -736,7 +733,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  r->sctx->timeout = r->timeoutTime;
+  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
   r->qiter.sctx = r->sctx;
   // r->sctx->expanded should be received from shards
 
