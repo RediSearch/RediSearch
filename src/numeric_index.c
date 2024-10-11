@@ -14,6 +14,7 @@
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
+#include "util/heap_doubles.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -131,43 +132,30 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
 //   // Get the median value of the samples
 // }
 
-typedef union {
-  void *ptr;
-  double val;
-} value_holder;
-static_assert(sizeof(void*) >= sizeof(double));
-
-static int cmp_values(const void *p1, const void *p2, const void *udata) {
-  (void)udata;
-  const value_holder v1 = { .ptr = (void*)p1 };
-  const value_holder v2 = { .ptr = (void*)p2 };
-  if (v1.val < v2.val) return -1;
-  return (v1.val > v2.val) ? 1 : 0;
-}
 static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t media_idx = ir->idx->numDocs / 2;
-  heap_t *low_half = rm_malloc(heap_sizeof(media_idx));
-  heap_init(low_half, cmp_values, NULL, media_idx);
+  size_t median_idx = ir->idx->numDocs / 2;
+  double_heap_t *low_half = double_heap_new(median_idx);
   RSIndexResult *cur;
 
-  for (size_t i = 0; i < media_idx; i++) {
+  // Read the first half of the values into a heap
+  for (size_t i = 0; i < median_idx; i++) {
     IR_Read(ir, &cur);
-    value_holder val = { .val = cur->num.value };
-    heap_offerx(low_half, val.ptr);
+    double_heap_add_raw(low_half, cur->num.value);
   }
+  double_heap_heapify(low_half);
+
+  // Read the rest of the values, replacing the max value in the heap if the current value is smaller
   while (INDEXREAD_OK == IR_Read(ir, &cur)) {
-    value_holder cur_val = { .val = cur->num.value };
-    value_holder heap_head = { .ptr = heap_peek(low_half) };
-    if (cur_val.val < heap_head.val) {
-      heap_replace(low_half, cur_val.ptr);
+    if (cur->num.value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, cur->num.value);
     }
   }
 
-  value_holder median = { .ptr = heap_peek(low_half) };
+  double median = double_heap_peek(low_half);
 
-  heap_free(low_half);
+  double_heap_free(low_half);
   IR_Rewind(ir); // Rewind iterator
-  return median.val;
+  return median;
 }
 
 static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
