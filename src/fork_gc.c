@@ -398,7 +398,6 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
-        FGC_SEND_VAR(gc, nctx.majority_card.size);
         FGC_sendFixed(gc, nctx.majority_card.registers, nctx.majority_card.size);
         FGC_sendFixed(gc, nctx.last_block_card.registers, nctx.last_block_card.size);
       }
@@ -727,32 +726,15 @@ typedef struct {
 
   void *registers;
   void *registersLastBlock; // Collect separately, in case the last block was modified
-  size_t registersSize;
 } NumGcInfo;
 
-static int recvRegisters(ForkGC *fgc, size_t *len, void **regs, void **regsLB) {
-  // len = size of the HLL register's array
-  size_t newLen;
-  if (FGC_recvFixed(fgc, &newLen, sizeof(newLen)) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  if (newLen != *len) {
-    if (newLen) {
-      *regs = rm_realloc(*regs, newLen);
-      *regsLB = rm_realloc(*regsLB, newLen);
-    } else {
-      rm_free(*regs);
-      rm_free(*regsLB);
-      *regs = NULL;
-      *regsLB = NULL;
-    }
-    *len = newLen;
-  }
+#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
-  if (FGC_recvFixed(fgc, *regs, newLen) != REDISMODULE_OK) {
+static int recvRegisters(ForkGC *fgc, void **regs, void **regsLB) {
+  if (FGC_recvFixed(fgc, *regs, NR_REG_SIZE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  return FGC_recvFixed(fgc, *regsLB, newLen);
+  return FGC_recvFixed(fgc, *regsLB, NR_REG_SIZE);
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
@@ -767,8 +749,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  if (recvRegisters(gc, &ninfo->registersSize,
-                    &ninfo->registers, &ninfo->registersLastBlock) != REDISMODULE_OK) {
+  if (recvRegisters(gc, &ninfo->registers, &ninfo->registersLastBlock) != REDISMODULE_OK) {
     goto error;
   }
   return FGC_COLLECTED;
@@ -779,10 +760,10 @@ error:
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode) {
   NumericRange *r = currNode->range;
-  hll_set_registers(&r->hll, info->registers, info->registersSize);
+  hll_set_registers(&r->hll, info->registers, NR_REG_SIZE);
   if (!info->idxbufs.lastBlockIgnored) {
     // Merge the computed last block's HLL into the current HLL
-    hll_merge_registers(&r->hll, info->registersLastBlock, info->registersSize);
+    hll_merge_registers(&r->hll, info->registersLastBlock, NR_REG_SIZE);
     return;
   }
   // Add the last block's document count to the HLL
@@ -911,7 +892,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  NumGcInfo ninfo = {0};
+  NumGcInfo ninfo = {
+    .registers = rm_malloc(NR_REG_SIZE),
+    .registersLastBlock = rm_malloc(NR_REG_SIZE),
+  };
   while (status == FGC_COLLECTED) {
     // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
