@@ -19,7 +19,7 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include "rwlock.h"
-#include "util/khash.h"
+#include "hll/hll.h"
 #include <float.h>
 #include "module.h"
 #include "rmutil/rm_assert.h"
@@ -308,45 +308,23 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
-KHASH_MAP_INIT_INT64(cardvals, size_t)
-
 typedef struct {
-  int collectIdx;
-  khash_t(cardvals) * cardVals;
+  struct HLL majority_card;
+  struct HLL last_block_card;
+  const IndexBlock *last_block;
 } numCbCtx;
-
-typedef union {
-  uint64_t u64;
-  double d48;
-} numUnion;
 
 static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg) {
   numCbCtx *ctx = arg;
 
-  // check cardinality every 10 elements
-  if (--ctx->collectIdx != 0) {
-    return;
+  if (ctx->last_block != blk) {
+    // We are in a new block, merge the last block's cardinality into the majority, and clear the last block
+    hll_merge(&ctx->majority_card, &ctx->last_block_card);
+    hll_clear(&ctx->last_block_card);
+    ctx->last_block = blk;
   }
-  ctx->collectIdx = NR_CARD_CHECK;
-
-  khash_t(cardvals) *ht = NULL;
-  if ((ht = ctx->cardVals) == NULL) {
-    ht = ctx->cardVals = kh_init(cardvals);
-  }
-  RS_LOG_ASSERT(ht, "cardvals should not be NULL");
-  int added = 0;
-  // Save the floating-point binary representation of the value.
-  numUnion u = {.d48 = r->num.value};
-  //The hash table keys type is unsigned int. Since we used a union to save the value,
-  // u.u64 contains floating-point binary representation of the value read as an unsigned int.
-  // We will read it as a double when we retrieve the value from the hash table.
-  khiter_t it = kh_put(cardvals, ht, u.u64, &added);
-  if (!added) {
-    // i.e. already existed
-    kh_val(ht, it)++;
-  } else {
-    kh_val(ht, it) = 1;
-  }
+  // Add the current record to the last block's cardinality
+  hll_add(&ctx->last_block_card, &r->num.value, sizeof(r->num.value));
 }
 
 typedef struct {
@@ -391,35 +369,6 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
-  size_t n = 0;
-  if (!kh) {
-    FGC_SEND_VAR(gc, n);
-    return;
-  }
-  n = kh_size(kh);
-  size_t nsent = 0;
-
-  double uniqueSum = 0;
-
-  FGC_SEND_VAR(gc, n);
-  for (khiter_t it = kh_begin(kh); it != kh_end(kh); ++it) {
-    if (!kh_exist(kh, it)) {
-      continue;
-    }
-    numUnion u = {kh_key(kh, it)};
-    size_t count = kh_val(kh, it);
-    CardinalityValue cu = {.value = u.d48, .appearances = count};
-    FGC_SEND_VAR(gc, cu);
-    nsent++;
-
-    uniqueSum += cu.value;
-  }
-
-  FGC_SEND_VAR(gc, uniqueSum);
-  RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
-}
-
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
@@ -439,18 +388,22 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       if (!currNode->range) {
         continue;
       }
-      numCbCtx nctx = {.cardVals = NULL, .collectIdx = 1};
+      numCbCtx nctx = { .last_block = NULL };
+      hll_init(&nctx.majority_card, NR_BIT_PRECISION);
+      hll_init(&nctx.last_block_card, NR_BIT_PRECISION);
+
       InvertedIndex *idx = currNode->range->entries;
       IndexRepairParams params = {.RepairCallback = countRemain, .arg = &nctx};
       header.curPtr = currNode;
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
-        sendKht(gc, nctx.cardVals);
+        FGC_SEND_VAR(gc, nctx.majority_card.size);
+        FGC_sendFixed(gc, nctx.majority_card.registers, nctx.majority_card.size);
+        FGC_sendFixed(gc, nctx.last_block_card.registers, nctx.last_block_card.size);
       }
-      if (nctx.cardVals) {
-        kh_destroy(cardvals, nctx.cardVals);
-      }
+      hll_destroy(&nctx.majority_card);
+      hll_destroy(&nctx.last_block_card);
     }
 
     if (header.sentFieldName) {
@@ -824,15 +777,24 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
-  NumericRange *r = currNone->range;
-  hll_load(&r->hll, info->registers, info->registersSize); // TODO: Reset first
-  if (info->idxbufs.lastBlockIgnored) {
-    // Add the last block's document count to the HLL
-  } else {
+static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode) {
+  NumericRange *r = currNode->range;
+  hll_set_registers(&r->hll, info->registers, info->registersSize);
+  if (!info->idxbufs.lastBlockIgnored) {
     // Merge the computed last block's HLL into the current HLL
-    // hll_merge(&r->hll, info->registersLastBlock, info->registersSize);
+    hll_merge_registers(&r->hll, info->registersLastBlock, info->registersSize);
+    return;
   }
+  // Add the last block's document count to the HLL
+  IndexReader *ir = NewMinimalNumericReader(r->entries, false);
+  RSIndexResult *cur;
+  int rc = IR_SkipTo(ir, r->entries->blocks[r->entries->size - 1].firstId, &cur);
+  if (INDEXREAD_OK == rc) {
+    do {
+      hll_add(&r->hll, &cur->num.value, sizeof(cur->num.value));
+    } while (IR_Read(ir, &cur) == INDEXREAD_OK);
+  }
+  IR_Free(ir);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {

@@ -191,8 +191,6 @@ static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, Numeric
   return split;
 }
 
-#define BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
-
 NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
 
   NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
@@ -211,7 +209,7 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
       .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
   };
 
-  hll_init(&n->range->hll, BIT_PRECISION);
+  hll_init(&n->range->hll, NR_BIT_PRECISION);
   n->range->invertedIndexSize = index_memsize;
 
   return n;
@@ -690,7 +688,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += (1 << BIT_PRECISION) * sizeof(uint8_t);
+    *sz += (1 << NR_BIT_PRECISION) * sizeof(uint8_t);
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }

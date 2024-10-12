@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#define NR_CARD_CHECK 10
+#define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
 
 typedef struct {
   double value;

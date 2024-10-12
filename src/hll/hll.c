@@ -103,17 +103,24 @@ double hll_count(const struct HLL *hll) {
   return estimate;
 }
 
-int hll_merge(struct HLL *dst, const struct HLL *src) {
-  if (dst->bits != src->bits) {
+inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, size_t size) {
+  if (hll->size != size) {
     errno = EINVAL;
     return -1;
   }
 
-  for (uint32_t i = 0; i < dst->size; i++) {
-    if (src->registers[i] > dst->registers[i]) dst->registers[i] = src->registers[i];
+  for (uint32_t i = 0; i < size; i++) {
+    if (hll->registers[i] < registers[i]) hll->registers[i] = registers[i];
   }
-
   return 0;
+}
+
+int hll_merge(struct HLL *dst, const struct HLL *src) {
+  return hll_merge_internal(dst, src->registers, src->size);
+}
+
+int hll_merge_registers(struct HLL *hll, const void *registers, size_t size) {
+  return hll_merge_internal(hll, registers, size);
 }
 
 int hll_load(struct HLL *hll, const void *registers, size_t size) {
@@ -128,4 +135,24 @@ int hll_load(struct HLL *hll, const void *registers, size_t size) {
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
 
   return 0;
+}
+
+int hll_set_registers(struct HLL *hll, const void *registers, size_t size) {
+  if (__builtin_popcountll(size) != 1) {
+    errno = EINVAL; // size must be a power of 2 - a single bit set
+    return -1;
+  }
+
+  if (hll->size != size) {
+    hll_destroy(hll);
+    if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
+  }
+
+  memcpy(hll->registers, registers, size * sizeof(*hll->registers));
+
+  return 0;
+}
+
+void hll_clear(struct HLL *hll) {
+  memset(hll->registers, 0, hll->size * sizeof(*hll->registers));
 }
