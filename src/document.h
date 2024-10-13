@@ -55,7 +55,7 @@ typedef enum {
 } FieldVarType;
 
 typedef struct DocumentField {
-  HiddenName *name;
+  HiddenName *docFieldName;
   // const HiddenString *path;
   union {
     // TODO: consider removing RMS altogether

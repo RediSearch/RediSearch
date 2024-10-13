@@ -165,10 +165,8 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(ctx->spec->uniqueId, name);
-  size_t nameLen = strlen(name);
-
+  size_t nameLen = 0;
+  const char* name = HiddenName_GetUnsafe(ctx->spec->specName, &nameLen);
   char *buf, *bufDyn = NULL;
   if (nameLen + len + 10 > sizeof(buf_s)) {
     buf = bufDyn = rm_calloc(1, nameLen + len + 10);
@@ -188,16 +186,12 @@ RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, 
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(ctx->spec->uniqueId, name);
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, name,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, HiddenName_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(ctx->spec->uniqueId, name);
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, name,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, HiddenName_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
 

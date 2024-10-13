@@ -268,7 +268,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  HiddenName *name;                // Index name
+  HiddenName *specName;           // Index name
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields

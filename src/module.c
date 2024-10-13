@@ -341,17 +341,17 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = IndexSpec_GetFieldC(sctx->spec, field, len);
-  if (!sp) {
+  const FieldSpec *fs = IndexSpec_GetFieldC(sctx->spec, field, len);
+  if (!fs) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
   }
-  if (!FIELD_IS(sp, INDEXFLD_T_TAG)) {
+  if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
     RedisModule_ReplyWithError(ctx, "Not a tag field");
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, sp->name);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx, fs->fieldName);
   TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
@@ -873,7 +873,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      HiddenName_SendInReplyAsString(sp->name, reply);
+      HiddenName_SendInReplyAsString(sp->specName, reply);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

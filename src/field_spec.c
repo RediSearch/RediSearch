@@ -31,14 +31,14 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
-  if (fs->path && fs->name != fs->path) {
-    HiddenString_Free(fs->path, true);
-    fs->path = NULL;
+  if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
+    HiddenString_Free(fs->fieldPath, true);
+    fs->fieldPath = NULL;
   }
-  fs->path = NULL;
-  if (fs->name) {
-    HiddenString_Free(fs->name, true);
-    fs->name = NULL;
+  fs->fieldPath = NULL;
+  if (fs->fieldName) {
+    HiddenString_Free(fs->fieldName, true);
+    fs->fieldName = NULL;
   }
 
   if (fs->types & INDEXFLD_T_VECTOR) {
@@ -70,8 +70,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, HiddenString_Get(fs->path, obfuscate));
-  FieldSpecInfo_SetAttribute(&info, HiddenString_Get(fs->name, obfuscate));
+  FieldSpecInfo_SetIdentifier(&info, HiddenString_Get(fs->fieldPath, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, HiddenString_Get(fs->fieldName, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }

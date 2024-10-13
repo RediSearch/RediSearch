@@ -1057,7 +1057,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       const char *path = "!!!";
       if (fs) {
         Obfuscate_Field(fs->index, name);
-        path = HiddenString_Get(fs->path, true);
+        path = HiddenString_Get(fs->fieldPath, true);
       }
 
       RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
