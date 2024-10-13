@@ -31,7 +31,7 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
@@ -50,7 +50,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_EXTENDED;
+  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
   return 1;
 }
 
