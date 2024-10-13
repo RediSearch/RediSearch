@@ -60,6 +60,16 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 /**
+ * Increase all relevant counters in the global stats object.
+ */
+void TotalGlobalStats_CountQuery(uint32_t reqflags);
+
+/**
+ * Add all the query-related information to the INFO command.
+ */
+void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx);
+
+/**
  * Add all the dialect-related information to the INFO command.
  */
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);

@@ -120,6 +120,23 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 }
 
+void TotalGlobalStats_CountQuery(uint32_t reqflags) {
+  if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
+
+  INCR(RSGlobalStats.totalStats.total_query_commands);
+
+  if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
+    // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
+    INCR(RSGlobalStats.totalStats.total_queries_processed);
+  }
+}
+
+void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "queries");
+  RedisModule_InfoAddFieldLongLong(ctx, "total_queries_processed", READ(RSGlobalStats.totalStats.total_queries_processed));
+  RedisModule_InfoAddFieldLongLong(ctx, "total_query_commands", READ(RSGlobalStats.totalStats.total_query_commands));
+}
+
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "dialect_statistics");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {

@@ -388,6 +388,10 @@ long calc_results_len(AREQ *req, size_t limit) {
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
+static bool hasTimeoutError(QueryError *err) {
+  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
+}
+
 void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
@@ -399,14 +403,14 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
+  if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
+    TotalGlobalStats_CountQuery(req->reqflags);
+  }
+
   // Reset the total results length:
   req->qiter.totalResults = 0;
 
   QueryError_ClearError(req->qiter.err);
-}
-
-static bool hasTimeoutError(QueryError *err) {
-  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
 /**
@@ -821,7 +825,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
   else if (type == COMMAND_AGGREGATE) {
-    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
+    (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
   }
 
   (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
@@ -888,6 +892,13 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   AREQ *r = AREQ_New();
   QueryError status = {0};
+
+  // If we got here, we know `argv[0]` is a valid registered command name.
+  // If it starts with an underscore, it is an internal command.
+  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+    r->reqflags |= QEXEC_F_INTERNAL;
+  }
+
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
   }
@@ -1076,6 +1087,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
+  req->reqflags &= ~QEXEC_F_IS_AGGREGATE; // Second read was not triggered by FT.AGGREGATE
 
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
