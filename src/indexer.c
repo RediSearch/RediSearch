@@ -85,7 +85,7 @@ static size_t countMerged(mergedEntry *ent) {
  * it's simpler to forego building the merged dictionary because there is
  * nothing to merge.
  */
-static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
 
   IndexSpec *spec = ctx->spec;
@@ -322,7 +322,7 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  * Perform the processing chain on a single document entry, optionally merging
  * the tokens of further entries in the queue
  */
-static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
+static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
@@ -368,7 +368,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
-    writeCurEntries(indexer, aCtx, &ctx);
+    writeCurEntries(aCtx, &ctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
@@ -376,49 +376,8 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   }
 }
 
-int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
-  Indexer_Process(indexer, aCtx);
+int Indexer_Add(RSAddDocumentCtx *aCtx) {
+  Indexer_Process(aCtx);
   AddDocumentCtx_Finish(aCtx);
   return 0;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-/// Multiple Indexers                                                        ///
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-/**
- * Each index (i.e. IndexSpec) will have its own dedicated indexing thread.
- * This is because documents only need to be indexed in order with respect
- * to their document IDs, and the ID namespace is only unique among a given
- * index.
- *
- * Separating background threads also greatly simplifies the work of merging
- * or folding indexing and document ID assignment, as it can be assumed that
- * every item within the document ID belongs to the same index.
- */
-
-// Creates a new DocumentIndexer. This initializes the structure and starts the
-// thread. This does not insert it into the list of threads, though
-// todo: remove the withIndexThread var once we switch to threadpool
-DocumentIndexer *NewIndexer(IndexSpec *spec) {
-  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
-
-  indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
-  indexer->specId = spec->uniqueId;
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(spec->uniqueId, name);
-  indexer->specKeyName =
-      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, name);
-
-  ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx, reopenCb);
-  return indexer;
-}
-
-void Indexer_Free(DocumentIndexer *indexer) {
-  rm_free(indexer->concCtx.openKeys);
-  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
-  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  rm_free(indexer);
 }

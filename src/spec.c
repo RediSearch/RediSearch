@@ -448,9 +448,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   Cursors_initSpec(sp);
 
-  // Create the indexer
-  sp->indexer = NewIndexer(sp);
-
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
@@ -1582,10 +1579,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   // This function might be called from any thread, and we cannot deal with timers without the GIL.
   // At this point we should have already stopped the timer.
   assert(!spec->isTimerSet);
-  // Stop and destroy indexer
-  if (spec->indexer) {
-    Indexer_Free(spec->indexer);
-  }
   // Stop and destroy garbage collector
   // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
   // deal with without the GIL.
@@ -2661,8 +2654,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
 
-  sp->indexer = NewIndexer(sp);
-
   sp->scan_in_progress = false;
 
   const char *specName = HiddenName_GetUnsafe(sp->specName, NULL);
@@ -2774,7 +2765,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       assert(rc == REDISMODULE_OK);
     }
   }
-  sp->indexer = NewIndexer(sp);
 
   char name[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(sp->uniqueId, name);

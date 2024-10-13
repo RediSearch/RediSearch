@@ -46,9 +46,6 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
-  if (!spec->indexer) {
-    spec->indexer = NewIndexer(spec);
-  }
 
   if (options->score || options->lang) {
     spec->rule = rm_calloc(1, sizeof *spec->rule);

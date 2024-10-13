@@ -34,7 +34,6 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct IndexesScanner;
-struct DocumentIndexer;
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -300,8 +299,6 @@ typedef struct IndexSpec {
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
-
-  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;

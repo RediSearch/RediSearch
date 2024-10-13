@@ -181,14 +181,12 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenName_Clone(sp->specName, &aCtx->specName);
     aCtx->specId = sp->uniqueId;
   }
-  RS_LOG_ASSERT(sp->indexer, "No indexer");
 
   // Assign the document:
   aCtx->doc = doc;
@@ -819,7 +817,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
   }
 
-  if (Indexer_Add(aCtx->indexer, aCtx) != 0) {
+  if (Indexer_Add(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
