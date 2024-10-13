@@ -44,7 +44,9 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
-  HiddenName_Free(aCtx->specName, true);
+  if (aCtx->specName) {
+    HiddenName_Free(aCtx->specName, true);
+  }
   rm_free(aCtx);
 }
 
