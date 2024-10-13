@@ -731,11 +731,11 @@ typedef struct {
   void *registersLastBlock; // Collect separately, in case the last block was modified
 } NumGcInfo;
 
-static int recvRegisters(ForkGC *fgc, void **regs, void **regsLB) {
-  if (FGC_recvFixed(fgc, *regs, NR_REG_SIZE) != REDISMODULE_OK) {
+static int recvRegisters(ForkGC *fgc, NumGcInfo *ninfo) {
+  if (FGC_recvFixed(fgc, ninfo->registers, NR_REG_SIZE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  return FGC_recvFixed(fgc, *regsLB, NR_REG_SIZE);
+  return FGC_recvFixed(fgc, ninfo->registersLastBlock, NR_REG_SIZE);
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
@@ -750,7 +750,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  if (recvRegisters(gc, &ninfo->registers, &ninfo->registersLastBlock) != REDISMODULE_OK) {
+  if (recvRegisters(gc, ninfo) != REDISMODULE_OK) {
     goto error;
   }
   return FGC_COLLECTED;
