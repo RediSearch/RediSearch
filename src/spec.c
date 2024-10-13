@@ -893,7 +893,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-  logCtx->index_field_name = HiddenString_Get(fs->fieldName, true);
+  logCtx->index_field_name = HiddenString_Get(fs->fieldName, false);
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
@@ -1946,7 +1946,7 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
-  f->fieldName = NewHiddenName(name, len, false);
+  f->fieldName = NewHiddenName(name, len, true);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -2021,8 +2021,8 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
-  	  LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
-  	  f->fieldPath = HideAndObfuscateString(name, len, false);
+      LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
+      f->fieldPath = HideAndObfuscateString(name, len, false);
     }
   }
 
@@ -2071,7 +2071,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
       // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
       VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-      logCtx->index_field_name = HiddenString_Get(f->fieldName, true);
+      logCtx->index_field_name = HiddenString_Get(f->fieldName, false);
       f->vectorOpts.vecSimParams.logCtx = logCtx;
       if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;

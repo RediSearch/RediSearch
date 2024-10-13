@@ -25,18 +25,18 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
 }
 
 // Nor related to AS attribute. Used by LLAPI.
-static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
+static DocumentField *addFieldCommon(Document *d, const char *fieldName, uint32_t typemask) {
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
   bool takeOwnership = d->flags & DOCUMENT_F_OWNSTRINGS;
-  f->docFieldName = NewHiddenName(rm_strdup(fieldname), strlen(fieldname), takeOwnership);
+  f->docFieldName = NewHiddenName(fieldName, strlen(fieldName), takeOwnership);
   return f;
 }
 
-void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
+void Document_AddField(Document *d, const char *fieldName, RedisModuleString *fieldval,
                        uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
     f->text = RedisModule_CreateStringFromString(RSDummyContext, fieldval);
   } else {
@@ -44,25 +44,25 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
   }
 }
 
-void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
+void Document_AddFieldC(Document *d, const char *fieldName, const char *val, size_t vallen,
                         uint32_t typemask) {
   RS_LOG_ASSERT(d->flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->strval = rm_strndup(val, vallen);
   f->strlen = vallen;
   f->unionType = FLD_VAR_T_CSTR;
 }
 
-void Document_AddNumericField(Document *d, const char *fieldname, double val,
+void Document_AddNumericField(Document *d, const char *fieldName, double val,
                         uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->numval = val;
   f->unionType = FLD_VAR_T_NUM;
 }
 
-void Document_AddGeoField(Document *d, const char *fieldname,
+void Document_AddGeoField(Document *d, const char *fieldName,
                           double lon, double lat, uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->lat = lat;
   f->lon = lon;
   f->unionType = FLD_VAR_T_GEO;
@@ -204,7 +204,6 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
       continue;
     }
     size_t oix = doc->numFields++;
-    //doc->fields[oix].path = rm_strdup(field->path);
     HiddenName_Clone(field->fieldName, &doc->fields[oix].docFieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
