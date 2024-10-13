@@ -335,7 +335,7 @@ FT.SEARCH idx "(@type:{shirt} ~@color:{blue})=>[KNN $K @vec $BLOB]" PARAMS 4 BLO
 And, here's a pre-filter with KNN query in which the hybrid policy is set explicitly to "ad-hoc brute force" (rather than auto-selected):
 
 ```
-FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY __vec_scores DIALECT 2
+FT.SEARCH idx "(@type:{shirt})=>[KNN $K @vec $BLOB HYBRID_POLICY ADHOC_BF]" PARAMS 4 BLOB "\x12\xa9\xf5\x6c" K 10 SORTBY __vec_score DIALECT 2
 ```
 
 And, now, here's a pre-filter with KNN query in which the hybrid policy is set explicitly to "batches", and the batch size is set explicitly to be 50 using a query parameter:
