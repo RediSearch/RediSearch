@@ -84,7 +84,7 @@ const char *HiddenString_Get(const HiddenString *value, bool obfuscate) {
 static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncmp(left, right, MIN(left_length, right_length));
   if (result != 0 || left_length == right_length) {
-  	return result;
+    return result;
   } else {
     return left_length < right_length ? -1 : 1;
   }
