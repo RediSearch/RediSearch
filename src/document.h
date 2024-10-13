@@ -251,8 +251,6 @@ struct FieldIndexerData;
 
 #define ACTX_F_NOFREEDOC 0x80
 
-struct DocumentIndexer;
-
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
@@ -266,8 +264,6 @@ typedef struct RSAddDocumentCtx {
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
-
-  struct DocumentIndexer *indexer;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
