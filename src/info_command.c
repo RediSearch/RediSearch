@@ -101,7 +101,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  HiddenName_SendInReplyAsKeyValue(sp->name, "index_name", reply);
+  HiddenName_SendInReplyAsKeyValue(sp->specName, "index_name", reply);
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);
@@ -112,8 +112,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR_SAFE("identifier", HiddenString_Get(sp->fields[i].path, false));
-    REPLY_KVSTR_SAFE("attribute", HiddenString_Get(sp->fields[i].name, false));
+    HiddenName_SendInReplyAsKeyValue(sp->fields[i].fieldPath, "identifier", reply);
+    HiddenName_SendInReplyAsKeyValue(sp->fields[i].fieldName, "attribute", reply);
 
     const FieldSpec *fs = &sp->fields[i];
 

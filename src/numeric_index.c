@@ -574,10 +574,7 @@ RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
 RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(ctx->spec->uniqueId, name);
-  const char *obfuscatedField = HiddenString_Get(field, true);
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, name, obfuscatedField);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, HiddenName_GetUnsafe(ctx->spec->specName, NULL), HiddenString_Get(field, false));
 }
 
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,

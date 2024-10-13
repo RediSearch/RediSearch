@@ -55,12 +55,12 @@ void pathFree(JSONPath jsonpath);
 int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
 
-#define JSONParse_error(status, err_msg, path, fieldName, indexName)                                    \
-    do {                                                                                                \
-      QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                  \
-                             "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                   \
-                             path, fieldName, indexName);                                               \
-      RedisModule_FreeString(RSDummyContext, err_msg);                                                  \
+#define JSONParse_error(status, err_msg, path, fieldName, indexName)                                      \
+    do {                                                                                                  \
+      QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                    \
+                             "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                     \
+                             HiddenString_Get(path, true), HiddenString_Get(fieldName, true), indexName); \
+      RedisModule_FreeString(RSDummyContext, err_msg);                                                    \
     } while (0)
 
 #ifdef __cplusplus

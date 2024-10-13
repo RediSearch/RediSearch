@@ -282,10 +282,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 
 /* Format the key name for a tag index */
 RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenString* field) {
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(sctx->spec->uniqueId, name);
-  const char *obfuscatedField = HiddenString_Get(field, true);
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, name, obfuscatedField);
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, HiddenName_GetUnsafe(sctx->spec->specName, NULL), HiddenString_Get(field, false));
 }
 
 /* Open the tag index */
@@ -402,7 +399,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
+  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->fieldName);
   idx = TagIndex_Open(&sctx, keyName, DONT_CREATE_INDEX);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {

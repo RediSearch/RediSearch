@@ -44,13 +44,13 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
-  rm_free(aCtx->specName);
+  HiddenName_Free(aCtx->specName, true);
   rm_free(aCtx);
 }
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
-#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].fieldName != NULL)
 #define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
@@ -77,18 +77,19 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name);
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
-      aCtx->fspecs[i].name = NULL;
-      aCtx->fspecs[i].path = NULL;
+      aCtx->fspecs[i].fieldName = NULL;
+      aCtx->fspecs[i].fieldPath = NULL;
       aCtx->fspecs[i].types = 0;
       continue;
     }
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice",
-                             fs->name);
+      char fieldName[MAX_OBFUSCATED_FIELD_NAME];
+      Obfuscate_Field(fs->index, fieldName);
+      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice", fieldName);
       return -1;
     }
 
@@ -106,7 +107,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         QueryError_SetErrorFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
-                               "Tried to index field %s as type not specified in schema", fs->name);
+                               "Tried to index field %s as type not specified in schema", fs->fieldName);
         return -1;
       }
     }
@@ -184,7 +185,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    HiddenName_Clone(sp->name, &aCtx->specName);
+    HiddenName_Clone(sp->specName, &aCtx->specName);
     aCtx->specId = sp->uniqueId;
   }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
@@ -927,7 +928,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name);
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }
@@ -938,7 +939,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, HiddenName_GetUnsafe(f->name, NULL));
+      int idx = RSSortingTable_GetFieldIdx(sctx->spec->sortables, HiddenName_GetUnsafe(f->docFieldName, NULL));
       if (idx < 0) continue;
 
       if (!md->sortVector) {
@@ -981,7 +982,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!HiddenName_CaseSensitiveCompareC(d->fields[i].name, fieldName, strlen(fieldName))) {
+    if (!HiddenName_CaseSensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }

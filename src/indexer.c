@@ -254,7 +254,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
     FieldSpec *fs = spec->fields + i;
     if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void*)HiddenString_Get(fs->name, false), fs);
+      dictAdd(df_fields_dict, (void*)HiddenString_Get(fs->fieldName, false), fs);
     }
   }
 
@@ -266,7 +266,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
 
   // remove fields that are in the document
   for (uint32_t j = 0; j < doc->numFields; j++) {
-    dictDelete(df_fields_dict, (void*)HiddenName_GetUnsafe(doc->fields[j].name, NULL));
+    dictDelete(df_fields_dict, (void*)HiddenName_GetUnsafe(doc->fields[j].docFieldName, NULL));
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
@@ -276,19 +276,19 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    dictAdd(df_fields_dict, (void *)HiddenString_Get(fs->name, false), fs);
+    dictAdd(df_fields_dict, (void *)HiddenString_Get(fs->fieldName, false), fs);
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
     const FieldSpec *fs = dictGetVal(entry);
-    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->name);
+    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, HiddenName_GetUnsafe(fs->fieldName, NULL));
     if (iiMissingDocs == NULL) {
       size_t index_size;
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
         aCtx->spec->stats.invertedSize += index_size;
-      dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
+      dictAdd(spec->missingFieldDict, (void*)HiddenName_GetUnsafe(fs->fieldName, NULL), iiMissingDocs);
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
