@@ -22,10 +22,7 @@ RedisModuleType *GeometryIndexType = NULL;
 #define GEOMETRYINDEX_KEY_FMT "gm:%s/%s"
 
 RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(ctx->spec->uniqueId, name);
-  const char *obfuscatedField = HiddenString_Get(field, true);
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, name, obfuscatedField);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, HiddenName_GetUnsafe(ctx->spec->specName, NULL), HiddenString_Get(field, false));
 }
 
 static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleString *keyName,

@@ -53,7 +53,7 @@ HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership)
 void HiddenString_Free(HiddenString* hs, bool tookOwnership) {
   UserAndObfuscatedString* value = (UserAndObfuscatedString*)hs;
   if (tookOwnership) {
-    rm_free(value->user);
+    rm_free((void*)value->user);
   }
   rm_free(value);
 };
@@ -66,7 +66,7 @@ void HiddenSize_Free(HiddenSize* hn) {
 void HiddenName_Free(HiddenName* hn, bool tookOwnership) {
   UserString* value = (UserString*)hn;
   if (tookOwnership) {
-    rm_free(value->user);
+    rm_free((void*)value->user);
   }
   rm_free(value);
 };
