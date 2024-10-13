@@ -34,7 +34,7 @@ static int AliasTable_Add(AliasTable *table, HiddenName *alias, StrongRef spec_r
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  e = dictAddRaw(table->d, (void *)alias, &existing);
+  e = dictAddRaw(table->d, (void *)HiddenName_GetUnsafe(alias, NULL), &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
@@ -43,6 +43,7 @@ static int AliasTable_Add(AliasTable *table, HiddenName *alias, StrongRef spec_r
   // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
+    HiddenName_TakeOwnership(alias);
     spec->aliases = array_ensure_append(spec->aliases, alias, 1, HiddenName *);
   }
   if (table->on_add) {
@@ -113,7 +114,7 @@ void IndexSpec_ClearAliases(StrongRef spec_ref) {
     QueryError e = {0};
     int rc = IndexAlias_Del(*pp, spec_ref, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
-    rm_free(*pp);
+    HiddenName_Free(*pp, true);
     // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;
   }
