@@ -15,6 +15,7 @@ extern "C" {
 
 typedef struct TotalSpecsInfo {
     size_t total_mem;       // Total memory used by the index
+    size_t largest_index_mem; // Memory size of the largest index
     size_t indexing_time;   // Time spent on indexing
     InfoGCStats gc_stats;   // Garbage collection statistics
 } TotalSpecsInfo;
