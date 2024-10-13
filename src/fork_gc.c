@@ -398,8 +398,8 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
-        FGC_sendFixed(gc, nctx.majority_card.registers, nctx.majority_card.size);
-        FGC_sendFixed(gc, nctx.last_block_card.registers, nctx.last_block_card.size);
+        FGC_sendFixed(gc, nctx.majority_card.registers, NR_REG_SIZE);
+        FGC_sendFixed(gc, nctx.last_block_card.registers, NR_REG_SIZE);
       }
       hll_destroy(&nctx.majority_card);
       hll_destroy(&nctx.last_block_card);
@@ -727,8 +727,6 @@ typedef struct {
   void *registers;
   void *registersLastBlock; // Collect separately, in case the last block was modified
 } NumGcInfo;
-
-#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
 static int recvRegisters(ForkGC *fgc, void **regs, void **regsLB) {
   if (FGC_recvFixed(fgc, *regs, NR_REG_SIZE) != REDISMODULE_OK) {

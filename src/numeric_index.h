@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 #define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
+#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
 typedef struct {
   double value;

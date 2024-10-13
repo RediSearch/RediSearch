@@ -688,7 +688,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += (1 << NR_BIT_PRECISION) * sizeof(uint8_t);
+    *sz += NR_REG_SIZE; // hll memory size
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }
