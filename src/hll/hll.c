@@ -103,7 +103,7 @@ double hll_count(const struct HLL *hll) {
   return estimate;
 }
 
-inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, size_t size) {
+static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, size_t size) {
   if (hll->size != size) {
     errno = EINVAL;
     return -1;

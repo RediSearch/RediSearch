@@ -214,7 +214,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(numIdxSum));
   REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
   REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("Memory", NumericIndexType_MemUsage(rt), ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("MemoryUsage", NumericIndexType_MemUsage(rt), ARRAY_LEN_VAR(numIdxSum));
   END_POSTPONED_LEN_ARRAY(numIdxSum);
 
 end:

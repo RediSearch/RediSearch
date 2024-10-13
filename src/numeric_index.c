@@ -133,7 +133,7 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
 // }
 
 static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t median_idx = ir->idx->numDocs / 2;
+  size_t median_idx = ir->idx->numEntries / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
   RSIndexResult *cur;
 
