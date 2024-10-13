@@ -384,16 +384,19 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
                            .field = numericFields[i]->name,
                            .uniqueId = rt->uniqueId};
 
+    numCbCtx nctx;
+    IndexRepairParams params = {.RepairCallback = countRemain, .arg = &nctx};
+    hll_init(&nctx.majority_card, NR_BIT_PRECISION);
+    hll_init(&nctx.last_block_card, NR_BIT_PRECISION);
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
       if (!currNode->range) {
         continue;
       }
-      numCbCtx nctx = { .last_block = NULL };
-      hll_init(&nctx.majority_card, NR_BIT_PRECISION);
-      hll_init(&nctx.last_block_card, NR_BIT_PRECISION);
+      nctx.last_block = NULL;
+      hll_clear(&nctx.majority_card);
+      hll_clear(&nctx.last_block_card);
 
       InvertedIndex *idx = currNode->range->entries;
-      IndexRepairParams params = {.RepairCallback = countRemain, .arg = &nctx};
       header.curPtr = currNode;
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
@@ -401,9 +404,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
         FGC_sendFixed(gc, nctx.majority_card.registers, NR_REG_SIZE);
         FGC_sendFixed(gc, nctx.last_block_card.registers, NR_REG_SIZE);
       }
-      hll_destroy(&nctx.majority_card);
-      hll_destroy(&nctx.last_block_card);
     }
+    hll_destroy(&nctx.majority_card);
+    hll_destroy(&nctx.last_block_card);
 
     if (header.sentFieldName) {
       // If we've repaired at least one entry, send the terminator;
