@@ -42,6 +42,7 @@ typedef struct {
   TimeoutCtx timeoutCtx;        // Timeout parameters
 
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
+  t_fieldIndex numericFieldIndex; // field index for numeric filter
 } OptimizerIterator;
 
 #ifdef __cplusplus
