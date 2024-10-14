@@ -70,6 +70,7 @@ jobs:
         run: make install
       - name: Build RediSearch
         run: make build
+            COORD=${{ inputs.cluster_env }}
             PROFILE=${{ inputs.profile_env }}
             REDISEARCH_MT_BUILD=0
             SHOW=1

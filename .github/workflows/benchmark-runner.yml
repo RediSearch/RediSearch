@@ -59,6 +59,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -75,6 +76,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -91,6 +93,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -107,6 +110,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -124,6 +128,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -141,6 +146,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
       allowed_envs: oss-cluster
@@ -160,7 +166,7 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
+      module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "search*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
@@ -180,7 +186,7 @@ jobs:
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
+      module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "vecsim*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
