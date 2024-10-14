@@ -1945,7 +1945,7 @@ int bit(t_fieldMask id) {
 static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   char* name = NULL;
   size_t len = 0;
-  LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
+  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
   f->fieldName = NewHiddenName(name, len, true);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
@@ -2016,12 +2016,15 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   char* name = NULL;
   size_t len = 0;
-  LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
+  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
+  if (!len)
+    goto fail;
+
   f->fieldName = HideAndObfuscateString(name, len, false);
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
-      LoadStringBufferAlloc_IOErrors(rdb, name, &len, goto fail);
+      LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
       f->fieldPath = HideAndObfuscateString(name, len, false);
     }
   }
