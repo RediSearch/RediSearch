@@ -156,6 +156,11 @@ void HiddenName_TakeOwnership(HiddenName *hidden) {
   userString->user = rm_strndup(userString->user, userString->length);
 }
 
+HiddenName *HiddenName_Duplicate(HiddenName *value) {
+  UserString* text = (UserString*)value;
+  return NewHiddenName(text->user, text->length, true);
+}
+
 void HiddenName_TakeOwnership(HiddenName *hidden) {
   UserString* userString = (UserString*)hidden;
   userString->user = rm_strndup(userString->user, userString->length);
