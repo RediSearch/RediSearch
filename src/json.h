@@ -59,7 +59,7 @@ int pathHasDefinedOrder(JSONPath jsonpath);
     do {                                                                                                  \
       QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                    \
                              "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                     \
-                             HiddenString_Get(path, true), HiddenString_Get(fieldName, true), indexName); \
+                             HiddenName_GetUnsafe(path, NULL), HiddenName_GetUnsafe(fieldName, NULL), HiddenName_GetUnsafe(indexName, NULL)); \
       RedisModule_FreeString(RSDummyContext, err_msg);                                                    \
     } while (0)
 

@@ -90,8 +90,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  HiddenString *fieldName;
-  HiddenString *fieldPath;
+  HiddenName *fieldName;
+  HiddenName *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
@@ -155,7 +155,10 @@ const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+
+struct RedisModuleString;
+RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

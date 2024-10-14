@@ -82,7 +82,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
   const FieldSpec *fs = NULL;
   for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!HiddenString_CompareC(cc->fields[ii].fieldName, name, strlen(name))) {
+    if (!HiddenName_CompareC(cc->fields[ii].fieldName, name, strlen(name))) {
       fs = cc->fields + ii;
       break;
     }
@@ -95,7 +95,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
   // TODO: Rlookup should also use hidden string
-  const char *path = HiddenString_Get(fs->fieldPath, false);
+  const char *path = HiddenName_GetUnsafe(fs->fieldPath, NULL);
   key->path = key->flags & RLOOKUP_F_NAMEALLOC ? rm_strdup(path) : path;
   if (FieldSpec_IsSortable(fs)) {
     key->flags |= RLOOKUP_F_SVSRC;
@@ -954,7 +954,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
     size_t length = 0;
     const char *name = HiddenName_GetUnsafe(fs->fieldName, &length);
     keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
-    keys[i]->path = HiddenString_Get(fs->fieldPath, false);
+    keys[i]->path = HiddenName_GetUnsafe(fs->fieldPath, NULL);
   }
 
   // load

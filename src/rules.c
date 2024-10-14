@@ -172,8 +172,8 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
         FieldSpec *fs = spec->fields + j;
         const char* property = properties[i];
         size_t length = strlen(property);
-        if (!HiddenString_CompareC(fs->fieldName, property, length)
-            || !HiddenString_CompareC(fs->fieldPath, property, length)) {
+        if (!HiddenName_CompareC(fs->fieldName, property, length)
+            || !HiddenName_CompareC(fs->fieldPath, property, length)) {
           rule->filter_fields_index[i] = j;
           break;
         }

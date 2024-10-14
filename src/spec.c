@@ -99,9 +99,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
 const FieldSpec *IndexSpec_GetFieldC(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
-    size_t fsLen = 0;
-    const char *fsName = HiddenName_GetUnsafe(fs->fieldName, &fsLen);
-    if (STR_EQ(name, len, fsName)) {
+    if (!HiddenName_CompareC(fs->fieldName, name, len)) {
       return fs;
     }
   }
@@ -119,9 +117,13 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name) {
 }
 
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenName *name) {
-  size_t len = 0;
-  const char* text = HiddenName_GetUnsafe(name, &len);
-  return IndexSpec_GetFieldC(spec, text, len);
+  for (size_t i = 0; i < spec->numFields; i++) {
+    const FieldSpec *fs = spec->fields + i;
+    if (!HiddenName_Compare(fs->fieldName, name)) {
+      return fs;
+    }
+  }
+  return NULL;
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -186,7 +188,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
       FieldSpec_IsIndexable(&sp->fields[i])) {
-      return HiddenString_Get(sp->fields[i].fieldName, false);
+      return HiddenName_GetUnsafe(sp->fields[i].fieldName, NULL);
     }
   }
   return NULL;
@@ -872,7 +874,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   bool multi = false;
   if (isSpecJson(sp)) {
     RedisModuleString *err_msg;
-    JSONPath jsonPath = pathParse(HiddenString_Get(fs->fieldPath, false), &err_msg);
+    JSONPath jsonPath = pathParse(HiddenName_GetUnsafe(fs->fieldPath, NULL), &err_msg);
     if (!jsonPath) {
       if (err_msg) {
         JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
@@ -893,7 +895,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-  logCtx->index_field_name = HiddenString_Get(fs->fieldName, false);
+  logCtx->index_field_name = HiddenName_GetUnsafe(fs->fieldName, NULL);
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
@@ -1155,7 +1157,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
-          JSONPath jsonPath = pathParse(HiddenString_Get(fs->fieldPath, false), &err_msg);
+          JSONPath jsonPath = pathParse(HiddenName_GetUnsafe(fs->fieldPath, NULL), &err_msg);
           if (jsonPath && pathHasDefinedOrder(jsonPath)) {
             // Ordering is well defined
             fs->options &= ~FieldSpec_UndefinedOrder;
@@ -1168,9 +1170,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
           if (jsonPath) {
             pathFree(jsonPath);
           } else if (err_msg) {
-            char specName[MAX_OBFUSCATED_INDEX_NAME];
-            Obfuscate_Index(sp->uniqueId, specName);
-            JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, specName);
+            JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
             goto reset;
           } /* else {
             RedisModule_Log(RSDummyContext, "notice",
@@ -1193,7 +1193,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         goto reset;
       }
 
-      const char *name = HiddenString_Get(fs->fieldName, false);
+      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
       fs->sortIdx = RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
       if (fs->sortIdx == -1) {
         QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
@@ -1407,9 +1407,9 @@ void Spec_AddToDict(RefManager *rm) {
 static void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     if (c->fields[ii].fieldName != c->fields[ii].fieldPath) {
-      HiddenString_Free(c->fields[ii].fieldName, true);
+      HiddenName_Free(c->fields[ii].fieldName, true);
     }
-    HiddenString_Free(c->fields[ii].fieldPath, true);
+    HiddenName_Free(c->fields[ii].fieldPath, true);
   }
   rm_free(c->fields);
   rm_free(c);
@@ -1431,14 +1431,16 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    ret->fields[ii] = spec->fields[ii];
-    ret->fields[ii].fieldName = HiddenString_Clone(spec->fields[ii].fieldName);
-    // if name & path are pointing to the same string, copy pointer
-    if (ret->fields[ii].fieldPath && (spec->fields[ii].fieldName != spec->fields[ii].fieldPath)) {
-      ret->fields[ii].fieldPath = HiddenString_Clone(spec->fields[ii].fieldPath);
+    const FieldSpec* fs = spec->fields + ii;
+    FieldSpec* field = ret->fields + ii;
+    *field = *fs;
+    field->fieldName = HiddenName_Duplicate(fs->fieldName);
+    // if name & path are pointing to the same string, copy only pointer
+    if (fs->fieldName != fs->fieldPath) {
+      field->fieldPath = HiddenName_Duplicate(fs->fieldPath);
     } else {
       // use the same pointer for both name and path
-      ret->fields[ii].fieldPath = ret->fields[ii].fieldName;
+      field->fieldPath = field->fieldName;
     }
   }
   return ret;
@@ -1756,7 +1758,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex_FormatName(&sctx, fs->fieldName);
         break;
       case INDEXFLD_T_VECTOR:
-        ret = HiddenString_CreateString(fs->fieldName, sctx.redisCtx);
+        ret = HiddenName_CreateString(fs->fieldName, sctx.redisCtx);
         break;
       case INDEXFLD_T_GEOMETRY:
         ret = fmtRedisGeometryIndexKey(&sctx, fs->fieldName);
@@ -1848,8 +1850,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
-  fs->fieldName = HideAndObfuscateString(name, strlen(name), true);
-  fs->fieldPath = (path) ? HideAndObfuscateString(path, strlen(path), true) : fs->fieldName;
+  fs->fieldName = NewHiddenName(name, strlen(name), true);
+  fs->fieldPath = (path) ? NewHiddenName(path, strlen(path), true) : fs->fieldName;
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1970,10 +1972,10 @@ fail:
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  HiddenString_SaveToRdb(f->fieldName, rdb);
-  if (!HiddenString_Compare(f->fieldPath, f->fieldName)) {
+  HiddenName_SaveToRdb(f->fieldName, rdb);
+  if (HiddenName_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
-    HiddenString_SaveToRdb(f->fieldPath, rdb);
+    HiddenName_SaveToRdb(f->fieldPath, rdb);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -2020,12 +2022,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   if (!len)
     goto fail;
 
-  f->fieldName = HideAndObfuscateString(name, len, false);
+  f->fieldName = NewHiddenName(name, len, false);
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
       LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-      f->fieldPath = HideAndObfuscateString(name, len, false);
+      f->fieldPath = NewHiddenName(name, len, false);
     }
   }
 
@@ -2059,7 +2061,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_Get(f->fieldName, false)) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenName_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
@@ -2074,7 +2076,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
       // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
       VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-      logCtx->index_field_name = HiddenString_Get(f->fieldName, false);
+      logCtx->index_field_name = HiddenName_GetUnsafe(f->fieldName, NULL);
       f->vectorOpts.vecSimParams.logCtx = logCtx;
       if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
@@ -2595,7 +2597,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
     }
     if (FieldSpec_IsSortable(fs)) {
-      const char *name = HiddenString_Get(fs->fieldName, false);
+      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
       RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
     }
     if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
@@ -2721,7 +2723,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      const char *name = HiddenString_Get(fs->fieldName, false);
+      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
       RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
     }
   }
@@ -3179,10 +3181,10 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
 
   // TODO: improve implementation to avoid O(n^2)
   for (size_t i = 0; hashFields[i] != NULL; ++i) {
-  	size_t length = 0;
+    size_t length = 0;
     const char *field = RedisModule_StringPtrLen(hashFields[i], &length);
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (HiddenString_CompareC(spec->fields[j].fieldName, field, length)) {
+      if (!HiddenName_CompareC(spec->fields[j].fieldName, field, length)) {
         return true;
       }
     }

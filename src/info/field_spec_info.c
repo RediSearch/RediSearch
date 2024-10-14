@@ -21,12 +21,12 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
 
 // Setters
 // Sets the identifier of the field spec.
-void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, const char *identifier) {
+void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, HiddenName *identifier) {
     info->identifier = identifier;
 }
 
 // Sets the attribute of the field spec.
-void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute) {
+void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, HiddenName *attribute) {
     info->attribute = attribute;
 }
 
@@ -41,8 +41,8 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
     RedisModule_Reply_Map(reply);
 
-    REPLY_KVSTR_SAFE("identifier", info->identifier);
-    REPLY_KVSTR_SAFE("attribute", info->attribute);
+    HiddenName_SendInReplyAsKeyValue(info->identifier, "identifier", reply);
+    HiddenName_SendInReplyAsKeyValue(info->attribute, "attribute", reply);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, with_timestamp);
@@ -56,10 +56,10 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
     RedisModule_Assert(info);
     RedisModule_Assert(other);
-    if(!info->identifier) {
+    if (!info->identifier) {
         info->identifier = other->identifier;
     }
-    if(!info->attribute) {
+    if (!info->attribute) {
         info->attribute = other->attribute;
     }
     IndexError_OpPlusEquals(&info->error, &other->error);
@@ -78,13 +78,15 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     RedisModule_Assert(identifier);
     // In hiredis with resp2 '+' is a status reply.
     RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
-    info.identifier = MRReply_String(identifier, NULL);
+    size_t identifierLen = 0;
+    info.identifier = NewHiddenName(MRReply_String(identifier, &identifierLen), identifierLen, false);
 
     MRReply *attribute = MRReply_MapElement(reply, "attribute");
     RedisModule_Assert(attribute);
     // In hiredis with resp2 '+' is a status reply.
     RedisModule_Assert(MRReply_Type(attribute) == MR_REPLY_STRING || MRReply_Type(attribute) == MR_REPLY_STATUS);
-    info.attribute = MRReply_String(attribute, NULL);
+    size_t attributeLen = 0;
+    info.attribute = NewHiddenName(MRReply_String(attribute, &attributeLen), attributeLen, false);
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RedisModule_Assert(error);

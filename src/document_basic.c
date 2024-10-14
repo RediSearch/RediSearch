@@ -199,7 +199,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenString_Get(field->fieldPath, false), &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenName_GetUnsafe(field->fieldPath, NULL), &v, NULL);
     if (v == NULL) {
       continue;
     }
@@ -263,7 +263,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_Get(field->fieldPath, false));
+    jsonIter = japi->get(jsonRoot, HiddenName_GetUnsafe(field->fieldPath, NULL));
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
         continue;
@@ -277,13 +277,13 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    HiddenName_Clone(field->fieldName, &doc->fields[oix].docFieldName);
+    doc->fields[oix].docFieldName = HiddenName_Duplicate(field->fieldName);
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
       FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
-      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", HiddenString_Get(field->fieldPath, true));
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", HiddenName_GetUnsafe(field->fieldPath, NULL));
       goto done;
     }
     japi->freeIter(jsonIter);

@@ -1040,7 +1040,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
-                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
+                            RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
@@ -1053,14 +1053,12 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
 
-      char name[MAX_OBFUSCATED_FIELD_NAME] = "???";
-      const char *path = "!!!";
-      if (fs) {
-        Obfuscate_Field(fs->index, name);
-        path = HiddenString_Get(fs->fieldPath, true);
+      if (!fs) {
+        RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else {
+        RedisModuleString *text = FieldSpec_FormatPathAndName(fs, "%s AS %s", obfuscate);
+        RedisModule_Reply_String(reply, text);
       }
-
-      RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
@@ -1084,6 +1082,7 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
+  const bool obfuscate = argc >= 5 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "obfuscate");
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);
@@ -1094,7 +1093,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 
