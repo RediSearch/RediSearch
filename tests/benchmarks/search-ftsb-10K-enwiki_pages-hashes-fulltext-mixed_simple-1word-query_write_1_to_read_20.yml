@@ -8,9 +8,7 @@ description: "
                 - Query type: simple 1 word
                 - Query sample: Lincoln
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
