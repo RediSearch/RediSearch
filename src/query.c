@@ -462,6 +462,32 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     return;
   }
 
+  // Check that there is at least one stemmable field in the query
+  if (expCtx->handle && expCtx->handle->spec) {
+    const IndexSpec *spec = expCtx->handle->spec;
+    t_fieldMask fm = qn->opts.fieldMask;
+    if ( fm != RS_FIELDMASK_ALL) {
+      int i = 0, expand = 0;
+      while (fm) {
+        t_fieldMask bit = (fm & 1) << i;
+        if (bit) {
+            const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit);
+            if (fs) {
+              if(!FieldSpec_IsNoStem(fs)) {
+                expand = 1;
+                break;
+              }
+            }
+        }
+        fm = fm >> 1;
+        i++;
+      }
+      if (!expand) {
+        return;
+      }
+    }
+  }
+
   int expandChildren = 0;
 
   if (qn->type == QN_TOKEN && qn->tn.len > 0) {

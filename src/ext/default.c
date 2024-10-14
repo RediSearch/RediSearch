@@ -479,10 +479,49 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     char *dup = rm_malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
+
+    // Get fieldMask which includes only expandable fields
+    QueryNode *qn = *ctx->currentNode;
+    t_fieldMask orig_fm = qn->opts.fieldMask;
+    t_fieldMask expandable_fm = qn->opts.fieldMask;
+    if (orig_fm != RS_FIELDMASK_ALL) {
+      t_fieldMask fm = qn->opts.fieldMask;
+      int i = 0;
+      while (fm) {
+        t_fieldMask bit = (fm & 1) << i;
+        if (bit) {
+            const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit);
+            if (fs) {
+              if(FieldSpec_IsNoStem(fs)) {
+                expandable_fm &= ~bit;
+              }
+            }
+        }
+        fm = fm >> 1;
+        i++;
+      }
+    }
+
+    /* Replace current node with a new union node if needed */
+    if (qn->type != QN_UNION) {
+      QueryNode *un = NewUnionNode();
+
+      un->opts.fieldMask = qn->opts.fieldMask;
+
+      /* Append current node to the new union node as a child */
+      QueryNode_AddChild(un, qn);
+      *ctx->currentNode = un;
+    }
+
+    // Add expanded nodes with corresponding field mask
+    qn = *ctx->currentNode;
+    qn->opts.fieldMask = expandable_fm;
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
       ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
     }
+    // Restore field mask of UNION node
+    qn->opts.fieldMask = orig_fm;
   }
   return REDISMODULE_OK;
 }
