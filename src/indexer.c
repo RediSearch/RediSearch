@@ -254,7 +254,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
     FieldSpec *fs = spec->fields + i;
     if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void*)HiddenString_Get(fs->fieldName, false), fs);
+      dictAdd(df_fields_dict, (void*)HiddenName_GetUnsafe(fs->fieldName, NULL), fs);
     }
   }
 
@@ -276,7 +276,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    dictAdd(df_fields_dict, (void *)HiddenString_Get(fs->fieldName, false), fs);
+    dictAdd(df_fields_dict, (void *)HiddenName_GetUnsafe(fs->fieldName, NULL), fs);
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index

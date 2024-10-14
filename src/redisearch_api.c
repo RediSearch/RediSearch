@@ -165,7 +165,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    const char *name = HiddenString_Get(fs->fieldName, false);
+    const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
     fs->sortIdx = RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
@@ -804,8 +804,8 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 }
 
-const char *RediSearch_HiddenStringGet(HiddenString* hs, bool obfuscate) {
-  return HiddenString_Get(hs, obfuscate);
+const char *RediSearch_HiddenNameGet(HiddenName* value) {
+  return HiddenName_GetUnsafe(value, NULL);
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
@@ -814,8 +814,8 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
-  infoField->name = HiddenString_Clone(specField->fieldName);
-  infoField->path = HiddenString_Clone(specField->fieldPath);
+  HiddenName_Clone(specField->fieldName, &infoField->name);
+  HiddenName_Clone(specField->fieldPath, &infoField->path);
   if (specField->types & INDEXFLD_T_FULLTEXT) {
     infoField->types |= RSFLDTYPE_FULLTEXT;
     infoField->textWeight = specField->ftWeight;
@@ -972,8 +972,8 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
-    HiddenString_Free(info->fields[i].name, true);
-    HiddenString_Free(info->fields[i].path, true);
+    HiddenName_Free(info->fields[i].name, true);
+    HiddenName_Free(info->fields[i].path, true);
   }
   rm_free((void *)info->fields);
 }

@@ -8,13 +8,14 @@
 
 #include "index_error.h"
 #include "reply.h"
+#include "obfuscation/hidden.h"
 
 
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
 typedef struct {
-    const char *identifier; // The identifier of the field spec.
-    const char *attribute; // The attribute of the field spec.
+    HiddenName *identifier; // The identifier of the field spec.
+    HiddenName *attribute; // The attribute of the field spec.
     IndexError error; // Indexing error of the field spec.
 } FieldSpecInfo;
 
@@ -26,10 +27,10 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info);
 
 // Setters
 // Sets the identifier of the field spec.
-void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, const char *identifier);
+void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, HiddenName *identifier);
 
 // Sets the attribute of the field spec.
-void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute);
+void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, HiddenName *attribute);
 
 // Sets the index error of the field spec.
 void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
