@@ -14,6 +14,7 @@
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
+#include "util/heap_doubles.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
@@ -77,7 +78,7 @@ void NumericRange_Dump(NumericRange *r, int indent) {
   printf("NumericRange {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
+  // printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
   InvertedIndex_Dump(r->entries, indent + 1);
   --indent;
   PRINT_INDENT(indent);
@@ -111,33 +112,10 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
 }
 
 static inline void checkCardinality(NumericRange *n, double value) {
-  // skip
-  if (--n->cardCheck != 0) {
-    return;
-  }
-  n->cardCheck = NR_CARD_CHECK;
-
-  // check if value exists and increase appearance
-  uint32_t arrlen = array_len(n->values);
-  for (int i = 0; i < arrlen; i++) {
-    if (n->values[i].value == value) {
-      n->values[i].appearances++;
-      return;
-    }
-  }
-
-  // add new value to cardinality values
-  CardinalityValue val = {.value = value, .appearances = 1};
-  array_append(n->values, val);
-  n->unique_sum += value;
-  ++n->card;
+  hll_add(&n->hll, &value, sizeof(value));
 }
 
-size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
-  int add = 0;
-  if (checkCard) {
-    checkCardinality(n, value);
-  }
+static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
 
   if (value < n->minVal) n->minVal = value;
   if (value > n->maxVal) n->maxVal = value;
@@ -147,10 +125,44 @@ size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkC
   return size;
 }
 
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
+// static double NumericRange_EstimateMedian(NumericRange *n) {
+//   size_t numSamples = 10 * (31 - __builtin_clz(n->entries->numDocs));
+//   // Sample the range uniformly
+//   // Pick values with IR_SkipTo
+//   // Get the median value of the samples
+// }
+
+static double NumericRange_GetMedian(IndexReader *ir) {
+  size_t median_idx = ir->idx->numEntries / 2;
+  double_heap_t *low_half = double_heap_new(median_idx);
+  RSIndexResult *cur;
+
+  // Read the first half of the values into a heap
+  for (size_t i = 0; i < median_idx; i++) {
+    IR_Read(ir, &cur);
+    double_heap_add_raw(low_half, cur->num.value);
+  }
+  double_heap_heapify(low_half);
+
+  // Read the rest of the values, replacing the max value in the heap if the current value is smaller
+  while (INDEXREAD_OK == IR_Read(ir, &cur)) {
+    if (cur->num.value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, cur->num.value);
+    }
+  }
+
+  double median = double_heap_peek(low_half);
+
+  double_heap_free(low_half);
+  IR_Rewind(ir); // Rewind iterator
+  return median;
+}
+
+static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
 
-  double split = (n->unique_sum) / (double)n->card;
+  // double split = n->minVal + (n->maxVal - n->minVal) / 2; // TODO: this is a naive split. we should estimate the median
+  // double split = NumericRange_EstimateMedian(n);
 
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
@@ -160,9 +172,18 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
   RSIndexResult *res = NULL;
   IndexReader *ir = NewMinimalNumericReader(n->entries, false);
+  double split = NumericRange_GetMedian(ir);
+  // if (split == n->minVal || split == n->maxVal) {
+  //   split = n->minVal + (n->maxVal - n->minVal) / 2;
+  // }
+  if (split == n->minVal) {
+    // make sure the split is not the same as the min value
+    split = nextafter(split, INFINITY);
+  }
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    rv->sz += NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
-                               res->num.value, 1);
+    NumericRange *cur = res->num.value < split ? (*lp)->range : (*rp)->range;
+    checkCardinality(cur, res->num.value);
+    rv->sz += NumericRange_Add(cur, res->docId, res->num.value);
     ++rv->numRecords;
   }
   IR_Free(ir);
@@ -182,18 +203,15 @@ NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
   size_t index_memsize;
 
   *n->range = (NumericRange){
-      .minVal = __DBL_MAX__,
-      .maxVal = NF_NEGATIVE_INFINITY,
-      .unique_sum = 0,
-      .card = 0,
-      .cardCheck = NR_CARD_CHECK,
+      .minVal = INFINITY,
+      .maxVal = -INFINITY,
       .splitCard = splitCard,
-      .values = array_new(CardinalityValue, 1),
-      //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
       .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
   };
 
+  hll_init(&n->range->hll, NR_BIT_PRECISION);
   n->range->invertedIndexSize = index_memsize;
+
   return n;
 }
 
@@ -210,7 +228,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
   rv->sz -= temp->invertedIndexSize;
   rv->numRecords -= temp->entries->numEntries;
   InvertedIndex_Free(temp->entries);
-  array_free(temp->values);
+  hll_destroy(&temp->hll);
   rm_free(temp);
 
   rv->numRanges--;
@@ -246,7 +264,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
     size_t s = 0;
     size_t nRecords = 0;
     if (n->range) {
-      s += NumericRange_Add(n->range, docId, value, 0);
+      s += NumericRange_Add(n->range, docId, value);
       ++nRecords;
     }
 
@@ -273,11 +291,12 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
+  checkCardinality(n->range, value);
+  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value);
   ++rv.numRecords;
-  int card = n->range->card;
+  int card = hll_count(&n->range->hll);
 
-  if (card * NR_CARD_CHECK >= n->range->splitCard ||
+  if (card >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
@@ -375,7 +394,7 @@ void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (n->range) {
     rv->sz -= n->range->invertedIndexSize;
     InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
+    hll_destroy(&n->range->hll);
     rm_free(n->range);
     n->range = NULL;
     rv->numRanges--;
@@ -669,7 +688,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->card * sizeof(double);
+    *sz += NR_REG_SIZE; // hll memory size
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }

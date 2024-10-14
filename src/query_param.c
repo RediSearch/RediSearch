@@ -44,12 +44,12 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   if(min != NULL) {
     QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
   } else {
-    nf->min = NF_NEGATIVE_INFINITY;
+    nf->min = -INFINITY;
   }
   if(max != NULL) {
     QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
   } else {
-    nf->max = NF_INFINITY;
+    nf->max = INFINITY;
   }
   return ret;
 }
@@ -186,7 +186,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(char**)param->target = rm_calloc(1, val_len + 1);
       memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
-      return 1;    
+      return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);

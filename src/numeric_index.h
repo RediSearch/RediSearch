@@ -17,12 +17,14 @@
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
+#include "hll/hll.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define NR_CARD_CHECK 10
+#define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
+#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
 typedef struct {
   double value;
@@ -41,14 +43,10 @@ typedef struct {
   double minVal;
   double maxVal;
 
-  double unique_sum;
-
   size_t invertedIndexSize;
 
-  u_int16_t card;
-  u_int16_t cardCheck;
   uint32_t splitCard;
-  CardinalityValue *values;
+  struct HLL hll;
   InvertedIndex *entries;
 } NumericRange;
 
@@ -99,15 +97,6 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
                                                ConcurrentSearchCtx *csx, FieldType forType,
                                                IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
-/* Add an entry to a numeric range node. Returns the cardinality of the range after the
- * inserstion.
- * No deduplication is done */
-size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
-
-/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
-                          NRN_AddRv *rv);
-
 /* Create a new range node with the given capacity, minimum and maximum values */
 NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
 
@@ -153,6 +142,7 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
 void NumericIndexType_Free(void *value);
+unsigned long NumericIndexType_MemUsage(const void *value);
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
