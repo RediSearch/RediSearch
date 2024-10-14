@@ -93,7 +93,7 @@ static inline int Compare(const char *left, size_t left_length, const char *righ
 static inline int CaseSensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncasecmp(left, right, MIN(left_length, right_length));
   if (result != 0 || left_length == right_length) {
-  	return result;
+    return result;
   } else {
     return left_length < right_length ? -1 : 1;
   }
@@ -132,7 +132,7 @@ int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_
 
 int HiddenName_Compare(const HiddenName* left, const HiddenName* right) {
   UserString* r = (UserString*)right;
-  HiddenName_CompareC(left, r->user, r->length);
+  return HiddenName_CompareC(left, r->user, r->length);
 }
 
 int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length) {
@@ -143,6 +143,11 @@ int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t
 int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right) {
   UserString* r = (UserString*)right;
   return HiddenName_CaseSensitiveCompareC(left, r->user, r->length);
+}
+
+HiddenName *HiddenName_Duplicate(HiddenName *value) {
+  UserString* text = (UserString*)value;
+  return NewHiddenName(text->user, text->length, true);
 }
 
 void HiddenName_TakeOwnership(HiddenName *hidden) {
@@ -196,7 +201,7 @@ void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, Hidd
   RedisModule_FreeString(redisCtx, str);
 }
 
-const char* HiddenName_GetUnsafe(const HiddenName* value, size_t* length) {
+const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length) {
   const UserString* text = (const UserString*)value;
   if (length != NULL) {
     *length = text->length;

@@ -7,10 +7,12 @@
 #include <stdint.h>
 #include "reply.h"
 
-struct Hidden;
-typedef struct Hidden HiddenString;
-typedef struct Hidden HiddenSize;
-typedef struct Hidden HiddenName;
+struct HiddenStringStruct;
+struct HiddenSizeStruct;
+struct HiddenNameStruct;
+typedef struct HiddenStringStruct HiddenString;
+typedef struct HiddenSizeStruct HiddenSize;
+typedef struct HiddenNameStruct HiddenName;
 
 // Hides the string and obfustaces it
 HiddenString *HideAndObfuscateString(const char *str, uint64_t length, bool takeOwnership);
@@ -35,6 +37,7 @@ int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right);
+HiddenName *HiddenName_Duplicate(HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
@@ -44,7 +47,7 @@ void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value);
 // Temporary for the sake of comparmentilization
-const char* HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
+const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
 
 RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx);
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);

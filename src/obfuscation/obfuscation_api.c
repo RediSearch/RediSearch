@@ -12,6 +12,10 @@ void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
   sprintf(buffer, "Field@%zu", fieldId);
 }
 
+void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
+  sprintf(buffer, "Path@%zu", fieldId);
+}
+
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
   sprintf(buffer, "Document@%zu", docId);
 }

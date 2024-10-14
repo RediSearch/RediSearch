@@ -143,7 +143,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            RedisModuleString *rmstr = HiddenString_CreateString(spec->fields[i].fieldName, RSDummyContext);
+            RedisModuleString *rmstr = HiddenName_CreateString(spec->fields[i].fieldName, RSDummyContext);
             VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
             VecSimIndex_DeleteVector(vecsim, dmd->id);
             RedisModule_FreeString(RSDummyContext, rmstr);
@@ -275,7 +275,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
     FieldSpec *fs = spec->fields + i;
     if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void*)HiddenString_Get(fs->fieldName, false), fs);
+      dictAdd(df_fields_dict, (void*)HiddenName_GetUnsafe(fs->fieldName, NULL), fs);
     }
   }
 
@@ -297,7 +297,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    dictAdd(df_fields_dict, (void *)HiddenString_Get(fs->fieldName, false), fs);
+    dictAdd(df_fields_dict, (void *)HiddenName_GetUnsafe(fs->fieldName, NULL), fs);
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index

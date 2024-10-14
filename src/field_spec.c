@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "obfuscation/obfuscation_api.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -31,11 +32,11 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
-    HiddenString_Free(fs->fieldPath, true);
+    HiddenName_Free(fs->fieldPath, true);
   }
   fs->fieldPath = NULL;
   if (fs->fieldName) {
-    HiddenString_Free(fs->fieldName, true);
+    HiddenName_Free(fs->fieldName, true);
     fs->fieldName = NULL;
   }
 
@@ -66,10 +67,32 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, HiddenString_Get(fs->fieldPath, obfuscate));
-  FieldSpecInfo_SetAttribute(&info, HiddenString_Get(fs->fieldName, obfuscate));
+  FieldSpecInfo_SetIdentifier(&info, fs->fieldPath);
+  FieldSpecInfo_SetAttribute(&info, fs->fieldName);
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
+}
+
+RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate) {
+  char nameBuffer[MAX_OBFUSCATED_FIELD_NAME];
+  const char* fieldName = nameBuffer;
+  if (obfuscate) {
+    Obfuscate_Field(fs->ftId, nameBuffer);
+  } else {
+    fieldName = HiddenName_GetUnsafe(fs->fieldName, NULL);
+  }
+  if (!fs->fieldPath) {
+    return RedisModule_CreateString(RSDummyContext, fieldName, strlen(fieldName));
+  }
+
+  char pathBuffer[MAX_OBFUSCATED_PATH_NAME];
+  const char* pathName = pathBuffer;
+  if (obfuscate) {
+    Obfuscate_FieldPath(fs->ftId, pathBuffer);
+  } else if (fs->fieldPath) {
+    pathName = HiddenName_GetUnsafe(fs->fieldPath, NULL);
+  }
+  return RedisModule_CreateStringPrintf(RSDummyContext, fmt, pathName, fieldName);
 }
