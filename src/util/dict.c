@@ -57,6 +57,7 @@
 #include "redismodule.h"
 #include <assert.h>
 #include "../rmalloc.h"
+#include "obfuscation/hidden.h"
 
 uint64_t stringsHashFunction(const void *key){
     return dictGenHashFunction(key, strlen((char*)key));
@@ -69,11 +70,24 @@ uint64_t redisStringsHashFunction(const void *key){
   return dictGenHashFunction(str, len);
 }
 
+uint64_t hiddenNameHashFunction(const void *key) {
+  const HiddenName* keyStr = key;
+  size_t len;
+  const char *value = HiddenName_GetUnsafe(keyStr, &len);
+  return dictGenHashFunction(value, len);
+}
+
 int stringsKeyCompare(void *privdata, const void *key1, const void *key2){
     const char* strKey1 = key1;
     const char* strKey2 = key2;
 
     return strcmp(strKey1, strKey2) == 0;
+}
+
+int hiddenNameKeyCompare(void *privdata, const void *key1, const void *key2){
+  const HiddenName* strKey1 = key1;
+  const HiddenName* strKey2 = key2;
+  return HiddenName_Compare(strKey1, strKey2) == 0;
 }
 
 int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2){
@@ -87,6 +101,11 @@ void stringsKeyDestructor(void *privdata, void *key){
     rm_free(key);
 }
 
+void hiddenNameKeyDestructor(void *privdata, void *key){
+  HiddenName* keyStr = key;
+  HiddenName_Free(keyStr, true);
+}
+
 void redisStringsKeyDestructor(void *privdata, void *key){
   const RedisModuleString* keyStr = key;
   RedisModule_FreeString(NULL, (RedisModuleString*)keyStr);
@@ -94,6 +113,11 @@ void redisStringsKeyDestructor(void *privdata, void *key){
 
 void* stringsKeyDup(void *privdata, const void *key){
     return rm_strdup((char*)key);
+}
+
+void* hiddenNameKeyDup(void *privdata, const void *key){
+  const HiddenName* keyStr = key;
+  return HiddenName_Duplicate(keyStr);
 }
 
 void* redisStringsKeyDup(void *privdata, const void *key){
@@ -109,6 +133,15 @@ dictType dictTypeHeapStrings = {
         .keyCompare = stringsKeyCompare,
         .keyDestructor = stringsKeyDestructor,
         .valDestructor = NULL,
+};
+
+dictType dictTypeHeapHiddenNames = {
+  .hashFunction = hiddenNameHashFunction,
+  .keyDup = hiddenNameKeyDup,
+  .valDup = NULL,
+  .keyCompare = hiddenNameKeyCompare,
+  .keyDestructor = hiddenNameKeyDestructor,
+  .valDestructor = NULL,
 };
 
 dictType dictTypeHeapRedisStrings = {

@@ -27,6 +27,7 @@
 #include "resp3.h"
 #include "global_stats.h"
 #include "obfuscation/obfuscation_api.h"
+#include "obfuscation/hidden.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -1127,20 +1128,20 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen;
-  char *fieldName = NULL;
+  char *rawFieldName = NULL;
 
-  if (FGC_recvBuffer(gc, (void **)&fieldName, &fieldNameLen) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)&rawFieldName, &fieldNameLen) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
 
-  if (fieldName == RECV_BUFFER_EMPTY) {
+  if (rawFieldName == RECV_BUFFER_EMPTY) {
     return FGC_DONE;
   }
 
   InvIdxBuffers idxbufs = {0};
   MSG_IndexInfo info = {0};
   if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
-    rm_free(fieldName);
+    rm_free(rawFieldName);
     return FGC_CHILD_ERROR;
   }
 
@@ -1156,6 +1157,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
+  const HiddenName *fieldName = NewHiddenName(rawFieldName, fieldNameLen, false);
   InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
 
   if (idx == NULL) {
