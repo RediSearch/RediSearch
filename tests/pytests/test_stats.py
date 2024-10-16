@@ -8,12 +8,15 @@ from RLTest import Env
 
 ##########################################################################
 
-def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
+def check_index_info(env:Env, idx, exp_num_records, exp_inv_idx_size):
     d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), exp_num_records)
+    mul = int(env.cmd(config_cmd(), 'GET', '_NUMERIC_RANGES_PARENTS')[0][1]) + 1
+    env.assertGreaterEqual(int(d['num_records']), exp_num_records)
+    env.assertLessEqual(int(d['num_records']), exp_num_records * mul)
 
     if(exp_inv_idx_size != None):
-        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
+        env.assertGreaterEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
+        env.assertLessEqual(float(d['inverted_sz_mb']), exp_inv_idx_size * mul)
 
 ##########################################################################
 
@@ -45,10 +48,10 @@ def runTestWithSeed(env, s=None):
     # 2 bytes for the actual number (4096-4099)
 
     for i in range(count):
-        # write only 4 different values to get a range tree with a root node 
+        # write only 4 different values to get a range tree with a root node
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
-    
+
     # Expected inverted index size total: 606 bytes
     # 2 * (buffer size + inverted index structure size)
     # 2 * (207 + 96) = 606
@@ -85,7 +88,7 @@ def runTestWithSeed(env, s=None):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
 
-    # Test only the number of records, because the memory size depends on 
+    # Test only the number of records, because the memory size depends on
     # the random values.
     check_index_info(env, idx, count, None)
 
