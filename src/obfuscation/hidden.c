@@ -156,8 +156,8 @@ void HiddenName_TakeOwnership(HiddenName *hidden) {
   userString->user = rm_strndup(userString->user, userString->length);
 }
 
-HiddenName *HiddenName_Duplicate(HiddenName *value) {
-  UserString* text = (UserString*)value;
+HiddenName *HiddenName_Duplicate(const HiddenName *value) {
+  const UserString* text = (const UserString*)value;
   return NewHiddenName(text->user, text->length, true);
 }
 

@@ -13,7 +13,7 @@ AliasTable *AliasTable_g = NULL;
 
 AliasTable *AliasTable_New(void) {
   AliasTable *t = rm_calloc(1, sizeof(*t));
-  t->d = dictCreate(&dictTypeHeapStrings, NULL);
+  t->d = dictCreate(&dictTypeHeapHiddenNames, NULL);
   return t;
 }
 
@@ -34,7 +34,7 @@ static int AliasTable_Add(AliasTable *table, HiddenName *alias, StrongRef spec_r
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  e = dictAddRaw(table->d, (void *)HiddenName_GetUnsafe(alias, NULL), &existing);
+  e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
@@ -86,7 +86,7 @@ static int AliasTable_Del(AliasTable *table, HiddenName *alias, StrongRef spec_r
   return REDISMODULE_OK;
 }
 
-StrongRef AliasTable_Get(AliasTable *tbl, const char *alias) {
+StrongRef AliasTable_Get(AliasTable *tbl, const HiddenName *alias) {
   StrongRef ret = {0};
   dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
@@ -103,7 +103,7 @@ int IndexAlias_Del(HiddenName *alias, StrongRef spec_ref, int options, QueryErro
   return AliasTable_Del(AliasTable_g, alias, spec_ref, options, status);
 }
 
-StrongRef IndexAlias_Get(const char *alias) {
+StrongRef IndexAlias_Get(const HiddenName *alias) {
   return AliasTable_Get(AliasTable_g, alias);
 }
 

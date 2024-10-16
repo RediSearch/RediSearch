@@ -426,7 +426,8 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
+  HiddenName *specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
   if (dictFetchValue(specDict_g, specName)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -721,9 +722,9 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
-  StrongRef alias_ref = IndexAlias_Get(rawAlias);
+  HiddenName *alias = NewHiddenName(rawAlias, length, false);
+  StrongRef alias_ref = IndexAlias_Get(alias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
-    HiddenName *alias = NewHiddenName(rawAlias, length, false);
     return IndexAlias_Add(alias, ref, 0, error);
   }
   return REDISMODULE_OK;
@@ -1009,7 +1010,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenNames, NULL);
 
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
