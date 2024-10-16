@@ -679,6 +679,12 @@ if [[ -z $COORD ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
 
+	{ (MODARGS="${MODARGS}; _NUMERIC_RANGES_PARENTS 1;" \
+		run_tests "with _NUMERIC_RANGES_PARENTS 1"); (( E |= $? )); } || true
+
+	{ (MODARGS="${MODARGS}; _NUMERIC_RANGES_PARENTS 2;" \
+		run_tests "with _NUMERIC_RANGES_PARENTS 2"); (( E |= $? )); } || true
+
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
