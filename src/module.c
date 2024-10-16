@@ -339,17 +339,17 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
-  if (!sp) {
+  const FieldSpec *fs = IndexSpec_GetFieldC(sctx->spec, field, len);
+  if (!fs) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
   }
-  if (!FIELD_IS(sp, INDEXFLD_T_TAG)) {
+  if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
     RedisModule_ReplyWithError(ctx, "Not a tag field");
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx, fs->fieldName);
   TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
@@ -426,7 +426,8 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
+  HiddenName *specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
   if (dictFetchValue(specDict_g, specName)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -672,7 +673,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
     RedisSearchCtx_LockSpecRead(&sctx);
-    const FieldSpec *field_exists = IndexSpec_GetField(sp, fieldName, fieldNameSize);
+    const FieldSpec *field_exists = IndexSpec_GetFieldC(sp, fieldName, fieldNameSize);
     RedisSearchCtx_UnlockSpec(&sctx);
 
     if (field_exists) {
@@ -719,7 +720,9 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_ERR;
   }
 
-  const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t length = 0;
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenName *alias = NewHiddenName(rawAlias, length, false);
   StrongRef alias_ref = IndexAlias_Get(alias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
     return IndexAlias_Add(alias, ref, 0, error);
@@ -762,8 +765,11 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
 
+  size_t length = 0;
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenName *alias = NewHiddenName(rawAlias, length, false);
   QueryError status = {0};
-  if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), ref, 0, &status) != REDISMODULE_OK) {
+  if (IndexAlias_Del(alias, ref, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
@@ -794,16 +800,15 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
-  if (spOrig) {
-    if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
-      return QueryError_ReplyAndClear(ctx, &status);
-    }
+  size_t length = 0;
+  HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length, false);
+  if (spOrig && IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
   }
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {
       QueryError e2 = {0};
-      const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
@@ -867,13 +872,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      if (isUnsafeForSimpleString(sp->name)) {
-        char *escaped = escapeSimpleString(sp->name);
-        RedisModule_Reply_SimpleString(reply, escaped);
-        rm_free(escaped);
-      } else {
-        RedisModule_Reply_SimpleString(reply, sp->name);
-      }
+      HiddenName_SendInReplyAsString(sp->specName, reply);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
@@ -1011,7 +1010,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenNames, NULL);
 
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);

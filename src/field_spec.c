@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "obfuscation/obfuscation_api.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -30,13 +31,13 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
-  if (fs->path && fs->name != fs->path) {
-    rm_free(fs->path);
+  if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
+    HiddenName_Free(fs->fieldPath, true);
   }
-  fs->path = NULL;
-  if (fs->name) {
-    rm_free(fs->name);
-    fs->name = NULL;
+  fs->fieldPath = NULL;
+  if (fs->fieldName) {
+    HiddenName_Free(fs->fieldName, true);
+    fs->fieldName = NULL;
   }
 
   if (fs->types & INDEXFLD_T_VECTOR) {
@@ -68,8 +69,30 @@ const char *FieldSpec_GetTypeNames(int idx) {
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, fs->fieldPath);
+  FieldSpecInfo_SetAttribute(&info, fs->fieldName);
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
+}
+
+RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate) {
+  char nameBuffer[MAX_OBFUSCATED_FIELD_NAME];
+  const char* fieldName = nameBuffer;
+  if (obfuscate) {
+    Obfuscate_Field(fs->ftId, nameBuffer);
+  } else {
+    fieldName = HiddenName_GetUnsafe(fs->fieldName, NULL);
+  }
+  if (!fs->fieldPath) {
+    return RedisModule_CreateString(RSDummyContext, fieldName, strlen(fieldName));
+  }
+
+  char pathBuffer[MAX_OBFUSCATED_PATH_NAME];
+  const char* pathName = pathBuffer;
+  if (obfuscate) {
+    Obfuscate_FieldPath(fs->ftId, pathBuffer);
+  } else if (fs->fieldPath) {
+    pathName = HiddenName_GetUnsafe(fs->fieldPath, NULL);
+  }
+  return RedisModule_CreateStringPrintf(RSDummyContext, fmt, pathName, fieldName);
 }

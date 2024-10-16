@@ -20,6 +20,7 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "obfuscation/obfuscation_api.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -67,7 +68,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldC(spec, fieldName, strlen(fieldName));
   if (!fieldSpec) {
     return NULL;
   }
@@ -283,7 +284,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   GET_SEARCH_CTX(argv[2])
   RedisModuleKey *keyp = NULL;
   const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = IndexSpec_GetFieldC(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
@@ -675,7 +676,9 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
-  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
+  char name[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(sp->uniqueId, name);
+  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, name);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -1032,7 +1035,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
-                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
+                            RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
@@ -1044,7 +1047,13 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      if (!fs) {
+        RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else {
+        RedisModuleString *text = FieldSpec_FormatPathAndName(fs, "%s AS %s", obfuscate);
+        RedisModule_Reply_String(reply, text);
+      }
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
@@ -1068,6 +1077,7 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
+  const bool obfuscate = argc >= 5 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "obfuscate");
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);
@@ -1078,7 +1088,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 

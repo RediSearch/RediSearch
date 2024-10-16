@@ -13,6 +13,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "info/field_spec_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -89,8 +90,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  char *name;
-  char *path;
+  HiddenName *fieldName;
+  HiddenName *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
@@ -155,5 +156,8 @@ const char *FieldSpec_GetTypeNames(int idx);
 RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+
+struct RedisModuleString;
+RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate);
 
 #endif /* SRC_FIELD_SPEC_H_ */
