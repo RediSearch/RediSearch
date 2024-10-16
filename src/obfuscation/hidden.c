@@ -145,8 +145,8 @@ int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right) {
   return HiddenName_CaseSensitiveCompareC(left, r->user, r->length);
 }
 
-HiddenName *HiddenName_Duplicate(HiddenName *value) {
-  UserString* text = (UserString*)value;
+HiddenName *HiddenName_Duplicate(const HiddenName *value) {
+  const UserString* text = (const UserString*)value;
   return NewHiddenName(text->user, text->length, true);
 }
 

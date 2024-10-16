@@ -37,7 +37,7 @@ int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseSensitiveCompare(HiddenName *left, HiddenName *right);
-HiddenName *HiddenName_Duplicate(HiddenName *value);
+HiddenName *HiddenName_Duplicate(const HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 void HiddenName_SendInReplyAsString(HiddenName* value, RedisModule_Reply* reply);
