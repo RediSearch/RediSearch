@@ -1373,7 +1373,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = qn->miss.field;
 
   // Get the InvertedIndex corresponding to the queried field.
-  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, HiddenName_GetUnsafe(fs->fieldName, NULL));
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->fieldName);
 
   if (!missingII) {
     // There are no missing values for this field.

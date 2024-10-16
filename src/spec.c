@@ -427,8 +427,9 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 // TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
-  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   setMemoryInfo(ctx);
+  HiddenName* specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
   if (dictFetchValue(specDict_g, specName)) {
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
@@ -441,7 +442,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Add the spec to the global spec dictionary
-  dictAdd(specDict_g, (char *)specName, spec_ref.rm);
+  dictAdd(specDict_g, specName, spec_ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
 
@@ -1400,8 +1401,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
 // For testing purposes only
 void Spec_AddToDict(RefManager *rm) {
   IndexSpec* spec = ((IndexSpec*)__RefManager_Get_Object(rm));
-  const char *specName = HiddenName_GetUnsafe(spec->specName, NULL);
-  dictAdd(specDict_g, (void*)specName, (void *)rm);
+  dictAdd(specDict_g, (void*)spec->specName, (void *)rm);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
@@ -1617,8 +1617,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
   // Remove spec from global index list
-  const char *specName = HiddenName_GetUnsafe(spec->specName, NULL);
-  dictDelete(specDict_g, (void*)specName);
+  dictDelete(specDict_g, (void*)spec->specName);
 
   // Remove spec from global aliases list
   if (spec->uniqueId) {
@@ -1709,11 +1708,12 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
     ixname = options->nameC;
   }
 
-  StrongRef spec_ref = {dictFetchValue(specDict_g, ixname)};
+  HiddenName *specNameOrAlias = NewHiddenName(ixname, strlen(ixname), false);
+  StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     if (!(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
-      spec_ref = IndexAlias_Get(ixname);
+      spec_ref = IndexAlias_Get(specNameOrAlias);
       sp = StrongRef_Get(spec_ref);
     }
     if (!sp) {
@@ -1889,11 +1889,11 @@ static void valIIFreeCb(void *unused, void *p) {
 }
 
 static dictType missingFieldDictType = {
-        .hashFunction = stringsHashFunction,
-        .keyDup = stringsKeyDup,
+        .hashFunction = hiddenNameHashFunction,
+        .keyDup = hiddenNameKeyDup,
         .valDup = NULL,
-        .keyCompare = stringsKeyCompare,
-        .keyDestructor = stringsKeyDestructor,
+        .keyCompare = hiddenNameKeyCompare,
+        .keyDestructor = hiddenNameKeyDestructor,
         .valDestructor = valIIFreeCb,
 };
 
@@ -2539,8 +2539,7 @@ void Indexes_UpgradeLegacyIndexes() {
     sp->stats.indexError = IndexError_Init();
 
     // put the new index in the specDict_g with weak and strong references
-    const char *specName = HiddenName_GetUnsafe(sp->specName, NULL);
-    dictAdd(specDict_g, (void*)specName, spec_ref.rm);
+    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
   }
   dictReleaseIterator(iter);
 }
@@ -2661,8 +2660,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->scan_in_progress = false;
 
-  const char *specName = HiddenName_GetUnsafe(sp->specName, NULL);
-  RefManager *oldSpec = dictFetchValue(specDict_g, specName);
+  RefManager *oldSpec = dictFetchValue(specDict_g, sp->specName);
   if (oldSpec) {
     // spec already exists lets just free this one
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
@@ -2676,7 +2674,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(spec_ref);
     spec_ref = (StrongRef){oldSpec};
   } else {
-    dictAdd(specDict_g, (void*)specName, spec_ref.rm);
+    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -2773,7 +2771,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   char name[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(sp->uniqueId, name);
-  SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, HiddenName_GetUnsafe(sp->specName, NULL));
+  SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->specName);
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", name);
@@ -2784,7 +2782,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
-  dictDelete(legacySpecRules, HiddenName_GetUnsafe(sp->specName, NULL));
+  dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);
 
   if (!sp->rule) {
@@ -2798,7 +2796,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   Cursors_initSpec(sp);
 
-  dictAdd(legacySpecDict, (void*)HiddenName_GetUnsafe(sp->specName, NULL), spec_ref.rm);
+  dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   return spec_ref.rm;
 }
 
@@ -2909,7 +2907,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (legacySpecDict) {
       dictEmpty(legacySpecDict, NULL);
     } else {
-      legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
+      legacySpecDict = dictCreate(&dictTypeHeapHiddenNames, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
     workersThreadPool_OnEventStart();
@@ -3087,7 +3085,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
-  specDict_g = dictCreate(&dictTypeHeapStrings, NULL);
+  specDict_g = dictCreate(&dictTypeHeapHiddenNames, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
 }
@@ -3099,7 +3097,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     keyToReadData = key;
   }
   SpecOpIndexingCtx *res = rm_malloc(sizeof(*res));
-  res->specs = dictCreate(&dictTypeHeapStrings, NULL);
+  res->specs = dictCreate(&dictTypeHeapHiddenNames, NULL);
   res->specsOps = array_new(SpecOpCtx, 10);
   if (dictSize(specDict_g) == 0) {
     return res;
@@ -3130,13 +3128,13 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
-      if (spec && !dictFind(specs, HiddenName_GetUnsafe(spec->specName, NULL))) {
+      if (spec && !dictFind(specs, spec->specName)) {
         SpecOpCtx specOp = {
             .spec = spec,
             .op = SpecOp_Add,
         };
         array_append(res->specsOps, specOp);
-        dictEntry *entry = dictAddRaw(specs, (void*)HiddenName_GetUnsafe(spec->specName, NULL), NULL);
+        dictEntry *entry = dictAddRaw(specs, (void*)spec->specName, NULL);
         // put the location on the specsOps array so we can get it
         // fast using index name
         entry->v.u64 = array_len(res->specsOps) - 1;
@@ -3160,7 +3158,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
       if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
-        if (!RSValue_BoolTest(&r->res) && dictFind(specs, HiddenName_GetUnsafe(spec->specName, NULL))) {
+        if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->specName)) {
           specOp->op = SpecOp_Del;
         }
       }
@@ -3269,14 +3267,14 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // the document is not in the index from the first place
       continue;
     }
-    dictEntry *entry = dictFind(to_specs->specs, HiddenName_GetUnsafe(spec->specName, NULL));
+    dictEntry *entry = dictFind(to_specs->specs, spec->specName);
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
-      dictDelete(to_specs->specs, HiddenName_GetUnsafe(spec->specName, NULL));
+      dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
       IndexSpec_DeleteDoc(spec, ctx, from_key);
