@@ -1265,7 +1265,18 @@ def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
+      nodes = 1
+      if env.isCluster():
+         res = r.execute_command("cluster info")
+         nodes = float(res['cluster_known_nodes'])
+
+      # Initial size = INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *)
+      #              = 1000 * 16 = 16000 bytes
+      initial_doc_table_size_mb = 16000 / (1024 * 1024)
+      total_index_memory_sz_mb = initial_doc_table_size_mb
+
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
       exp = {
         'attributes': [
           { 'WEIGHT': 1.0,
@@ -1300,7 +1311,7 @@ def test_ft_info():
           'dialect_3': 0,
           'dialect_4': 0
         },
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': initial_doc_table_size_mb,
         'gc_stats': {
           'average_cycle_time_ms': nan,
           'bytes_collected': 0.0,
@@ -1324,7 +1335,7 @@ def test_ft_info():
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': total_index_memory_sz_mb,
         'max_doc_id': 0.0,
         'num_docs': 0.0,
         'num_records': 0.0,
@@ -1379,7 +1390,7 @@ def test_ft_info():
                           'dialect_2': 0,
                           'dialect_3': 0,
                           'dialect_4': 0},
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': nodes * initial_doc_table_size_mb,
         'gc_stats': {
               'average_cycle_time_ms': 0.0,
               'bytes_collected': 0.0,
@@ -1399,11 +1410,11 @@ def test_ft_info():
         'index_name': 'idx',
         'index_options': [],
         'indexing': 0,
-        'inverted_sz_mb': 0.0,
+        'inverted_sz_mb': nodes * initial_doc_table_size_mb,
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
