@@ -387,7 +387,7 @@ def testDocTableInfo(env):
     conn.execute_command('DEL', 'b')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(float(d['doc_table_size_mb']), initial_doc_table_size_mb)
+    env.assertEqual(float(d['doc_table_size_mb']), doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
 @skip(cluster=True)

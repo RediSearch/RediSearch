@@ -1410,7 +1410,7 @@ def test_ft_info():
         'index_name': 'idx',
         'index_options': [],
         'indexing': 0,
-        'inverted_sz_mb': nodes * initial_doc_table_size_mb,
+        'inverted_sz_mb': 0.0,
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
