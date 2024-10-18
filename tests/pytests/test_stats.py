@@ -333,7 +333,7 @@ def testDocTableInfo(env):
 
     nodes = 1
     if env.isCluster():
-        res = r.execute_command("cluster info")
+        res = conn.execute_command("cluster info")
         nodes = float(res['cluster_known_nodes'])
 
     # Initial size = INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *)
@@ -359,7 +359,7 @@ def testDocTableInfo(env):
     #   + (strlen(key) + 2)
     # = (72 - 8) + 3 = 67
     # 2 docs * 67 = 134
-    exp_doc_table_size = ( nodes * doc_table_size_mb) + (134 / (1024 * 1024))
+    exp_doc_table_size = (nodes * doc_table_size_mb) + (134 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
