@@ -1270,7 +1270,7 @@ def test_ft_info():
       nodes = 1
       if env.isCluster():
          res = r.execute_command("cluster info")
-         nodes = res['cluster_known_nodes']
+         nodes = float(res['cluster_known_nodes'])
 
       # Initial size = INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *)
       #              = 1000 * 16 = 16000 bytes
