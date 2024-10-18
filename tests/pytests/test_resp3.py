@@ -1265,8 +1265,6 @@ def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
-      res = order_dict(r.execute_command('ft.info', 'idx'))
-
       nodes = 1
       if env.isCluster():
          res = r.execute_command("cluster info")
@@ -1275,8 +1273,9 @@ def test_ft_info():
       # Initial size = INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *)
       #              = 1000 * 16 = 16000 bytes
       initial_doc_table_size_mb = 16000 / (1024 * 1024)
-
       total_index_memory_sz_mb = initial_doc_table_size_mb
+
+      res = order_dict(r.execute_command('ft.info', 'idx'))
 
       exp = {
         'attributes': [
