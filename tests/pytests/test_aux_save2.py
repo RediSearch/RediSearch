@@ -8,6 +8,7 @@ from common import *
 from includes import *
 from RLTest import Env
 
+@skip(cluster=True, no_json=True, asan=True)
 def test_aux_save2(env: Env):
     env.expect('HSET', 'doc1', 't', 'hello').equal(1)
     # Save state to RDB
