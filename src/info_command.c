@@ -101,7 +101,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  HiddenName_SendInReplyAsKeyValue(sp->specName, "index_name", reply);
+  REPLY_KVRSTR("index_name", IndexSpec_FormatName(sp, false));
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);
@@ -112,10 +112,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    HiddenName_SendInReplyAsKeyValue(sp->fields[i].fieldPath, "identifier", reply);
-    HiddenName_SendInReplyAsKeyValue(sp->fields[i].fieldName, "attribute", reply);
-
     const FieldSpec *fs = &sp->fields[i];
+    REPLY_KVRSTR("identifier", FieldSpec_FormatPath(fs, false));
+    REPLY_KVRSTR("attribute", FieldSpec_FormatName(fs, false));
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
@@ -298,8 +297,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs);
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, false);
     FieldSpecInfo_Reply(&info, reply, with_times);
+    FieldSpecInfo_Clear(&info);
   }
   REPLY_ARRAY_END; // >Field statistics
 

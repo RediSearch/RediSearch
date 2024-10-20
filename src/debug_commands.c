@@ -1055,9 +1055,16 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       if (!fs) {
         RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else if (!fs->fieldPath) {
+        RedisModule_Reply_String(reply, FieldSpec_FormatName(fs, obfuscate));
       } else {
-        RedisModuleString *text = FieldSpec_FormatPathAndName(fs, "%s AS %s", obfuscate);
-        RedisModule_Reply_String(reply, text);
+        RedisModuleString *path = FieldSpec_FormatPath(fs, obfuscate);
+        RedisModuleString *name = FieldSpec_FormatName(fs, obfuscate);
+        const char *rawPath = RedisModule_StringPtrLen(path, NULL);
+        const char *rawName = RedisModule_StringPtrLen(name, NULL);
+        RedisModule_Reply_String(reply, RedisModule_CreateStringPrintf(sctx->redisCtx, "%s AS %s", rawPath, rawName));
+        RedisModule_FreeString(sctx->redisCtx, path);
+        RedisModule_FreeString(sctx->redisCtx, name);
       }
 
       RedisModule_Reply_CString(reply, "value");

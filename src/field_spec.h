@@ -155,9 +155,11 @@ const char *FieldSpec_GetTypeNames(int idx);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
 
 struct RedisModuleString;
+RedisModuleString *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
+RedisModuleString *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
