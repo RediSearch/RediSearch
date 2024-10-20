@@ -44,7 +44,7 @@ static int AliasTable_Add(AliasTable *table, HiddenName *alias, StrongRef spec_r
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     HiddenName_TakeOwnership(alias);
-    spec->aliases = array_ensure_append(spec->aliases, alias, 1, HiddenName *);
+    spec->aliases = array_ensure_append_1(spec->aliases, alias);
   }
   if (table->on_add) {
     table->on_add(alias, spec);
@@ -60,7 +60,7 @@ static int AliasTable_Del(AliasTable *table, HiddenName *alias, StrongRef spec_r
   ssize_t idx = -1;
   for (size_t ii = 0; ii < array_len(spec->aliases); ++ii) {
     // note, NULL might be here if we're clearing the spec's aliases
-    if (spec->aliases[ii] && !HiddenName_CaseSensitiveCompare(spec->aliases[ii], alias)) {
+    if (spec->aliases[ii] && !HiddenName_CaseInsensitiveCompare(spec->aliases[ii], alias)) {
       idx = ii;
       break;
     }

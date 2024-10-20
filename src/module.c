@@ -863,9 +863,11 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 1) {
+  if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
+
+  const bool obfuscate = argc == 2 && RMUtil_StringEqualsCaseC(argv[1], "OBFUSCATE");
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   RedisModule_Reply_Set(reply);
@@ -874,7 +876,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      HiddenName_SendInReplyAsString(sp->specName, reply);
+      RedisModule_Reply_String(reply, IndexSpec_FormatName(sp, obfuscate));
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

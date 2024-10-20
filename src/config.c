@@ -609,7 +609,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   rule->type = rm_strdup(RULE_TYPE_HASH);
 
   // add rule to rules dictionary
-  dictAdd(legacySpecRules, indexName, rule);
+  dictAdd(legacySpecRules, (void*)indexName, rule);
 
   return REDISMODULE_OK;
 }

@@ -200,7 +200,7 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
+int RSSortingTable_AddC(RSSortingTable **tbl, const char *name, RSValueType t) {
   if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
 
   if ((*tbl)->len == (*tbl)->cap) {
@@ -214,7 +214,7 @@ int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
+int RSSortingTable_GetFieldIdxC(RSSortingTable *tbl, const char *field) {
 
   if (!tbl) return -1;
   for (int i = 0; i < tbl->len; i++) {

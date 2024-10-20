@@ -521,10 +521,12 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   dictIterator* iter = dictGetIterator(spec->missingFieldDict);
   dictEntry* entry = NULL;
   while ((entry = dictNext(iter))) {
-    const char *fieldName = dictGetKey(entry);
+    const HiddenName *hiddenFieldName = dictGetKey(entry);
     InvertedIndex *idx = dictGetVal(entry);
     if(idx) {
-      struct iovec iov = {.iov_base = (void *)fieldName, strlen(fieldName)};
+      size_t length;
+      const char* fieldName = HiddenName_GetUnsafe(hiddenFieldName, &length);
+      struct iovec iov = {.iov_base = (void *)fieldName, length};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
     }
   }
@@ -1145,6 +1147,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
+  HiddenName *fieldName = NewHiddenName(rawFieldName, fieldNameLen, false);
   StrongRef spec_ref = WeakRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -1156,8 +1159,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
-
-  const HiddenName *fieldName = NewHiddenName(rawFieldName, fieldNameLen, false);
   InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
 
   if (idx == NULL) {
@@ -1182,7 +1183,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);
   }
-  rm_free(fieldName);
+  HiddenName_Free(fieldName, false);
+  rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   } else {

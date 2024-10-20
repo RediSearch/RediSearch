@@ -1306,11 +1306,11 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = RSSortingTable_GetFieldIdx(s->sortables, foo);
+  int rc = RSSortingTable_GetFieldIdxC(s->sortables, foo);
   ASSERT_EQ(0, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, bar);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, bar);
   ASSERT_EQ(1, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, title);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
   IndexSpec_RemoveFromGlobals(ref);
@@ -1574,21 +1574,21 @@ TEST_F(IndexTest, testDocTable) {
 
 TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
+  RSSortingTable_AddC(&tbl, "foo", RSValue_String);
+  RSSortingTable_AddC(&tbl, "bar", RSValue_String);
+  RSSortingTable_AddC(&tbl, "baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);
   ASSERT_EQ(RSValue_String, tbl->fields[0].type);
   ASSERT_STREQ("bar", tbl->fields[1].name);
   ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "foo"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "FoO"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(NULL, "FoO"));
 
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+  ASSERT_EQ(1, RSSortingTable_GetFieldIdxC(tbl, "bar"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(tbl, "barbar"));
 
   RSSortingVector *v = NewSortingVector(tbl->len);
   ASSERT_EQ(v->len, tbl->len);
