@@ -14,8 +14,8 @@
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
 typedef struct {
-    HiddenName *identifier; // The identifier of the field spec.
-    HiddenName *attribute; // The attribute of the field spec.
+    RedisModuleString *identifier; // The identifier of the field spec.
+    RedisModuleString *attribute; // The attribute of the field spec.
     IndexError error; // Indexing error of the field spec.
 } FieldSpecInfo;
 
@@ -27,10 +27,10 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info);
 
 // Setters
 // Sets the identifier of the field spec.
-void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, HiddenName *identifier);
+void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, RedisModuleString *identifier);
 
 // Sets the attribute of the field spec.
-void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, HiddenName *attribute);
+void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, RedisModuleString *attribute);
 
 // Sets the index error of the field spec.
 void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);

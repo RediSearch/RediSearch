@@ -68,10 +68,10 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->fieldPath);
-  FieldSpecInfo_SetAttribute(&info, fs->fieldName);
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }
@@ -85,24 +85,28 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
   return IndexError_ErrorCount(&fs->indexError);
 }
 
-RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate) {
-  char nameBuffer[MAX_OBFUSCATED_FIELD_NAME];
-  const char* fieldName = nameBuffer;
+RedisModuleString *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, void (*callback)(t_uniqueId, char*), bool obfuscate) {
+  char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
+  const char* value = obfuscated;
   if (obfuscate) {
-    Obfuscate_Field(fs->ftId, nameBuffer);
+    callback(fieldId, obfuscated);
   } else {
-    fieldName = HiddenName_GetUnsafe(fs->fieldName, NULL);
+    value = HiddenName_GetUnsafe(name, NULL);
   }
-  if (!fs->fieldPath) {
-    return RedisModule_CreateString(RSDummyContext, fieldName, strlen(fieldName));
+  if (!isUnsafeForSimpleString(value)) {
+    return RedisModule_CreateString(NULL, value, strlen(value));
+  } else {
+    char *escaped = escapeSimpleString(value);
+    RedisModuleString *ret = RedisModule_CreateString(NULL, escaped, strlen(escaped));
+    rm_free(escaped);
+    return ret;
   }
+}
 
-  char pathBuffer[MAX_OBFUSCATED_PATH_NAME];
-  const char* pathName = pathBuffer;
-  if (obfuscate) {
-    Obfuscate_FieldPath(fs->ftId, pathBuffer);
-  } else if (fs->fieldPath) {
-    pathName = HiddenName_GetUnsafe(fs->fieldPath, NULL);
-  }
-  return RedisModule_CreateStringPrintf(RSDummyContext, fmt, pathName, fieldName);
+RedisModuleString *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldName, Obfuscate_Field, obfuscate);
+}
+
+RedisModuleString *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldPath, Obfuscate_FieldPath, obfuscate);
 }
