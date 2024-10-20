@@ -11,6 +11,7 @@ char *Obfuscate_QueryNode(struct RSQueryNode *node);
 enum {
     IndexSize = MAX_OBFUSCATED_INDEX_NAME,
     FieldSize = MAX_OBFUSCATED_FIELD_NAME,
+    FieldPathSize = MAX_OBFUSCATED_PATH_NAME,
     DocumentSize = MAX_OBFUSCATED_DOCUMENT_NAME
 };
 
@@ -28,6 +29,7 @@ int testMax ## name ## Obfuscation() {                             \
 
 DEFINE_OBJECT_OBFUSCATION_TESTS(Index)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Field)
+DEFINE_OBJECT_OBFUSCATION_TESTS(FieldPath)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Document)
 
 int testTextObfuscation() {

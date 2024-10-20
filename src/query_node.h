@@ -69,6 +69,7 @@ typedef enum {
 
   /* Missing query */
   QN_MISSING,
+
   /* Max value, should be last */
   QN_MAX
 } QueryNodeType;
