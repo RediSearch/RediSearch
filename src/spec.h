@@ -662,6 +662,15 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  */
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
+/**
+* obfuscate argument is used to detemine how we will format the index name
+* if obfuscate is true we will return the obfuscated name
+* meant to allow us and the user to use the same commands with different outputs
+* meaning we don't want to have access to the user data
+* @return the formatted name of the index
+*/
+RedisModuleString *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);

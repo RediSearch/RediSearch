@@ -1082,7 +1082,7 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
-  const bool obfuscate = argc >= 5 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "obfuscate");
+  const bool obfuscate = argc >= 5 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "OBFUSCATE");
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);

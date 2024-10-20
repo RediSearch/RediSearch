@@ -64,11 +64,14 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   if (!legacySpecRules) return;
   dictIterator *iter = dictGetIterator(legacySpecRules);
   dictEntry *entry = NULL;
+  size_t upgradeFailures = 0;
   while ((entry = dictNext(iter))) {
-    char *indexName = dictGetKey(entry);
     SchemaRuleArgs *rule_args = dictGetVal(entry);
-    RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found", indexName);
     SchemaRuleArgs_Free(rule_args);
+    ++upgradeFailures;
+  }
+  if (upgradeFailures) {
+    RedisModule_Log(ctx, "warning", "Indexes were defined for upgrade but failed to find %zu of them", upgradeFailures);
   }
   dictReleaseIterator(iter);
   dictEmpty(legacySpecRules, NULL);
