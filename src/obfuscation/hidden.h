@@ -40,7 +40,6 @@ int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
 HiddenName *HiddenName_Duplicate(const HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
-void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply);
 
 void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value);
