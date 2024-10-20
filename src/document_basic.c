@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/obfuscation_api.h"
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000
@@ -282,7 +283,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
+      char docFieldName[MAX_OBFUSCATED_DOCUMENT_NAME];
+      Obfuscate_Document(doc->docId, );
+      FieldSpec_AddError(field, QueryError_GetError(status), docFieldName);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", HiddenName_GetUnsafe(field->fieldPath, NULL));
       goto done;
     }
