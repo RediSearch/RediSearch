@@ -392,6 +392,24 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
+RedisModuleString *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
+    char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
+    const char* name = nameBuffer;
+    if (obfuscate) {
+        Obfuscate_Index(sp->uniqueId, nameBuffer);
+    } else {
+        name = HiddenName_GetUnsafe(sp->specName, NULL);
+    }
+    if (isUnsafeForSimpleString(name)) {
+        char *escaped = escapeSimpleString(name);
+        RedisModuleString *ret = RedisModule_CreateString(NULL, escaped, strlen(escaped));
+        rm_free(escaped);
+        return ret;
+    } else {
+        return RedisModule_CreateString(NULL, name, strlen(name));
+    }
+}
+
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
@@ -846,7 +864,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   bool multi = false;
   if (isSpecJson(sp)) {
     RedisModuleString *err_msg;
-    JSONPath jsonPath = pathParse(HiddenName_GetUnsafe(fs->fieldPath, NULL), &err_msg);
+    JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
     if (!jsonPath) {
       if (err_msg) {
         JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
@@ -1103,7 +1121,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       if isSpecJson(sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
           RedisModuleString *err_msg;
-          JSONPath jsonPath = pathParse(HiddenName_GetUnsafe(fs->fieldPath, NULL), &err_msg);
+          JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
           if (jsonPath && pathHasDefinedOrder(jsonPath)) {
             // Ordering is well defined
             fs->options &= ~FieldSpec_UndefinedOrder;
@@ -1139,8 +1157,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         goto reset;
       }
 
-      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
-      fs->sortIdx = RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
+      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
       if (fs->sortIdx == -1) {
         QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
                                SPEC_MAX_FIELDS);
@@ -2550,8 +2567,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
     }
     if (FieldSpec_IsSortable(fs)) {
-      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
-      RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
+      RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
     }
     if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       sp->flags |= Index_HasSuffixTrie;
@@ -2677,8 +2693,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      const char *name = HiddenName_GetUnsafe(fs->fieldName, NULL);
-      RSSortingTable_Add(&sp->sortables, name, fieldTypeToValueType(fs->types));
+      RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
     }
   }
   // After loading all the fields, we can build the spec cache
