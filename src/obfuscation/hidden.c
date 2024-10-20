@@ -177,11 +177,6 @@ void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
   RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
 }
 
-void HiddenName_SendInReplyAsKeyValue(HiddenName* value, const char *key, RedisModule_Reply* reply) {
-  UserString* text = (UserString*)value;
-  REPLY_KVSTR_SAFE(key, text->user);
-}
-
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value) {
   UserString* text = (UserString*)value;
   RedisModuleString *str =
