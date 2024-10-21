@@ -18,6 +18,9 @@ typedef struct HiddenNameStruct HiddenName;
 HiddenString *HideAndObfuscateString(char *str, uint64_t length, bool takeOwnership);
 // Hides the size and obfustaces it
 HiddenSize *HideAndObfuscateNumber(uint64_t num);
+
+// Initializes the hidden name, allows users to allocate their own memory
+void HiddenName_Init(HiddenName* value, const char *name, uint64_t length, bool takeOwnership);
 // Hides the string, obfuscation is done elsewhere
 HiddenName *NewHiddenName(const char *name, uint64_t length, bool takeOwnership);
 

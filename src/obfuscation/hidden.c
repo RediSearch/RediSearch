@@ -40,13 +40,18 @@ HiddenSize* HideAndObfuscateNumber(uint64_t num) {
   return (HiddenSize*)value;
 };
 
-HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership) {
-  UserString* value = rm_malloc(sizeof(*value));
+void HiddenName_Init(HiddenName* hn, const char* name, uint64_t length, bool takeOwnership) {
+  UserString* value = (UserString*)hn;
   value->user = name;
   if (takeOwnership) {
     value->user = rm_strndup(name, length);
   }
   value->length = length;
+};
+
+HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership) {
+  UserString* value = rm_malloc(sizeof(*value));
+  HiddenName_Init((HiddenName*)value, name, length, takeOwnership);
   return (HiddenName*)value;
 };
 
