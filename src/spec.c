@@ -432,6 +432,14 @@ char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
     return rm_strdup(name);
 }
 
+static bool checkIfSpecExists(const char *rawSpecName) {
+  bool found = false;
+  HiddenName* specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
+  found = dictFetchValue(specDict_g, specName);
+  HiddenName_Free(specName, false);
+  return found;
+}
+
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
@@ -440,8 +448,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                QueryError *status) {
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   setMemoryInfo(ctx);
-  HiddenName* specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
-  if (dictFetchValue(specDict_g, specName)) {
+  if (checkIfSpecExists(rawSpecName)) {
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
@@ -453,7 +460,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Add the spec to the global spec dictionary
-  dictAdd(specDict_g, specName, spec_ref.rm);
+  dictAdd(specDict_g, sp->specName, spec_ref.rm);
 
   sp->uniqueId = spec_unique_ids++;
 
@@ -1266,7 +1273,9 @@ static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
 
 static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
   for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
-    out[n++] = translationTable[offset + lsbPos - 1];
+    const t_fieldId ftId = offset + lsbPos - 1;
+    RS_LOG_ASSERT(ftId < array_len(translationTable), "ftId out of bounds");
+    out[n++] = translationTable[ftId];
     maskPart &= ~(1 << (lsbPos - 1));
   }
   return n;
@@ -1275,6 +1284,12 @@ static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translatio
 uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
   uint16_t count = 0;
   const uint8_t LOW_OFFSET = 0;
+  // Unfortunate special case for all fields
+  if (mask == RS_FIELDMASK_ALL) {
+    count = array_len(sp->fieldIdToIndex);
+    memcpy(out, sp->fieldIdToIndex, sizeof(t_fieldIndex) * count);
+    return count;
+  }
   if (sizeof(mask) == sizeof(uint64_t)) {
     count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
   } else {
@@ -1721,14 +1736,13 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   HiddenName *specNameOrAlias = NewHiddenName(ixname, strlen(ixname), false);
   StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
   IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp && !(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
+    spec_ref = IndexAlias_Get(specNameOrAlias);
+    sp = StrongRef_Get(spec_ref);
+  }
+  HiddenName_Free(specNameOrAlias, false);
   if (!sp) {
-    if (!(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
-      spec_ref = IndexAlias_Get(specNameOrAlias);
-      sp = StrongRef_Get(spec_ref);
-    }
-    if (!sp) {
-      return spec_ref;
-    }
+    return spec_ref;
   }
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
@@ -1739,7 +1753,6 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
-
   return spec_ref;
 }
 
@@ -2661,6 +2674,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     HiddenName* alias = NewHiddenName(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
+    HiddenName_Free(alias, false);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
@@ -2772,6 +2786,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       HiddenName* alias = NewHiddenName(s, strlen(s), false);
       int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
+      HiddenName_Free(alias, false);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }

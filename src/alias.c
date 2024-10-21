@@ -43,8 +43,8 @@ static int AliasTable_Add(AliasTable *table, HiddenName *alias, StrongRef spec_r
   // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
-    HiddenName_TakeOwnership(alias);
-    spec->aliases = array_ensure_append_1(spec->aliases, alias);
+    HiddenName *dup = HiddenName_Duplicate(alias);
+    spec->aliases = array_ensure_append_1(spec->aliases, dup);
   }
   if (table->on_add) {
     table->on_add(alias, spec);

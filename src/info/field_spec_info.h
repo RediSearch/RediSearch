@@ -60,7 +60,7 @@ void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisMod
 #include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other);
+void AggregatedFieldSpecInfo_OpPlusEquals(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply);

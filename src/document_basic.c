@@ -82,7 +82,7 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    HiddenName_TakeOwnership(f->docFieldName);
+    f->docFieldName = HiddenName_Duplicate(f->docFieldName);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);

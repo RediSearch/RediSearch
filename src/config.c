@@ -558,8 +558,9 @@ CONFIG_SETTER(setUpgradeIndex) {
     return REDISMODULE_ERR;
   }
 
-  const HiddenName *indexName = NewHiddenName(rawIndexName, strlen(rawIndexName), false);
+  HiddenName *indexName = NewHiddenName(rawIndexName, strlen(rawIndexName), false);
   if (dictFetchValue(legacySpecRules, indexName)) {
+    HiddenName_Free(indexName, false);
     QueryError_SetError(status, QUERY_EPARSEARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
@@ -581,6 +582,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       rm_free(rule);
+      HiddenName_Free(indexName, false);
       return REDISMODULE_ERR;
     }
   }
@@ -610,7 +612,7 @@ CONFIG_SETTER(setUpgradeIndex) {
 
   // add rule to rules dictionary
   dictAdd(legacySpecRules, (void*)indexName, rule);
-
+  HiddenName_Free(indexName, false);
   return REDISMODULE_OK;
 }
 

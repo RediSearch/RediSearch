@@ -24,7 +24,6 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
     rm_free(info->attribute);
     info->identifier = NULL;
     info->attribute = NULL;
-    IndexError_Clear(info->error);
 }
 
 void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
@@ -79,7 +78,7 @@ void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisMod
 #include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other) {
+void AggregatedFieldSpecInfo_OpPlusEquals(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other) {
     RedisModule_Assert(info);
     RedisModule_Assert(other);
     if (!info->identifier) {
