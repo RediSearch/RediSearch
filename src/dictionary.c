@@ -198,6 +198,15 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictReleaseIterator(iter);
 }
 
+static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return;
+  }
+  if (dictSize(spellCheckDicts)) {
+    SpellCheckDictAuxSave(rdb, when);
+  }
+}
+
 #define SPELL_CHECK_ENCVER_CURRENT 1
 RedisModuleType *SpellCheckDictType;
 
@@ -208,6 +217,7 @@ int DictRegister(RedisModuleCtx *ctx) {
       .aux_load = SpellCheckDictAuxLoad,
       .aux_save = SpellCheckDictAuxSave,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+      .aux_save2 = SpellCheckDictAuxSave2,
   };
   SpellCheckDictType =
       RedisModule_CreateDataType(ctx, "scdtype00", SPELL_CHECK_ENCVER_CURRENT, &spellCheckDictType);
