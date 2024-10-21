@@ -115,8 +115,12 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Reply_Map(reply); // >>field
 
     const FieldSpec *fs = &sp->fields[i];
-    REPLY_KVSTR("identifier", FieldSpec_FormatPath(fs, false, true));
-    REPLY_KVSTR("attribute", FieldSpec_FormatName(fs, false, true));
+    char *path = FieldSpec_FormatPath(fs, false, true);
+    char *name = FieldSpec_FormatName(fs, false, true);
+    REPLY_KVSTR("identifier", path);
+    REPLY_KVSTR("attribute", name);
+    rm_free(path);
+    rm_free(name);
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {

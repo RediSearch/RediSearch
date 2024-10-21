@@ -180,7 +180,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    AggregatedFieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
