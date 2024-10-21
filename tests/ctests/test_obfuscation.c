@@ -98,6 +98,8 @@ TEST_MAIN({
     TESTFUNC(testMaxIndexObfuscation);
     TESTFUNC(testSimpleFieldObfuscation);
     TESTFUNC(testMaxFieldObfuscation);
+    TESTFUNC(testSimpleFieldPathObfuscation);
+    TESTFUNC(testMaxFieldPathObfuscation);
     TESTFUNC(testSimpleDocumentObfuscation);
     TESTFUNC(testMaxDocumentObfuscation);
     TESTFUNC(testTextObfuscation);
