@@ -77,7 +77,7 @@ int testQueryNodeObfuscation() {
         "Wildcard",
         "Tag",
         "Fuzzy",
-        "Lexrange",
+        "LexRange",
         "Vector",
         "WildcardQuery",
         "Null",
