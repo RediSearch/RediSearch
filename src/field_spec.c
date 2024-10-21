@@ -69,13 +69,13 @@ const char *FieldSpec_GetTypeNames(int idx) {
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
-  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate, true));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate, true));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }
 
-RedisModuleString *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, void (*callback)(t_uniqueId, char*), bool obfuscate) {
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, void (*callback)(t_uniqueId, char*), bool obfuscate, bool escapeIfNeeded) {
   char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
   const char* value = obfuscated;
   if (obfuscate) {
@@ -83,20 +83,17 @@ RedisModuleString *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, v
   } else {
     value = HiddenName_GetUnsafe(name, NULL);
   }
-  if (!isUnsafeForSimpleString(value)) {
-    return RedisModule_CreateString(NULL, value, strlen(value));
+  if (escapeIfNeeded && isUnsafeForSimpleString(value)) {
+    return escapeSimpleString(value);
   } else {
-    char *escaped = escapeSimpleString(value);
-    RedisModuleString *ret = RedisModule_CreateString(NULL, escaped, strlen(escaped));
-    rm_free(escaped);
-    return ret;
+    return rm_strdup(value);
   }
 }
 
-RedisModuleString *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate) {
-  return FormatFieldNameOrPath(fs->ftId, fs->fieldName, Obfuscate_Field, obfuscate);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldName, Obfuscate_Field, obfuscate, escapeIfNeeded);
 }
 
-RedisModuleString *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
-  return FormatFieldNameOrPath(fs->ftId, fs->fieldPath, Obfuscate_FieldPath, obfuscate);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldPath, Obfuscate_FieldPath, obfuscate, escapeIfNeeded);
 }

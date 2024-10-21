@@ -157,9 +157,7 @@ RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
 
-struct RedisModuleString;
-RedisModuleString *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
-RedisModuleString *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
-RedisModuleString *FieldSpec_FormatPathAndName(const FieldSpec *fs, const char* fmt, bool obfuscate);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded);
 
 #endif /* SRC_FIELD_SPEC_H_ */

@@ -10,27 +10,42 @@
 #include "reply.h"
 #include "obfuscation/hidden.h"
 
+// Same as FieldSpecInfo but local to a specific field inside a shard
+// strings must be freed in its dtor
+typedef struct {
+  char *identifier; // The identifier of the field spec.
+  char *attribute; // The attribute of the field spec.
+  IndexError error; // Indexing error of the field spec.
+} FieldSpecInfo;
+
 
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
 typedef struct {
-    RedisModuleString *identifier; // The identifier of the field spec.
-    RedisModuleString *attribute; // The attribute of the field spec.
-    IndexError error; // Indexing error of the field spec.
-} FieldSpecInfo;
+  const char *identifier; // The identifier of the field spec.
+  const char *attribute; // The attribute of the field spec.
+  IndexError error; // Indexing error of the field spec.
+} AggregatedFieldSpecInfo;
+
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
 
+// Create stack allocated AggregatedFieldSpecInfo.
+AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init();
+
 // Clears the field spec info.
 void FieldSpecInfo_Clear(FieldSpecInfo *info);
 
+// Clears the aggregated field spec info.
+void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info);
+
 // Setters
 // Sets the identifier of the field spec.
-void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, RedisModuleString *identifier);
+void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, char *identifier);
 
 // Sets the attribute of the field spec.
-void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, RedisModuleString *attribute);
+void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, char *attribute);
 
 // Sets the index error of the field spec.
 void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
@@ -39,10 +54,13 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
+// Reply an AggregatedFieldSpecInfo.
+void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
+
 #include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other);
+void FieldSpecInfo_OpPlusEquals(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
-FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
+AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply);
