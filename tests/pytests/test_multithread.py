@@ -276,7 +276,7 @@ def test_buffer_limit():
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], 0)
     env.assertEqual(to_dict(debug_info['BACKEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
 
-
+@skip(asan=True, msan=True)
 def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
