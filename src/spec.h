@@ -669,7 +669,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 * meaning we don't want to have access to the user data
 * @return the formatted name of the index
 */
-RedisModuleString *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 
 //---------------------------------------------------------------------------------------------
 

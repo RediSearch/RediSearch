@@ -421,7 +421,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
-RedisModuleString *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
+char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
     char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
     const char* name = nameBuffer;
     if (obfuscate) {
@@ -429,14 +429,7 @@ RedisModuleString *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
     } else {
         name = HiddenName_GetUnsafe(sp->specName, NULL);
     }
-    if (isUnsafeForSimpleString(name)) {
-        char *escaped = escapeSimpleString(name);
-        RedisModuleString *ret = RedisModule_CreateString(NULL, escaped, strlen(escaped));
-        rm_free(escaped);
-        return ret;
-    } else {
-        return RedisModule_CreateString(NULL, name, strlen(name));
-    }
+    return rm_strdup(name);
 }
 
 //---------------------------------------------------------------------------------------------
