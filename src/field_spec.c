@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "obfuscation/obfuscation_api.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -30,13 +31,13 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
-  if (fs->path && fs->name != fs->path) {
-    rm_free(fs->path);
+  if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
+    HiddenName_Free(fs->fieldPath, true);
   }
-  fs->path = NULL;
-  if (fs->name) {
-    rm_free(fs->name);
-    fs->name = NULL;
+  fs->fieldPath = NULL;
+  if (fs->fieldName) {
+    HiddenName_Free(fs->fieldName, true);
+    fs->fieldName = NULL;
   }
 
   if (fs->types & INDEXFLD_T_VECTOR) {
@@ -66,10 +67,33 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate, true));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate, true));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
+}
+
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, void (*callback)(t_uniqueId, char*), bool obfuscate, bool escapeIfNeeded) {
+  char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
+  const char* value = obfuscated;
+  if (obfuscate) {
+    callback(fieldId, obfuscated);
+  } else {
+    value = HiddenName_GetUnsafe(name, NULL);
+  }
+  if (escapeIfNeeded && isUnsafeForSimpleString(value)) {
+    return escapeSimpleString(value);
+  } else {
+    return rm_strdup(value);
+  }
+}
+
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldName, Obfuscate_Field, obfuscate, escapeIfNeeded);
+}
+
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
+  return FormatFieldNameOrPath(fs->ftId, fs->fieldPath, Obfuscate_FieldPath, obfuscate, escapeIfNeeded);
 }

@@ -54,9 +54,9 @@ typedef enum {
   FLD_VAR_T_NULL = 0x80,
 } FieldVarType;
 
-typedef struct DocumentField{
-  const char *name;  // Can either be char or RMString
-  const char *path;
+typedef struct DocumentField {
+  HiddenName *docFieldName;
+  // const HiddenString *path;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -207,10 +207,6 @@ void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t n
 void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 
 /**
- * Print contents of document to screen
- */
-void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
-/**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in
@@ -255,8 +251,6 @@ struct FieldIndexerData;
 
 #define ACTX_F_NOFREEDOC 0x80
 
-struct DocumentIndexer;
-
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
@@ -264,14 +258,12 @@ typedef struct RSAddDocumentCtx {
   RedisSearchCtx *sctx;
 
   IndexSpec *spec;
-  char *specName;
+  HiddenName *specName;
   size_t specNameLen;
   uint64_t specId;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
-
-  struct DocumentIndexer *indexer;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well

@@ -25,6 +25,8 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
+#include "obfuscation/obfuscation_api.h"
+#include "obfuscation/hidden.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -432,7 +434,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = numericFields[i]->name,
+                           .field = HiddenName_GetUnsafe(numericFields[i]->fieldName, NULL),
                            .uniqueId = rt->uniqueId};
 
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
@@ -485,7 +487,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = tagFields[i]->name,
+                             .field = HiddenName_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
@@ -523,10 +525,12 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   dictIterator* iter = dictGetIterator(spec->missingFieldDict);
   dictEntry* entry = NULL;
   while ((entry = dictNext(iter))) {
-    const char *fieldName = dictGetKey(entry);
+    const HiddenName *hiddenFieldName = dictGetKey(entry);
     InvertedIndex *idx = dictGetVal(entry);
     if(idx) {
-      struct iovec iov = {.iov_base = (void *)fieldName, strlen(fieldName)};
+      size_t length;
+      const char* fieldName = HiddenName_GetUnsafe(hiddenFieldName, &length);
+      struct iovec iov = {.iov_base = (void *)fieldName, length};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
     }
   }
@@ -551,13 +555,15 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+  char indexName[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(sctx.spec->uniqueId, indexName);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
   FGC_childCollectTerms(gc, &sctx);
   FGC_childCollectNumeric(gc, &sctx);
   FGC_childCollectTags(gc, &sctx);
   FGC_childCollectMissingDocs(gc, &sctx);
   FGC_childCollectExistingDocs(gc, &sctx);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", indexName);
 }
 
 typedef struct {
@@ -912,9 +918,12 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
         info.nbytesCollected += inv_idx_size;
       }
     }
+
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
-                      " trie in index '%s' failed", term, sctx->spec->name);
+      char name[MAX_OBFUSCATED_INDEX_NAME];
+      Obfuscate_Index(sctx->spec->uniqueId, name);
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
+                      " trie in index '%s' failed", Obfuscate_Text(term), name);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -1134,23 +1143,24 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen;
-  char *fieldName = NULL;
+  char *rawFieldName = NULL;
 
-  if (FGC_recvBuffer(gc, (void **)&fieldName, &fieldNameLen) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)&rawFieldName, &fieldNameLen) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
 
-  if (fieldName == RECV_BUFFER_EMPTY) {
+  if (rawFieldName == RECV_BUFFER_EMPTY) {
     return FGC_DONE;
   }
 
   InvIdxBuffers idxbufs = {0};
   MSG_IndexInfo info = {0};
   if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
-    rm_free(fieldName);
+    rm_free(rawFieldName);
     return FGC_CHILD_ERROR;
   }
 
+  HiddenName *fieldName = NewHiddenName(rawFieldName, fieldNameLen, false);
   StrongRef spec_ref = WeakRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -1162,7 +1172,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
-
   InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
 
   if (idx == NULL) {
@@ -1187,7 +1196,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);
   }
-  rm_free(fieldName);
+  HiddenName_Free(fieldName, false);
+  rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   } else {

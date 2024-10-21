@@ -901,7 +901,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
+      IndexSpec_GetFieldC(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
@@ -919,7 +919,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   }
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
+      IndexSpec_GetFieldC(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
@@ -930,7 +930,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
+      IndexSpec_GetFieldC(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
@@ -984,7 +984,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If the field is not found or not a vector field, return NULL
   // We check this after registering the metric request, so we won't reply with a misleading syntax error.
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
+      IndexSpec_GetFieldC(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
@@ -1019,6 +1019,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
+    qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, qn->children[0]);
   }
 
@@ -1346,7 +1347,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryTagNode *node = &qn->tag;
   RedisModuleKey *k = NULL;
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  const FieldSpec *fs = IndexSpec_GetFieldC(q->sctx->spec, node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }
@@ -1409,7 +1410,7 @@ done:
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_MISSING, "query qn type should be missing")
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  const FieldSpec *fs = IndexSpec_GetFieldC(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
   if (!fs) {
     // Field does not exist
     return NULL;
@@ -1422,7 +1423,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Get the InvertedIndex corresponding to the queried field.
-  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->fieldName);
 
   if (!missingII) {
     // There are no missing values for this field.
@@ -1698,7 +1699,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_TAG:
       {
         opts->flags |= QueryNode_IsTag;
-        const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
+        const FieldSpec *fs = IndexSpec_GetFieldC(spec, n->tag.fieldName, n->tag.len);
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }

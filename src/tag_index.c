@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
+#include "obfuscation/obfuscation_api.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -280,8 +281,8 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenName* field) {
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, HiddenName_GetUnsafe(sctx->spec->specName, NULL), HiddenName_GetUnsafe(field, NULL));
 }
 
 static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
@@ -403,7 +404,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
+  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->fieldName);
   idx = TagIndex_Open(&sctx, keyName, 0, NULL);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {

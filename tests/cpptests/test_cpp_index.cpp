@@ -1259,46 +1259,46 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
+  const FieldSpec *f = IndexSpec_GetFieldC(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(f->name, body);
+  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title, strlen(title));
+  f = IndexSpec_GetFieldC(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, title) == 0);
+  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo, strlen(foo));
+  f = IndexSpec_GetFieldC(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, foo) == 0);
+  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), foo);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar, strlen(bar));
+  f = IndexSpec_GetFieldC(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_TRUE(strcmp(f->name, bar) == 0);
+  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(IndexSpec_GetFieldC(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name, strlen(name));
+  f = IndexSpec_GetFieldC(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, name) == 0);
+  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
@@ -1306,11 +1306,11 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = RSSortingTable_GetFieldIdx(s->sortables, foo);
+  int rc = RSSortingTable_GetFieldIdxC(s->sortables, foo);
   ASSERT_EQ(0, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, bar);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, bar);
   ASSERT_EQ(1, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, title);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
   StrongRef_Release(ref);
@@ -1574,21 +1574,21 @@ TEST_F(IndexTest, testDocTable) {
 
 TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
+  RSSortingTable_AddC(&tbl, "foo", RSValue_String);
+  RSSortingTable_AddC(&tbl, "bar", RSValue_String);
+  RSSortingTable_AddC(&tbl, "baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);
   ASSERT_EQ(RSValue_String, tbl->fields[0].type);
   ASSERT_STREQ("bar", tbl->fields[1].name);
   ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "foo"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "FoO"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(NULL, "FoO"));
 
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+  ASSERT_EQ(1, RSSortingTable_GetFieldIdxC(tbl, "bar"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(tbl, "barbar"));
 
   RSSortingVector *v = NewSortingVector(tbl->len);
   ASSERT_EQ(v->len, tbl->len);

@@ -100,7 +100,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  REPLY_KVSTR_SAFE("index_name", sp->name);
+  char* specName = IndexSpec_FormatName(sp, false);
+  REPLY_KVSTR_SAFE("index_name", specName);
+  rm_free(specName);
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);
@@ -111,10 +113,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR_SAFE("identifier", sp->fields[i].path);
-    REPLY_KVSTR_SAFE("attribute", sp->fields[i].name);
-
     const FieldSpec *fs = &sp->fields[i];
+    char *path = FieldSpec_FormatPath(fs, false, true);
+    char *name = FieldSpec_FormatName(fs, false, true);
+    REPLY_KVSTR("identifier", path);
+    REPLY_KVSTR("attribute", name);
+    rm_free(path);
+    rm_free(name);
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
@@ -301,8 +306,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs);
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, false);
     FieldSpecInfo_Reply(&info, reply, with_times);
+    FieldSpecInfo_Clear(&info);
   }
   REPLY_ARRAY_END; // >Field statistics
 

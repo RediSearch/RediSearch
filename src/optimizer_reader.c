@@ -233,7 +233,8 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
 
-  const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
+  // TODO: need to have the field name inside the iterator tree to be a hidden name
+  const FieldSpec *field = IndexSpec_GetFieldC(qOpt->sctx->spec, qOpt->nf->fieldName, strlen(qOpt->nf->fieldName));
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   oi->numericFieldIndex = field->index;
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config, &filterCtx);
