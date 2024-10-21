@@ -91,6 +91,8 @@ typedef struct Document {
   RSLanguage language;
   float score;
   t_docId docId;
+  t_expirationTimePoint docExpirationTime;
+  FieldExpiration* fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;

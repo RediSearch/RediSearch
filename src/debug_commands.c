@@ -178,7 +178,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexReader *reader = NewTermIndexReader(invidx);
   ReplyReaderResults(reader, sctx->redisCtx);
 
 end:
@@ -260,7 +260,8 @@ DEBUG_COMMAND(DumpNumericIndex) {
         ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
-      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true);
+      FieldFilterContext fieldCtx = {.field.isFieldMask = false, .field.value.index = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
+      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true, &fieldCtx);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
     }
@@ -330,7 +331,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     REPLY_WITH_DOUBLE("value", res->num.value, ARRAY_LEN_VAR(invertedIndexValues));
     REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
@@ -475,7 +476,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    IndexReader *reader = NewTermIndexReader(iv);
     ReplyReaderResults(reader, sctx->redisCtx);
     ++resultSize;
   }
@@ -819,6 +820,59 @@ DEBUG_COMMAND(ttlExpire) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+typedef struct {
+  int docs;
+  int notDocs;
+  int fields;
+  int notFields;
+} MonitorExpirationOptions;
+
+DEBUG_COMMAND(setMonitorExpiration) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  MonitorExpirationOptions options = {0};
+  ACArgSpec argspecs[] = {
+      {.name = "not-documents", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.notDocs},
+      {.name = "documents", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.docs},
+      {.name = "fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.fields},
+      {.name = "not-fields", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.notFields},
+      {NULL}};
+  RedisModuleKey *keyp = NULL;
+  ArgsCursor ac = {0};
+  ACArgSpec *errSpec = NULL;
+  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  int rv = AC_ParseArgSpec(&ac, argspecs, &errSpec);
+  if (rv != AC_OK) {
+    return RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
+  }
+  if (options.docs && options.notDocs) {
+    return RedisModule_ReplyWithError(ctx, "Can't set both documents and not-documents");
+  }
+  if (options.fields && options.notFields) {
+    return RedisModule_ReplyWithError(ctx, "Can't set both fields and not-fields");
+  }
+
+  if (options.docs || options.notDocs) {
+    sp->monitorDocumentExpiration = options.docs && !options.notDocs;
+  }
+  if (options.fields || options.notFields) {
+    sp->monitorFieldExpiration = options.fields && !options.notFields;
+  }
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(GitSha) {
 #ifdef GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
@@ -938,7 +992,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+      IndexReader *reader = NewTermIndexReader(iv);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
 
@@ -1248,6 +1302,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
+                               {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
 #endif
