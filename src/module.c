@@ -43,6 +43,7 @@
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
+#include "reply_macros.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
 #include "hiredis/async.h"
@@ -803,7 +804,8 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   size_t length = 0;
-  HiddenName *alias = NewHiddenName(RedisModule_StringPtrLen(argv[1], &length), length, false);
+  const char* rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenName *alias = NewHiddenName(rawAlias, length, false);
   if (spOrig && IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -876,7 +878,9 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      RedisModule_Reply_String(reply, IndexSpec_FormatName(sp, obfuscate));
+      char *specName = IndexSpec_FormatName(sp, obfuscate);
+      REPLY_SIMPLE_SAFE(specName);
+      rm_free(specName);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

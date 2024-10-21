@@ -20,6 +20,8 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "reply.h"
+#include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
 
 #define GET_SEARCH_CTX(name)                                        \
@@ -1053,18 +1055,19 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
 
+      const bool escapeIfNeeded = true;
       if (!fs) {
         RedisModule_Reply_CString(reply, "!!! AS ???");
       } else if (!fs->fieldPath) {
-        RedisModule_Reply_String(reply, FieldSpec_FormatName(fs, obfuscate));
+        char *name = FieldSpec_FormatName(fs, obfuscate, escapeIfNeeded);
+        RedisModule_Reply_CString(reply, name);
+        rm_free(name);
       } else {
-        RedisModuleString *path = FieldSpec_FormatPath(fs, obfuscate);
-        RedisModuleString *name = FieldSpec_FormatName(fs, obfuscate);
-        const char *rawPath = RedisModule_StringPtrLen(path, NULL);
-        const char *rawName = RedisModule_StringPtrLen(name, NULL);
-        RedisModule_Reply_String(reply, RedisModule_CreateStringPrintf(sctx->redisCtx, "%s AS %s", rawPath, rawName));
-        RedisModule_FreeString(sctx->redisCtx, path);
-        RedisModule_FreeString(sctx->redisCtx, name);
+        char *path = FieldSpec_FormatPath(fs, obfuscate, escapeIfNeeded);
+        char *name = FieldSpec_FormatName(fs, obfuscate, escapeIfNeeded);
+        RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
+        rm_free(path);
+        rm_free(name);
       }
 
       RedisModule_Reply_CString(reply, "value");
