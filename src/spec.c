@@ -1233,7 +1233,7 @@ static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
 static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
 
 static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos; lsbPos = ffsll(maskPart)) {
+  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
     out[n++] = translationTable[offset + lsbPos - 1];
     maskPart &= ~(1 << (lsbPos - 1));
   }
