@@ -1,44 +1,14 @@
 #include "hidden.h"
 #include "rmalloc.h"
-#include "obfuscation_api.h"
 #include "util/minmax.h"
 #include "redis_index.h"
 #include "query_node.h"
 #include "reply_macros.h"
 
 typedef struct {
-  const char* user;
-  uint64_t length;
-  char* obfuscated;
-} UserAndObfuscatedString;
-
-typedef struct {
-  uint64_t user;
-  uint64_t obfuscated;
-} UserAndObfuscatedUInt64;
-
-typedef struct {
   const char *user;
   uint64_t length;
 } UserString;
-
-HiddenString* HideAndObfuscateString(const char* str, uint64_t length, bool takeOwnership) {
-  UserAndObfuscatedString* value = rm_malloc(sizeof(*value));
-  value->user = str;
-  if (takeOwnership) {
-    value->user = rm_strndup(str, length);
-  }
-  value->length = length;
-  value->obfuscated = Obfuscate_Text(str);
-  return (HiddenString*)value;
-}
-
-HiddenSize* HideAndObfuscateNumber(uint64_t num) {
-  UserAndObfuscatedUInt64* value = rm_malloc(sizeof(*value));
-  value->user = num;
-  value->obfuscated = 0;
-  return (HiddenSize*)value;
-};
 
 HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership) {
   UserString* value = rm_malloc(sizeof(*value));
@@ -50,19 +20,6 @@ HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership)
   return (HiddenName*)value;
 };
 
-void HiddenString_Free(HiddenString* hs, bool tookOwnership) {
-  UserAndObfuscatedString* value = (UserAndObfuscatedString*)hs;
-  if (tookOwnership) {
-    rm_free((void*)value->user);
-  }
-  rm_free(value);
-};
-
-void HiddenSize_Free(HiddenSize* hn) {
-  UserAndObfuscatedUInt64* value = (UserAndObfuscatedUInt64*)hn;
-  rm_free(value);
-};
-
 void HiddenName_Free(HiddenName* hn, bool tookOwnership) {
   UserString* value = (UserString*)hn;
   if (tookOwnership) {
@@ -70,16 +27,6 @@ void HiddenName_Free(HiddenName* hn, bool tookOwnership) {
   }
   rm_free(value);
 };
-
-HiddenString *HiddenString_Clone(const HiddenString* value) {
-    UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
-    return HideAndObfuscateString(v->user, v->length, true);
-}
-
-const char *HiddenString_Get(const HiddenString *value, bool obfuscate) {
-  UserAndObfuscatedString* v = (UserAndObfuscatedString*)value;
-  return obfuscate ? v->obfuscated : v->user;
-}
 
 static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncmp(left, right, MIN(left_length, right_length));
@@ -99,28 +46,7 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
   }
 }
 
-int HiddenString_Compare(HiddenString *left, HiddenString *right) {
-  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
-  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
-  return Compare(l->user, l->length, r->user, r->length);
-}
-
-int HiddenString_CompareC(HiddenString *left, const char *right, size_t right_length) {
-  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
-  return Compare(l->user, l->length, right, right_length);
-}
-
-int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length) {
-  UserAndObfuscatedString* l = (UserAndObfuscatedString*)left;
-  return CaseSensitiveCompare(l->user, l->length, right, right_length);
-}
-
-int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right) {
-  UserAndObfuscatedString* r = (UserAndObfuscatedString*)right;
-  return HiddenString_CaseInsensitiveCompareC(left, r->user, r->length);
-}
-
-void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
+void ObfuscatedString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
   UserString* text = (UserString*)value;
   RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
 }
@@ -191,11 +117,6 @@ const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length) {
     *length = text->length;
   }
   return text->user;
-}
-
-RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx) {
-  UserAndObfuscatedString* text = (UserAndObfuscatedString*)value;
-  return RedisModule_CreateString(ctx, text->user, text->length);
 }
 
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx) {

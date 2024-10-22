@@ -1,53 +1,50 @@
-//
-// Created by jonathan on 9/18/24.
-//
+/*
+* Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
 
 #ifndef HIDDEN_H
 #define HIDDEN_H
 #include <stdint.h>
 #include "reply.h"
 
-struct HiddenStringStruct;
-struct HiddenSizeStruct;
-struct HiddenNameStruct;
-typedef struct HiddenStringStruct HiddenString;
-typedef struct HiddenSizeStruct HiddenSize;
-typedef struct HiddenNameStruct HiddenName;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// Hides the string and obfuscates it
-HiddenString *HideAndObfuscateString(const char *str, uint64_t length, bool takeOwnership);
-// Hides the size and obfuscates it
-HiddenSize *HideAndObfuscateNumber(uint64_t num);
+typedef struct HiddenName HiddenName;
+
 // Hides the string, obfuscation is done elsewhere
+// Should discourage directly accessing the string and printing out user data
 HiddenName *NewHiddenName(const char *name, uint64_t length, bool takeOwnership);
-
-void HiddenString_Free(HiddenString *value, bool tookOwnership);
-void HiddenSize_Free(HiddenSize *value);
 void HiddenName_Free(HiddenName *value, bool tookOwnership);
 
-HiddenString *HiddenString_Clone(const HiddenString* value);
-const char *HiddenString_Get(const HiddenString *value, bool obfuscate);
-int HiddenString_CompareC(HiddenString *left, const char *right, size_t right_length);
-int HiddenString_Compare(HiddenString *left, HiddenString *right);
-int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length);
-int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right);
-void HiddenString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
-
+// comparison
 int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
+
+// ownership managment
 HiddenName *HiddenName_Duplicate(const HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
 
+// allowed actions
 void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
 void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value);
-// Temporary for the sake of comparmentilization
-const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
-
-RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx);
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);
 
+// Direct access to user data, should be used only when necessary
+// Avoid outputing user data to:
+// 1. Logs
+// 2. Metrics
+// 3. Command responses
+const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //HIDDEN_H
