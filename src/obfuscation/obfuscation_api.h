@@ -1,7 +1,3 @@
-//
-// Created by jonathan on 9/18/24.
-//
-
 #ifndef OBFUSCATION_API_H
 #define OBFUSCATION_API_H
 #include "redisearch.h"
