@@ -549,16 +549,18 @@ CONFIG_SETTER(setFilterCommand) {
 
 CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
-  const char *indexName;
+  const char *rawIndexName;
   SchemaRuleArgs *rule = NULL;
-  int acrc = AC_GetString(ac, &indexName, NULL, 0);
+  int acrc = AC_GetString(ac, &rawIndexName, NULL, 0);
 
   if (acrc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
     return REDISMODULE_ERR;
   }
 
+  HiddenName *indexName = NewHiddenName(rawIndexName, strlen(rawIndexName), false);
   if (dictFetchValue(legacySpecRules, indexName)) {
+    HiddenName_Free(indexName, false);
     QueryError_SetError(status, QUERY_EPARSEARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
@@ -580,6 +582,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       rm_free(rule);
+      HiddenName_Free(indexName, false);
       return REDISMODULE_ERR;
     }
   }
@@ -608,8 +611,8 @@ CONFIG_SETTER(setUpgradeIndex) {
   rule->type = rm_strdup(RULE_TYPE_HASH);
 
   // add rule to rules dictionary
-  dictAdd(legacySpecRules, (char *)indexName, rule);
-
+  dictAdd(legacySpecRules, (void*)indexName, rule);
+  HiddenName_Free(indexName, false);
   return REDISMODULE_OK;
 }
 

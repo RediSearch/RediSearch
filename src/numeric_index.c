@@ -14,7 +14,8 @@
 #include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
-//#include "tests/time_sample.h"
+#include "obfuscation/obfuscation_api.h"
+
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
@@ -596,9 +597,8 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
-                                        field);
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenName *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, HiddenName_GetUnsafe(ctx->spec->specName, NULL), HiddenName_GetUnsafe(field, NULL));
 }
 
 static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
