@@ -91,10 +91,14 @@ void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
       d->user = rm_realloc((void*)d->user, s->length);
       d->length = s->length;
     }
-    strncpy((void*)d->user, s->user, s->length);
-    if (d->length > s->length) {
-      memset((void*)d->user + s->length, 0, d->length - s->length);
-    }
+    // strncpy will pad d->user with zeroes per documentation if there is room
+    // also remember d->user[d->length] == '\0' due to rm_strdup
+    strncpy((void*)d->user, s->user, d->length);
+    // By setting the length we cause rm_realloc to potentially be called
+    // in the future if this function is called again
+    // But a reasonable allocator should do zero allocation work and identify the memory chunk is enough
+    // That saves us from storing a capacity field
+    d->length = s->length;
   }
 }
 
