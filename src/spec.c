@@ -557,6 +557,8 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+#define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
+
 static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
   int rc;
 
@@ -580,45 +582,45 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
       if ((rc = parseVectorField_GetType(ac, &params->algoParams.hnswParams.type)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index type", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index dim", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
       if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.hnswParams.metric)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index metric", rc);
+        QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index initial cap", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index m", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index efConstruction", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index efRuntime", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
       if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity HNSW index epsilon", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
     } else {
@@ -672,30 +674,30 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
       if ((rc = parseVectorField_GetType(ac, &params->algoParams.bfParams.type)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity FLAT index type", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_BF, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.dim, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity FLAT index dim", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_BF, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
       if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.bfParams.metric)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity FLAT index metric", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_BF, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.initialCapacity, 0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity FLAT index initial cap", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_BF, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.bfParams.blockSize, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, "vector similarity FLAT index blocksize", rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_BF, VECSIM_BLOCKSIZE), rc);
         return 0;
       }
     } else {
@@ -1183,7 +1185,7 @@ static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
 static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
 
 static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos; lsbPos = ffsll(maskPart)) {
+  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
     out[n++] = translationTable[offset + lsbPos - 1];
     maskPart &= ~(1 << (lsbPos - 1));
   }
