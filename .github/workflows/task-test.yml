@@ -133,7 +133,7 @@ jobs:
           echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "CFLAGS+=-fno-optimize-sibling-calls -fsanitize-address-use-after-scope " >> $GITHUB_ENV
+          echo "CFLAGS=-fno-optimize-sibling-calls -fsanitize-address-use-after-scope " >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes SANIIZER=${{ inputs.san }}
