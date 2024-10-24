@@ -49,4 +49,36 @@
     RETURN_STATUS(acrc);                       \
   }
 
+// Define the getter and setter functions using Module Configurations API
+#define CONFIG_API_STRING_GETTER(name) RedisModuleString * name(const char *name, void *privdata) 
+#define CONFIG_API_NUMERIC_GETTER(name) long long name(const char *name, void *privdata)
+#define CONFIG_API_ENUM_GETTER(name) int name(const char *name, void *privdata)
+
+#define CONFIG_API_BOOL_GETTER(name, var, invert)   \
+static int name(const char *name, void *privdata) { \
+  if (invert) {                                     \
+    return !RSGlobalConfig.var;                     \
+  } else {                                          \
+  return RSGlobalConfig.var;                        \
+  }                                                 \
+}
+
+#define CONFIG_API_STRING_SETTER(name) int name(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err)
+#define CONFIG_API_NUMERIC_SETTER(name) int name(const char *name, long long val, void *privdata, RedisModuleString **err)
+#define CONFIG_API_ENUM_SETTER(name) int name(const char *name, int val, void *privdata, RedisModuleString **err)
+
+#define CONFIG_API_BOOL_SETTER(name, var)                                      \
+static int name(const char *name, int val, void *privdata, RedisModuleString **err) { \
+  RSGlobalConfig.var = val;                                                    \
+  return REDISMODULE_OK;                                                       \
+}
+
+#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val, flags) \
+  if(RedisModule_RegisterBoolConfig(                                          \
+        ctx, name, default_val, flags,                   \
+        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                       \
+  } else {                                                                    \
+    RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");             \
+  }
+
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)

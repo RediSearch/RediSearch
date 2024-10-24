@@ -10,12 +10,16 @@
 #include "hiredis/sds.h"
 #include "query_error.h"
 #include "fields_global_stats.h"
+#include "util/config_macros.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
+
+static const int int_on_timeout_vals[2] = {TimeoutPolicy_Return, TimeoutPolicy_Fail};
+static const char *on_timeout_vals[2] = {"RETURN", "FAIL"};
 
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
@@ -192,6 +196,9 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
+/* Register module configuration parameters using Module Configuration API */
+int RegisterModuleConfig(RedisModuleCtx *ctx);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -218,12 +225,26 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+#define DEFAULT_BG_INDEX_SLEEP_GAP 100
+#define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
-#define MAX_DOC_TABLE_SIZE 100000000
-#define GC_SCANSIZE 100
+#define DEFAULT_GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
+#define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
+#define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define DEFAULT_MAX_AGGREGATE_RESULTS -1
+#define DEFAULT_MAX_CURSOR_IDLE 300000
+#define DEFAULT_MAX_PREFIX_EXPANSIONS 200
+#define DEFAULT_MAX_SEARCH_RESULTS 1000000
+#define DEFAULT_MIN_TERM_PREFIX 2
+#define DEFAULT_MIN_STEM_LENGTH 4
+#define DEFAULT_MULTI_TEXT_SLOP 100
+#define DEFAULT_QUERY_TIMEOUT_MS 500
+#define DEFAULT_UNION_ITERATOR_HEAP 20
+#define DEFAULT_VSS_MAX_RESIZE 0
+#define DEFAULT_WORKER_THREADS 0
+#define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
@@ -231,7 +252,6 @@ void UpgradeDeprecatedMTConfigs();
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
 #define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
-#define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 
@@ -239,41 +259,41 @@ void UpgradeDeprecatedMTConfigs();
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
-    .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
+    .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,                                                   \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
-    .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
-    .requestConfigParams.queryTimeoutMS = 500,                                                                        \
+    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,                                       \
+    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,                                                   \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
-    .cursorMaxIdle = 300000,                                                                                          \
+    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                                                         \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .numWorkerThreads = 0,                                                                                            \
+    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                                                                            \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
-    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
+    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                                                                 \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,                                       \
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                                                                 \
-    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                                                                   \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                                                                \
+    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,                                      \
+    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,                                    \
     .noMemPool = 0,                                                                                                   \
     .filterCommands = 0,                                                                                              \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                                                   \
-    .maxAggregateResults = -1,                                                                                        \
-    .iteratorsConfigParams.minUnionIterHeap = 20,                                                                     \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_RESULTS,                                                                   \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                                                             \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                                            \
     .numericCompress = false,                                                                                         \
     .numericTreeMaxDepthRange = 0,                                                                                    \
     .requestConfigParams.printProfileClock = 1,                                                                       \
     .invertedIndexRawDocidEncoding = false,                                                                           \
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                                                       \
     .freeResourcesThread = true,                                                                                      \
-    .requestConfigParams.dialectVersion = 1,                                                                          \
-    .vssMaxResize = 0,                                                                                                \
-    .multiTextOffsetDelta = 100,                                                                                      \
+    .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
+    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                           \
+    .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                                                                  \
     .used_dialects = 0,                                                                                               \
-    .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                                        \
     .prioritizeIntersectUnionChildren = false                                                                         \
   }
 

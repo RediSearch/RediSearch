@@ -823,6 +823,8 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_Log(ctx, "warning", "FT.CONFIG is deprecated, please use CONFIG instead");
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
@@ -1013,11 +1015,22 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
+  // Register module configuration
+  if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Error registering module configuration");
+    return REDISMODULE_ERR;
+  }
+
+  // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);
     return REDISMODULE_ERR;
   }
+
+  // TODO: Test CONFIG parameters priority using MODULE LOADEX
+  // module loadex redisearch.so ARGS DEFAULT_DIALECT 4
+  // module loadex redisearch.so CONFIG search.default-dialect 3 ARGS DEFAULT_DIALECT 4
 
   GetRedisVersion();
 
