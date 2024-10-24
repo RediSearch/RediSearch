@@ -330,6 +330,9 @@ CONFIG_GETTER(getMinOperationWorkers) {
 // min-operation-workers
 CONFIG_API_NUMERIC_SETTER(set_min_operation_workers) {
   RSGlobalConfig.minOperationWorkers = val;
+  // Will only change the number of workers if we are in an event,
+  // and `numWorkerThreads` is less than `minOperationWorkers`.
+  workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
 
@@ -834,10 +837,17 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcConfigParams.gcPolicy));
 }
 
+// PARTIAL_INDEXED_DOCS
 CONFIG_SETTER(setFilterCommand) {
   int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
+
+CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
+
+// partial-indexed-docs
+CONFIG_API_BOOL_SETTER(set_partial_indexed_docs, filterCommands)
+CONFIG_API_BOOL_GETTER(get_partial_indexed_docs, filterCommands, 0)
 
 CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
@@ -909,8 +919,6 @@ CONFIG_GETTER(getUpgradeIndex) {
   return sdsnew("Upgrade config for upgrading");
 }
 
-CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
-
 // BG_INDEX_SLEEP_GAP
 CONFIG_SETTER(setBGIndexSleepGap) {
   unsigned int sleep_gap;
@@ -978,14 +986,15 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    // if the value is different from default, we can't set it, because the
+    // if the value is different from default, we can't update it, because the
     // CONFIG SET has higher priority than the FT.CONFIG SET
     RSConfig RSDefaultConfig = RS_DEFAULT_CONFIG;
     sds currValue = curVar->getValue(&RSGlobalConfig);
     sds currValueDefault = curVar->getValue(&RSDefaultConfig);
 
-    // TODO: Fix this for string values. Fail test_ext:testExt
-    if (sdscmp(currValue, currValueDefault) == 0) {
+    if ((currValue != NULL && currValueDefault!= NULL
+          && sdscmp(currValue, currValueDefault) == 0 ) ||
+          (currValue == NULL && currValueDefault == NULL)) {
       // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
       // If we don't have a coordinator or this configuration has no trigger, this value
       // is meaningless and should be ignored
@@ -1594,6 +1603,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   //   RedisModule_Log(ctx, "notice", "max-search-results registered");
   // }
 
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "min-operation-workers", MIN_OPERATION_WORKERS,
+        REDISMODULE_CONFIG_DEFAULT, 1, MAX_WORKER_THREADS, get_min_operation_workers,
+        set_min_operation_workers, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "min-operation-workers registered");
+  }
+
   // TODO: Define min/max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-phonetic-term-len", DEFAULT_MIN_PHONETIC_TERM_LEN,
@@ -1731,6 +1749,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-gc",
       get_no_gc, set_no_gc, 1,
+      REDISMODULE_CONFIG_IMMUTABLE);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "partial-indexed-docs",
+      get_partial_indexed_docs, set_partial_indexed_docs, 0,
       REDISMODULE_CONFIG_IMMUTABLE);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "raw-docid-encoding",
       get_raw_docid_encoding, set_raw_docid_encoding, 0,

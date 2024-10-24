@@ -376,7 +376,7 @@ def testInitConfigCoord():
 def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
 
-def testConfigAPI():
+def testConfigAPIRunTime():
     env = Env(noDefaultModuleArgs=True)
 
     def _test_config_valid_value(env, config_name, config_value):
@@ -500,6 +500,8 @@ def testConfigAPI():
     # TODO:
     # _test_numeric_config(env, 'search.max-search-results', 'MAXSEARCHRESULTS',
     #                      -1, 1, 999999999)
+    _test_numeric_config(env, 'search.min-operation-workers',
+                         'MIN_OPERATION_WORKERS', 4, 1, 16)
     _test_numeric_config(env, 'search.min-phonetic-term-len',
                          'MIN_PHONETIC_TERM_LEN', 3, 1, 999999999)
     _test_numeric_config(env, 'search.min-prefix', 'MINPREFIX', 2, 1, 999999999)
@@ -522,15 +524,18 @@ def testConfigAPI():
     _test_immutable_numeric_config(env, 'search.workers-priority-bias-threshold',
                                    'WORKERS_PRIORITY_BIAS_THRESHOLD', 1)
 
-    # TODO:
     # Boolean Immutable parameters
     _test_immutable_boolean_config(env, 'search.no-mem-pools',
                                    'NO_MEM_POOLS', 'no')
     _test_immutable_boolean_config(env, 'search.no-gc',
                                    'NOGC', 'no')
+    _test_immutable_boolean_config(env, 'search.partial-indexed-docs',
+                                   'PARTIAL_INDEXED_DOCS', 'no')
     _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
                                    'RAW_DOCID_ENCODING', 'no')
 
-    
+# TODO: Test passing immutable config values at load time
+# def testConfigAPIAtLoadTime():
+#     pass
     
     
