@@ -33,6 +33,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
+      # Consider running against unstable Redis (will require dynamic linking to libstdc++
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       san: address
