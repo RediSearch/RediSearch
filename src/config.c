@@ -33,11 +33,30 @@ CONFIG_SETTER(setExtLoad) {
 }
 
 CONFIG_GETTER(getExtLoad) {
-  if (config->extLoad) {
+  if (config->extLoad && strlen(config->extLoad) > 0) {
     return sdsnew(config->extLoad);
   } else {
     return NULL;
   }
+}
+
+// ext-load
+CONFIG_API_STRING_SETTER(set_ext_load) {
+  RSGlobalConfig.extLoad = NULL;
+  if (val) {
+    size_t len;
+    const char *ret = RedisModule_StringPtrLen(val, &len);
+    if (len > 0) {
+      RSGlobalConfig.extLoad = ret;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_STRING_GETTER(get_ext_load) {
+  return RSGlobalConfig.extLoad ? 
+    RedisModule_CreateString(NULL, RSGlobalConfig.extLoad, strlen(RSGlobalConfig.extLoad)) : 
+    NULL;
 }
 
 // NOGC
@@ -475,23 +494,34 @@ CONFIG_SETTER(setFrisoINI) {
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
-  return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
+  if (config->frisoIni && strlen(config->frisoIni) > 0) {
+    return sdsnew(config->frisoIni);
+  } else {
+    return NULL;
+  }
 }
 
 // friso-ini
 CONFIG_API_STRING_SETTER(set_friso_ini) {
+  RSGlobalConfig.frisoIni = NULL;
   if (val) {
-    // RSGlobalConfig.frisoIni = NULL;
-    RSGlobalConfig.frisoIni = RedisModule_StringPtrLen(val, NULL);
-  } else {
-    RSGlobalConfig.frisoIni = NULL;
+    size_t len;
+    const char *ret = RedisModule_StringPtrLen(val, &len);
+    if (len > 0) {
+      RSGlobalConfig.frisoIni = ret;
+    }
   }
   return REDISMODULE_OK;
 }
 
 CONFIG_API_STRING_GETTER(get_friso_ini) {
-  return RSGlobalConfig.frisoIni ? RedisModule_CreateString(NULL, RSGlobalConfig.frisoIni, strlen(RSGlobalConfig.frisoIni)) : NULL;
+  if (RSGlobalConfig.frisoIni && strlen(RSGlobalConfig.frisoIni) > 0) {
+    return RedisModule_CreateString(NULL, RSGlobalConfig.frisoIni, strlen(RSGlobalConfig.frisoIni));
+  } else {
+    return NULL;
+  }
 }
+
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   size_t len;
@@ -849,6 +879,7 @@ CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
 CONFIG_API_BOOL_SETTER(set_partial_indexed_docs, filterCommands)
 CONFIG_API_BOOL_GETTER(get_partial_indexed_docs, filterCommands, 0)
 
+// UPGRADE_INDEX
 CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
   const char *indexName;
@@ -1330,11 +1361,11 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
 
-  if (config->extLoad) {
+  if (config->extLoad && strlen(config->extLoad) > 0) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
   }
 
-  if (config->frisoIni) {
+  if (config->frisoIni && strlen(config->frisoIni) > 0) {
     ss = sdscatprintf(ss, "friso ini: %s, ", config->frisoIni);
   }
   return ss;
@@ -1709,14 +1740,21 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   }
 
   // String parameters
-  // // TODO: How to init string to NULL?
-  // if (RedisModule_RegisterStringConfig(
-  //       ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, 
-  //       get_friso_ini, set_friso_ini, NULL, NULL) == REDISMODULE_ERR) {
-  //   return REDISMODULE_ERR;
-  // } else {
-  //   RedisModule_Log(ctx, "notice", "friso-ini registered");
-  // }
+  if (RedisModule_RegisterStringConfig(
+        ctx, "ext-load", "", REDISMODULE_CONFIG_IMMUTABLE, 
+        get_ext_load, set_ext_load, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "ext-load registered");
+  }
+
+  if (RedisModule_RegisterStringConfig(
+        ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, 
+        get_friso_ini, set_friso_ini, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "friso-ini registered");
+  }
 
   // Enum parameters
   if (RedisModule_RegisterEnumConfig(

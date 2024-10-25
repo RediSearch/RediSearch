@@ -223,7 +223,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   RegisterAllFunctions();
 
   /* Load extensions if needed */
-  if (RSGlobalConfig.extLoad != NULL) {
+  if (RSGlobalConfig.extLoad != NULL && strlen(RSGlobalConfig.extLoad)) {
 
     char *errMsg = NULL;
     // Load the extension so TODO: pass with param

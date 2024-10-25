@@ -454,6 +454,18 @@ def testConfigAPIRunTime():
         env.expect('CONFIG', 'SET', config_name, str(default)).error()\
             .contains('CONFIG SET failed')
         
+    def _test_immutable_string_config(env, config_name, ft_config_name, default):
+        # Check default value
+        if default == None:
+            config_default = ''
+
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, config_default])
+        env.expect(config_cmd(), 'GET', ft_config_name).\
+            equal([[ft_config_name, default]])
+        
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', config_name, config_default).error()\
+            .contains('CONFIG SET failed')
 
     # Test enum parameters - search.on-timeout
     _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
@@ -473,7 +485,6 @@ def testConfigAPIRunTime():
     # deprecated in  8.0
     # _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
     #                      '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
-    
 
     # Test numeric parameters
     _test_numeric_config(env, 'search.default-dialect', 'DEFAULT_DIALECT',
@@ -533,6 +544,10 @@ def testConfigAPIRunTime():
                                    'PARTIAL_INDEXED_DOCS', 'no')
     _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
                                    'RAW_DOCID_ENCODING', 'no')
+    
+    # String parameters
+    _test_immutable_string_config(env, 'search.ext-load', 'EXTLOAD', None)
+    _test_immutable_string_config(env, 'search.friso-ini', 'FRISOINI', None)
 
 # TODO: Test passing immutable config values at load time
 # def testConfigAPIAtLoadTime():
