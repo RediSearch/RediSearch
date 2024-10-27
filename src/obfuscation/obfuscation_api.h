@@ -6,10 +6,10 @@
 #define OBFUSCATION_API_H
 #include "redisearch.h"
 
-#define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + 20/*strlen("18446744073709551615")*/ + 1/*null terminator*/
-#define MAX_OBFUSCATED_FIELD_NAME 6/*strlen("Field@")*/ + 20/*strlen("18446744073709551615")*/ + 1/*null terminator*/
+#define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
+#define MAX_OBFUSCATED_FIELD_NAME 6/*strlen("Field@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_PATH_NAME MAX_OBFUSCATED_FIELD_NAME
-#define MAX_OBFUSCATED_DOCUMENT_NAME 9/*strlen("Document@")*/ + 20/*strlen("18446744073709551615")*/ + 1/*null terminator*/
+#define MAX_OBFUSCATED_DOCUMENT_NAME 9/*strlen("Document@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 
 void Obfuscate_Index(t_uniqueId indexId, char* buffer);
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer);
