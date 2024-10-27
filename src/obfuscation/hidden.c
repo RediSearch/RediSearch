@@ -89,7 +89,6 @@ void HiddenName_Clone(HiddenName* src, HiddenName** dst) {
     UserString* d = (UserString*)*dst;
     if (s->length > d->length) {
       d->user = rm_realloc((void*)d->user, s->length);
-      d->length = s->length;
     }
     // strncpy will pad d->user with zeroes per documentation if there is room
     // also remember d->user[d->length] == '\0' due to rm_strdup

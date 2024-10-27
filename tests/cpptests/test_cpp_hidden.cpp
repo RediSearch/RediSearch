@@ -46,21 +46,43 @@ TEST_F(HiddenTest, testHiddenDuplicate) {
   HiddenName_Free(clone, true);
 }
 
+void testCloning(HiddenName *first, HiddenName *second) {
+  HiddenName *clone = NULL;
+  HiddenName_Clone(first, &clone);
+  size_t firstLength = 0;
+  HiddenName_GetUnsafe(first, &firstLength);
+
+  size_t length = 0;
+  HiddenName_GetUnsafe(clone, &length);
+  ASSERT_EQ(length, firstLength);
+  HiddenName_Clone(second, &clone);
+  HiddenName_GetUnsafe(clone, &length);
+
+  size_t secondLength = 0;
+  HiddenName_GetUnsafe(second, &secondLength);
+  ASSERT_EQ(length, secondLength);
+  HiddenName_Free(clone, true);
+}
+
 TEST_F(HiddenTest, testHiddenClone) {
   const char *longText = "LongerText";
   const char *shortText = "ShortText";
 
   HiddenName *l = NewHiddenName(longText, strlen(longText), true);
   HiddenName *s = NewHiddenName(shortText, strlen(shortText), true);
-  HiddenName *clone = NULL;
-  HiddenName_Clone(l, &clone);
-  size_t length = 0;
-  HiddenName_GetUnsafe(clone, &length);
-  ASSERT_EQ(length, strlen(longText));
-  HiddenName_Clone(s, &clone);
-  HiddenName_GetUnsafe(clone, &length);
-  ASSERT_EQ(length, strlen(shortText));
+  testCloning(l, s);
+  testCloning(s, l);
   HiddenName_Free(l, true);
   HiddenName_Free(s, true);
-  HiddenName_Free(clone, true);
+}
+
+TEST_F(HiddenTest, testHiddenCreateString) {
+    const char *expected = "Text";
+    HiddenName *name = NewHiddenName(expected, strlen(expected), true);
+    RedisModuleString* string = HiddenName_CreateString(name, NULL);
+    const char *text = RedisModule_StringPtrLen(string, NULL);
+    ASSERT_EQ(strlen(expected), strlen(text));
+    ASSERT_EQ(strncmp(text, expected, strlen(expected)), 0);
+    RedisModule_FreeString(NULL, string);
+    HiddenName_Free(name, true);
 }
