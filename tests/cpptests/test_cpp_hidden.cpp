@@ -86,3 +86,25 @@ TEST_F(HiddenTest, testHiddenCreateString) {
     RedisModule_FreeString(NULL, string);
     HiddenName_Free(name, true);
 }
+
+TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+    const char *key = "Hello";
+    const char *value = "World";
+    RedisModuleString* redisKey = RedisModule_CreateString(ctx, key, strlen(key));
+    RedisModuleString* redisValue = RedisModule_CreateString(ctx, value, strlen(value));
+
+    RedisModuleCallReply* noReply = NULL;
+    ASSERT_EQ(RedisModule_Call(ctx, "SET", "ss", redisKey, redisValue), noReply);
+    RedisModule_FreeString(ctx, redisValue);
+
+    RedisModuleCallReply* reply = RedisModule_Call(ctx, "GET", "ss", redisKey);
+    ASSERT_EQ(RedisModule_CallReplyType(reply), REDISMODULE_REPLY_STRING);
+    RedisModule_FreeCallReply(reply);
+
+    HiddenName *name = NewHiddenName(key, strlen(key), true);
+    HiddenName_DropFromKeySpace(ctx, key, name);
+    ASSERT_EQ(RedisModule_Call(ctx, "GET", "ss", redisKey), noReply);
+    RedisModule_FreeString(ctx, redisKey);
+    HiddenName_Free(name, true);
+}
