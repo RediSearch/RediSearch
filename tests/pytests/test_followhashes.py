@@ -149,6 +149,7 @@ def testIdxField(env):
 
     conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
     conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
+    conn.execute_command('hset', 'doc3', 'name', 'baz')
 
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1, 'doc1', ['name', 'foo', 'indexName', 'idx1']]))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1, 'doc2', ['name', 'bar', 'indexName', 'idx2']]))

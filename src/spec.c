@@ -3142,7 +3142,9 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
+        if (SchemaRule_ShouldIndex(specOp->spec, key, type)) {
+          IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
+        }
       } else {
         IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }

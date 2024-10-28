@@ -1370,3 +1370,53 @@ def testLimitations(env):
 
     env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
         .contains(error_msg)
+
+def testFilter(env):
+    """ Test FILTER with JSON indexes """
+
+    conn = getConnectionByEnv(env)
+
+    # create sample data before the index creation
+    conn.execute_command('JSON.SET', 'doc1',
+                         '$', r'{ "name": "Andy", "isActive": true }')
+    conn.execute_command('JSON.SET', 'doc2',
+                         '$', r'{ "name": "Bob", "isActive": false }')
+    conn.execute_command('JSON.SET', 'doc3',
+                         '$', r'{ "name": "Steve" }')
+
+    # create index
+    env.cmd('FT.CREATE', 'idxActive1', 'ON', 'JSON',
+            'FILTER', '@isActive==1',
+            'SCHEMA',
+            '$.name', 'AS', 'name', 'TEXT',
+            '$.isActive', 'AS', 'isActive', 'TAG')
+
+    env.cmd('FT.CREATE', 'idxActive0', 'ON', 'JSON',
+            'FILTER', '@isActive==0',
+            'SCHEMA',
+            '$.name', 'AS', 'name', 'TEXT',
+            '$.isActive', 'AS', 'isActive', 'TAG')
+    
+    waitForIndex(env, 'idxActive1')
+    waitForIndex(env, 'idxActive0')
+
+    # search with filter
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*')
+    env.assertEqual(res, [1, 'doc1', ['$', '{"name":"Andy","isActive":true}']])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*')
+    env.assertEqual(res, [1, 'doc2', ['$', '{"name":"Bob","isActive":false}']])
+
+    # Create new data after index creation
+    conn.execute_command('JSON.SET', 'doc4',
+                         '$', r'{ "name": "John", "isActive": true }')
+    conn.execute_command('JSON.SET', 'doc5',
+                            '$', r'{ "name": "Mike", "isActive": false }')
+    conn.execute_command('JSON.SET', 'doc6',
+                            '$', r'{ "name": "David" }')
+    
+    # search with filter
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc4'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc2', 'doc5'])
+
