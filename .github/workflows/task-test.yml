@@ -159,7 +159,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -171,7 +171,7 @@ jobs:
         # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -179,7 +179,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure'
+        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |
           echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
