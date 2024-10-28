@@ -46,11 +46,6 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
   }
 }
 
-void ObfuscatedString_SaveToRdb(HiddenName* value, RedisModuleIO* rdb) {
-  UserString* text = (UserString*)value;
-  RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
-}
-
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length) {
   const UserString* l = (const UserString*)left;
   return Compare(l->user, l->length, right, right_length);
