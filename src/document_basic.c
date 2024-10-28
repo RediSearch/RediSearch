@@ -82,7 +82,9 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
+    HiddenName* oldName = f->docFieldName;
     f->docFieldName = HiddenName_Duplicate(f->docFieldName);
+    HiddenName_Free(oldName, false);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -416,43 +418,47 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
   }
 }
 
+void ClearOwnedField(DocumentField *field) {
+  switch (field->unionType) {
+    case FLD_VAR_T_RMS:
+      RedisModule_FreeString(RSDummyContext, field->text);
+    break;
+    case FLD_VAR_T_CSTR:
+      rm_free(field->strval);
+    break;
+    case FLD_VAR_T_ARRAY:
+      // TODO: GEOMETRY Handle multi-value geometry fields
+        if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
+          for (int i = 0; i < field->arrayLen; ++i) {
+            rm_free(field->multiVal[i]);
+          }
+          rm_free(field->multiVal);
+          field->arrayLen = 0;
+        } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
+          array_free(field->arrNumval);
+        }
+    if (field->multisv) {
+      RSValue_Free(field->multisv);
+    }
+    break;
+    case FLD_VAR_T_BLOB_ARRAY:
+      rm_free(field->blobArr);
+    field->blobArrLen = 0;
+    break;
+    case FLD_VAR_T_GEO:
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_NULL:
+      break;
+  }
+}
+
 void Document_Clear(Document *d) {
-  if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
-    for (size_t ii = 0; ii < d->numFields; ++ii) {
-      DocumentField *field = &d->fields[ii];
-      HiddenName_Free(field->docFieldName, d->flags & DOCUMENT_F_OWNSTRINGS);
-      switch (field->unionType) {
-        case FLD_VAR_T_RMS:
-          RedisModule_FreeString(RSDummyContext, field->text);
-          break;
-        case FLD_VAR_T_CSTR:
-          rm_free(field->strval);
-          break;
-        case FLD_VAR_T_ARRAY:
-        // TODO: GEOMETRY Handle multi-value geometry fields
-          if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
-            for (int i = 0; i < field->arrayLen; ++i) {
-              rm_free(field->multiVal[i]);
-            }
-            rm_free(field->multiVal);
-            field->arrayLen = 0;
-          } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
-            array_free(field->arrNumval);
-          }
-          if (field->multisv) {
-            RSValue_Free(field->multisv);
-          }
-          break;
-        case FLD_VAR_T_BLOB_ARRAY:
-          rm_free(field->blobArr);
-          field->blobArrLen = 0;
-          break;
-        case FLD_VAR_T_GEO:
-        case FLD_VAR_T_NUM:
-        case FLD_VAR_T_GEOMETRY:
-        case FLD_VAR_T_NULL:
-          break;
-      }
+  for (size_t ii = 0; ii < d->numFields; ++ii) {
+    DocumentField *field = &d->fields[ii];
+    HiddenName_Free(field->docFieldName, d->flags & DOCUMENT_F_OWNSTRINGS);
+    if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
+      ClearOwnedField(field);
     }
   }
   rm_free(d->fields);
