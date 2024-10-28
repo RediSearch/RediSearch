@@ -636,7 +636,7 @@ static RedisModuleCallReply *RMCK_CallGet(RedisModuleCtx *ctx, const char *cmd, 
     return NULL;
   }
   RedisModuleCallReply *reply = new RedisModuleCallReply(ctx);
-  reply->type = REDISMODULE_REPLY_ARRAY;
+  reply->type = REDISMODULE_REPLY_STRING;
   reply->s = static_cast<StringValue *>(v)->m_string;
   return reply;
 }
