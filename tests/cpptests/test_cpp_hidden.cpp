@@ -107,4 +107,5 @@ TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
     ASSERT_EQ(RedisModule_Call(ctx, "GET", "ss", redisKey), noReply);
     RedisModule_FreeString(ctx, redisKey);
     HiddenName_Free(name, true);
+    RedisModule_FreeThreadSafeContext(ctx);
 }
