@@ -617,12 +617,16 @@ static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, 
 
 static RedisModuleCallReply *RMCK_CallDel(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                            va_list ap) {
+  RedisModuleCallReply* reply = new RedisModuleCallReply(ctx);
+  reply->type = REDISMODULE_REPLY_INTEGER;
+  reply->ll = 0;
   if (fmt[0] != 's') {
-    return NULL;
+    return reply;
   }
   RedisModuleString *key = va_arg(ap, RedisModuleString *);
-  ctx->db->erase(*key);
-  return NULL;
+  const bool erased = ctx->db->erase(*key);
+  reply->ll += erased;
+  return reply;
 }
 
 static RedisModuleCallReply *RMCK_CallGet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
@@ -773,6 +777,13 @@ const char *RMCK_CallReplyStringPtr(RedisModuleCallReply *r, size_t *n) {
   }
   *n = r->s.size();
   return r->s.c_str();
+}
+
+long long RMCK_CallReplyInteger(RedisModuleCallReply *r) {
+  if (r->type != REDISMODULE_REPLY_INTEGER) {
+    return 0;
+  }
+  return r->ll;
 }
 
 Module::ModuleMap Module::modules;
@@ -942,6 +953,7 @@ static void registerApis() {
   REGISTER_API(CreateStringFromCallReply);
   REGISTER_API(CallReplyArrayElement);
   REGISTER_API(CallReplyStringPtr);
+  REGISTER_API(CallReplyInteger);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(GetDetachedThreadSafeContext);
