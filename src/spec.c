@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "util/workers.h"
+#include "global_stats.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -2968,7 +2969,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   Indexes_Free(specDict_g);
   workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
-  RSGlobalConfig.used_dialects = 0;
+  RSGlobalStats.totalStats.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {

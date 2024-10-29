@@ -23,7 +23,7 @@
 #include "fork_gc.h"
 #include "info_command.h"
 #include "profile.h"
-
+#include "global_stats.h"
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
