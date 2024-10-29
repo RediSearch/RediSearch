@@ -89,26 +89,12 @@ void NumericRange_Dump(NumericRange *r, int indent) {
 
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (n->minVal >= min && n->maxVal <= max);
-
-  return rc;
-}
-
-/* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
-static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (n->minVal <= min && n->maxVal > max);
-
-  return rc;
+  return n->minVal >= min && n->maxVal <= max;
 }
 
 /* Returns 1 if there is any overlap between the range and min/max */
-int NumericRange_Overlaps(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
-
-  return rc;
+static inline int NumericRange_Overlaps(NumericRange *n, double min, double max) {
+  return !(min > n->maxVal || max < n->minVal);
 }
 
 static inline void checkCardinality(NumericRange *n, double value) {
@@ -378,13 +364,6 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf)
   Vector *leaves = NewVector(NumericRange *, 8);
   size_t total = 0;
   __recursiveAddRange(leaves, n, nf, &total);
-  // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
-  // for (int i = 0; i < leaves->top; i++) {
-  //   NumericRange *rng;
-  //   Vector_Get(leaves, i, &rng);
-  //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->entries->numDocs, rng->splitCard);
-  // }
 
   return leaves;
 }
