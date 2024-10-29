@@ -29,13 +29,17 @@ def testInfoModulesBasic(env):
                                 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                                           'body', 'TEXT', 'NOINDEX',
                                           'id', 'NUMERIC',
-                                          'subject location', 'GEO').ok()
+                                          'subject location', 'GEO',
+                                          'geom', 'GEOSHAPE', 'SORTABLE'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx2, 'LANGUAGE', 'french', 'NOOFFSETS', 'NOFREQS',
                                 'PREFIX', 2, 'TLV:', 'NY:',
                                 'SCHEMA', 't1', 'TAG', 'CASESENSITIVE', 'SORTABLE',
                                           'T2', 'AS', 't2', 'TAG',
-                                          'id', 'NUMERIC', 'NOINDEX').ok()
+                                          'id', 'NUMERIC', 'NOINDEX',
+                                          'geom', 'GEOSHAPE', 'NOINDEX'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_hnsw', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
@@ -50,6 +54,7 @@ def testInfoModulesBasic(env):
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=2,NoIndex=1')
   env.assertEqual(fieldsInfo['search_fields_geo'], 'Geo=1')
   env.assertEqual(fieldsInfo['search_fields_vector'], 'Vector=2,Flat=1,HNSW=1')
+  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Geoshape=2,Sortable=1,NoIndex=1')
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
@@ -73,7 +78,7 @@ def testInfoModulesAlter(env):
   idx1 = 'idx1'
 
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
+  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
@@ -81,6 +86,7 @@ def testInfoModulesAlter(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Text=1,Sortable=1')
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Numeric=1,NoIndex=1')
+  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Geoshape=1,Sortable=1')
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
