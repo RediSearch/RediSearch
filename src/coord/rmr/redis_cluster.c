@@ -8,6 +8,8 @@
 #include "cluster.h"
 #include "redismodule.h"
 #include "rmr.h"
+#include "module.h"
+#include "util/strconv.h"
 
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);

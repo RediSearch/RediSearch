@@ -117,6 +117,9 @@ struct DocumentIndexer;
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 

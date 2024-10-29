@@ -4,10 +4,13 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_FIELDSSTATS_H_
-#define RS_FIELDSSTATS_H_
+#pragma once
 
 #include "spec.h"
+
+#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
+#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
+#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 typedef struct {
   size_t numTextFields;
@@ -31,6 +34,20 @@ typedef struct {
   size_t numVectorFieldsHNSW;
 } FieldsGlobalStats;
 
+typedef struct {
+  size_t total_queries_processed; // Number of successful queries. If using cursors, not counting reading from the cursor
+  size_t total_query_commands;    // Number of successful query commands, including `FT.CURSOR READ`
+  uint_least8_t used_dialects;    // bitarray of dialects used by all indices
+} TotalGlobalStats;
+
+// The global stats object type
+typedef struct {
+  FieldsGlobalStats fieldsStats;
+  TotalGlobalStats totalStats;
+} GlobalStats;
+
+extern GlobalStats RSGlobalStats;
+
 /**
  * Check the type of the the given field and update RSGlobalConfig.fieldsStats
  * according to the given toAdd value.
@@ -42,4 +59,7 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
  */
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
-#endif
+/**
+ * Add all the dialect-related information to the INFO command.
+ */
+void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
