@@ -92,7 +92,7 @@ double hll_count(const struct HLL *hll) {
   if (estimate <= 5.0 / 2.0 * (double)hll->size) {
     int zeros = 0;
 
-    for (uint32_t i = 0; i < hll->size; i++) zeros += (hll->registers[i] == 0);
+    for (uint32_t i = 0; i < hll->size; i++) if (hll->registers[i] == 0) zeros++;
 
     if (zeros) estimate = (double)hll->size * log((double)hll->size / zeros);
 
