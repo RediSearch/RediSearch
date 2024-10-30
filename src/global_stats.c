@@ -11,6 +11,7 @@
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
 GlobalStats RSGlobalStats = {0};
+size_t IndexErrorCounter[INDEXFLD_NUM_TYPES] = {0};
 
 // Assuming that the GIL is already acquired
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
@@ -53,69 +54,79 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
   }
 }
 
+void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd) {
+  IndexErrorCounter[INDEXTYPE_TO_POS(field_type)] += toAdd;
+}
+
 // Assuming that the GIL is already acquired
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 
   if (RSGlobalStats.fieldsStats.numTextFields > 0){
     RedisModule_InfoBeginDictField(ctx, "fields_text");
-    RedisModule_InfoAddFieldLongLong(ctx, "Text", RSGlobalStats.fieldsStats.numTextFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numTextFields);
     if (RSGlobalStats.fieldsStats.numTextFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalStats.fieldsStats.numTextFieldsSortable);
     if (RSGlobalStats.fieldsStats.numTextFieldsNoIndex > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalStats.fieldsStats.numTextFieldsNoIndex);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_FULLTEXT)]);
     RedisModule_InfoEndDictField(ctx);
   }
 
   if (RSGlobalStats.fieldsStats.numNumericFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_numeric");
-    RedisModule_InfoAddFieldLongLong(ctx, "Numeric", RSGlobalStats.fieldsStats.numNumericFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numNumericFields);
     if (RSGlobalStats.fieldsStats.numNumericFieldsSortable > 0)
     RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalStats.fieldsStats.numNumericFieldsSortable);
     if (RSGlobalStats.fieldsStats.numNumericFieldsNoIndex > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalStats.fieldsStats.numNumericFieldsNoIndex);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)]);
     RedisModule_InfoEndDictField(ctx);
   }
 
   if (RSGlobalStats.fieldsStats.numTagFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_tag");
-    RedisModule_InfoAddFieldLongLong(ctx, "Tag", RSGlobalStats.fieldsStats.numTagFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numTagFields);
     if (RSGlobalStats.fieldsStats.numTagFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalStats.fieldsStats.numTagFieldsSortable);
     if (RSGlobalStats.fieldsStats.numTagFieldsNoIndex > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalStats.fieldsStats.numTagFieldsNoIndex);
     if (RSGlobalStats.fieldsStats.numTagFieldsCaseSensitive > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "CaseSensitive", RSGlobalStats.fieldsStats.numTagFieldsCaseSensitive);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_TAG)]);
     RedisModule_InfoEndDictField(ctx);
   }
 
   if (RSGlobalStats.fieldsStats.numGeoFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_geo");
-    RedisModule_InfoAddFieldLongLong(ctx, "Geo", RSGlobalStats.fieldsStats.numGeoFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numGeoFields);
     if (RSGlobalStats.fieldsStats.numGeoFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalStats.fieldsStats.numGeoFieldsSortable);
     if (RSGlobalStats.fieldsStats.numGeoFieldsNoIndex > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalStats.fieldsStats.numGeoFieldsNoIndex);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_GEO)]);
     RedisModule_InfoEndDictField(ctx);
   }
 
   if (RSGlobalStats.fieldsStats.numVectorFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_vector");
-    RedisModule_InfoAddFieldLongLong(ctx, "Vector", RSGlobalStats.fieldsStats.numVectorFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numVectorFields);
     if (RSGlobalStats.fieldsStats.numVectorFieldsFlat > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)]);
     RedisModule_InfoEndDictField(ctx);
   }
 
   if (RSGlobalStats.fieldsStats.numGeometryFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_geoshape");
-    RedisModule_InfoAddFieldLongLong(ctx, "Geoshape", RSGlobalStats.fieldsStats.numGeometryFields);
+    RedisModule_InfoAddFieldLongLong(ctx, "Total", RSGlobalStats.fieldsStats.numGeometryFields);
     if (RSGlobalStats.fieldsStats.numGeometryFieldsSortable > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Sortable", RSGlobalStats.fieldsStats.numGeometryFieldsSortable);
     if (RSGlobalStats.fieldsStats.numGeometryFieldsNoIndex > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "NoIndex", RSGlobalStats.fieldsStats.numGeometryFieldsNoIndex);
+    RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", IndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)]);
     RedisModule_InfoEndDictField(ctx);
   }
 }

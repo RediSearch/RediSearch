@@ -13,10 +13,16 @@
 extern "C" {
 #endif
 
+typedef struct {
+    size_t indexing_failures;   // Total count of indexing errors
+    size_t max_indexing_failures; // Maximum number of indexing errors among all specs
+} IndexingErrorsStats;
+
 typedef struct TotalSpecsInfo {
-    size_t total_mem;       // Total memory used by the index
-    size_t indexing_time;   // Time spent on indexing
-    InfoGCStats gc_stats;   // Garbage collection statistics
+    size_t total_mem;           // Total memory used by the index
+    size_t indexing_time;       // Time spent on indexing
+    InfoGCStats gc_stats;       // Garbage collection statistics
+    IndexingErrorsStats indexing_errors; // Indexing errors statistics
 } TotalSpecsInfo;
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
