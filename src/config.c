@@ -638,12 +638,8 @@ CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 
 CONFIG_SETTER(setIndexCursorLimit) {
   long long limit;
-  int acrc = AC_GetLongLong(ac, &limit, AC_F_GE1);
+  int acrc = AC_GetLongLong(ac, &limit, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (limit < 0) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Index cursor limit cannot be negative");
-    return REDISMODULE_ERR;
-  }
   config->indexCursorLimit = limit;
   RETURN_STATUS(acrc);
 }
