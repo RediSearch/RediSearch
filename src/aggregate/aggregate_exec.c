@@ -18,6 +18,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error.h"
+#include "global_stats.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -900,7 +901,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
-  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
 
   if (RunInThread()) {
     // Prepare context for the worker thread
