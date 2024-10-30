@@ -1,0 +1,137 @@
+name: Merge a pull request
+run-name: Validate ${{ github.ref_name }}
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  # This group identifies the PR by the tree ID of the head commit.
+  # TODO: Replace with PR number of branch name once GH adds it to the event context
+  group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
+  cancel-in-progress: true
+
+# TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
+
+jobs:
+  # Get all the tags from the redis repo
+  get-latest-7-2-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '7.2'
+  get-latest-7-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '7.0'
+  get-latest-6-2-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '6.2'
+  get-latest-6-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '6.0'
+
+  docs-only: # Check whether the PR is only modifying docs
+    uses: ./.github/workflows/task-check-docs.yml
+
+  # Flat-out test-linux-x86_64 matrix. GitHub currently fails to report failures in nested matrices.
+  # See https://github.com/actions/runner/issues/3041
+  test-linux-x86_64-redis-7-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-2-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-7-2-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-7-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-0-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-7-0-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-2-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-6-2-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-0-redis-tag.outputs.tag }})
+    needs: [docs-only, get-latest-6-0-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
+      architecture: x86_64
+
+  test-linux-aarch64:
+    needs: [docs-only, get-latest-7-2-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      architecture: aarch64
+
+  test-macos:
+    needs: [docs-only, get-latest-7-2-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-macos.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+
+  coverage:
+    needs: docs-only
+    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
+    uses: ./.github/workflows/flow-coverage.yml
+    secrets: inherit
+
+  sanitize:
+    needs: docs-only
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-sanitizer.yml
+    secrets: inherit
+    with:
+      flow-config: '' # full sanitization
+
+  pr-validation:
+    needs:
+      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
+      - get-latest-7-2-redis-tag
+      - get-latest-7-0-redis-tag
+      - get-latest-6-2-redis-tag
+      - get-latest-6-0-redis-tag
+      - test-linux-x86_64-redis-7-2
+      - test-linux-x86_64-redis-7-0
+      - test-linux-x86_64-redis-6-2
+      - test-linux-x86_64-redis-6-0
+      - test-linux-aarch64
+      - test-macos
+      - coverage
+      - sanitize
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    env:
+      RESULTS: ${{ toJson(needs.*.result) }} # For debugging purposes
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

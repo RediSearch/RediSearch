@@ -1,0 +1,84 @@
+
+How to use the template:
+a. Create a copy of this file, rename and remove the .TEMPLATE suffix
+b. Fill the missing data on steps 1-4 around the file. (search for `# [1-4].`)
+c. remove this comment and all other instructions
+
+#################################################################################
+name: TEMPLATE self-hosted flow # 1. Change the name of the workflow
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+# 2. Change when the workflow will run
+on:
+  workflow_call:
+
+# 3. Set the image and runner type
+env:
+  AWS_IMAGE_ID: ami-XXXXXXXXXXXXX
+  AWS_INSTANCE_TYPE: XX.XXX
+  TAGS: | # Make sure there is no trailing comma!
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
+      {"Key": "Container",    "Value": "${{ inputs.container }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"}
+    ]
+
+jobs:
+  start-runner:
+    name: Start self-hosted EC2 runner
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ env.AWS_IMAGE_ID }}
+          ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
+          subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
+          security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
+          aws-resource-tags: ${{ env.TAGS }}
+
+  run:
+    needs: start-runner # required to start the main job when the runner is ready
+    runs-on: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
+    steps:
+      # 4. Put your workflow here
+      ///////////////////////////////// PUT YOUR WORKFLOW HERE /////////////////////////////////
+
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs:
+      - start-runner # required to get output from the start-runner job
+      - run # required to wait when the main job is done
+    runs-on: ubuntu-latest
+    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
