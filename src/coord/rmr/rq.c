@@ -248,3 +248,11 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   q->maxPending = maxPending;
   uv_mutex_unlock(&q->lock);
 }
+
+void RQ_Debug_ClearPendingTopo() {
+  struct queueItem *topo = exchangePendingTopo(NULL);
+  if (topo) {
+    MRClusterTopology_Free(topo->privdata);
+    rm_free(topo);
+  }
+}
