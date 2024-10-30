@@ -73,7 +73,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
 }
 
 
-static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
@@ -85,16 +85,19 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
-    return REDIS_OK;
+    return;
   }
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error from a shard");
-    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", MRReply_String(rep, NULL));
+    const char* error = MRReply_String(rep, NULL);
+    const char* errorSpace = strchr(error, ' ');
+    const int errorCodeLength = error ? errorSpace - error : 0;
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", errorCodeLength, error);
+    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
-    return REDIS_ERR;
+    return;
   }
 
   bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
@@ -118,11 +121,10 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
-    return REDIS_ERR;
+    return;
   }
 
   // rewrite and resend the cursor command if needed
-  int rc = REDIS_OK;
   // done should only be determined based on the cursor and not on the set of results we get
   const bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
 
@@ -155,19 +157,14 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
-  } else {
-    // resend command
-    if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
-      MRIteratorCallback_Done(ctx, 1);
-      rc = REDIS_ERR;
-    }
+  } else if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
+    MRIteratorCallback_Done(ctx, 1);
   }
 
   if (rep != NULL) {
     // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
-  return rc;
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {
