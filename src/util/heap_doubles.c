@@ -20,9 +20,8 @@ static inline int parent(const int idx) {
   return (idx - 1) / 2;
 }
 
-static void swap(double_heap_t *h, const int i1, const int i2) {
+static inline void swap(double_heap_t *h, const int i1, const int i2) {
   double tmp = h->data[i1];
-
   h->data[i1] = h->data[i2];
   h->data[i2] = tmp;
 }
