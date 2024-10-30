@@ -16,6 +16,7 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "dist_profile.h"
+#include "util/misc.h"
 
 #include <err.h>
 
@@ -91,20 +92,19 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
     const char* error = MRReply_String(rep, NULL);
-    const char* errorSpace = strchr(error, ' ');
-    const int errorCodeLength = error ? errorSpace - error : 0;
-    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", errorCodeLength, error);
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
 
+  const bool isResp3 = cmd->protocol == 3;
   bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
 
   if (!bail_out) {
     size_t len = MRReply_Length(rep);
-    if (cmd->protocol == 3) {
+    if (isResp3) {
       bail_out = len != 2; // (map, cursor)
       if (bail_out) {
         RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
@@ -124,12 +124,8 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
-  // rewrite and resend the cursor command if needed
-  // done should only be determined based on the cursor and not on the set of results we get
-  const bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
-
   // Push the reply down the chain
-  if (cmd->protocol == 3) // RESP3
+  if (isResp3) // RESP3
   {
     MRReply *map = MRReply_ArrayElement(rep, 0);
     MRReply *results = NULL;
@@ -153,7 +149,9 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
   }
 
-  if (done) {
+  // rewrite and resend the cursor command if needed
+  // should only be determined based on the cursor and not on the set of results we get
+  if (!getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx))) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
