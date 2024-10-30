@@ -54,7 +54,7 @@ def testInfoModulesBasic(env):
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Total=2,NoIndex=1,IndexErrors=0')
   env.assertEqual(fieldsInfo['search_fields_geo'], 'Total=1,IndexErrors=0')
   env.assertEqual(fieldsInfo['search_fields_vector'], 'Total=2,Flat=1,HNSW=1,IndexErrors=0')
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Geoshape=2,Sortable=1,NoIndex=1,IndexErrors=0')
+  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Total=2,Sortable=1,NoIndex=1,IndexErrors=0')
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
@@ -86,7 +86,7 @@ def testInfoModulesAlter(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(fieldsInfo['search_fields_text'], 'Total=1,Sortable=1,IndexErrors=0')
   env.assertEqual(fieldsInfo['search_fields_numeric'], 'Total=1,NoIndex=1,IndexErrors=0')
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Geoshape=1,Sortable=1,IndexErrors=0')
+  env.assertEqual(fieldsInfo['search_fields_geoshape'], 'Total=1,Sortable=1,IndexErrors=0')
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
