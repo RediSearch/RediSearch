@@ -123,7 +123,8 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // rewrite and resend the cursor command if needed
   int rc = REDIS_OK;
-  bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
+  // done should only be determined based on the cursor and not on the set of results we get
+  const bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
 
   // Push the reply down the chain
   if (cmd->protocol == 3) // RESP3
@@ -137,11 +138,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
-      } else {
-        done = true;
       }
-    } else {
-      done = true;
     }
   }
   else // RESP2
@@ -151,8 +148,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
       // User code now owns the reply, so we can't free it here ourselves!
       rep = NULL;
-    } else {
-      done = true;
     }
   }
 
