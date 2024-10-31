@@ -24,8 +24,7 @@ char *strtolower(char *str) {
   return str;
 }
 
-int GetRedisErrorCodeLength(const char* error)
-{
+int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;
 }
