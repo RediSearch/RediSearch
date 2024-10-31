@@ -133,6 +133,10 @@ def testInfoModulesAfterReload(env):
     env.assertEqual(fieldsInfo['search_fields_geo'], 'Total=1,Sortable=1,NoIndex=1,IndexErrors=0')
     env.assertEqual(fieldsInfo['search_fields_tag'], 'Total=1,NoIndex=1,IndexErrors=0')
 
+# This tests relies on shard info, which depends on the hashes in the *shard*.
+# In cluster mode, hashes might be stored in different shards, and the shard we call INFO for,
+# will not be aware of the index failures they cause.
+@skip(cluster=True)
 def test_redis_info_errors():
 
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -179,6 +183,7 @@ def test_redis_info_errors():
   # Add the failing field to idx2
   # expect that the error count will increase due to bg indexing of 2 documents with invalid numeric values.
   conn.execute_command('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'n', 'NUMERIC')
+  waitForIndex(env, 'idx2')
   expected['fields_numeric_count'] += 1
   expected['idx2_errors'] += 2
   validate_info_output(message='add failing field to idx1')
