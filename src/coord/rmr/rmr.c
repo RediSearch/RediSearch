@@ -529,7 +529,11 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
 }
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  MRChannel_Push(ctx->ic->chan, rep);
+  if (MRChannel_Push(ctx->ic->chan, rep) & CHANNEL_CLOSED) {
+    // We are using a verbose log level to prevent flodding the logs with this message in production
+    RedisModule_Log(RSDummyContext, "verbose", "Tried pushing a reply to a closed channel");
+    MRReply_Free(rep);
+  }
 }
 
 void iterStartCb(void *p) {
