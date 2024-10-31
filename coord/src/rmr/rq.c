@@ -111,7 +111,6 @@ static void topologyAsyncCB(uv_async_t *async) {
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
-  RedisModule_Assert(__atomic_load_n(&pendingTopo, __ATOMIC_ACQUIRE));
   // Mark the event loop thread as running before triggering the topology check.
   loop_th_running = true;
   uv_async_send(&topologyAsync); // start the topology check
@@ -124,7 +123,9 @@ static void verify_uv_thread() {
     uv_timer_init(uv_default_loop(), &topologyFailureTimer);
     uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
-    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
+    int uv_thread_create_status = uv_thread_create(&loop_th, sideThread, NULL);
+    RedisModule_Assert(uv_thread_create_status == 0);
+    REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
   }
 }
@@ -246,4 +247,12 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   uv_mutex_lock(&q->lock);
   q->maxPending = maxPending;
   uv_mutex_unlock(&q->lock);
+}
+
+void RQ_Debug_ClearPendingTopo() {
+  struct queueItem *topo = exchangePendingTopo(NULL);
+  if (topo) {
+    MRClusterTopology_Free(topo->privdata);
+    rm_free(topo);
+  }
 }
