@@ -78,6 +78,7 @@ double_heap_t *double_heap_new(size_t max_size) {
 }
 
 void double_heap_add_raw(double_heap_t *heap, double value) {
+  assert(heap->size < heap->max_size);
   heap->data[heap->size++] = value;
 }
 
