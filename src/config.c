@@ -637,10 +637,7 @@ CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
 
 CONFIG_SETTER(setIndexCursorLimit) {
-  long long limit;
-  int acrc = AC_GetLongLong(ac, &limit, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->indexCursorLimit = limit;
+  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
