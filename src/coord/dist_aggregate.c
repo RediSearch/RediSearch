@@ -22,13 +22,7 @@
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
-  long long cursorId;
-  if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
-    // Invalid format?!
-    return false;
-  }
-
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
@@ -124,6 +118,12 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
+  long long cursorId;
+  MRReply* cursor = MRReply_ArrayElement(rep, 1);
+  if (!MRReply_ToInteger(cursor, &cursorId)) {
+    cursorId = 0;
+  }
+
   // Push the reply down the chain
   if (isResp3) // RESP3
   {
@@ -151,7 +151,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get
-  if (!getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx))) {
+  if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx))) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
