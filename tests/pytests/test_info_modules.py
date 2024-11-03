@@ -17,8 +17,11 @@ def info_modules_to_dict(conn):
         info[section_name][data[0]] = data[1]
   return info
 
-def get_search_field_info(type:str, count:int, sortable_count: int = 0, no_index_count:int = 0, index_errors:int = 0):
-  return f'{type}={count}{f',Sortable={sortable_count}' if sortable_count else ''}{f',NoIndex={no_index_count}' if no_index_count else ''},IndexErrors={index_errors}'
+def get_search_field_info(type: str, count: int, sortable_count: int = 0, no_index_count: int = 0, index_errors: int = 0):
+    return f'{type}={count}' \
+           f'{",Sortable=" + str(sortable_count) if sortable_count else ""}' \
+           f'{",NoIndex=" + str(no_index_count) if no_index_count else ""}' \
+           f',IndexErrors={index_errors}'
 
 def get_search_tag_field_info(count:int,
                               sortable_count: int = 0,
@@ -31,9 +34,11 @@ def get_search_tag_field_info(count:int,
          f'{",CaseSensitive=" + str(case_sensitive_count) if case_sensitive_count else ""}' \
          f',IndexErrors={index_errors}'
 
-def get_search_vector_field_info(count:int, flat_count:int = 0, hnsw_count:int = 0, index_errors:int = 0):
-  return f'Vector={count}{f',Flat={flat_count}' if flat_count else ''}{f',HNSW={hnsw_count}' if hnsw_count else ''},IndexErrors={index_errors}'
-
+def get_search_vector_field_info(count: int, flat_count: int = 0, hnsw_count: int = 0, index_errors: int = 0):
+    return f'Vector={count}' \
+           f'{",Flat=" + str(flat_count) if flat_count else ""}' \
+           f'{",HNSW=" + str(hnsw_count) if hnsw_count else ""}' \
+           f',IndexErrors={index_errors}'
 
 def testInfoModulesBasic(env):
   conn = env.getConnection()
