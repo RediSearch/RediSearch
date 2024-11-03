@@ -249,7 +249,7 @@ def exceedCursorCapacity(env):
         env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
 
     # Trying to create another cursor should fail
-    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('CURSOR_LIMIT')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('INDEX_CURSOR_LIMIT')
 
 @skip(cluster=True)
 def testExceedCursorCapacity(env):
