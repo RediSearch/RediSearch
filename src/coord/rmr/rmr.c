@@ -536,7 +536,7 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     MRReply_Free(rep);
   }
   if (mask & BROADCAST_FAILURE) {
-    RedisModule_Log(RSDummyContext, "warning", "Failed broadcasting the reply in the channel");
+    RedisModule_Log(RSDummyContext, "verbose", "Failed broadcasting the reply in the channel");
   }
 }
 
