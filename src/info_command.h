@@ -19,10 +19,12 @@ typedef struct {
 } IndexingErrorsStats;
 
 typedef struct TotalSpecsInfo {
-    size_t total_mem;           // Total memory used by the index
-    size_t indexing_time;       // Time spent on indexing
-    InfoGCStats gc_stats;       // Garbage collection statistics
-    IndexingErrorsStats indexing_errors; // Indexing errors statistics
+    size_t total_mem;                       // Total memory used by the indexes
+    size_t min_mem;                         // Memory used by the smallest (local) index
+    size_t max_mem;                         // Memory used by the largest (local) index
+    size_t indexing_time;                   // Time spent on indexing
+    InfoGCStats gc_stats;                   // Garbage collection statistics
+    IndexingErrorsStats indexing_errors;    // Indexing errors statistics
 } TotalSpecsInfo;
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

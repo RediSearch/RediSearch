@@ -243,6 +243,10 @@ def test_redis_info():
   # ========== Memory statistics ==========
   env.assertGreater(res['search_used_memory_indexes'], 0)
   env.assertGreater(res['search_used_memory_indexes_human'], 0)
+  env.assertGreater(res['search_min_memory_index'], 0)
+  env.assertGreater(res['search_min_memory_index_human'], 0)
+  env.assertGreater(res['search_max_memory_index'], 0)
+  env.assertGreater(res['search_max_memory_index_human'], 0)
   # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
 
   # ========== Cursors statistics ==========
