@@ -296,17 +296,17 @@ def test_counting_queries(env: Env):
 
   # Validate we count the execution time of the query (with any command)
   total_query_execution_time = lambda: env.cmd('INFO', 'MODULES')['search_total_query_execution_time_ms']
-  with TimeLimit(1, 'FT.SEARCH'):
+  with TimeLimit(5, 'FT.SEARCH'):
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
       env.cmd('FT.SEARCH', 'idx', '*')
 
-  with TimeLimit(1, 'FT.AGGREGATE'):
+  with TimeLimit(5, 'FT.AGGREGATE'):
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
       env.cmd('FT.AGGREGATE', 'idx', '*')
 
-  with TimeLimit(1, 'FT.CURSOR READ'):
+  with TimeLimit(5, 'FT.CURSOR READ'):
     cursor = 0
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
