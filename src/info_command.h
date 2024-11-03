@@ -14,8 +14,8 @@ extern "C" {
 #endif
 
 typedef struct {
-    size_t indexing_failures;   // Total count of indexing errors
-    size_t max_indexing_failures; // Maximum number of indexing errors among all specs
+    size_t indexing_failures;       // Total count of indexing errors
+    size_t max_indexing_failures;   // Maximum number of indexing errors among all specs
 } IndexingErrorsStats;
 
 typedef struct TotalSpecsInfo {
