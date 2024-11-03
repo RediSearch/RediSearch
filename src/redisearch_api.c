@@ -900,6 +900,7 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
 // existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
+  info.min_mem = -1; // Initialize to max value
   // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
@@ -911,7 +912,10 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
-    info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
@@ -923,6 +927,7 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
   return info;
 }
 
