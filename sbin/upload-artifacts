@@ -5,6 +5,7 @@ HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
+set -e
 
 #----------------------------------------------------------------------------------------------
 
@@ -39,17 +40,27 @@ OS=$($READIES/bin/platform --os)
 [[ $OS == linux ]] && OS="Linux"
 
 [[ -z $OSNICK ]] && OSNICK=$($READIES/bin/platform --osnick)
-[[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
-[[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
-[[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
-[[ $OSNICK == jammy ]] && OSNICK=ubuntu22.04
+[[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
+[[ $OSNICK == xenial ]]  && OSNICK=ubuntu16.04
+[[ $OSNICK == bionic ]]  && OSNICK=ubuntu18.04
+[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
+[[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
 [[ $OSNICK == centos8 ]] && OSNICK=rhel8
+[[ $OSNICK == centos9 ]] && OSNICK=rhel9
 [[ $OSNICK == ol8 ]]     && OSNICK=rhel8
 [[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
+[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
 
-[[ $OSNICK == bigsur ]]  && OSNICK=catalina
+if [[ $OS == macos ]]; then
+	# as we don't build on macOS for every platform, we converge to a least common denominator
+	# On 2.6, these are the nicknames we expect:
+	if [[ $ARCH == x86_64 ]]; then
+		OSNICK=catalina
+	else
+		OSNICK=monterey
+	fi
+fi
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
@@ -65,8 +76,9 @@ else
 fi
 
 if [[ $FORCE != 1 ]]; then
-	if [[ -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
+	# TODO: remove circle
+	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
+		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
 		exit 1
 	fi
 
@@ -93,15 +105,17 @@ s3_upload_file() {
 	local file="$1"
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
+	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
 	$OP aws s3 ls $s3_dir
+	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 s3_upload() {
@@ -110,16 +124,18 @@ s3_upload() {
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
-		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz 2> /dev/null`; do
+		files=$(ls ${prefix}.*${PLATFORM}*.zip)
+		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
 	else
-		for file in `ls ${prefix}.*.zip ${prefix}.*.tgz 2> /dev/null`; do
+		files=$(ls ${prefix}.*.zip)
+		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
 	fi
 	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
-	
+
 	return 0
 }
 
