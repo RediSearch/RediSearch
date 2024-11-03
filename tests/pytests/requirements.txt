@@ -1,5 +1,8 @@
 packaging >= 20.8
-redis ~= 4.5.0
-RLTest ~= 0.6.0
-ramp-packer ~= 2.5.2
 gevent
+deepdiff
+conan
+redis ~= 5.0.8
+RLTest >= 0.7.11
+numpy >= 1.21.6
+scipy >= 1.7.3
