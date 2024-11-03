@@ -294,6 +294,27 @@ def test_counting_queries(env: Env):
     env.assertEqual(actual_queries_counter, queries_counter)
     env.assertEqual(actual_query_commands_counter, query_commands_counter)
 
+  # Validate we count the execution time of the query (with any command)
+  total_query_execution_time = lambda: env.cmd('INFO', 'MODULES')['search_total_query_execution_time_ms']
+  with TimeLimit(1, 'FT.SEARCH'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.SEARCH', 'idx', '*')
+
+  with TimeLimit(1, 'FT.AGGREGATE'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.AGGREGATE', 'idx', '*')
+
+  with TimeLimit(1, 'FT.CURSOR READ'):
+    cursor = 0
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      if cursor == 0:
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+        cur_time_count = total_query_execution_time()
+      _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
 
 @skip(noWorkers=True)
 def test_counting_queries_BG():
