@@ -56,7 +56,6 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       san: address
       env: ubuntu-latest
-      rejson: 0
 
   pr-validation:
     needs:

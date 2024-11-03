@@ -46,7 +46,6 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      rejson: 0
       container: ubuntu:jammy
 
   pr-validation:
