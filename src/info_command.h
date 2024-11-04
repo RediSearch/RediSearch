@@ -25,6 +25,10 @@ typedef struct TotalSpecsInfo {
   // GC
   InfoGCStats gc_stats;  // Garbage collection statistics
 
+  // Vector Indexing
+  size_t total_vector_idx_mem;                // Total memory used by the vector index
+  size_t total_mark_deleted_vectors;          // Number of vectors marked as deleted
+
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors
   size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
