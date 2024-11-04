@@ -907,7 +907,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 #endif
 
-  parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
+  if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
   }
 
