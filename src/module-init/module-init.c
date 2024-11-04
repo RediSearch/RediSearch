@@ -138,11 +138,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Errors statistics
   RedisModule_InfoAddSection(ctx, "errors");
-  IndexingErrorsStats indexing_errors = total_info.indexing_errors;
-    // indexing errors
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", indexing_errors.indexing_failures);
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info.indexing_failures);
   // highest number of failures out of all specs
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", indexing_errors.max_indexing_failures);
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", total_info.max_indexing_failures);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);

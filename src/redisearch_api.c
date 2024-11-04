@@ -954,9 +954,9 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
-    info.indexing_errors.indexing_failures += index_error_count;
-    if (info.indexing_errors.max_indexing_failures < index_error_count) {
-      info.indexing_errors.max_indexing_failures = index_error_count;
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
     }
 
     pthread_rwlock_unlock(&sp->rwlock);

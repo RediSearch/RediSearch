@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict, skip
+from common import getConnectionByEnv, index_info, to_dict, skip, waitForIndex
 
 
 
@@ -106,6 +106,7 @@ def test_alter_failures(env):
 
   # Add the field of which the document contains an invalid numeric value.
   env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n2', 'NUMERIC').ok()
+  waitForIndex(env)
   info = index_info(env)
 
   # Doc should be deleted
