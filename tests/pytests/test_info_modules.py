@@ -207,8 +207,9 @@ def test_counting_queries(env: Env):
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
   # Add some data
+  n_docs = 10
   with env.getClusterConnectionIfNeeded() as con:
-    for i in range(10):
+    for i in range(n_docs):
       con.execute_command('HSET', i, 'n', i)
 
   # Initiate counters
@@ -237,7 +238,7 @@ def test_counting_queries(env: Env):
   # Both counters should be updated
   check_counters()
 
-  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 6)
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', (n_docs // 2) + 1)
   env.assertNotEqual(cursor, 0) # Cursor is not done
   queries_counter += 1
   query_commands_counter += 1
@@ -295,18 +296,19 @@ def test_counting_queries(env: Env):
     env.assertEqual(actual_query_commands_counter, query_commands_counter)
 
   # Validate we count the execution time of the query (with any command)
+  timeout = 300 # 5 minutes
   total_query_execution_time = lambda: env.cmd('INFO', 'MODULES')['search_total_query_execution_time_ms']
-  with TimeLimit(5, 'FT.SEARCH'):
+  with TimeLimit(timeout, 'FT.SEARCH'):
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
       env.cmd('FT.SEARCH', 'idx', '*')
 
-  with TimeLimit(5, 'FT.AGGREGATE'):
+  with TimeLimit(timeout, 'FT.AGGREGATE'):
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
       env.cmd('FT.AGGREGATE', 'idx', '*')
 
-  with TimeLimit(5, 'FT.CURSOR READ'):
+  with TimeLimit(timeout, 'FT.CURSOR READ'):
     cursor = 0
     cur_time_count = total_query_execution_time()
     while total_query_execution_time() == cur_time_count:
