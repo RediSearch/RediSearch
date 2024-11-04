@@ -432,7 +432,9 @@ def test_redis_info_modules_vecsim():
 
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
   set_doc().equal(1) # Add a document for the first time
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
   info = env.cmd('INFO', 'MODULES')
   idx1_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx1', 'vec'))
