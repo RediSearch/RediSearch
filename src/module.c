@@ -56,6 +56,7 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
+#include "global_stats.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 
@@ -216,7 +217,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
@@ -2682,6 +2683,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   } else {
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
   }
+
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
 
 cleanup:
   RedisModule_EndReply(reply);
