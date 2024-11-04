@@ -1628,7 +1628,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
 
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
 
 cleanup:
   RedisModule_EndReply(reply);

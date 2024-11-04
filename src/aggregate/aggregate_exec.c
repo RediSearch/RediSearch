@@ -404,7 +404,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags);
+    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
   }
 
   // Reset the total results length:
@@ -885,7 +885,6 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    r->initClock = clock();
   }
   return REDISMODULE_OK;
 }
@@ -910,6 +909,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  if (!IsInternal(r) || IsProfile(r)) {
+    // We currently don't need to measure the time for internal and non-profile commands
+    r->initClock = clock();
   }
 
   // This function also builds the RedisSearchCtx.
@@ -1062,11 +1066,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   bool has_map = RedisModule_HasMap(reply);
 
-  // reset profile clock for cursor reads except for 1st
-  if (IsProfile(req) && req->totalTime != 0) {
-    req->initClock = clock();
-  }
-
   // update timeout for current cursor read
   updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
   SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
@@ -1118,6 +1117,10 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count) {
       QueryError_ClearError(&status);
       return;
     }
+  }
+
+  if (IsProfile(req) || !IsInternal(req)) {
+    req->initClock = clock(); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);

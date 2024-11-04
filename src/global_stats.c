@@ -7,7 +7,8 @@
 #include "global_stats.h"
 #include "aggregate/aggregate.h"
 
-#define INCR(x) __atomic_add_fetch(&(x), 1, __ATOMIC_RELAXED)
+#define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
+#define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
 GlobalStats RSGlobalStats = {0};
@@ -120,10 +121,11 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 }
 
-void TotalGlobalStats_CountQuery(uint32_t reqflags) {
+void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration) {
   if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
 
   INCR(RSGlobalStats.totalStats.total_query_commands);
+  INCR_BY(RSGlobalStats.totalStats.total_query_execution_time, duration);
 
   if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
     // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
@@ -133,8 +135,9 @@ void TotalGlobalStats_CountQuery(uint32_t reqflags) {
 
 void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "queries");
-  RedisModule_InfoAddFieldLongLong(ctx, "total_queries_processed", READ(RSGlobalStats.totalStats.total_queries_processed));
-  RedisModule_InfoAddFieldLongLong(ctx, "total_query_commands", READ(RSGlobalStats.totalStats.total_query_commands));
+  RedisModule_InfoAddFieldULongLong(ctx, "total_queries_processed", READ(RSGlobalStats.totalStats.total_queries_processed));
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", READ(RSGlobalStats.totalStats.total_query_commands));
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", READ(RSGlobalStats.totalStats.total_query_execution_time) / CLOCKS_PER_MILLISEC);
 }
 
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
