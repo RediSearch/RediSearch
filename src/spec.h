@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
