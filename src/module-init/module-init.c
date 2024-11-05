@@ -138,10 +138,10 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddSection(ctx, "index");
   RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
 
-  // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
-
   TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
+  // Fields statistics
+  FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
 
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");

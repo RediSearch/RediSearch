@@ -13,6 +13,12 @@
 extern "C" {
 #endif
 
+typedef struct TotalSpecsFieldInfo {
+  // Vector Indexing
+  size_t total_vector_idx_mem;        // Total memory used by the vector index
+  size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
+} TotalSpecsFieldInfo;
+
 typedef struct TotalSpecsInfo {
   // Memory
   size_t total_mem;  // Total memory used by the indexes
@@ -24,6 +30,8 @@ typedef struct TotalSpecsInfo {
 
   // GC
   InfoGCStats gc_stats;  // Garbage collection statistics
+
+  TotalSpecsFieldInfo fields_stats;  // Aggregated Fields statistics
 
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors

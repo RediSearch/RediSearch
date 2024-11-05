@@ -64,7 +64,7 @@ void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
 /**
  * Exposing stats on all the field's type with existing field count > 0 to INFO command.
  */
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *, TotalSpecsFieldInfo *);
 
 /**
  * Increase all relevant counters in the global stats object.

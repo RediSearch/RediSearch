@@ -60,7 +60,7 @@ void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd) {
 }
 
 // Assuming that the GIL is already acquired
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFieldsStats) {
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 
   if (RSGlobalStats.fieldsStats.numTextFields > 0){
@@ -116,6 +116,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    RedisModule_InfoAddFieldDouble(ctx, "used_memory", aggregatedFieldsStats->total_vector_idx_mem);
+    RedisModule_InfoAddFieldULongLong(ctx, "mark_deleted_vectors", aggregatedFieldsStats->total_mark_deleted_vectors);
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", FieldIndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)]);
     RedisModule_InfoEndDictField(ctx);
   }
