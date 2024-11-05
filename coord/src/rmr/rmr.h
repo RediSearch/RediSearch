@@ -83,7 +83,7 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb);
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 

@@ -69,8 +69,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     MRIteratorCallback_AddReply(ctx, rep);
     // User code now owns the reply, so we can't free it here ourselves!
     rep = NULL;
-  } else {
-    isDone = 1;
   }
 
   if (isDone) {

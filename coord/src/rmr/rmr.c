@@ -591,8 +591,8 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   return 1;
 }
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  return MRChannel_Push(ctx->ic->chan, rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  MRChannel_Push(ctx->ic->chan, rep);
 }
 
 void iterStartCb(void *p) {
