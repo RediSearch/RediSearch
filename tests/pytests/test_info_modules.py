@@ -18,28 +18,21 @@ def info_modules_to_dict(conn):
         info[section_name][data[0]] = data[1]
   return info
 
-def get_search_field_info(type: str, count: int, sortable_count: int = 0, no_index_count: int = 0, index_errors: int = 0):
-    return f'{type}={count}' \
-           f'{",Sortable=" + str(sortable_count) if sortable_count else ""}' \
-           f'{",NoIndex=" + str(no_index_count) if no_index_count else ""}' \
-           f',IndexErrors={index_errors}'
+def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs):
+  # Base info
+  info = {
+    type: str(count),
+    'IndexErrors': str(index_errors),
+    **{key: str(value) for key, value in kwargs.items()}
+  }
+  # Default values Per field type (if needed)
+  if type == 'Vector':
+    info['used_memory'] = info.get('used_memory', ANY)
+    info['mark_deleted_vectors'] = info.get('mark_deleted_vectors', '0')
+  return info
 
-def get_search_tag_field_info(count:int,
-                              sortable_count: int = 0,
-                              no_index_count:int = 0,
-                              case_sensitive_count:int = 0,
-                              index_errors:int = 0):
-  return f'Tag={count}' \
-         f'{",Sortable=" + str(sortable_count) if sortable_count else ""}' \
-         f'{",NoIndex=" + str(no_index_count) if no_index_count else ""}' \
-         f'{",CaseSensitive=" + str(case_sensitive_count) if case_sensitive_count else ""}' \
-         f',IndexErrors={index_errors}'
-
-def get_search_vector_field_info(count: int, flat_count: int = 0, hnsw_count: int = 0, index_errors: int = 0):
-    return f'Vector={count}' \
-           f'{",Flat=" + str(flat_count) if flat_count else ""}' \
-           f'{",HNSW=" + str(hnsw_count) if hnsw_count else ""}' \
-           f',IndexErrors={index_errors}'
+def field_info_to_dict(info):
+  return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
 def testInfoModulesBasic(env):
   conn = env.getConnection()
@@ -71,12 +64,12 @@ def testInfoModulesBasic(env):
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',2,sortable_count=1,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_tag'], get_search_tag_field_info(2,sortable_count=1,case_sensitive_count=1))
-  env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',2,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geo'], get_search_field_info('Geo',1))
-  env.assertEqual(fieldsInfo['search_fields_vector'], get_search_vector_field_info(2,flat_count=1, hnsw_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], get_search_field_info('Geoshape',2,sortable_count=1,no_index_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 2, Sortable=1, CaseSensitive=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 2, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_vector']), get_search_field_info('Vector', 2, Flat=1, HNSW=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 2, Sortable=1 ,NoIndex=1))
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
@@ -106,9 +99,9 @@ def testInfoModulesAlter(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',1,sortable_count=1))
-  env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',1,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], get_search_field_info('Geoshape',1,sortable_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 1, Sortable=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 1, Sortable=1))
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
@@ -133,7 +126,7 @@ def testInfoModulesDrop(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',2,sortable_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1))
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
 
 
@@ -151,9 +144,9 @@ def testInfoModulesAfterReload(env):
 
     fieldsInfo = info['search_fields_statistics']
     env.assertFalse('search_fields_text' in fieldsInfo) # no text fields
-    env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',1,sortable_count=1))
-    env.assertEqual(fieldsInfo['search_fields_geo'], get_search_field_info('Geo',1,sortable_count=1, no_index_count=1))
-    env.assertEqual(fieldsInfo['search_fields_tag'], get_search_tag_field_info(1, no_index_count=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, Sortable=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1, Sortable=1, NoIndex=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 1, NoIndex=1))
 
 # This tests relies on shard info, which depends on the hashes in the *shard*.
 # In cluster mode, hashes might be stored in different shards, and the shard we call INFO for,
