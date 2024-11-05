@@ -896,12 +896,11 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
 }
 
-// Collect mem-usage, indexing time and gc statistics of all the currently
-// existing indexes
+// Collect statistics of all the currently existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
   info.min_mem = -1; // Initialize to max value
-  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
@@ -924,6 +923,14 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       info.gc_stats.totalCycles += gcStats.numCycles;
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
+
+    // Index errors metrics
+    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
+    }
+
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);

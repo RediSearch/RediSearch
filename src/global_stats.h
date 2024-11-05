@@ -56,7 +56,13 @@ extern GlobalStats RSGlobalStats;
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 
 /**
- * Exposing all the fields that > 0 to INFO command.
+ * Add or increase `toAdd` number of errors to the global index errors counter of field_type.
+ * `toAdd` can be negative to decrease the counter.
+ */
+void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
+
+/**
+ * Exposing stats on all the field's type with existing field count > 0 to INFO command.
  */
 void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 
