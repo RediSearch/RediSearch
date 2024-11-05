@@ -436,20 +436,20 @@ def test_redis_info_modules_vecsim():
   set_doc().equal(1) # Add a document for the first time
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
-  info = env.cmd('INFO', 'MODULES')
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
   idx1_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx1', 'vec'))
   idx2_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx2', 'vec'))
-  env.assertEqual(info['search_used_memory_vector'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
-  env.assertEqual(info['search_mark_deleted_vectors'], 0)
+  env.assertEqual(info['used_memory'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
+  env.assertEqual(info['mark_deleted_vectors'], 0)
 
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
   set_doc().equal(0) # Add (override) the document for the second time
 
-  info = env.cmd('INFO', 'MODULES')
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
   idx1_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx1', 'vec'))
   idx2_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx2', 'vec'))
-  env.assertEqual(info['search_used_memory_vector'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
-  env.assertEqual(info['search_mark_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+  env.assertEqual(info['used_memory'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
+  env.assertEqual(info['mark_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
   env.assertEqual(to_dict(idx1_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(idx2_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
@@ -457,10 +457,10 @@ def test_redis_info_modules_vecsim():
   forceInvokeGC(env, 'idx1')
   forceInvokeGC(env, 'idx2')
 
-  info = env.cmd('INFO', 'MODULES')
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
   idx1_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx1', 'vec'))
   idx2_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx2', 'vec'))
-  env.assertEqual(info['search_used_memory_vector'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
-  env.assertEqual(info['search_mark_deleted_vectors'], 0)
+  env.assertEqual(info['used_memory'], idx1_info['MEMORY'] + idx2_info['MEMORY'])
+  env.assertEqual(info['mark_deleted_vectors'], 0)
   env.assertEqual(to_dict(idx1_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(idx2_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
