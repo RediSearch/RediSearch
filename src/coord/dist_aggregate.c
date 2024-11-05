@@ -550,6 +550,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
+  argOffset = RMUtil_ArgIndex("SCORER", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
+    array_append(tmparr, "SCORER");
+    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the scorer
+  }
+
   if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
     array_append(tmparr, "ADDSCORES");
   }
