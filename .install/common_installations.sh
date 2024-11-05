@@ -22,7 +22,8 @@ pip install -q --upgrade setuptools
 echo "pip version: $(pip --version)"
 echo "pip path: $(which pip)"
 
-pip install -q -r tests/pytests/requirements.txt
+pip install pip-compile-multi
+pip-compile-multi --install -r tests/pytests/requirements.txt
 
 # List installed packages
 pip list
