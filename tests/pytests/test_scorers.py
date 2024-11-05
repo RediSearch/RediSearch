@@ -296,6 +296,18 @@ def testExposeScore(env: Env):
     env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
     with env.getClusterConnectionIfNeeded() as conn:
         conn.execute_command('HSET', 'doc1', 'title', 'hello')
+
+    # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
+    # Test with default scorer (TFIDF)
+    expected = [1, ['__score', '1']]
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    # Test with explicit TFIDF scorer
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    # Test with explicit BM25 scorer
+    expected = [1, ['__score', str(0.454545444693)]] # BM25 score (different from TFIDF)
+    env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+
+    with env.getClusterConnectionIfNeeded() as conn:
         conn.execute_command('HSET', 'doc2', 'title', 'world')
 
     doc1_score = 1 if env.isCluster() else 2 # TODO: why?
