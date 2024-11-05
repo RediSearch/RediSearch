@@ -342,11 +342,10 @@ CTEST_DEFS=\
 #----------------------------------------------------------------------------------------------
 
 export REJSON ?= 1
-export REJSON_BRANCH=2.2
 
 ifneq ($(REJSON),0)
 ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/${REJSON_BRANCH}/rejson.so
+REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
