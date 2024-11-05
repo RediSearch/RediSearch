@@ -329,8 +329,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
 
-  CursorList_AddSpec(&RSCursors, sp->name, );
-  CursorList_AddSpec(&RSCursorsCoord, sp->name, );
+  CursorList_AddSpec(&RSCursors, sp->name, RSGlobalConfig.indexCursorLimit);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSGlobalConfig.indexCursorLimit);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -2258,8 +2258,8 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  CursorList_AddSpec(&RSCursors, sp->name, );
-  CursorList_AddSpec(&RSCursorsCoord, sp->name, );
+  CursorList_AddSpec(&RSCursors, sp->name, RSGlobalConfig.indexCursorLimit);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSGlobalConfig.indexCursorLimit);
   RedisModule_FreeString(ctx, specKey);
 
   if (sp->flags & Index_HasSmap) {
@@ -2406,8 +2406,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
-  CursorList_AddSpec(&RSCursors, sp->name, );
-  CursorList_AddSpec(&RSCursorsCoord, sp->name, );
+  CursorList_AddSpec(&RSCursors, sp->name, RSGlobalConfig.indexCursorLimit);
+  CursorList_AddSpec(&RSCursorsCoord, sp->name, RSGlobalConfig.indexCursorLimit);
 
   dictAdd(legacySpecDict, sp->name, sp);
   return sp;
