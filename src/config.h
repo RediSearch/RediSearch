@@ -259,7 +259,7 @@ void UpgradeDeprecatedMTConfigs();
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                                                         \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                                                                            \
+    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                                                       \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
@@ -284,7 +284,7 @@ void UpgradeDeprecatedMTConfigs();
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                           \
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                                                                  \
-    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                                    \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                 \
     .prioritizeIntersectUnionChildren = false,                                                                        \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
   }

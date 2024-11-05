@@ -1016,12 +1016,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
-  // Register module configuration
-  if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Error registering module configuration");
-    return REDISMODULE_ERR;
-  }
-
   // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
@@ -3302,6 +3296,12 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   clusterConfig = DEFAULT_CLUSTER_CONFIG;
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
   ClusterConfig_RegisterTriggers();
+
+  // Register the module configuration parameters
+  if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Error registering module configuration");
+    return REDISMODULE_ERR;
+  }
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
