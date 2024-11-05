@@ -85,9 +85,8 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
  * Initialize the spec's fields that are related to the cursors.
  */
 
-static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+static void Cursors_initSpec(IndexSpec *spec) {
   spec->activeCursors = 0;
-  spec->cursorsCap = capacity;
 }
 
 /*
@@ -381,7 +380,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -2426,7 +2425,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2582,7 +2581,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
