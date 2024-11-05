@@ -46,7 +46,7 @@ static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
   return 1;
 }
 
-static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
+static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
   if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY ||
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
@@ -56,11 +56,9 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-    return REDIS_ERR;
   }
 
   // rewrite and resend the cursor command if needed
-  int rc = REDIS_OK;
   int isDone = !getCursorCommand(rep, cmd);
 
   // Push the reply down the chain
@@ -79,7 +77,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     // resend command
     if (REDIS_ERR == MRIteratorCallback_ResendCommand(ctx, cmd)) {
       MRIteratorCallback_Done(ctx, 1);
-      rc = REDIS_ERR;
     }
   }
 
@@ -87,7 +84,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
-  return rc;
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {
