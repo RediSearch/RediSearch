@@ -2,7 +2,7 @@ packaging >= 20.8
 gevent
 deepdiff
 conan
-redis ~= 5.0.8
-RLTest >= 0.7.11
+redis ~= 4.5.0
+RLTest ~= 0.6.0
 numpy >= 1.21.6
 scipy >= 1.7.3
