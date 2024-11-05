@@ -131,9 +131,6 @@ typedef struct {
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;

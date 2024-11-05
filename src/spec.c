@@ -371,8 +371,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
@@ -2044,25 +2042,12 @@ static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
-  stats->invertedCap = RedisModule_LoadUnsigned(rdb);
-  stats->skipIndexesSize = RedisModule_LoadUnsigned(rdb);
-  stats->scoreIndexesSize = RedisModule_LoadUnsigned(rdb);
+  RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
+  RedisModule_LoadUnsigned(rdb); // Consume `skipIndexesSize`
+  RedisModule_LoadUnsigned(rdb); // Consume `scoreIndexesSize`
   stats->offsetVecsSize = RedisModule_LoadUnsigned(rdb);
   stats->offsetVecRecords = RedisModule_LoadUnsigned(rdb);
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
-}
-
-static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
-  RedisModule_SaveUnsigned(rdb, stats->numDocuments);
-  RedisModule_SaveUnsigned(rdb, stats->numTerms);
-  RedisModule_SaveUnsigned(rdb, stats->numRecords);
-  RedisModule_SaveUnsigned(rdb, stats->invertedSize);
-  RedisModule_SaveUnsigned(rdb, stats->invertedCap);
-  RedisModule_SaveUnsigned(rdb, stats->skipIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->scoreIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
-  RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2540,8 +2525,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  //    IndexStats_RdbLoad(rdb, &sp->stats);
-
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
@@ -2774,11 +2757,6 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     }
 
     SchemaRule_RdbSave(sp->rule, rdb);
-
-    //    IndexStats_RdbSave(rdb, &sp->stats);
-    //    DocTable_RdbSave(&sp->docs, rdb);
-    //    // save trie of terms
-    //    TrieType_GenericSave(rdb, sp->terms, 0);
 
     // If we have custom stopwords, save them
     if (sp->flags & Index_HasCustomStopwords) {

@@ -884,9 +884,9 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = sp->stats.invertedCap;
-  info->skipIndexesSize = sp->stats.skipIndexesSize;
-  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->invertedCap = 0;
+  info->skipIndexesSize = 0;
+  info->scoreIndexesSize = 0;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
@@ -917,8 +917,6 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   res += IndexSpec_collect_text_overhead(sp);
   res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
