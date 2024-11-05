@@ -326,7 +326,6 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters
-  size_t cursorsCap;
   size_t activeCursors;
 
   // Quick access to the spec's strong ref
