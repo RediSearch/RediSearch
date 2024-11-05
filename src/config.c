@@ -539,6 +539,16 @@ CONFIG_GETTER(getBGIndexSleepGap) {
 CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
 
+CONFIG_SETTER(setIndexCursorLimit) {
+  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexCursorLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -723,6 +733,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
+        {.name = "INDEX_CURSOR_LIMIT",
+         .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
+         .setValue = setIndexCursorLimit,
+         .getValue = getIndexCursorLimit},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,

@@ -204,10 +204,10 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
     goto done;
   }
 
-  if (spec->used >= spec->cap) {
+  if (spec->used >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->used >= spec->cap) {
+    if (spec->used >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
@@ -333,7 +333,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const char
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) + ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
-  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", info->cap +  + (info_coord ? info_coord->cap : 0));
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", info->used + (info_coord ? info_coord->used : 0));
   RedisModule_InfoEndDictField(ctx);
 
