@@ -924,11 +924,11 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   return res;
 }
 
-// Collect mem-usage, indexing time and gc statistics of all the currently
-// existing indexes
+// Collect statistics of all the currently existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
-  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  info.min_mem = -1; // Initialize to max value
+  // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
@@ -939,7 +939,10 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
-    info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
@@ -948,9 +951,18 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       info.gc_stats.totalCycles += gcStats.numCycles;
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
+
+    // Index errors metrics
+    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
+    }
+
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
   return info;
 }
 

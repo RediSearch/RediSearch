@@ -9,7 +9,7 @@
 #include "redismodule.h"
 #include "hiredis/sds.h"
 #include "query_error.h"
-#include "fields_global_stats.h"
+#include "reply.h"
 #include "util/config_macros.h"
 
 typedef enum {
@@ -113,8 +113,6 @@ typedef struct {
 
   GCConfig gcConfigParams;
 
-  FieldsGlobalStats fieldsStats;
-
   // Chained configuration data
   void *chainedConfig;
 
@@ -138,8 +136,6 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
-  // bitarray of dialects used by all indices
-  uint_least8_t used_dialects;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
   // we allow redis process other commands.
@@ -147,6 +143,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+  // Limit the number of cursors that can be created for a single index
+  long long indexCursorLimit;
 } RSConfig;
 
 typedef enum {
@@ -221,8 +219,6 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
-
 void UpgradeDeprecatedMTConfigs();
 
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
@@ -233,6 +229,7 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define DEFAULT_MAX_AGGREGATE_RESULTS -1
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
@@ -246,11 +243,6 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_WORKER_THREADS 0
 #define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
-#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
-#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
-#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
@@ -292,9 +284,9 @@ void UpgradeDeprecatedMTConfigs();
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,                                                    \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                                                           \
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                                                                  \
-    .used_dialects = 0,                                                                                               \
-    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                                        \
-    .prioritizeIntersectUnionChildren = false                                                                         \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,                                                                    \
+    .prioritizeIntersectUnionChildren = false,                                                                        \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

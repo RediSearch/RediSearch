@@ -981,6 +981,16 @@ CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 CONFIG_API_BOOL_SETTER(set_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
 CONFIG_API_BOOL_GETTER(get_prioritize_intersect_union_children, prioritizeIntersectUnionChildren, 0)
 
+CONFIG_SETTER(setIndexCursorLimit) {
+  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexCursorLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1202,6 +1212,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
+        {.name = "INDEX_CURSOR_LIMIT",
+         .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
+         .setValue = setIndexCursorLimit,
+         .getValue = getIndexCursorLimit},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
@@ -1470,16 +1484,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
-}
-
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
-  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    char field[16] = {0};
-    snprintf(field, sizeof field, "dialect_%d", dialect);
-    // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
-  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

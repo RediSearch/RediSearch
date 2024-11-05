@@ -23,7 +23,7 @@
 #include "fork_gc.h"
 #include "info_command.h"
 #include "profile.h"
-
+#include "global_stats.h"
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -86,6 +86,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
+
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
@@ -109,11 +111,16 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
 
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", total_info.total_mem / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info.total_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index", total_info.min_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index_human", MEMORY_HUMAN(total_info.min_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index", total_info.max_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index_human", MEMORY_HUMAN(total_info.max_mem));
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
 
   // Cursors
@@ -128,6 +135,15 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
+
+  // Query statistics
+  TotalGlobalStats_Queries_AddToInfo(ctx);
+
+  // Errors statistics
+  RedisModule_InfoAddSection(ctx, "errors");
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info.indexing_failures);
+  // highest number of failures out of all specs
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", total_info.max_indexing_failures);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);

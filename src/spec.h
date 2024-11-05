@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -116,6 +115,9 @@ struct DocumentIndexer;
 
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
+
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
@@ -324,7 +326,6 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters
-  size_t cursorsCap;
   size_t activeCursors;
 
   // Quick access to the spec's strong ref
@@ -445,6 +446,9 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
+
+/* Get the number of indexing failures */
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.

@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "util/workers.h"
+#include "global_stats.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -85,9 +86,8 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
  * Initialize the spec's fields that are related to the cursors.
  */
 
-static void Cursors_initSpec(IndexSpec *spec, size_t capacity) {
+static void Cursors_initSpec(IndexSpec *spec) {
   spec->activeCursors = 0;
-  spec->cursorsCap = capacity;
 }
 
 /*
@@ -404,7 +404,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -1314,6 +1314,10 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
       stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
 }
 
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
+  return IndexError_ErrorCount(&sp->stats.indexError);
+}
+
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
@@ -1568,7 +1572,9 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
 
   // Remove spec's fields from global statistics
   for (size_t i = 0; i < spec->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+    FieldSpec *field = spec->fields + i;
+    FieldsGlobalStats_UpdateStats(field, -1);
+    FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
   }
 
   // Mark there are pending index drops.
@@ -2561,7 +2567,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2717,7 +2723,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
-  Cursors_initSpec(sp, RSCURSORS_DEFAULT_CAPACITY);
+  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
   return spec_ref.rm;
@@ -3002,7 +3008,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   Indexes_Free(specDict_g);
   workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
-  RSGlobalConfig.used_dialects = 0;
+  RSGlobalStats.totalStats.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
