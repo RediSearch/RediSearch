@@ -505,6 +505,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;
+} VectorIndexStats;
+
+/**
+ * Get an index's vector index stats.
+ */
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
