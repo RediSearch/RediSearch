@@ -947,8 +947,8 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
 
     // Vector index stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
-    info.total_vector_idx_mem += vec_info.memory;
-    info.total_mark_deleted_vectors += vec_info.marked_deleted;
+    info.fields_stats.total_vector_idx_mem += vec_info.memory;
+    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
