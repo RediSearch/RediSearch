@@ -981,6 +981,7 @@ CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectU
 CONFIG_API_BOOL_SETTER(set_prioritize_intersect_union_children, prioritizeIntersectUnionChildren)
 CONFIG_API_BOOL_GETTER(get_prioritize_intersect_union_children, prioritizeIntersectUnionChildren, 0)
 
+// INDEX_CURSOR_LIMIT
 CONFIG_SETTER(setIndexCursorLimit) {
   int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -989,6 +990,16 @@ CONFIG_SETTER(setIndexCursorLimit) {
 CONFIG_GETTER(getIndexCursorLimit) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+}
+
+// index-cursor-limit
+CONFIG_API_NUMERIC_SETTER(set_index_cursor_limit) {
+  RSGlobalConfig.indexCursorLimit = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_index_cursor_limit) {
+  return RSGlobalConfig.indexCursorLimit;
 }
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -1512,6 +1523,15 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
+  // Numeric parameters
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "_numeric-ranges-parents", 0, REDISMODULE_CONFIG_DEFAULT, 0,
+        NR_MAX_DEPTH_BALANCE, get_numeric_ranges_parents,
+        set_numeric_ranges_parents, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "_numeric-ranges-parents registered");
+  }
   // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
       ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
@@ -1529,24 +1549,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "default-dialect registered");
-  }
-
-  // TODO: Define max value for this configuration
-  if (RedisModule_RegisterNumericConfig(
-        ctx, "gc-scan-size", DEFAULT_GC_SCANSIZE, REDISMODULE_CONFIG_DEFAULT,
-        1, 999999999, get_gc_scan_size, set_gc_scan_size, NULL, NULL) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "gc-scan-size registered");
-  }
-
-  if (RedisModule_RegisterNumericConfig(
-        ctx, "_numeric-ranges-parents", 0, REDISMODULE_CONFIG_DEFAULT, 0,
-        NR_MAX_DEPTH_BALANCE, get_numeric_ranges_parents,
-        set_numeric_ranges_parents, NULL, NULL) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "_numeric-ranges-parents registered");
   }
 
   // TODO: Define max value for this configuration
@@ -1587,6 +1589,25 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "fork-gc-sleep-before-exit registered");
+  }
+
+  // TODO: Define max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "gc-scan-size", DEFAULT_GC_SCANSIZE, REDISMODULE_CONFIG_DEFAULT,
+        1, 999999999, get_gc_scan_size, set_gc_scan_size, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "gc-scan-size registered");
+  }
+
+  // TODO: Define min/max value for this configuration
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT, 
+        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_index_cursor_limit,
+        set_index_cursor_limit, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "index-cursor-limit registered");
   }
 
   // TODO: Define min/max value for this configuration

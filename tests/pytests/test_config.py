@@ -493,6 +493,8 @@ def testConfigAPIRunTime():
     #                      '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # Test numeric parameters
+    _test_numeric_config(env, 'search.index-cursor-limit', 'INDEX_CURSOR_LIMIT',
+                         128, 0, 999999999)
     _test_numeric_config(env, 'search.default-dialect', 'DEFAULT_DIALECT',
                          1, 1, 4)
     _test_numeric_config(env, 'search.gc-scan-size', 'GCSCANSIZE',
