@@ -58,6 +58,8 @@ if is_command python3; then
 	runn python3 -m virtualenv venv
 	. venv/bin/activate
 fi
+sed -i 's|https://github.com/inducer/pudb.git@main|https://github.com/inducer/pudb.git@v2024.1.2|g' deps/readies/bin/getpudb
+sed -i 's|runn\ git\ clone\ https://github.com/inducer/pudb.git|runn\ git\ clone\ https://github.com/inducer/pudb.git\ --branch v2024.1.2|g' deps/readies/bin/getpudb
 runn $READIES/bin/getpy3
 runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh
