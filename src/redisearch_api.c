@@ -950,6 +950,13 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
 
+    // Index
+    bool isOnActiveRead = IndexSpec_GetActiveReads(sp) > 0;
+    bool isOnActiveWrite = IndexSpec_GetActiveWrites(sp) > 0;
+    if (isOnActiveRead) info.num_active_read_indexes++;
+    if (isOnActiveWrite) info.num_active_write_indexes++;
+    if (isOnActiveRead || isOnActiveWrite) info.num_active_indexes++;
+
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
     info.indexing_failures += index_error_count;

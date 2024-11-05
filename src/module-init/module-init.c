@@ -104,14 +104,17 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
 
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
   // Numer of indexes
   RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info.num_active_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info.num_active_read_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info.num_active_write_indexes);
 
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
-
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
 
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");
