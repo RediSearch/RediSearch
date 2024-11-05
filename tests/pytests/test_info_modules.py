@@ -52,13 +52,17 @@ def testInfoModulesBasic(env):
                                 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                                           'body', 'TEXT', 'NOINDEX',
                                           'id', 'NUMERIC',
-                                          'subject location', 'GEO').ok()
+                                          'subject location', 'GEO',
+                                          'geom', 'GEOSHAPE', 'SORTABLE'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx2, 'LANGUAGE', 'french', 'NOOFFSETS', 'NOFREQS',
                                 'PREFIX', 2, 'TLV:', 'NY:',
                                 'SCHEMA', 't1', 'TAG', 'CASESENSITIVE', 'SORTABLE',
                                           'T2', 'AS', 't2', 'TAG',
-                                          'id', 'NUMERIC', 'NOINDEX').ok()
+                                          'id', 'NUMERIC', 'NOINDEX',
+                                          'geom', 'GEOSHAPE', 'NOINDEX'
+                                          ).ok()
 
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
                                           'vec_hnsw', 'VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
@@ -96,7 +100,7 @@ def testInfoModulesAlter(env):
   idx1 = 'idx1'
 
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
+  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
