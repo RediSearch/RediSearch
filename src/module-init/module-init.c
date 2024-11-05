@@ -114,7 +114,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info.num_active_write_indexes);
 
   // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
+  FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
 
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");
