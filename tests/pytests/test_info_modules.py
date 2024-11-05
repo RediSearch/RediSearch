@@ -27,8 +27,8 @@ def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs
   }
   # Default values Per field type (if needed)
   if type == 'Vector':
-    info['used_memory'] = info.get('used_memory', ANY)
-    info['mark_deleted_vectors'] = info.get('mark_deleted_vectors', '0')
+    info.setdefault('used_memory', ANY)
+    info.setdefault('mark_deleted_vectors', '0')
   return info
 
 def field_info_to_dict(info):
