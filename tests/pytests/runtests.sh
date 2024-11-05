@@ -303,7 +303,7 @@ setup_coverage() {
 #----------------------------------------------------------------------------------------------
 
 setup_redisjson() {
-	REJSON_BRANCH=${REJSON_BRANCH:-master}
+	REJSON_BRANCH=${REJSON_BRANCH:-2.2}
 
 	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
 		if [[ -n $REJSON_PATH ]]; then
