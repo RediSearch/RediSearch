@@ -55,7 +55,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] == '_FREE_RESOURCE_ON_THREAD'
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
-    assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
+    assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
 
 '''
 
