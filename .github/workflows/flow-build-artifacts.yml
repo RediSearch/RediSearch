@@ -12,6 +12,7 @@ on:
           - ubuntu:bionic
           - ubuntu:xenial
           - centos:7
+          - centos:8
           - rockylinux:8
           # - rockylinux:9
           - debian:bullseye
