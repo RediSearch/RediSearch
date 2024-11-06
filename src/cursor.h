@@ -15,7 +15,6 @@
 
 typedef struct {
   char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;    /** Maximum number of cursors for the spec */
   size_t used;   /** Number of cursors currently open */
 } CursorSpecInfo;
 
@@ -143,7 +142,6 @@ void CursorList_Empty(CursorList *cl, bool coord);
  */
 void CursorList_Expire(CursorList *cl);
 
-#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -151,7 +149,7 @@ void CursorList_Expire(CursorList *cl);
  * Add an index spec to the cursor list. This has the effect of adding the
  * spec (via its key) along with its capacity
  */
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
+void CursorList_AddSpec(CursorList *cl, const char *k);
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k);
 

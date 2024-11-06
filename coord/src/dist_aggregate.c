@@ -18,12 +18,7 @@
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
-static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
-  long long cursorId;
-  if (!MRReply_ToInteger(MRReply_ArrayElement(prev, 1), &cursorId)) {
-    // Invalid format?!
-    return 0;
-  }
+static int getCursorCommand(long long cursorId, MRCommand *cmd) {
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
@@ -46,7 +41,7 @@ static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
   return 1;
 }
 
-static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
+static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
   if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY ||
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
@@ -56,24 +51,23 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-    return REDIS_ERR;
+    return;
   }
 
-  // rewrite and resend the cursor command if needed
-  int rc = REDIS_OK;
-  int isDone = !getCursorCommand(rep, cmd);
-
+  long long cursorId;
+  MRReply* cursor = MRReply_ArrayElement(rep, 1);
+  if (!MRReply_ToInteger(cursor, &cursorId)) {
+    cursorId = 0;
+  }
   // Push the reply down the chain
   MRReply *arr = MRReply_ArrayElement(rep, 0);
   if (arr && MRReply_Type(arr) == MR_REPLY_ARRAY && MRReply_Length(arr) > 1) {
     MRIteratorCallback_AddReply(ctx, rep);
     // User code now owns the reply, so we can't free it here ourselves!
     rep = NULL;
-  } else {
-    isDone = 1;
   }
 
-  if (isDone) {
+  if (!getCursorCommand(cursorId, cmd)) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
@@ -81,7 +75,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     // resend command
     if (REDIS_ERR == MRIteratorCallback_ResendCommand(ctx, cmd)) {
       MRIteratorCallback_Done(ctx, 1);
-      rc = REDIS_ERR;
     }
   }
 
@@ -89,7 +82,6 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand
     // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
-  return rc;
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {

@@ -127,6 +127,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+  // Limit the number of cursors that can be created for a single index
+  long long indexCursorLimit;
 } RSConfig;
 
 typedef enum {
@@ -197,6 +199,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
+#define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
@@ -223,7 +226,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
     .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0,                           \
     .numBGIndexingIterationsBeforeSleep = 100,                                                    \
-    .prioritizeIntersectUnionChildren = false \
+    .prioritizeIntersectUnionChildren = false,                                                                        \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

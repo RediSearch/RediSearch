@@ -1988,7 +1988,7 @@ static void addIndexCursor(const IndexSpec *sp) {
   char *end = strchr(s, '{');
   if (end) {
     *end = '\0';
-    CursorList_AddSpec(&RSCursorsCoord, s, RSCURSORS_DEFAULT_CAPACITY);
+    CursorList_AddSpec(&RSCursorsCoord, s);
   }
   rm_free(s);
 }

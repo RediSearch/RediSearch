@@ -591,8 +591,16 @@ int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   return 1;
 }
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  return MRChannel_Push(ctx->ic->chan, rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  PushErrorMask mask = MRChannel_Push(ctx->ic->chan, rep);
+  if (mask & CHANNEL_CLOSED) {
+    // We are using a verbose log level to prevent flodding the logs with this message in production
+    RedisModule_Log(RSDummyContext, "verbose", "Tried pushing a reply to a closed channel");
+    MRReply_Free(rep);
+  }
+  if (mask & BROADCAST_FAILURE) {
+    RedisModule_Log(RSDummyContext, "verbose", "Failed broadcasting the reply in the channel");
+  }
 }
 
 void iterStartCb(void *p) {

@@ -73,7 +73,7 @@ extern void *MRITERATOR_DONE;
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIterator MRIterator;
 
-typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
+typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd);
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -83,7 +83,7 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb);
 
-int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
