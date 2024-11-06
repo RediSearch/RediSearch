@@ -91,7 +91,8 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, fieldMask, NULL, 1);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  IndexReader *reader = NewTermIndexReaderEx(invidx, NULL, fieldMaskOrIndex, NULL, 1);
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
@@ -165,7 +166,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   size_t termLen;
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
-    ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
+    array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
   TrieIterator_Free(iter);
   return ret;

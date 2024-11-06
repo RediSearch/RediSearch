@@ -68,7 +68,7 @@ RSIndexResult *NewIntersectResult(size_t cap, double weight);
 /* Allocate a new union result with a given capacity*/
 RSIndexResult *NewUnionResult(size_t cap, double weight);
 
-RSIndexResult *NewVirtualResult(double weight);
+RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask);
 
 RSIndexResult *NewNumericResult();
 

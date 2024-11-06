@@ -19,7 +19,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
 
-static redisearch_threadpool gcThreadpool_g = NULL;
+static redisearch_thpool_t *gcThreadpool_g = NULL;
 
 typedef struct GCDebugTask {
   GCContext* gc;
@@ -173,7 +173,7 @@ void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_PRIVILEGED_THREADS_NUM, LogCallback);
+    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
   }
 }
 

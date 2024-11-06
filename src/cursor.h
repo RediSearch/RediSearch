@@ -12,6 +12,7 @@
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
+#include "aggregate/aggregate.h"
 
 struct CursorList;
 
@@ -24,7 +25,7 @@ typedef struct Cursor {
   WeakRef spec_ref;
 
   /** Execution state. Opaque to the cursor - managed by consumer */
-  void *execState;
+  AREQ *execState;
 
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
@@ -135,7 +136,6 @@ void CursorList_Empty(CursorList *cl);
  */
 void CursorList_Expire(CursorList *cl);
 
-#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -200,7 +200,5 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, 
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx);
 #endif
 
-void Cursor_FreeExecState(void *);
-#endif
-
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+#endif // CURSOR_H

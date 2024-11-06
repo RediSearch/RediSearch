@@ -66,7 +66,7 @@ void IndexError_Clear(IndexError error) {
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    REPLY_KVSTR(IndexingError_String, IndexError_LastError(error));
+    REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
     REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
     if (with_timestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
@@ -97,8 +97,6 @@ const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
 struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
-
-#ifdef RS_COORDINATOR
 
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     if (!NA_rstr) initDefaultKey();
@@ -187,5 +185,3 @@ IndexError IndexError_Deserialize(MRReply *reply) {
 
     return error;
 }
-
-#endif

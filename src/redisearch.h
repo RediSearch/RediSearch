@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
 
@@ -18,10 +20,21 @@ typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+#define RS_INVALID_FIELD_ID (t_fieldId)-1
+// Used to identify any field index within the spec, not just textual fields
+typedef uint16_t t_fieldIndex;
+#define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
+struct timespec;
+typedef struct timespec t_expirationTimePoint;
+
+typedef uint64_t t_uniqueId;
+#define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
+#define LOG_10_ON_256_UPPER_BOUND 3 // 2^8 = 10 ^ y, 2^16 = 2^8 * 2^8 = 10^y * 10^y = 10^2y -> y == 2.40824 -> upper bound for y is 3
+#define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
 
 #define DOCID_MAX UINT64_MAX
 
-#if defined(__x86_64__) && !defined(RS_NO_U128)
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
 #define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
@@ -76,11 +89,30 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_FailedToOpen = 0x10, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
+  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
+enum FieldExpirationPredicate {
+  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
+  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
+};
+
+typedef struct {
+  // tells us the actual type of the field member
+  // true - fieldMask, false - fieldIndex
+  bool isFieldMask;
+  union {
+    // For textual fields, allows to host multiple field indices at once
+    t_fieldMask mask;
+    // For the other fields, allows a single field to be referenced
+    t_fieldIndex index;
+  } value;
+} FieldMaskOrIndex;
+
 #define hasPayload(x) (x & Document_HasPayload)
+#define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
@@ -89,8 +121,6 @@ typedef enum {
  * convert incremental internal ids to external string keys.
  *
  * Score is the original user score as inserted to the index
- *
- * Flags is not currently used, but should be used in the future to mark documents as deleted, etc.
  */
 typedef struct RSDocumentMetadata_s {
   t_docId id;

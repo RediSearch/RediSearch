@@ -18,11 +18,40 @@
 
 RedisModuleType *InvertedIndexType;
 
+static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
+  if (RS_IsMock) return;
+
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
+
+  struct timespec duration = { .tv_sec = durationNS / 1000,
+                               .tv_nsec = ((durationNS % 1000) * 1000000) };
+#ifdef CLOCK_REALTIME_COARSE
+  clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
+#else
+  // In some mac systems CLOCK_REALTIME_COARSE is not defined, we fallback to CLOCK_REALTIME
+  clock_gettime(CLOCK_REALTIME, &searchTime->current);
+#endif
+
+  // The timeout mechanism is based on the monotonic clock, so we need another clock_gettime call
+  timespec monotoicNow = { .tv_sec = 0,
+                           .tv_nsec = 0 };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
+  rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
+}
+
 void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > INVERTED_INDEX_ENCVER) {
     return NULL;
   }
-  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0);
+
+  // dummy_index_memsize is not used because this function is only used to load
+  // legacy RDB indexes, legacy indexes should be upgraded on load
+  size_t dummy_index_memsize;
+  InvertedIndex *idx = NewInvertedIndex(RedisModule_LoadUnsigned(rdb), 0, &dummy_index_memsize);
 
   // If the data was encoded with a version that did not include the store numeric / store freqs
   // options - we force adding StoreFreqs.
@@ -59,7 +88,10 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   idx->size = actualSize;
   if (idx->size == 0) {
-    InvertedIndex_AddBlock(idx, 0);
+    // dummy_sz is not used because this function is only used to load
+    // legacy RDB indexes, legacy indexes should be upgraded on load
+    size_t dummy_sz;
+    InvertedIndex_AddBlock(idx, 0, &dummy_sz);
   } else {
     idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
@@ -101,10 +133,10 @@ void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof(InvertedIndex);
+  unsigned long ret = sizeof_InvertedIndex(idx->flags)
+                      + sizeof(IndexBlock) * idx->size;
   for (size_t i = 0; i < idx->size; i++) {
-    ret += sizeof(IndexBlock);
-    ret += IndexBlock_DataLen(&idx->blocks[i]);
+    ret += IndexBlock_DataCap(&idx->blocks[i]);
   }
   return ret;
 }
@@ -128,9 +160,8 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
 
 /**
  * Format redis key for a term.
- * TODO: Add index name to it
  */
-RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = ctx->spec->nameLen;
@@ -153,12 +184,12 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
   return ret;
 }
 
-RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name,
                                         (int)len, term);
 }
 
-RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name,
                                         (int)len, term);
 }
@@ -210,8 +241,8 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   sctx->flags = RS_CTX_UNSET;
 }
 
-void SearchCtx_UpdateTimeout(RedisSearchCtx *sctx, struct timespec timeoutTime) {
-  sctx->timeout = timeoutTime;
+void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
+  updateTime(&sctx->time, durationNS);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx) {
@@ -227,7 +258,7 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
+static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleString *termKey,
                                         int write, bool *outIsNew) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
@@ -245,79 +276,31 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
+  size_t index_size;
+  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
 }
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
+InvertedIndex *Redis_OpenInvertedIndexEx(const RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, bool *outIsNew, RedisModuleKey **keyp) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  InvertedIndex *idx = NULL;
-
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey,
-                                            REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
-
-    // check that the key is empty
-    if (k == NULL) {
-      if (outIsNew) {
-        *outIsNew = false;
-      }
-      goto end;
-    }
-
-    int kType = RedisModule_KeyType(k);
-
-    if (kType == REDISMODULE_KEYTYPE_EMPTY) {
-      if (write) {
-        if (outIsNew) {
-          *outIsNew = true;
-        }
-        idx = NewInvertedIndex(ctx->spec->flags, 1);
-        RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
-      }
-    } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
-               RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {
-      idx = RedisModule_ModuleTypeGetValue(k);
-    }
-    if (idx == NULL) {
-      RedisModule_CloseKey(k);
-    } else {
-      if (keyp) {
-        *keyp = k;
-      }
-    }
-  } else {
-    idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
-  }
-end:
+  InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
   RedisModule_FreeString(ctx->redisCtx, termKey);
   return idx;
 }
 
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
+IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight) {
-
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
-  if (!ctx->spec->keysDict) {
-    k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
 
-    // we do not allow empty indexes when loading an existing index
-    if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
-        RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-      goto err;
-    }
-
-    idx = RedisModule_ModuleTypeGetValue(k);
-  } else {
-    idx = openIndexKeysDict(ctx, termKey, 0, NULL);
-    if (!idx) {
-      goto err;
-    }
+  idx = openIndexKeysDict(ctx, termKey, 0, NULL);
+  if (!idx) {
+    goto err;
   }
 
   if (!idx->numDocs ||
@@ -327,7 +310,8 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     goto err;
   }
 
-  IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
+  IndexReader *ret = NewTermIndexReaderEx(idx, ctx, fieldMaskOrIndex, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
   }
@@ -428,12 +412,8 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 }
 
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep;
-  if (!isCrdt) {
-    rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  } else {
-    rep = RedisModule_Call(ctx, "DEL", "c", cstr);
-  }
+  // Send command and args to replicas and AOF
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);

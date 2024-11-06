@@ -9,7 +9,6 @@
 #include "util/khash.h"
 #include "util/fnv.h"
 #include "hll/hll.h"
-#include "rmutil/sds.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
@@ -19,7 +18,6 @@ KHASH_SET_INIT_INT64(khid);
 
 typedef struct {
   size_t count;
-  const RLookupKey *srckey;
   khash_t(khid) * dedup;
 } distinctCounter;
 
@@ -29,13 +27,12 @@ static void *distinctNewInstance(Reducer *r) {
       BlkAlloc_Alloc(ba, sizeof(*ctr), INSTANCE_BLOCK_NUM * sizeof(*ctr));  // malloc(sizeof(*ctr));
   ctr->count = 0;
   ctr->dedup = kh_init(khid);
-  ctr->srckey = r->srckey;
   return ctr;
 }
 
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
-  const RSValue *val = RLookup_GetItem(ctr->srckey, srcrow);
+  const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
   if (!val || val == RS_NullVal()) {
     return 1;
   }
@@ -164,14 +161,11 @@ Reducer *RDCRHLL_New(const ReducerOptions *options) {
   return newHllCommon(options, 1);
 }
 
-typedef struct {
-  const RLookupKey *srckey;
-  struct HLL hll;
-} hllSumCtx;
+typedef struct HLL hllSumCtx;
 
 static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
-  const RSValue *val = RLookup_GetItem(ctr->srckey, srcrow);
+  const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
 
   if (val == NULL || !RSValue_IsString(val)) {
     // Not a string!
@@ -202,40 +196,39 @@ static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     return 0;
   }
 
-  if (ctr->hll.bits) {
-    if (hdr->bits != ctr->hll.bits) {
+  if (ctr->bits) {
+    if (hdr->bits != ctr->bits) {
       return 0;
     }
     // Merge!
     struct HLL tmphll = {
         .bits = hdr->bits, .size = 1 << hdr->bits, .registers = (uint8_t *)registers};
-    if (hll_merge(&ctr->hll, &tmphll) != 0) {
+    if (hll_merge(ctr, &tmphll) != 0) {
       return 0;
     }
   } else {
     // Not yet initialized - make this our first register and continue.
-    hll_init(&ctr->hll, hdr->bits);
-    memcpy(ctr->hll.registers, registers, regsz);
+    hll_init(ctr, hdr->bits);
+    memcpy(ctr->registers, registers, regsz);
   }
   return 1;
 }
 
 static RSValue *hllsumFinalize(Reducer *parent, void *ctx) {
   hllSumCtx *ctr = ctx;
-  return RS_NumVal(ctr->hll.bits ? (uint64_t)hll_count(&ctr->hll) : 0);
+  return RS_NumVal(ctr->bits ? (uint64_t)hll_count(ctr) : 0);
 }
 
 static void *hllsumNewInstance(Reducer *r) {
   hllSumCtx *ctr = BlkAlloc_Alloc(&r->alloc, sizeof(*ctr), 1024 * sizeof(*ctr));
-  ctr->hll.bits = 0;
-  ctr->hll.registers = NULL;
-  ctr->srckey = r->srckey;
+  ctr->bits = 0;
+  ctr->registers = NULL;
   return ctr;
 }
 
 static void hllsumFreeInstance(Reducer *r, void *p) {
   hllSumCtx *ctr = p;
-  hll_destroy(&ctr->hll);
+  hll_destroy(ctr);
 }
 
 Reducer *RDCRHLLSum_New(const ReducerOptions *options) {

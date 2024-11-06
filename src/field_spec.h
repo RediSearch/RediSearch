@@ -67,6 +67,7 @@ typedef enum {
   FieldSpec_WithSuffixTrie = 0x40,
   FieldSpec_UndefinedOrder = 0x80,
   FieldSpec_IndexEmpty = 0x100,       // Index empty values (i.e., empty strings)
+  FieldSpec_IndexMissing = 0x200,     // Index missing values (non-existing field)
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -97,7 +98,8 @@ typedef struct FieldSpec {
   int16_t sortIdx;
 
   /** Unique field index. Each field has a unique index regardless of its type */
-  uint16_t index;
+  // We rely on the index starting from 0 and being sequential
+  t_fieldIndex index;
 
   union {
     struct {
@@ -140,6 +142,7 @@ typedef struct FieldSpec {
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
+#define FieldSpec_IndexesMissing(fs) ((fs)->options & FieldSpec_IndexMissing)
 #define FieldSpec_IsUnf(fs) ((fs)->options & FieldSpec_UNF)
 
 void FieldSpec_SetSortable(FieldSpec* fs);
@@ -152,5 +155,12 @@ const char *FieldSpec_GetTypeNames(int idx);
 RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+
+/**Adds an error message to the IndexError of the FieldSpec.
+ * This function also updates the global field's type index error counter.
+ */
+void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
 #endif /* SRC_FIELD_SPEC_H_ */

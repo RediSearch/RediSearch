@@ -101,7 +101,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(1, "(*)");
   assertValidQuery_v(2, "(*)");
 
-  // params are avalible from version 2.
+  // params are available from version 2.
   assertInvalidQuery_v(1, "$hello");
   assertValidQuery_v(2, "$hello");
   assertInvalidQuery_v(1, "\"$hello\"");
@@ -127,6 +127,15 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB AS score]");
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB EF $ef foo bar x 5 AS score]");
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
+
+  // NEGATION used between the colon and the term
+  assertValidQuery_v(1, "@foo:-as");
+  assertValidQuery_v(2, "@foo:-as");
+  assertValidQuery_v(1, "-@foo:as");
+  assertValidQuery_v(2, "-@foo:as");
+
+  assertValidQuery_v(1,"hello world&good");
+  assertValidQuery_v(2,"hello world&good");
 
   StrongRef_Release(ref);
 }

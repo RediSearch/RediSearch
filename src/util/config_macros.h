@@ -6,7 +6,6 @@
 
 #pragma once
 
-#define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
   QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
   return REDISMODULE_ERR;
@@ -23,7 +22,7 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
+#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, uint32_t externalTriggerId, QueryError *status)
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
 #define CONFIG_BOOLEAN_GETTER(name, var, invert) \
@@ -49,3 +48,5 @@
     }                                          \
     RETURN_STATUS(acrc);                       \
   }
+
+#define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)

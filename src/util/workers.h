@@ -6,21 +6,24 @@
 
 #pragma once
 
-#ifdef MT_BUILD
-
 #include "redismodule.h"
 #include "thpool/thpool.h"
-#include "config.h"
+#include <stdbool.h>
+#include <stddef.h>
 #include <assert.h>
-
-#define USE_BURST_THREADS() (RSGlobalConfig.numWorkerThreads && RSGlobalConfig.mt_mode == MT_MODE_ONLY_ON_OPERATIONS)
 
 // create workers thread pool
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
 int workersThreadPool_CreatePool(size_t worker_count);
 
+// Set the number of workers according to the configuration and server state
+void workersThreadPool_SetNumWorkers(void);
+
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void);
+
+// return n_threads value.
+size_t workersThreadPool_NumThreads(void);
 
 // adds a task
 int workersThreadPool_AddWork(redisearch_thpool_proc, void *arg_p);
@@ -34,14 +37,12 @@ void workersThreadPool_Terminate(void);
 // Destroys thread pool, can be called on uninitialized threadpool.
 void workersThreadPool_Destroy(void);
 
-// Initialize the worker thread pool based on the model configuration.
-void workersThreadPool_Activate(void);
+// Configure the thread pool for operation start according to module configuration.
+void workersThreadPool_OnEventStart(void);
 
-// Actively wait and terminates the running workers pool after all pending jobs are done.
-void workersThreadPool_waitAndTerminate(RedisModuleCtx *ctx);
-
-// Set a signal for the running threads to terminate once all pending jobs are done.
-void workersThreadPool_SetTerminationWhenEmpty();
+/** Configure the thread pool for operation end according to module configuration.
+ * @param wait - if true, the function will wait for all pending jobs to finish. */
+void workersThreadPool_OnEventEnd(bool wait);
 
 /********************************************* for debugging **********************************/
 
@@ -54,5 +55,3 @@ int workersThreadPool_resume();
 thpool_stats workersThreadPool_getStats();
 
 void workersThreadPool_wait();
-
-#endif // MT_BUILD

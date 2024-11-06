@@ -16,7 +16,7 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "redisearch.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
 #include "query_error.h"
@@ -126,10 +126,6 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
 int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
-
-// Checks whether query nodes are valid
-// Currently Phrase nodes are checked whether slop/inorder are allowed
-int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */

@@ -122,6 +122,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_VECTOR:    // NO SCORE
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:
+    case QN_MISSING:
       break;
   }
   return ret;
@@ -142,7 +143,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const char *name = field ? field->name : NULL;
+  const char *name = opt->fieldName;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
@@ -206,7 +207,7 @@ static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
     its[1] = new;
     // use slop==-1 and inOrder==0 since not applicable
     // use weight 1 since we checked at `checkQueryTypes`
-    req->rootiter = NewIntersecIterator(its, 2, NULL, 0, -1, 0, 1);
+    req->rootiter = NewIntersectIterator(its, 2, NULL, 0, -1, 0, 1);
   }
 }
 
@@ -242,8 +243,12 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
+        const char* sortByNodeFieldName = opt->sortbyNode->nn.nf->fieldName;
+        const FieldSpec *fs = IndexSpec_GetField(spec, sortByNodeFieldName, strlen(sortByNodeFieldName));
+        FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config);
+                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
+                                                             &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
       }

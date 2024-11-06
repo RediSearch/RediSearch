@@ -10,6 +10,9 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
+#define MILLISECOND_IN_ONE_SECOND 1000
+#define NANOSECOND_IN_ONE_MILLISECOND 1000000
+
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type) {
   doc->docKey = docKey;
   doc->score = (float)score;
@@ -108,7 +111,70 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
+static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
+  timespec result = {.tv_sec = 0, .tv_nsec = 0};
+  if (totalMilliseconds > 0) {
+    result.tv_sec = totalMilliseconds / MILLISECOND_IN_ONE_SECOND;
+    result.tv_nsec = (totalMilliseconds % MILLISECOND_IN_ONE_SECOND) * NANOSECOND_IN_ONE_MILLISECOND;
+  }
+  return result;
+}
+
+
+static inline FieldExpiration* callHashFieldExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr, RedisModuleString** fields) {
+  size_t vectorElementCount = array_len(fields);
+  long long fieldCount = vectorElementCount;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
+  if (rep == NULL) {
+    RedisModule_Log(ctx, "warning", "Error calling HPEXPIRETIME, error: %d", errno);
+    return NULL;
+  }
+  RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY, "HPEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));
+  size_t sz = RedisModule_CallReplyLength(rep);
+  arrayof(FieldExpiration) result = NULL;
+  for (t_fieldIndex i = 0; i < sz; i++) {
+    const int64_t milliseconds = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(rep, i));
+    if (milliseconds < 0) {
+      continue;
+    }
+    const FieldExpiration fieldExpiration = { .index = i, .point = timespecFromMilliseconds(milliseconds)};
+    array_ensure_append_1(result, fieldExpiration);
+  }
+  RedisModule_FreeCallReply(rep);
+  return result;
+}
+
+static inline FieldExpiration* getHashFieldExpirationTime(const IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
+  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
+    const FieldSpec *f = spec->fields + field;
+    fields[f->index] = RedisModule_CreateString(ctx, f->name, strlen(f->name));
+  }
+  FieldExpiration* result = callHashFieldExpirationTime(ctx, key, fields);
+  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
+    RedisModule_FreeString(ctx, fields[field]);
+  }
+  array_free(fields);
+  return result;
+}
+
+static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
+  t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
+  mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
+  if (totalMilliseconds == REDISMODULE_NO_EXPIRE) {
+    return zero;
+  }
+
+  t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
+  return result;
+}
+
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
+  // must happen before opening the key, in case the call will cause a lazy expiration
+  IndexSpec *spec = sctx->spec;
+  if (spec->monitorFieldExpiration) {
+    doc->fieldExpirations = getHashFieldExpirationTime(spec, sctx->redisCtx, doc->docKey);
+  }
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
   // DvirDu: Is this even possible?
@@ -118,7 +184,6 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   }
 
   size_t nitems = sctx->spec->numFields;
-  IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   assert(rule);
   RedisModuleString *payload_rms = NULL;
@@ -135,11 +200,11 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
+  // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
-    // Hash command is not related to other type such as JSON
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
     if (v == NULL) {
       continue;
@@ -153,8 +218,11 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
     RedisModule_FreeString(sctx->redisCtx, v);
   }
-  rv = REDISMODULE_OK;
 
+  if (spec->monitorDocumentExpiration) {
+    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+  }
+  rv = REDISMODULE_OK;
 done:
   if (k) {
     RedisModule_CloseKey(k);
@@ -174,6 +242,18 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   RedisModuleCtx *ctx = sctx->redisCtx;
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
+
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  if (!k) {
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
+    goto done;
+  }
+
+  if (spec->monitorDocumentExpiration) {
+    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+  }
+
+  RedisModule_CloseKey(k);
 
   RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
   if (!jsonRoot) {
@@ -434,12 +514,12 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   arrayof(RedisModuleString *) arguments =
       array_new(RedisModuleString *, 1 + opts->numFieldElems + 6);
 
-  arguments = array_append(arguments, opts->keyStr);
+  array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
-    arguments = array_append(arguments, globalAddRSstrings[0]);
-    arguments = array_append(arguments, opts->scoreStr);
+    array_append(arguments, globalAddRSstrings[0]);
+    array_append(arguments, opts->scoreStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
@@ -448,8 +528,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   if (opts->languageStr) {
-    arguments = array_append(arguments, globalAddRSstrings[1]);
-    arguments = array_append(arguments, opts->languageStr);
+    array_append(arguments, globalAddRSstrings[1]);
+    array_append(arguments, opts->languageStr);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
@@ -458,8 +538,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   if (opts->payload) {
-    arguments = array_append(arguments, globalAddRSstrings[2]);
-    arguments = array_append(arguments, opts->payload);
+    array_append(arguments, globalAddRSstrings[2]);
+    array_append(arguments, opts->payload);
     RedisSearchCtx_LockSpecWrite(ctx);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));

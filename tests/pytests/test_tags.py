@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from RLTest import Env
 from includes import *
 from common import *
 import json
@@ -71,7 +72,7 @@ def testTagPrefix(env):
 
     env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world',
                'tags', 'hello world,hello-world,hell,jell').ok()
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
+    env.expect(debug_cmd(), 'dump_tagidx', 'idx', 'tags')    \
         .equal([['hell', [1]], ['hello world', [1]], ['hello-world', [1]], ['jell', [1]]])
 
     for _ in env.reloadingIterator():
@@ -175,12 +176,12 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
     if not env.isCluster():
-        conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
+        conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx4', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx5', 't').equal([['FOO', [2]], ['foo', [3]], ['foo,FOO', [1]]])
 
     env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
         .equal([3, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
@@ -203,11 +204,11 @@ def testTagCaseSensitive(env):
         forceInvokeGC(env, 'idx4')
         forceInvokeGC(env, 'idx5')
 
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['f o', [4, 5, 6]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['F O', [4, 5]], ['f o', [4, 6]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['f o', [5, 6]], ['f o,f o', [4]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
-        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['f o', [4, 5, 6]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['F O', [4, 5]], ['f o', [4, 6]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['f o', [5, 6]], ['f o,f o', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx4', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
+        env.expect(debug_cmd(), 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
 
     # not casesensitive
     env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
@@ -249,25 +250,25 @@ def testTagCaseSensitive(env):
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
     conn.execute_command('HSET', 'doc3', 't', 'baz')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['bar', [2]], ['baz', [3]], ['foo', [1]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['bar', [2]], ['baz', [3]], ['foo', [1]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1, 'doc1', ['t', 'foo']])
 
     # delete two tags
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc2')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0])
 
     # delete last tag
     conn.execute_command('DEL', 'doc3')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # check term can be used after being empty
     conn.execute_command('HSET', 'doc4', 't', 'foo')
@@ -279,11 +280,11 @@ def testTagGCClearEmpty(env):
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1, []])
@@ -295,7 +296,7 @@ def testTagGCClearEmptyWithCursor(env):
     forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # read from the cursor
     res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
@@ -306,11 +307,11 @@ def testTagGCClearEmptyWithCursor(env):
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1, 2]]])
 
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1, []])
@@ -322,12 +323,12 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # add data
     conn.execute_command('HSET', 'doc3', 't', 'foo')
     conn.execute_command('HSET', 'doc4', 't', 'foo')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3, 4]]])
 
     # read from the cursor
     res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
@@ -345,7 +346,7 @@ def testEmptyTagLeak(env):
     tags = 30
 
     conn = getConnectionByEnv(env)
-    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     pl = conn.pipeline()
 
@@ -358,7 +359,7 @@ def testEmptyTagLeak(env):
             pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
         pl.execute()
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+    env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])
 
 def test_empty_suffix_withsuffixtrie(env):
     """Tests that we don't leak when we search for a suffix with no entries in
@@ -376,490 +377,588 @@ def test_empty_suffix_withsuffixtrie(env):
     res = env.cmd(*cmd)
     env.assertEqual(res, expected)
 
-def testEmptyValueTags():
-    """Tests that empty values are indexed properly"""
+def testDialect2TagExact():
+    """Test exact match with dialect 2."""
 
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
-    def testHashIndex(env, idx):
-        """Performs a series of tests on a hash index"""
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'id', 'NUMERIC', 'SORTABLE').ok()
 
-        conn = getConnectionByEnv(env)
+    # Create sample data
+    env.cmd('HSET', '{doc}:1', 'tag', 'abc:1', 'id', '1')
+    env.cmd('HSET', '{doc}:2', 'tag', 'xyz:2', 'id', '2')
+    # two tags separated by comma
+    env.cmd('HSET', '{doc}:3', 'tag', 'xyz:2,abc:1', 'id', '3')
+    env.cmd('HSET', '{doc}:4', 'tag', 'abc:1-xyz:2', 'id', '4')
+    env.cmd('HSET', '{doc}:5', 'tag', 'joe@mail.com', 'id', '5')
+    env.cmd('HSET', '{doc}:6', 'tag', 'tag with {brackets}', 'id', '6')
+    env.cmd('HSET', '{doc}:7', 'tag', 'abc:1|xyz:2', 'id', '7')
+    # tag with octal number: '_12\100' == '_12@'
+    env.cmd('HSET', '{doc}:8', 'tag', '_12\100', 'id', '8')
+    env.cmd('HSET', '{doc}:9', 'tag', '-99999', 'id', '9')
+    env.cmd('HSET', '{doc}:10', 'tag', 'ab(12)', 'id', '10')
+    env.cmd('HSET', '{doc}:11', 'tag', 'a|b-c d', 'id', '11')
+    # this test generates the tag: '_@12\\345'
+    env.cmd('HSET', '{doc}:12', 'tag', '_@12\\345', 'id', '12')
+    env.cmd('HSET', '{doc}:13', 'tag', '$literal', 'id', '13')
+    env.cmd('HSET', '{doc}:14', 'tag', '*literal', 'id', '14')
+    # tags with leading and trailing spaces
+    env.cmd('HSET', '{doc}:15', 'tag', '  with: space  ', 'id', '15')
+    env.cmd('HSET', '{doc}:16', 'tag', '  leading:space', 'id', '16')
+    env.cmd('HSET', '{doc}:17', 'tag', 'trailing:space  ', 'id', '17')
+    # short tags
+    env.cmd('HSET', '{doc}:18', 'tag', 'x', 'id', '18')
+    env.cmd('HSET', '{doc}:19', 'tag', 'w', 'id', '19')
+    env.cmd('HSET', '{doc}:20', 'tag', "w'", 'id', '20')
+    env.cmd('HSET', '{doc}:21', 'tag', "w''", 'id', '21')
+    # tag matching wildcard format
+    env.cmd('HSET', '{doc}:22', 'tag', "w'?*1'", 'id', '22')
+    # tag without special characters
+    env.cmd('HSET', '{doc}:23', 'tag', "hello world", 'id', '23')
+    env.cmd('HSET', '{doc}:24', 'tag', "hello", 'id', '24')
 
-        # Search for a single document, via its indexed empty value
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+    # Test exact match
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"}', 'NOCONTENT',
+                  'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
 
-        # Make sure the document is NOT returned when searching for a non-empty
-        # value
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['@t:{foo}']
-        expected = [0]
-        cmd_assert(env, cmd, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1|xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:7'])
 
-        # ------------------------------ Negation ------------------------------
-        # Search for a negation of a non-empty value, make sure the document is
-        # returned
-        cmd = f'FT.SEARCH {idx} -@t:{{foo}}'.split(' ')
-        expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+    # Test exact match with escaped '$' and '*' characters
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"$literal"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:13'])
 
-        # Search for a negation of an empty value, make sure the document is NOT
-        # returned
-        cmd = f'FT.SEARCH {idx} -isempty(@t)'.split(' ')
-        expected = [0]
-        cmd_assert(env, cmd, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{\*literal}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
 
-        # ------------------------------- Union --------------------------------
-        # Union of empty and non-empty values
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['isempty(@t) | @t:{foo}']
-        expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, expected)
+    # with dialect < 5, the pipe is an OR operator
+    expected_result = [3, '{doc}:1', '{doc}:2', '{doc}:3']
+    for dialect in [1, 2, 3, 4]:
+        res = env.cmd('FT.SEARCH', 'idx', '@tag:{abc\:1|xyz\:2}', 'NOCONTENT',
+                      'SORTBY', 'id', 'ASC', 'DIALECT', dialect)
+        env.assertEqual(res, expected_result)
 
-        # ---------------------------- Intersection ----------------------------
-        # Intersection of empty and non-empty values
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['isempty(@t) @t:{foo}']
-        expected = [0]
-        cmd_assert(env, cmd, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"_12@"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:8'])
 
-        # ------------------------------- Prefix -------------------------------
-        # We shouldn't get the document when searching for a prefix of "__empty"
-        cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
-        expected = [0]
-        cmd_assert(env, cmd, expected)
+    # escape character (backslash '\')
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"_@12\\345"}')
+    env.assertEqual(res, [1, '{doc}:12', ['tag', '_@12\\345', 'id', '12']])
 
-        # ------------------------------- Suffix -------------------------------
-        # We shouldn't get the document when searching for a suffix of "__empty"
-        cmd = f'FT.SEARCH {idx} @t:{{__em*}}'.split(' ')
-        expected = [0]
-        cmd_assert(env, cmd, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"ab(12)"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:10'])
 
-        # Add a document that will be found by the suffix search
-        conn.execute_command('HSET', 'h2', 't', 'empty')
-        cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
-        expected = [1, 'h2', ['t', 'empty']]
-        cmd_assert(env, cmd, expected)
-        conn.execute_command('DEL', 'h2')
+    # Test tag with '-'
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:4'])
 
-        # -------------------- Combination with other fields -------------------
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | isempty(@t)']
-        expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, [1, 'h1', ['t', '']])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{-99999}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:9'])
 
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello isempty(@t)']
-        expected = [0]
-        cmd_assert(env, cmd, [0])
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"-99999"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:9'])
 
-        # Non-empty intersection with another field
-        conn.execute_command('HSET', 'h1', 'text', 'hello')
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello isempty(@t)']
-        expected = [1, 'h1', ['t', '', 'text', 'hello']]
-        cmd_assert(env, cmd, expected)
+    # Test tag with '|' and ' '
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"a|b-c d"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:11'])
 
-        # Non-empty union with another field
-        conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['love | isempty(@t)', 'SORTBY', 'text', 'ASC']
-        expected = [
-            2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'movie']
-        ]
-        cmd_assert(env, cmd, expected)
+    # AND Operator (INTERSECT queries)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"} @tag:{"xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:3'])
 
-        # Checking the functionality of our pipeline with empty values
-        # ------------------------------- APPLY --------------------------------
-        # Populate with some data that we will be able to see the `APPLY`
-        cmd = f'FT.AGGREGATE {idx} * LOAD 1 @t APPLY upper(@t) as upper_t SORTBY 4 @t ASC @upper_t ASC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'upper_t', ''], \
-            ['t', 'movie', 'upper_t', 'MOVIE']
-        ]
-        cmd_assert(env, cmd, expected)
+    # Negation Queries (using dash "-")
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"} -@tag:{"xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:1'])
 
-        # ------------------------------ SORTBY --------------------------------
-        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'text', 'hello'], \
-            ['t', 'movie', 'text', 'love you']
-        ]
-        cmd_assert(env, cmd, expected)
+    # OR Operator (UNION queries)
+    expected = [2, '{doc}:4', '{doc}:5']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"} | @tag:{"joe@mail.com"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"|"joe@mail.com"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2" | "joe@mail.com"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
 
-        # Reverse order
-        cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
-        expected = [
-            ANY, \
-            ['t', 'movie', 'text', 'love you'], \
-            ['t', '', 'text', 'hello']
-        ]
-        cmd_assert(env, cmd, expected)
+    expected = [3, '{doc}:2', '{doc}:3', '{doc}:23']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello world | "xyz:2"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
 
-        # ------------------------------ GROUPBY -------------------------------
-        conn.execute_command('HSET', 'h3', 't', 'movie')
-        conn.execute_command('HSET', 'h4', 't', '')
-        cmd = f'FT.AGGREGATE {idx} * GROUPBY 1 @t REDUCE COUNT 0 AS count'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'count', '2'], \
-            ['t', 'movie', 'count', '2']
-        ]
-        cmd_assert(env, cmd, expected)
+    expected = [3, '{doc}:2', '{doc}:3', '{doc}:24']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello | "xyz:2"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
 
-        # --------------------------- SEPARATOR --------------------------------
-        # Remove added documents
-        for i in range(2, 5):
-            conn.execute_command('DEL', f'h{i}')
+    expected = [4, '{doc}:2', '{doc}:3', '{doc}:23', '{doc}:24']
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2" | hello | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{hello | "xyz:2" | hello world}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, expected)
 
-        # Validate that separated empty fields are indexed as empty as well
-        conn.execute_command('HSET', 'h5', 't', ', bar')
-        conn.execute_command('HSET', 'h6', 't', 'bat, ')
-        conn.execute_command('HSET', 'h7', 't', 'bat,')
-        conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
-        conn.execute_command('HSET', 'h9', 't', ',')
-        cmd = f'FT.SEARCH {idx} isempty(@t) SORTBY t ASC'.split(' ')
-        expected = [
-            ANY,
-            'h1', ['t', '', 'text', 'hello'],
-            'h9', ['t', ','],
-            'h5', ['t', ', bar'],
-            'h7', ['t', 'bat,'],
-            'h6', ['t', 'bat, '],
-            'h8', ['t', 'bat, , bat2']
-        ]
-        cmd_assert(env, cmd, expected)
+    # Optional Queries (using tiled "~")
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"} ~@tag:{"xyz:2"}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
 
-        # Make sure we don't index h5, h6, h7 in case of a non-empty indexing
-        # tag field
-        env.cmd('FT.CREATE', 'temp_idx', 'SCHEMA', 't', 'TAG')
-        cmd = f'FT.SEARCH temp_idx isempty(@t) SORTBY t ASC'.split(' ')
-        expected = [0]
-        cmd_assert(env, cmd, expected)
-        env.cmd('FT.DROPINDEX', 'temp_idx')
+    # Test exact match with brackets
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"tag with {brackets}"}',
+                  'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:6'])
 
-        # ------------------------ Priority vs. Intersection -----------------------
-        res = env.cmd('FT.SEARCH', idx, 'isempty(@t) -isempty(@t)')
-        env.assertEqual(res, [0])
+    # Search with attributes
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2"}=>{$weight:5.0}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [2, '{doc}:2', '{doc}:3'])
 
-        res = env.cmd('FT.SEARCH', idx, '-isempty(@t) isempty(@t)')
-        env.assertEqual(res, [0])
+    res = env.cmd('FT.SEARCH', 'idx',
+                  '(@tag:{"xyz:2"} | @tag:{"abc:1"}) => { $weight: 5.0; }',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) isempty(@t)')
-        expected = [
-            'INTERSECT {',
-            '  NOT{',
-            '    TAG:@t {',
-            '      <ISEMPTY>', '    }',
-            '  }',
-            '  TAG:@t {',
-            '    <ISEMPTY>',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx',
+                  '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
+                  'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:3'])
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | @t:{foo} isempty(@t)')
-        expected = [
-            'UNION {',
-            '  TAG:@t {',
-            '    bar',
-            '  }',
-            '  INTERSECT {',
-            '    TAG:@t {',
-            '      foo',
-            '    }',
-            '    TAG:@t {',
-            '      <ISEMPTY>',
-            '    }',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    # Test prefix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"a-b-c"*}')
+    env.assertEqual(res, "TAG:@tag {\n  PREFIX{a-b-c*}\n}\n")
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '-@t:{bar} | @t:{foo} isempty(@t)')
-        expected = [
-            'UNION {',
-            '  NOT{',
-            '    TAG:@t {',
-            '      bar',
-            '    }',
-            '  }',
-            '  INTERSECT {',
-            '    TAG:@t {',
-            '      foo',
-            '    }',
-            '    TAG:@t {',
-            '      <ISEMPTY>',
-            '    }',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"a-b-c*"}')
+    env.assertEqual(res, 'TAG:@tag {\n  a-b-c*\n}\n')
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '@t:{bar} | -@t:{foo} -isempty(@t)')
-        expected = [
-            'UNION {',
-            '  TAG:@t {',
-            '    bar',
-            '  }',
-            '  INTERSECT {',
-            '    NOT{',
-            '      TAG:@t {',
-            '        foo',
-            '      }',
-            '    }',
-            '    NOT{',
-            '      TAG:@t {',
-            '        <ISEMPTY>',
-            '      }',
-            '    }',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"abc*yxv"*}')
+    env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc*yxv*}\n}\n')
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) isempty(@t) | @t:{bar}')
-        expected = [
-            'UNION {',
-            '  INTERSECT {',
-            '    NOT{',
-            '      TAG:@t {',
-            '        <ISEMPTY>',
-            '      }',
-            '    }',
-            '    TAG:@t {',
-            '      <ISEMPTY>',
-            '    }',
-            '  }',
-            '  TAG:@t {',
-            '    bar',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"abc:?*yxv"*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'abc', 'hello')
+    env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc:?*yxv*}\n} => { $weight: 3.4; }\n')
 
-        res = env.cmd('FT.EXPLAINCLI', idx, 'isempty(@t) | -@t:{bar} -isempty(@t)')
-        expected = [
-            'UNION {',
-            '  TAG:@t {',
-            '    <ISEMPTY>',
-            '  }',
-            '  INTERSECT {',
-            '    NOT{',
-            '      TAG:@t {',
-            '        bar',
-            '      }',
-            '    }',
-            '    NOT{',
-            '      TAG:@t {',
-            '        <ISEMPTY>',
-            '      }',
-            '    }',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"abc:?"*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'abc', 'hello')
+    env.assertEqual(res, 'TAG:@tag {\n  PREFIX{abc:?*}\n} => { $weight: 3.4; }\n')
 
-        res = env.cmd('FT.EXPLAINCLI', idx, '-isempty(@t) | -@t:{bar} isempty(@t)')
-        expected = [
-            'UNION {',
-            '  NOT{',
-            '    TAG:@t {',
-            '      <ISEMPTY>',
-            '    }',
-            '  }',
-            '  INTERSECT {',
-            '    NOT{',
-            '      TAG:@t {',
-            '        bar',
-            '      }',
-            '    }',
-            '    TAG:@t {',
-            '      <ISEMPTY>',
-            '    }',
-            '  }',
-            '}',
-            ''
-        ]
-        env.assertEqual(res, expected)
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{$abc*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'abc', 'hello')
+    env.assertEqual(res, 'TAG:@tag {\n  PREFIX{hello*}\n} => { $weight: 3.4; }\n')
 
-    # Create an index with a TAG field, that also indexes empty strings, another
-    # TAG field that doesn't index empty values, and a TEXT field
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'text', 'TEXT').ok()
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:"*}=>{$weight:3.4}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [4, '{doc}:1', '{doc}:3', '{doc}:4', '{doc}:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"*liter"*}', 'NOCONTENT',)
+    env.assertEqual(res, [1, '{doc}:14'])
+
+    # Test suffix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*"a-b-c"}')
+    env.assertEqual(res, "TAG:@tag {\n  SUFFIX{*a-b-c}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"*a-b-c"}')
+    env.assertEqual(res, 'TAG:@tag {\n  *a-b-c\n}\n')
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*"abc*yxv"}')
+    env.assertEqual(res, 'TAG:@tag {\n  SUFFIX{*abc*yxv}\n}\n')
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"xyz:2"}=>{$weight:3.4}',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"*literal"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param}',
+                  'PARAMS', '2', 'param', 'xyz:2',
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [4, '{doc}:2', '{doc}:3', '{doc}:4', '{doc}:7'])
+
+    # Test infix
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*"a-b-c"*}')
+    env.assertEqual(res, "TAG:@tag {\n  INFIX{*a-b-c*}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"*a-b-c*"}')
+    env.assertEqual(res, 'TAG:@tag {\n  *a-b-c*\n}\n')
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{*"abc*yxv:"*}')
+    env.assertEqual(res, 'TAG:@tag {\n  INFIX{*abc*yxv:*}\n}\n')
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"@mail."*}=>{$weight:3.4}',
+                  'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:5'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"*literal"*}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:14'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:5'])
+
+    # if '$' is escaped, it is treated as a regular character, and the parameter
+    # is not replaced
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$literal*}',
+                  'PARAMS', '2', 'literal', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:13'])
+
+    # Test wildcard
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
+                  'PARAMS', '2', 'param', 'hello world')
+    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx',
+                  "@tag1:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
+                  'PARAMS', '2', 'param', 'hello world')
+    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
+                  'NOCONTENT', 'SORTBY', 'id', 'ASC')
+    env.assertEqual(res, [2, '{doc}:4', '{doc}:7'])
+
+    # wildcard including single quote
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'a\\'bc'}")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{a'bc}\n}\n")
+
+    # wildcard with leading and trailing spaces are valid, spaces are ignored
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
+
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
+    env.assertEqual(res, res2)
+
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'  }")
+    env.assertEqual(res, res2)
+
+    res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{     w'?*1'  }")
+    env.assertEqual(res, res2)
+
+    # Test escaped wildcards which become tags
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"w\'?*1\'"}')
+    env.assertEqual(res, "TAG:@tag {\n  w'?*1'\n}\n")
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'?*1\'"}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:22'])
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '(@tag:{"w\'-abc"})')
+    env.assertEqual(res, "TAG:@tag {\n  w'-abc\n}\n")
+
+    res = env.cmd('FT.EXPLAIN', 'idx', '@tag:{"w\'???1a"}')
+    env.assertEqual(res, "TAG:@tag {\n  w'???1a\n}\n")
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'}", 'SORTBY', 'id', 'ASC',
+                  'NOCONTENT')
+    env.assertEqual(res, [2, '{doc}:18', '{doc}:19'])
+
+    # This is a tag, not a wildcard, because there is no text enclosed
+    # in the quotes
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'\'"}')
+    env.assertEqual(res, [1, '{doc}:21', ['tag', "w''", 'id', '21']])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"w\'"}')
+    env.assertEqual(res, [1, '{doc}:20', ['tag', "w'", 'id', '20']])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'} -@tag:{w'w'}")
+    env.assertEqual(res, [1, '{doc}:18', ['tag', 'x', 'id', '18']])
+
+    # Test tags with leading and trailing spaces
+    expected_result = [1, '{doc}:15', ['tag', '  with: space  ', 'id', '15']]
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{  "with: space"  }')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"with: space"*}')
+    env.assertEqual(res, expected_result)
+
+    # leading spaces of the prefix are ignored
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{              "with: space"*}')
+    env.assertEqual(res, expected_result)
+
+    # valid, characters before the quotes and after the star are ignored
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{   "with: space"* }')
+    env.assertEqual(res, expected_result)
+
+    # trailing spaces of the suffix are ignored
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"with: space"              }')
+    env.assertEqual(res, expected_result)
+
+    # valid, characters before the star are ignored
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{   *"with: space"}')
+    env.assertEqual(res, expected_result)
+
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*" with: space"}')
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{*" with: space"}')
+    env.assertEqual(res, ['TAG:@tag {', '  SUFFIX{* with: space}', '}', ''])
+
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"with: space "*}')
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"with: space "*}')
+    env.assertEqual(res, ['TAG:@tag {', '  PREFIX{with: space *}', '}', ''])
+
+    # This returns 0 because the query is looking for a tag with leading and
+    # trailing spaces but the spaces were removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*" with: space "*}')
+    env.assertEqual(res, [0])
+    res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{*" with: space "*}')
+    env.assertEqual(res, ['TAG:@tag {', '  INFIX{* with: space *}', '}', ''])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
+                  'PARAMS', '2', 'param', 'with: space')
+    env.assertEqual(res, expected_result)
+
+    # Test tags with leading spaces
+    expected_result = [1, '{doc}:16', ['tag', '  leading:space', 'id', '16']]
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{  leading*}")
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"leading:space"}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"eading:space"}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
+                  'PARAMS', '2', 'param', 'leading:space')
+    env.assertEqual(res, expected_result)
+
+    # Test tags with trailing spaces
+    expected_result = [1, '{doc}:17', ['tag', 'trailing:space  ', 'id', '17']]
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{trailing*}")
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:spac"*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"}')
+    env.assertEqual(res, expected_result)
+
+def testDialect2InvalidSyntax():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
+               'NUMERIC', 'SORTABLE').ok()
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.EXPLAIN', 'idx', "@tag:{w\\'?*1'}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', '@tag:{abc:1\\}')
+
+    # wildcard and prefix
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'*}")
+
+    # wildcard with trailing spaces and prefix
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{w'1?'   *}")
+
+    # suffix and wildcard
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'}")
+
+    # wildcard and contains
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{*w'1?'*}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @tag:{w'-abc*}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}'")
+
+    # escaping an invalid wildcard
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{\\w-:abc}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx '@tag:{\\w'-:abc}")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:(%)")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:(|)")
+
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.SEARCH idx @t1:({)")
+
+    # test punct character
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.EXPLAIN idx @t1:>")
+
+    # test cntrl character
+    with env.assertResponseError(contained='Syntax error'):
+        env.cmd("FT.EXPLAIN idx @t1:\10")
+
+def testDialect2SpecialChars():
+    """Test search with punct characters with dialect 2."""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'h1', 't', '')
-    testHashIndex(env, 'idx')
-    env.flush()
 
-    # ----------------------------- SORTABLE case ------------------------------
-    # Create an index with a SORTABLE TAG field, that also indexes empty strings
-    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
-    conn.execute_command('HSET', 'h1', 't', '')
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
 
-    testHashIndex(env, 'idx_sortable')
-    env.flush()
+    # punct = [!-/:-@[-‘{-~]
+    punct_1 = list(range(ord('!'), ord('/') + 1))  # Characters from '!' to '/'
+    punct_2 = list(range(ord(':'), ord('@') + 1))  # Characters from ':' to '@'
+    punct_3 = list(range(ord('['), ord('`') + 1))  # Characters from '[' to '`'
+    punct_4 = list(range(ord('{'), ord('~') + 1))  # Characters from '{' to '~'
+    punct = punct_1 + punct_2 + punct_3 + punct_4
 
-    # --------------------------- WITHSUFFIXTRIE case --------------------------
-    # Create an index with a TAG field, that also indexes empty strings, while
-    # using a suffix trie
-    env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
-    conn.execute_command('HSET', 'h1', 't', '')
-    testHashIndex(env, 'idx_suffixtrie')
-    env.flush()
+    # Create docs with a text containing the punct characters
+    for c in punct:
+        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text",
+                             f"single\\{chr(c)}term")
 
-    # ---------------------------------- JSON ----------------------------------
-    def testJSONIndex(env, idx):
-        conn = getConnectionByEnv(env)
+    # Create docs without special characters
+    conn.execute_command("HSET", "doc0", "text", "hanoi")
+    conn.execute_command("HSET", "doc999", "text", "two words")
 
-        # Populate the db with a document that has an empty TAG field
-        empty_j = {
-        't': ''
-        }
-        empty_js = json.dumps(empty_j, separators=(',', ':'))
-        env.expect('JSON.SET', 'j', '$', empty_js).equal('OK')
+    # Query for a single term, where the punct character is escaped
+    for c in punct:
+        expected = [1, f"doc{ord(chr(c))}"]
 
-        # Search for a single document, via its indexed empty value
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', empty_js]]
-        cmd_assert(env, cmd, expected)
+        # Test exact match
+        cmd = f"FT.SEARCH idx @text:(single\\{chr(c)}term) NOCONTENT"
+        res = env.execute_command(cmd)
+        env.assertEqual(res, expected)
 
-        # Multi-value
-        j = {
-            't': ['a', '', 'c']
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
+        # Test prefix
+        if chr(c) != '\\':
+            cmd = f"FT.SEARCH idx @text:(single\\{chr(c)}*) NOCONTENT"
+        else:
+            # TODO: why do I need to use the 't' after the backslash?
+            cmd = f"FT.SEARCH idx @text:(single\\\\t*) NOCONTENT"
+        res = env.execute_command(cmd)
+        env.assertEqual(res, expected)
 
-        # Empty array
-        # On sortable case, empty arrays are not indexed (MOD-6936)
-        if idx != 'jidx_sortable':
-            j = {
-                't': []
-            }
-            js = json.dumps(j, separators=(',', ':'))
-            conn.execute_command('JSON.SET', 'j', '$', js)
-            cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-            expected = [1, 'j', ['$', js]]
-            cmd_assert(env, cmd, expected)
+        # Test suffix
+        cmd = f"FT.SEARCH idx @text:(*\\{chr(c)}term) NOCONTENT"
+        res = env.execute_command(cmd)
+        env.assertEqual(res, expected)
 
-        # Empty object
-        j = {
-            't': {}
-        }
-        js = json.dumps(j, separators=(',', ':'))
-        conn.execute_command('JSON.SET', 'j', '$', js)
-        cmd = f'FT.SEARCH {idx} isempty(@t)'.split(' ')
-        expected = [1, 'j', ['$', js]]
-        cmd_assert(env, cmd, expected)
+        # Test infix
+        cmd = f"FT.SEARCH idx @text:(*le\\{chr(c)}te*) NOCONTENT"
+        res = env.execute_command(cmd)
+        env.assertEqual(res, expected)
 
+        # Test INTERSECTION operator
+        res = env.execute_command("FT.SEARCH", "idx",
+                      f"@text:(single\\{chr(c)}term single* *term)", "NOCONTENT")
+        env.assertEqual(res, expected)
 
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-    testJSONIndex(env, 'jidx')
-    env.flush()
+        # Test UNION operator
+        res = conn.execute_command("FT.SEARCH", "idx",
+                      f"@text:(single\\{chr(c)}term | hanoi)", "NOCONTENT",
+                      "SORTBY", "text", "ASC")
+        env.assertEqual(res, [2, "doc0", f"doc{ord(chr(c))}"])
 
-    env.expect('FT.CREATE', 'jidx_sortable', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'SORTABLE').ok()
-    testJSONIndex(env, 'jidx_sortable')
-    env.flush()
+    # Test queries where the punct character is NOT escaped
+    expected = [1, 'doc999', ['text', 'two words']]
+    expected_explain = [
+        '@text:INTERSECT {',
+        '  @text:UNION {',
+        '    @text:two',
+        '    @text:+two(expanded)',
+        '  }',
+        '  @text:UNION {',
+        '    @text:words',
+        '    @text:+word(expanded)',
+        '    @text:word(expanded)',
+        '  }',
+        '}',
+        ''
+    ]
+    for c in punct:
+        char = chr(c)
+        # skip characters which are not consumed by the lexer
+        if char in {'"', '$', '%', '(', ')', '-', ':', ';', '@', '[', ']',
+                    '_', '{', '}', '~', '|', '*'}:
+            continue
 
-    env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TAG', 'ISEMPTY', 'WITHSUFFIXTRIE').ok()
-    testJSONIndex(env, 'jidx_suffix')
-    env.flush()
+        res = env.execute_command(
+            "FT.SEARCH", "idx", f"@text:(two{char}words)")
+        env.assertEqual(res, expected)
 
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$arr[*]', 'AS', 'arr', 'TAG', 'ISEMPTY').ok()
-    # Empty array values ["a", "", "c"] with explicit array components indexing
-    arr = {
-        'arr': ['a', '', 'c']
-    }
-    arrs = json.dumps(arr, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-    expected = [1, 'j', ['$', arrs]]
-    cmd_assert(env, cmd, expected)
+        res = env.execute_command(
+            "FT.EXPLAINCLI", "idx", f"@text:(two{char}words)")
+        env.assertEqual(res, expected_explain)
 
-    # Empty arrays shouldn't be indexed for this indexing mechanism
-    arr = {
-        'arr': []
-    }
-    arrs = json.dumps(arr, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', arrs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-    expected = [0]
-    cmd_assert(env, cmd, expected)
-    conn.execute_command('DEL', 'j')
+    # Test control characters
+    for cntrl in range(1,32):
+        res = env.execute_command(
+            "FT.SEARCH", "idx", f"@text:(two{chr(cntrl)}words)")
+        env.assertEqual(res, expected)
 
-    # Empty object shouldn't be indexed for this indexing mechanism (flatten, [*])
-    obj = {
-        'arr': {}
-    }
-    objs = json.dumps(obj, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@arr)'.split(' ')
-    expected = [0]
-    cmd_assert(env, cmd, expected)
+        res = env.execute_command(
+            "FT.EXPLAINCLI", "idx", f"@text:(two{chr(cntrl)}words)")
+        env.assertEqual(res, expected_explain)
 
-    # Searching for emptiness of a non-existing field should return an error
-    obj = {
-        'obj': {}
-    }
-    objs = json.dumps(obj, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', objs).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@obj)'.split(' ')
-    expected = [0]
-    env.expect(*cmd).error().contains('Syntax error: Field not found')
+def testTagUNF():
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
 
-    env.flush()
+    # Create index without UNF
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
 
-    # Embedded empty object
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t.b', 'AS', 'b', 'TAG', 'ISEMPTY').ok()
-    j = {
-        "t": {"b": {}}
-    }
-    js = json.dumps(j, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', js).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-    expected = [1, 'j', ['$', js]]
-    cmd_assert(env, cmd, expected)
+    # Create index with UNF
+    env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()
 
-    # Embedded empty array
-    j = {
-        "t": {"b": []}
-    }
-    js = json.dumps(j, separators=(',', ':'))
-    env.expect('JSON.SET', 'j', '$', js).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@b)'.split(' ')
-    expected = [1, 'j', ['$', js]]
-    cmd_assert(env, cmd, expected)
+    # Create sample data
+    env.cmd('HSET', '{doc}:1', 'tag', 'america')
+    env.cmd('HSET', '{doc}:2', 'tag', 'aMerica')
+    env.cmd('HSET', '{doc}:3', 'tag', 'America')
 
-    env.flush()
+    # Without UNF, the tags are normalized and the results are sorted by key
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{america}', 'NOCONTENT',
+                  'SORTBY', 'tag', 'ASC', 'WITHCOUNT')
+    env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
-    # An attempt to index a non-empty object as a TAG should fail (coverage)
-    j = {
-        "t": {"lala": "lali"}
-    }
-    js = json.dumps(j)
-    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'ISEMPTY').ok()
-    env.expect('JSON.SET', 'j', '$', js).equal('OK')
-    cmd = f'FT.SEARCH jidx isempty(@t)'.split(' ')
-    cmd_assert(env, cmd, [0])
+    # Without UNF, the results are normalized and are grouped
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@tag',
+                  'REDUCE', 'COUNT', '0')
+    env.assertEqual(res[0], 1)
 
-    # Make sure we experienced an indexing failure, via `FT.INFO`
-    info = index_info(env, 'jidx')
-    env.assertEqual(info['hash_indexing_failures'], 1)
+    # With UNF (un-normalized form), the normalization is disabled and the tags
+    # are sorted by its original form
+    res = env.cmd('FT.SEARCH', 'idx_unf', '@tag:{america}', 'NOCONTENT',
+                  'SORTBY', 'tag', 'WITHCOUNT')
+    env.assertEqual(res, [3, '{doc}:3', '{doc}:2', '{doc}:1'])
 
-    env.flush()
-
-    # Test that when we index many docs, we find the wanted portion of them upon
-    # empty value indexing
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'ISEMPTY').ok()
-    n_docs = 1000
-    for i in range(n_docs):
-        conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
-    res = env.cmd('FT.SEARCH', 'idx', 'isempty(@t)', 'LIMIT', '0', '0')
-    env.assertEqual(int(res[0]), 500)
+    # With UNF, the results are not normalized and are not grouped
+    res = env.cmd('FT.AGGREGATE', 'idx_unf', '*', 'GROUPBY', '1', '@tag',
+                  'REDUCE', 'COUNT', '0')
+    env.assertEqual(res[0], 3)

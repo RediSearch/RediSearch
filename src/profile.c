@@ -5,22 +5,23 @@
  */
 
 #include "profile.h"
+#include "reply_macros.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
-
   if (ir->idx->flags == Index_DocIdsOnly) {
-    printProfileType("TAG");
-    RedisModule_ReplyKV_SimpleString(reply, "Term", ir->record->term.term->str);
-
+    if (ir->record->term.term != NULL) {
+      printProfileType("TAG");
+      REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
+    }
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_Stringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
@@ -28,11 +29,11 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
       double nw[2];
       decodeGeo(ir->decoderCtx.rangeMin, se);
       decodeGeo(ir->decoderCtx.rangeMax, nw);
-      RedisModule_Reply_Stringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
+      RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
     printProfileType("TEXT");
-    RedisModule_ReplyKV_SimpleString(reply, "Term", ir->record->term.term->str);
+    REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   }
 
   // print counter and clock
@@ -103,6 +104,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   ProfilePrinterCtx *profileCtx = ctx;
   AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
+  bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -126,6 +128,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print whether a warning was raised throughout command execution
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
+      } else if (reachedMaxPrefixExpansions) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
@@ -180,7 +184,8 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout) {
-  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout};
+void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout,
+                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions};
   Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
 }

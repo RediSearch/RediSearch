@@ -18,7 +18,7 @@ def testUniqueSum(env):
 
     values = [("int", str(3)), ("negative double", str(-0.4)), ("positive double",str(4.67))]
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     for (title, value) in values:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
@@ -77,7 +77,7 @@ All the 19 first docs go right, the new doc goes left.
 @skip(cluster=True)
 def testSplit(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -137,7 +137,7 @@ def testSplit(env):
 @skip(cluster=True)
 def testOverrides(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -165,8 +165,9 @@ def testOverrides(env):
         info = index_info(env, 'idx')
         env.assertEqual(hashes_number, int(info['num_records']), message = "expected ft.info:num_records")
 
-        # size in bytes shouldn't grow
-        env.assertEqual(expected_inverted_sz_mb, round(float(info['inverted_sz_mb']), 4), message = "expected ft.info:inverted_sz_mb")
+        # size shouldn't vary more than 5% from the expected size.
+        delta_size = abs(expected_inverted_sz_mb - round(float(info['inverted_sz_mb']), 4))/expected_inverted_sz_mb
+        env.assertGreater(0.05, delta_size)
 
         # the tree depth was experimentally calculated, and should remain constant since we are using the same values.
         numeric_tree = numeric_tree_summary(env, 'idx', 'num')
@@ -201,7 +202,7 @@ def testSanity(env):
 	for i in range(repeat):
 		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
-	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
+	env.expect(debug_cmd(), 'numidx_summary', 'idx', 'n') \
 				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
 
 @skip(cluster=True)
@@ -209,7 +210,7 @@ def testCompressionConfig(env):
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
-	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
 	for i in range(100):
 	  	env.cmd('hset', i, 'n', str(1 + i / 100.0))
 	for i in range(100):
@@ -217,7 +218,7 @@ def testCompressionConfig(env):
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
 
 	# with compression. no exact number match.
-	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
 	for i in range(100):
 	  env.cmd('hset', i, 'n', str(1 + i / 100.0))
 
@@ -241,15 +242,15 @@ def testRangeParentsConfig(env):
 		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
 		for i in range(elements):
 			env.cmd('hset', i, 'n', i)
-		actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
+		actual_res = env.cmd(debug_cmd(), 'numidx_summary', 'idx0', 'n')
 		env.assertEqual(actual_res[0:2], result[test])
 
 		# reset with old ranges parents param
 		env.cmd('ft.drop', 'idx0')
-		env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
+		env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
 
 	# reset back
-	env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
+	env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
 @skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
@@ -268,9 +269,9 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
-    num_summery_before = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    num_summery_before = to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))
     forceInvokeGC(env, 'idx')
-    num_summery_after = to_dict(env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n'))
+    num_summery_after = to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))
     env.assertGreater(num_summery_before['numRanges'], num_summery_after['numRanges'])
 
     # test for PR#3018. check `numEntries` is updated after GC
@@ -286,8 +287,8 @@ def testEmptyNumericLeakCenter(env):
     # check that no empty node are left
 
 	# Make sure GC is not triggered sporadically (only manually)
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -305,9 +306,9 @@ def testEmptyNumericLeakCenter(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 
-    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_before = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     forceInvokeGC(env, 'idx')
-    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    num_summery_after = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.assertGreater(num_summery_before[1], num_summery_after[1])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
@@ -343,7 +344,7 @@ https://redislabs.atlassian.net/wiki/spaces/DX/pages/4054876404/BUG+numeric+inde
 @skip(cluster=True) # coordinator doesn't suppory ft.config
 def testNegativeValues(env):
 
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -389,3 +390,542 @@ def testNegativeValues(env):
     # Query the index. if the split value of the root is nan, the query won't return any results.
     res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], doc_id)
+
+def testNumberFormat(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'numeric').ok()
+    env.assertEqual(conn.execute_command('HSET', 'doc01', 'n', '1.0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc02', 'n', '1'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc03', 'n', '1.0e0'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc04', 'n', '10e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc05', 'n', '1.5e+2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc06', 'n', '10e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc07', 'n', '1.5e-2'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc08', 'n', 'INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc09', 'n', '1e6'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc10', 'n', 'iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc11', 'n', '+INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc12', 'n', '+inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc13', 'n', '+iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc14', 'n', '-INF'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc15', 'n', '-inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc16', 'n', '-iNf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc17', 'n', '-1'), 1)
+
+    # Test unsigned numbers
+    expected = [3, 'doc01', 'doc02', 'doc03']
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1 1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+    # Breaking change, should be solved in major version
+    # res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res, expected)
+
+    # Test signed numbers
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-1e0 -1]', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc17'])
+
+    # Test +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 inf]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [6, 'doc08', 'doc09', 'doc10', 'doc11', 'doc12', 'doc13']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 INF]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +inf]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[1e6 +INF]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
+    # Test -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf 0]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [4, 'doc14', 'doc15', 'doc16', 'doc17']
+    env.assertEqual(res1, expected)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-INF 0]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+
+    # Test float numbers
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-0.1 0.1]', 'NOCONTENT', 'WITHCOUNT')
+    expected = [2, 'doc06', 'doc07']
+    env.assertEqual(res1, expected)
+    # Breaking change, should be solved in major version
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res2, expected)
+    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
+    # env.assertEqual(res2, expected)
+
+def testNumericOperators():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    waitForIndex(env, 'idx')
+
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'n', '11'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'n', '12'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'n', '13'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'n', '14'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'n', '15'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key6', 'n', '-10'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key7', 'n', '-11'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key8', 'n', '3.14'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key9', 'n', '-3.14'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key10', 'n', '+inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key11', 'n', 'inf'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'key12', 'n', '-inf'), 1)
+
+    # Test >= and <=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [3, 'key2', 'key3', 'key4'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>= +12 @n<=+14', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<=$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n<= +$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=-$min @n<= -$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '-12', 'max', '-14')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<=3.14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key8'])
+
+    # Test > and <=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>12 @n<=14', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key3', 'key4'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$min @n<=$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$min @n<=+$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>0 @n<=3.14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key8'])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>3.14 @n<=3.14', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    # Test >= and <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=12 @n<14', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key2', 'key3'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+12 @n< +14', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$min @n<$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$min @n< +$max', 'NOCONTENT',
+                   'WITHCOUNT', 'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=3.14 @n<11.5', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key1', 'key8'])
+
+    # Test > and <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>12 @n<14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key3'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$min @n<$max', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n> $min @n<+$max', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$max   @n> $min', 'NOCONTENT',
+                   'PARAMS', '4', 'min', '12', 'max', '14')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>3.14 @n<11.5', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key1'])
+
+    # Test >
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>12', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [5, 'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n> +$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n> +$min   @n> +11', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n> -$min', 'NOCONTENT',
+                   'PARAMS', '2', 'min', '-12', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test > +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>inf', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '+inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf')
+    env.assertEqual(res2, res1)
+
+    # Test > -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>-inf', 'NOCONTENT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [11, 'key7', 'key6', 'key9', 'key8', 'key1', 'key2',
+                           'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>$p', 'NOCONTENT', 'PARAMS', 2,
+                   'p', '-inf', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test >= +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=inf', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'p', '+inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=+$p', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'p', 'inf')
+    env.assertEqual(res2, res1)
+
+    # Test >= -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n>=-inf', 'NOCONTENT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [12, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
+                           'key2', 'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n>=$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '-inf', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test <
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<15', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [9, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
+                           'key2', 'key3', 'key4'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<$max', 'NOCONTENT',
+                   'PARAMS', '2', 'max', '15', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$max', 'NOCONTENT',
+                   'PARAMS', '2', 'max', '15', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n< +$max', 'NOCONTENT',
+                   'PARAMS', '2', 'max', '15', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n< +$max  @n < 20', 'NOCONTENT',
+                   'PARAMS', '2', 'max', '15', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test < +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<inf', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [10, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
+                           'key2', 'key3', 'key4', 'key5'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '+inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '-inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test < -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<-inf', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '-inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<-$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf')
+    env.assertEqual(res2, res1)
+
+    # Test <= +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<=inf', 'NOCONTENT', 'LIMIT', 0, 12,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [12, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
+                           'key2', 'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf', 'LIMIT', 0, 12,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', 'inf', 'LIMIT', 0, 12,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=+$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '+inf', 'LIMIT', 0, 12,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test <= -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<=-inf', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n<=$p', 'NOCONTENT',
+                   'PARAMS', 2, 'p', '-inf')
+    env.assertEqual(res2, res1)
+
+    # Test ==
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==15', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key5'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '15')
+    env.assertEqual(res2, res1)
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==+$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '15')
+    env.assertEqual(res2, res1)
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==+$n   @n==15', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '15')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-15', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-11', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key7'])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-11 | @n==-10', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key6', 'key7'])
+
+    # Test == double number
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==3.14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key8'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[3.14 3.14]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==+$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '3.14')
+    env.assertEqual(res2, res1)
+
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-3.14', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key9'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-3.14 -3.14]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==+$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '-3.14')
+    env.assertEqual(res2, res1)
+
+    # Test == +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==inf', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [2, 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[inf inf]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==+inf', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'n', 'inf')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'WITHCOUNT',
+                   'PARAMS', 2, 'n', '+inf')
+    env.assertEqual(res2, res1)
+
+    # Test == -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==-inf', 'NOCONTENT')
+    env.assertEqual(res1, [1, 'key12'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf -inf]', 'NOCONTENT')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n==$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '-inf')
+    env.assertEqual(res2, res1)
+
+    # Test !=
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n!=12 @n!= -10', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [10, 'key12', 'key7', 'key9', 'key8', 'key1', 'key3',
+                           'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+12 @n!= -10', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!= $n @n!=$m', 'NOCONTENT',
+                   'PARAMS', 4, 'n', '12', 'm', '-10', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!= +$n @n!=+$m', 'NOCONTENT',
+                   'PARAMS', 4, 'n', '+12', 'm', '-10', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test != double number
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n!=3.14', 'NOCONTENT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key9', 'key1', 'key2',
+                           'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (3.14] | @n:[(3.14 +inf]',
+                   'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '3.14', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n!=-3.14', 'NOCONTENT',
+                   'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [11, 'key12', 'key7', 'key6', 'key8', 'key1', 'key2',
+                           'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-inf (-3.14] | @n:[(-3.14 +inf]',
+                   'NOCONTENT', 'WITHCOUNT', 'LIMIT', 0, 20, 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '-3.14', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test != +inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n!=inf', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [10, 'key12', 'key7', 'key6', 'key9', 'key8', 'key1',
+                           'key2', 'key3', 'key4', 'key5'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+inf', 'NOCONTENT',
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', 'inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=$n', 'NOCONTENT', 'PARAMS', 2,
+                   'n', '+inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT', 'PARAMS', 2,
+                     'n', 'inf', 'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test != -inf
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n!=-inf', 'NOCONTENT', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res1, [11, 'key7', 'key6', 'key9', 'key8', 'key1', 'key2',
+                           'key3', 'key4', 'key5', 'key10', 'key11'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=$n', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '-inf', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n!=+$n', 'NOCONTENT',
+                   'PARAMS', 2, 'n', '-inf', 'LIMIT', 0, 20,
+                   'SORTBY', 'n', 'ASC')
+    env.assertEqual(res2, res1)
+
+    # Test range and operator in the same query
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==3.14 | @n:[10 13]', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res1, [4, 'key1', 'key2', 'key3', 'key8'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[3.14 3.14] | @n>=10 @n<=13',
+                   'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, res1)
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==11 | @n:[10 13]', 'NOCONTENT',
+                   'WITHCOUNT')
+    env.assertEqual(res1, [3, 'key1', 'key2', 'key3'])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[11 11] | @n>=10 @n<=13',
+                   'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, res1)
+
+    # Test contradiction query
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==3.14 @n!=3.14', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==12 @n==11', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n<10 @n>12', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n==10 @n:[12 15]', 'NOCONTENT')
+    env.assertEqual(res1, [0])
+
+    # It is valid to have spaces between the operator and the value
+    for operator in ['==', '!=', '>', '>=', '<', '<=']:
+        res1 = env.cmd('FT.SEARCH', 'idx', '@n' + operator + '0')
+        res2 = env.cmd('FT.SEARCH', 'idx', '@n' + operator + ' 0')
+        env.assertEqual(res1, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@n ' + operator + '0')
+        env.assertEqual(res1, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@n ' + operator + ' 0')
+        env.assertEqual(res1, res2)
+        res2 = env.cmd('FT.SEARCH', 'idx', '@n ' + operator + ' $p',
+                       'PARAMS', 2, 'p', '0')
+        env.assertEqual(res1, res2)
+
+    # Invalid syntax
+    for operator in ['==', '!=', '>', '>=', '<', '<=']:
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '+(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '-(105').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-105').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(+inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '-(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '+(inf').error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '+($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '-($param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(+$param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '(-$param',
+                'PARAMS', 2, 'param', 100).error()
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + 'w').error()\
+            .contains('Syntax error')
+        env.expect('FT.SEARCH', 'idx', '@n' + operator + '$p', 'PARAMS', 2,
+                   'p', 'w').error().contains('Invalid numeric value')
+
+    # If the operator has two characters, it can't have spaces between them
+    env.expect('FT.SEARCH', 'idx', "@n! =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n> =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n< =1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n= =1").error().contains('Syntax error')
+
+    # Invalid operators
+    env.expect('FT.SEARCH', 'idx', "@n===1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n!!=1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n!>=1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n>>1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n<<1").error().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', "@n*-").error().contains('Syntax error')
+
+def testNumericOperatorsModifierWithEscapes():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    alias_and_modifier = {
+         'm ': '@m\ ',
+         "m ": "@m\\ ",
+         " m": "@\\ m",
+         "m\\": "@m\\\\",
+         " m ": "@\\ m\\ ",
+         "m@1": "@m\\@1",
+         'm ': '@m\     ',
+    }
+
+    for alias, escaped_mod in alias_and_modifier.items():
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'AS', alias, 'NUMERIC').ok()
+        env.assertEqual(conn.execute_command('HSET', 'key1', 'n', '10'), 1)
+        env.assertEqual(conn.execute_command('HSET', 'key2', 'n', '20'), 1)
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '  > 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + ' >= 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '< 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '  <= 15', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '== 10', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key1'])
+
+        res = env.cmd('FT.SEARCH', 'idx', escaped_mod + '!= 10', 'NOCONTENT')
+        env.assertEqual(res, [1, 'key2'])
+
+        env.flush()

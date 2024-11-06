@@ -22,25 +22,17 @@
 
 uint64_t TotalIIBlocks = 0;
 
-// The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 100
-#define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
-
-// Initial capacity (in bytes) of a new block
-#define INDEX_BLOCK_INITIAL_CAP 6
-
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 
 // pointer to the current block while reading the index
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
-static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
+static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record);
+                                          RSIndexResult *record, const FieldFilterContext* filterCtx);
 
-/* Add a new block to the index with a given document id as the initial id */
-IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -48,18 +40,18 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
   Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
+  (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   return &INDEX_LAST_BLOCK(idx);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
+InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
+  RedisModule_Assert(memsize != NULL);
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
-  // Avoid some of the allocation if not needed
-  size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
-
+  size_t size = sizeof_InvertedIndex(flags);
   InvertedIndex *idx = rm_malloc(size);
+  *memsize = size;
   idx->blocks = NULL;
   idx->size = 0;
   idx->lastId = 0;
@@ -72,13 +64,13 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
     idx->numEntries = 0;
   }
   if (initBlock) {
-    InvertedIndex_AddBlock(idx, 0);
+    InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
 }
 
-void indexBlock_Free(IndexBlock *blk) {
-  Buffer_Free(&blk->buf);
+size_t indexBlock_Free(IndexBlock *blk) {
+  return Buffer_Free(&blk->buf);
 }
 
 void InvertedIndex_Free(void *ctx) {
@@ -106,8 +98,7 @@ void TermReader_OnReopen(void *privdata) {
   if (ir->record->type == RSResultType_Term) {
     // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
-    InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(ir->sctx, ir->record->term.term->str,
                                                    ir->record->term.term->len, 0, NULL, NULL);
     if (!idx || ir->idx != idx) {
       // the inverted index was collected entirely by GC, lets stop searching.
@@ -336,10 +327,10 @@ void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
   printf("InvertedIndex {\n");
   ++indent;
   PRINT_INDENT(indent);
-  printf("numDocs %u, lastId %ld, size %u\n", idx->numDocs, idx->lastId, idx->size);
+  printf("numDocs %u, lastId %lu, size %u\n", idx->numDocs, idx->lastId, idx->size);
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL ,0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     PRINT_INDENT(indent);
     printf("value %f, docId %lu\n", res->num.value, res->docId);
@@ -448,7 +439,6 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
     // 1. Full encoding - docId, freq, flags, offset
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
       return encodeFull;
-
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
       return encodeFullWide;
 
@@ -507,7 +497,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 /* Write a forward-index entry to an index writer */
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
-
+  size_t sz = 0;
   int same_doc = 0;
   if (idx->lastId && idx->lastId == docId) {
     if (encoder != encodeNumeric) {
@@ -531,7 +521,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   // see if we need to grow the current block
   if (blk->numEntries >= blockSize && !same_doc) {
     // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
-    blk = InvertedIndex_AddBlock(idx, docId);
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
   } else if (blk->numEntries == 0) {
     blk->firstId = blk->lastId = docId;
   }
@@ -546,13 +536,13 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   //
   // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
   if (delta > UINT32_MAX && encoder != encodeNumeric) {
-    blk = InvertedIndex_AddBlock(idx, docId);
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
     delta = 0;
   }
 
   BufferWriter bw = NewBufferWriter(&blk->buf);
 
-  size_t ret = encoder(&bw, delta, entry);
+  sz += encoder(&bw, delta, entry);
 
   idx->lastId = docId;
   blk->lastId = docId;
@@ -564,7 +554,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     ++idx->numEntries;
   }
 
-  return ret;
+  return sz;
 }
 
 /** Write a forward-index entry to the index */
@@ -952,8 +942,9 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, int skipMulti) {
+IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax, int skipMulti,
+                              const FieldFilterContext* fieldCtx) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -961,13 +952,21 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, skipMulti, res);
+  return NewIndexReaderGeneric(sctx, idx, procs, ctx, skipMulti, res, fieldCtx);
+}
+
+IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
 }
 
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
 }
+
+#define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
 int IR_Read(void *ctx, RSIndexResult **e) {
 
@@ -1015,6 +1014,22 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       ir->sameId = ir->lastId;
     }
 
+    if (ir->sctx && ir->sctx->spec && DocTable_HasExpiration(&ir->sctx->spec->docs, record->docId)) {
+      size_t numFieldIndices = 0;
+      // Use a stack allocated array for the field indices, if the field mask is not a single field
+      t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
+      t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
+      if (ir->filterCtx.field.isFieldMask) {
+        numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec, ir->filterCtx.field.value.mask, fieldIndicesArray);
+      } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
+        sortedFieldIndices = &ir->filterCtx.field.value.index;
+        ++numFieldIndices;
+      }
+      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, numFieldIndices, ir->filterCtx.predicate, &ir->sctx->time.current);
+      if (!validValue) {
+        continue;
+      }
+    }
 
     ++ir->len;
     *e = record;
@@ -1094,7 +1109,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    * continuously.
    *
    * The seeker function saves CPU by avoiding unnecessary function
-   * calls and pointer derefences/accesses if the requested ID is
+   * calls and pointer dereferences/accesses if the requested ID is
    * not found. Because less checking is required
    *
    * We:
@@ -1113,8 +1128,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (ir->decoders.seeker) {
     // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
-      // We're at the end of the last block...
-      if (ir->currentBlock + 1 == ir->idx->size) {
+      if (ir->currentBlock == ir->idx->size - 1) {
+        // We're at the end of the last block...
         goto eof;
       }
       IndexReader_AdvanceBlock(ir);
@@ -1152,13 +1167,13 @@ eof:
 
 size_t IR_NumDocs(void *ctx) {
   IndexReader *ir = ctx;
-  // otherwise we use our counter
   return ir->len;
 }
 
-static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
+static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                             RSIndexResult *record) {
+                             RSIndexResult *record, const FieldFilterContext* filterCtx) {
+  // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
   ret->currentBlock = 0;
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
@@ -1170,25 +1185,26 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
+  ret->filterCtx = *filterCtx;
   ret->isValidP = NULL;
-  ret->sp = sp;
+  ret->sctx = sctx;
   IR_SetAtEnd(ret, 0);
 }
 
-static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
+static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, int skipMulti,
-                                          RSIndexResult *record) {
+                                          RSIndexResult *record, const FieldFilterContext* filterCtx) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, skipMulti, record);
+  IndexReader_Init(sctx, ret, idx, decoder, decoderCtx, skipMulti, record, filterCtx);
   return ret;
 }
 
-IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                 RSQueryTerm *term, double weight) {
-  if (term && sp) {
+  if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sp->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sp->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
   }
 
   // Get the decoder
@@ -1201,9 +1217,29 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {.num = fieldMask};
+  IndexDecoderCtx dctx = {.num = fieldMaskOrIndex.isFieldMask ? fieldMaskOrIndex.value.mask : RS_FIELDMASK_ALL};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex,
+                                  .predicate = FIELD_EXPIRATION_DEFAULT};
+  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &filterCtx);
+}
+
+IndexReader *NewTermIndexReader(InvertedIndex *idx) {
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  return NewTermIndexReaderEx(idx, NULL, fieldMaskOrIndex, NULL, 1);
+}
+
+IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
+                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
+  IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
+  if (!decoder.decoder) {
+    return NULL;
+  }
+  FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = predicate };
+  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  record->freq = freq;
+  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);
 }
 
 void IR_Free(IndexReader *ir) {
@@ -1288,7 +1324,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     return -1;
   }
 
-  params->bytesBeforFix = blk->buf.offset;
+  params->bytesBeforFix = blk->buf.cap;
 
   int docExists;
   while (!BufferReader_AtEnd(&br)) {
@@ -1377,36 +1413,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     Buffer_ShrinkToSize(&blk->buf);
   }
 
-  params->bytesAfterFix = blk->buf.offset;
+  params->bytesAfterFix = blk->buf.cap;
 
   IndexResult_Free(res);
   return frags;
-}
-
-int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
-                         IndexRepairParams *params) {
-  size_t limit = params->limit ? params->limit : SIZE_MAX;
-  size_t blocksProcessed = 0;
-  for (; startBlock < idx->size && blocksProcessed < limit; ++startBlock, ++blocksProcessed) {
-    IndexBlock *blk = idx->blocks + startBlock;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
-      // Skip over blocks which have a wide variation. In the future we might
-      // want to split a block into two (or more) on high-delta boundaries.
-      continue;
-    }
-    int repaired = IndexBlock_Repair(&idx->blocks[startBlock], dt, idx->flags, params);
-    // We couldn't repair the block - return 0
-    if (repaired == -1) {
-      return 0;
-    } else if (repaired > 0) {
-      // Record the number of records removed for gc stats
-      params->docsCollected += repaired;
-      idx->numDocs -= repaired;
-
-      // Increase the GC marker so other queries can tell that we did something
-      ++idx->gcMarker;
-    }
-  }
-
-  return startBlock < idx->size ? startBlock : 0;
 }

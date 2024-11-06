@@ -26,7 +26,7 @@ doc1_content = r'''{"string": "gotcha1",
             }'''
 
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)
 
@@ -137,7 +137,7 @@ def testHandleUnindexedTypes(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                         '$.string', 'AS', 'string', 'TEXT',
                         '$.null', 'AS', 'nil', 'TEXT',
-                        '$.boolT', 'AS', 'boolT', 'TEXT',
+                        '$.boolT', 'AS', 'boolT', 'TAG',
                         '$.boolN', 'AS', 'boolN', 'NUMERIC',
                         '$.int', 'AS', 'int', 'NUMERIC',
                         '$.flt', 'AS', 'flt', 'NUMERIC',
@@ -149,14 +149,14 @@ def testHandleUnindexedTypes(env):
                         '$.vector', 'AS', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2'
                         ).ok()
     waitForIndex(env, 'idx')
-    # FIXME: Why does the following search return zero results?
+# FIXME: Why does the following search return zero results?
     env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
         .equal([1, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
 
     # TODO: test TAGVALS ?
     pass
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testReturnAllTypes(env):
     # Test returning all JSON types
     # (even if some of them are not able to be indexed/found,
@@ -168,13 +168,13 @@ def testReturnAllTypes(env):
     # TODO: Make sure TAG can be used as a label in "FT.SEARCH idx "*" RETURN $.t As Tag"
     pass
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testOldJsonPathSyntax(env):
     # Make sure root path '.' is working
     # For example, '$.t' should also work as '.t' and 't'
     pass
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testNoContent(env):
     # Test NOCONTENT
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
@@ -182,7 +182,7 @@ def testNoContent(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testDocNoFullSchema(env):
     # Test NOCONTENT
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t1', 'TEXT', '$.t2', 'TEXT')
@@ -190,14 +190,14 @@ def testDocNoFullSchema(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1, 'doc:1'])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testReturnRoot(env):
     # Test NOCONTENT
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"foo"}')
     env.expect('ft.search', 'idx', 'foo', 'RETURN', '1', '$').equal([1, 'doc:1', ['$', '{"t":"foo"}']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testNonEnglish(env):
     # Test json in non-English languages
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -223,7 +223,7 @@ def testNonEnglish(env):
                 'doc:4', ['MyReturnLabel', 'ドラゴン'],
                 'doc:5', ['MyReturnLabel', '踪迹']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testSet(env):
     # JSON.SET (either set the entire key or a sub-value)
     # Can also do multiple changes/side-effects, such as converting an object to a scalar
@@ -236,7 +236,7 @@ def testSet(env):
     env.expect('ft.search', 'idx', 're*').equal(res)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1, 'doc:1'])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMSet(env):
     # JSON.MSET (either set the entire keys or a sub-value of the keys)
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
@@ -249,7 +249,7 @@ def testMSet(env):
     res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8}}']]
     env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMerge(env):
     # JSON.MERGE
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.details.a', 'AS', 'a', 'NUMERIC')
@@ -262,7 +262,7 @@ def testMerge(env):
     res = [1, 'doc:1', ['$', '{"t":"newReJSON","details":{"a":8,"b":3}}']]
     env.expect('ft.search', 'idx', '@a:[7 9]').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testDel(env):
     conn = getConnectionByEnv(env)
 
@@ -278,7 +278,7 @@ def testDel(env):
     env.assertEqual(res, 1)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testToggle(env):
     # JSON.TOGGLE
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -288,7 +288,7 @@ def testToggle(env):
     env.expect('JSON.TOGGLE','doc:1','$.boolT').equal([1])
     env.expect('ft.search', 'idx', '*').equal([1, 'doc:1', ['$', '{"boolT":true}']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testStrappend(env):
     # JSON.STRAPPEND
 
@@ -303,7 +303,7 @@ def testStrappend(env):
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'Redis').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testArrayCommands(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
@@ -349,7 +349,7 @@ def testArrayCommands(env):
     env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testArrayCommands_withVector(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -425,13 +425,13 @@ def testArrayCommands_withVector(env):
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testRootValues(env):
     # Search all JSON types as a top-level element
     # FIXME:
     pass
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testAsTag(env):
     res = env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
                               'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
@@ -448,7 +448,7 @@ def testAsTag(env):
 
     env.expect('FT.SEARCH', 'idx', '@tag:{foo\\,bar\\,baz}').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMultiValueTag(env):
     conn = getConnectionByEnv(env)
 
@@ -482,7 +482,7 @@ def testMultiValueTag(env):
     env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMultiValueTag_Recursive_Decent(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
@@ -493,7 +493,7 @@ def testMultiValueTag_Recursive_Decent(env):
     env.expect('FT.SEARCH', 'idx', '@name:{foo}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@name:{bar}').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMultiValueErrors(env):
     # Multi-value is unsupported with the following
     env.cmd('FT.CREATE', 'idxvector', 'ON', 'JSON',
@@ -511,7 +511,6 @@ def testMultiValueErrors(env):
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
         env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
 
-@no_msan
 def add_values(env, number_of_iterations=1):
     res = env.cmd('FT.CREATE', 'games', 'ON', 'JSON',
                               'SCHEMA', '$.title', 'TEXT', 'SORTABLE',
@@ -536,7 +535,7 @@ def add_values(env, number_of_iterations=1):
             conn.execute_command(*cmd)
         fp.close()
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testAggregate(env):
     add_values(env)
 
@@ -553,7 +552,7 @@ def testAggregate(env):
                                   ['$.brand', 'Logitech', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params - or alternatively reuse test_aggregate.py to also run on json content
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testDemo(env):
     conn = getConnectionByEnv(env)
 
@@ -610,7 +609,27 @@ def testDemo(env):
     res =env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'SORTBY', '1', '@iata', 'LOAD', '1', '$')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
-@no_msan
+@skip(cluster=True, no_json=True, asan=True)
+def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT').ok()
+    env.stop() # Save state to RDB
+    env.assertEqual(len(env.envRunner.modulePath), len(env.envRunner.moduleArgs))
+    env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    # Restart without JSON module. Attempt to load RDB - should fail.
+    # RLTest may or may not fail to start the server with an exception
+    try:
+        env.start()
+    except Exception as e:
+        expected_msg = 'Redis server is dead'
+        env.assertContains(expected_msg, str(e))
+        if expected_msg not in str(e):
+            raise e
+    finally:
+        env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
+
+@skip(msan=True, no_json=True)
 def testIndexSeparation(env):
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
@@ -630,7 +649,7 @@ def testIndexSeparation(env):
     env.expect('FT.SEARCH', 'idxHash', '*', 'RETURN', '3', 't', 'AS', 'txt').equal(
         [1, 'hash:1', ['txt', 'telmatosaurus']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMapProjectionAsToSchemaAs(env):
     # Test that label defined in the schema can be used in the search query
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.flt', 'AS',
@@ -640,7 +659,7 @@ def testMapProjectionAsToSchemaAs(env):
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '1', 'labelT').equal(
         [1, 'doc:1', ['labelT', 'riceratops']])  # use $.t value
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testAsProjection(env):
     # Test RETURN and LOAD with label/alias from schema
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
@@ -664,7 +683,7 @@ def testAsProjection(env):
 
     # TODO: Search for numeric field 'flt'
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testAsProjectionRedefinedLabel(env):
     conn = getConnectionByEnv(env)
 
@@ -706,7 +725,7 @@ def testAsProjectionRedefinedLabel(env):
     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
         [1, ['labelT', '9072', 'labelN', '9072']])
 
-@skip(msan=True)
+@skip(msan=True, no_json=True)
 def testNumeric(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
@@ -718,6 +737,7 @@ def testNumeric(env):
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1, 'doc:1', ['flt', '9.72']])
 
+@skip(no_json=True)
 def testLanguage(env):
     conn = getConnectionByEnv(env)
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
@@ -730,7 +750,7 @@ def testLanguage(env):
     env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}'))
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1, 'doc:2', ['$.domanda', "perché"]])
 
-@skip(msan=True)
+@skip(msan=True, no_json=True)
 def testDifferentType(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
@@ -740,7 +760,7 @@ def testDifferentType(env):
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1, 'doc:2'])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def test_WrongJsonType(env):
     # test all possible errors in processing a field
     # we test that all documents failed to index
@@ -807,7 +827,7 @@ def test_WrongJsonType(env):
     res = index_info(env, 'idx')
     env.assertEqual(int(res['hash_indexing_failures']), len(res['attributes']))
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testTagNoSeparetor(env):
     conn = getConnectionByEnv(env)
 
@@ -825,7 +845,7 @@ def testTagNoSeparetor(env):
     env.expect('FT.SEARCH', 'idx', '@tag_list:{foo\\,bar\\,baz}').equal([1, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
     env.expect('FT.SEARCH', 'idx', '@tag_array:{bar\\,baz}').equal([1, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMixedTagError(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
@@ -835,7 +855,7 @@ def testMixedTagError(env):
                                                 {"another":"bad result"}]}'))
     env.expect('FT.SEARCH', 'idx1', '*').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testImplicitUNF(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',  \
@@ -856,14 +876,14 @@ def testImplicitUNF(env):
     env.assertEqual(info_res['attributes'][1][-1], 'UNF')
     env.assertNotEqual(info_res['attributes'][2][-1], 'UNF')
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testNotExistField(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
     env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1, 'doc1', []])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testScoreField(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
@@ -880,7 +900,7 @@ def testScoreField(env):
     env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
     env.expect('FT.SEARCH', 'permits2', 'facade').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testMOD1853(env):
     # test numeric with 0 value
     conn = getConnectionByEnv(env)
@@ -890,7 +910,7 @@ def testMOD1853(env):
     res = [2, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
     env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testTagArrayLowerCase(env):
     # test tag field change string to lower case independent of separator
     conn = getConnectionByEnv(env)
@@ -935,7 +955,7 @@ def check_index_with_null(env, idx):
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testNullValue(env):
     # check JSONType_Null is ignored, not failing
     conn = getConnectionByEnv(env)
@@ -968,6 +988,7 @@ def testNullValue(env):
     check_index_with_null(env, 'idx_separator')
     check_index_with_null(env, 'idx_casesensitive')
 
+@skip(no_json=True)
 def testNullValueSkipped(env):
     ''' check null values are skipped from indexing '''
 
@@ -990,7 +1011,7 @@ def testNullValueSkipped(env):
     env.assertEqual(int(info_res['num_terms']), 0)
 
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testVector_empty_array(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1000,7 +1021,7 @@ def testVector_empty_array(env):
     env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"vec":[]}'))
     assertInfoField(env, 'idx', 'hash_indexing_failures', 1)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testVector_correct_eval(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1031,7 +1052,7 @@ def testVector_correct_eval(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testVector_bad_values(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1047,7 +1068,7 @@ def testVector_bad_values(env):
     assertInfoField(env, 'idx', 'hash_indexing_failures', 5)
     assertInfoField(env, 'idx', 'num_docs', 0)
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testVector_delete(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1080,7 +1101,7 @@ def testVector_delete(env):
         env.expect(*q).equal([1, 'j2'])
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-@skip(cluster=True, msan=True)
+@skip(cluster=True, msan=True, no_json=True)
 def testRedisCommands(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     env.cmd('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2}')
@@ -1116,6 +1137,7 @@ def testRedisCommands(env):
         env.expect('JSON.GET', 'doc:1', '$').equal(None)
         env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([0])
 
+@skip(no_json=True)
 def testUpperLower():
 
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
@@ -1143,7 +1165,7 @@ def testUpperLower():
     env.assertOk(conn.execute_command('JSON.SET', 'group:1', '$', r'{"tags": ["TAG1", "TAG2"]}'))
     env.expect('FT.AGGREGATE', 'groupIdx', '*', 'LOAD', 1, '@tags', 'APPLY', 'lower(@tags)', 'AS', 'low').equal([1, ['tags', '["TAG1","TAG2"]', 'low', 'tag1']])
 
-no_msan
+@skip(msan=True, no_json=True)
 def test_mod5608(env):
     with env.getClusterConnectionIfNeeded() as r:
         for i in range(10000):
@@ -1152,3 +1174,199 @@ def test_mod5608(env):
         env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'd', 'SCHEMA', 'id', 'TAG', 'num', 'NUMERIC').equal('OK')
         waitForIndex(env, 'idx')
         _, cursor = env.cmd('FT.AGGREGATE', 'idx', "*", 'LOAD', 1, 'num', 'WITHCURSOR', 'MAXIDLE', 1, 'COUNT', 300)
+
+@skip(no_json=True)
+def testTagAutoescaping(env):
+
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+
+    conn = getConnectionByEnv(env)
+    # We are using ',' as tag SEPARATOR to get the same results of HASH index
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+            'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
+
+    # create sample data
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"tag": "abc:1"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"tag": "xyz:2"}')
+    conn.execute_command('JSON.SET', 'doc:4', '$', r'{"tag": "abc:1-xyz:2"}')
+    conn.execute_command('JSON.SET', 'doc:5', '$', r'{"tag": "joe@mail.com"}')
+    conn.execute_command('JSON.SET', 'doc:6', '$', r'{"tag": "tag with {brackets}"}')
+    conn.execute_command('JSON.SET', 'doc:7', '$', r'{"tag": "abc:1|xyz:2"}')
+    conn.execute_command('JSON.SET', 'doc:8', '$', r'{"tag": "_12@"}')
+    conn.execute_command('JSON.SET', 'doc:9', '$', r'{"tag": "-99999"}')
+    conn.execute_command('JSON.SET', 'doc:10', '$', r'{"tag": "ab(12)"}')
+    conn.execute_command('JSON.SET', 'doc:11', '$', r'{"tag": "a|b-c d"}')
+    conn.execute_command('JSON.SET', 'doc:12', '$', r'{"tag": "_@12\\345"}')
+    conn.execute_command('JSON.SET', 'doc:13', '$', r'{"tag": "$literal"}')
+    conn.execute_command('JSON.SET', 'doc:14', '$', r'{"tag": "*literal"}')
+    # tags with leading and trailing spaces
+    conn.execute_command('JSON.SET', 'doc:15', '$', r'{"tag": "  with: space  "}')
+    conn.execute_command('JSON.SET', 'doc:16', '$', r'{"tag": "  leading:space"}')
+    conn.execute_command('JSON.SET', 'doc:17', '$', r'{"tag": "trailing:space  "}')
+    # short tags
+    conn.execute_command('JSON.SET', 'doc:18', '$', r'{"tag": "x"}')
+    conn.execute_command('JSON.SET', 'doc:19', '$', r'{"tag": "w"}')
+
+    # Test exact match
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:1'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1|xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:7'])
+
+    # Test exact match with escaped '$' and '*' characters
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"$literal"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:13'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"*literal"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:14'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"_12@"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:8'])
+
+    # escape character (backslash '\')
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"_@12\\\\345"}')
+    env.assertEqual(res, [1, 'doc:12', ['$', '{"tag":"_@12\\\\345"}']])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"ab(12)"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:10'])
+
+    # Test tag with '-'
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:1-xyz:2"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:4'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"-99999"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:9'])
+
+    # Test tag with '|' and ' '
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"a|b-c d"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:11'])
+
+    # Test exact match with brackets
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"tag with {brackets\\}"}',
+                  'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:6'])
+
+    # Search with attributes
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"xyz:2"}=>{$weight:5.0}',
+                  'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:2'])
+
+    res = env.cmd('FT.SEARCH', 'idx',
+                  '(@tag:{"xyz:2"} | @tag:{"abc:1"}) => { $weight: 5.0; }',
+                  'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, [2, 'doc:1', 'doc:2'])
+
+    # Test prefix
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"abc:"*}=>{$weight:3.4}',
+                  'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, [3, 'doc:1', 'doc:4', 'doc:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"*liter"*}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:14'])
+
+    # Test suffix
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"xyz:2"}=>{$weight:3.4}',
+                  'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, [3, 'doc:2', 'doc:4', 'doc:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"*literal"}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:14'])
+
+    # Test infix
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*$param*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:5'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"*literal"*}', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:14'])
+
+    # if '$' is escaped, it is treated as a regular character, and the parameter
+    # is not replaced
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*\$param*}=>{$weight:3.4}',
+                  'PARAMS', '2', 'param', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"$literal"*}',
+                  'PARAMS', '2', 'literal', '@mail.', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc:13'])
+
+    # Test wildcard
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
+                  'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, [2, 'doc:4', 'doc:7'])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'?'} -@tag:{w'w'}")
+    env.assertEqual(res, [1, 'doc:18', ['$', '{"tag":"x"}']])
+
+    # Test tags with leading and trailing spaces
+    expected_result = [1, 'doc:15', ['$', '{"tag":"  with: space  "}']]
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{  "with: space"  }')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"with: space"*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{ "with: space"*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"with: space"}')
+    env.assertEqual(res, expected_result)
+
+    # This returns 0 because the query is looking for a tag with a leading
+    # space but the leading space was removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*" with: space"}')
+    env.assertEqual(res, [0])
+
+    # This returns 0 because the query is looking for a tag with leading and
+    # trailing spaces but the spaces were removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*" with: space "*}')
+    env.assertEqual(res, [0])
+
+    # This returns 0 because the query is looking for a tag with a trailing
+    # space but the trailing space was removed upon data ingestion
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"with: space "*}')
+    env.assertEqual(res, [0])
+
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{$param}",
+                  'PARAMS', '2', 'param', 'with: space')
+    env.assertEqual(res, expected_result)
+
+    # Test tags with leading spaces
+    expected_result = [1, 'doc:16', ['$', '{"tag":"  leading:space"}']]
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{  leading*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{  "leading:space"}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*"eading:space"}')
+    env.assertEqual(res, expected_result)
+
+    # Test tags with trailing spaces
+    expected_result = [1, 'doc:17', ['$', '{"tag":"trailing:space  "}']]
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing"*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:spac"*}')
+    env.assertEqual(res, expected_result)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"  }')
+    env.assertEqual(res, expected_result)
+
+def testLimitations(env):
+    """ highlight/summarize is not supported with JSON indexes """
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA',  '$.txt', 'AS', 'txt', 'TEXT').ok()
+
+    error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+
+    env.expect('FT.SEARCH', 'idx', 'jacob', 'HIGHLIGHT').error()\
+        .contains(error_msg)
+
+    env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
+        .contains(error_msg)

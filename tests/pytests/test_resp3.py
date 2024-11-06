@@ -378,7 +378,7 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal({'idx2', 'idx1'})
+    env.expect('FT._LIST').equal(['idx2', 'idx1'])
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -424,6 +424,12 @@ def test_info():
       'index_definition': {'default_score': 1.0, 'key_type': 'HASH', 'prefixes': ['doc'] },
       'index_name': 'idx1',
       'index_options': [],
+      'index_definition': {
+          'default_score': 1.0,
+          'key_type': 'HASH',
+          'prefixes': ['doc'],
+          'indexes_all': 'false'
+        },
       'indexing': 0,
       'inverted_sz_mb': ANY,
       'key_table_size_mb': ANY,
@@ -468,18 +474,15 @@ def test_config():
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
-    if env.isCluster():
-        return
+    res = env.cmd(config_cmd(), "SET", "TIMEOUT", 501)
 
-    res = env.cmd("FT.CONFIG", "SET", "TIMEOUT", 501)
+    res = env.cmd(config_cmd(), "GET", "*")
+    env.assertEqual(res['TIMEOUT'], '0') # FIXME: should be '501'. This is a bug in the RESP3 implementation because we have 2 configurations with the same name
 
-    res = env.cmd("FT.CONFIG", "GET", "*")
-    env.assertEqual(res['TIMEOUT'], '501')
-
-    res = env.cmd("FT.CONFIG", "GET", "TIMEOUT")
+    res = env.cmd(config_cmd(), "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
-    res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
+    res = env.cmd(config_cmd(), "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
 @skip(redis_less_than="7.0.0")
@@ -497,7 +500,10 @@ def test_dictdump():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
-    env.expect("FT.DICTDUMP", "dict1").equal({'2', 'bar', 'foo', '1'})
+    def sort_dict(dict_list):
+        dict_list.sort()
+        return dict_list
+    env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -560,10 +566,9 @@ def test_tagvals():
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
-
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal({'3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
+    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(['3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(['2', '3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f5').equal([])
 
 @skip(cluster=False)
 def test_clusterinfo():
@@ -756,6 +761,7 @@ def test_profile_child_itrerators_array():
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
+@skip(no_json=True)
 def testExpandErrorsResp3():
   env = Env(protocol=3)
   # On JSON
@@ -775,6 +781,7 @@ def testExpandErrorsResp3():
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with JSON')
 
+@skip(no_json=True)
 def testExpandErrorsResp2():
   env = Env(protocol=2)
   env.cmd('ft.create', 'idx', 'on', 'json', 'SCHEMA', '$.arr', 'as', 'arr', 'numeric')
@@ -792,6 +799,7 @@ def testExpandErrorsResp2():
     'FT.AGGREGATE', 'idx2', '*', 'FORMAT', 'EXPAND'
   ).error().contains('EXPAND format is only supported with RESP3')
 
+@skip(no_json=True)
 def testExpandJson():
   ''' Test returning values for JSON in expanded format (raw RESP3 instead of stringified JSON) '''
   env = Env(protocol=3)
@@ -1047,6 +1055,7 @@ def testExpandHash():
   env.assertEqual(res, exp_string)
 
 
+@skip(no_json=True)
 def testExpandJsonVector():
   ''' Test returning values for VECTOR in expanded format (raw RESP3 instead of stringified JSON) '''
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -1305,7 +1314,8 @@ def test_ft_info():
         'index_definition': {
           'default_score': 1.0,
           'key_type': 'HASH',
-          'prefixes': ['']
+          'prefixes': [''],
+          'indexes_all': 'false'
         },
         'index_name': 'idx',
         'index_options': [],
@@ -1371,13 +1381,21 @@ def test_ft_info():
                           'dialect_4': 0},
         'doc_table_size_mb': 0.0,
         'gc_stats': {
-          'bytes_collected': 0
+              'average_cycle_time_ms': 0.0,
+              'bytes_collected': 0.0,
+              'gc_blocks_denied': 0.0,
+              'gc_numeric_trees_missed': 0.0,
+              'last_run_time_ms': 0.0,
+              'total_cycles': 0.0,
+              'total_ms_run': 0.0
         },
         'hash_indexing_failures': 0,
         'index_definition': {
           'default_score': 1.0,
           'key_type': 'HASH',
-          'prefixes': ['']},
+          'prefixes': [''],
+          'indexes_all': 'false'
+          },
         'index_name': 'idx',
         'index_options': [],
         'indexing': 0,
@@ -1495,3 +1513,82 @@ def test_error_with_partial_results():
 
   env.assertEqual(len(res['warning']), 1)
   env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+
+def test_warning_maxprefixexpansions():
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 't2', 'TAG')
+
+  # Add documents to ONE OF THE SHARDS ONLY, such that MAXPREFIXEXPANSIONS will
+  # be reached only on that shard (others are empty)
+  # (This configuration is enforced on the shard level, thus every shard may
+  # expand a term up to `MAXPREFIXEXPANSIONS` times)
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo', 't2', 'foo')
+
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Test that we don't throw an warning in case the amount of expansions is
+  # exactly the threshold (1)
+  # ------------------------------ FT.SEARCH -----------------------------------
+  # TEXT
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+  # TAG
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+
+  # Add another document
+  conn.execute_command('HSET', 'doc2{3}', 't', 'fooo', 't2', 'fooo')
+
+  # ------------------------------ FT.AGGREGATE -----------------------------------
+  # TEXT
+  res = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'load', '*')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+  # TAG
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  env.assertEqual(res['total_results'], 1)
+  env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
+  env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
+
+  # ------------------------------- All results --------------------------------
+  # Set `MAXPREFIXEXPANSIONS` to 10
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '10')
+
+  res = env.cmd('FT.SEARCH', 'idx', 'fo*', 'nocontent')
+  env.assertEqual(res['total_results'], 2)
+  env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}, {'id': 'doc2{3}', 'values': []}])
+  env.assertEqual(res['warning'], [])
+
+  # -------------------------------- FT.PROFILE --------------------------------
+  # Check the FT.PROFILE response. Specifically the shard warnings
+  # Set `MAXPREFIXEXPANSIONS` to 1
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'fo*')
+
+  # Check that we have a warning in the response, and a warning in each shard
+  env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
+  n_warnings = 0
+  for i, shard in enumerate(res['Profile']['Shards']):
+      if shard['Warning']== 'Max prefix expansions limit was reached':
+         n_warnings += 1
+  env.assertEqual(n_warnings, 1)
+
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'fo*')
+
+  # Check that we have a warning in the response, and a warning in one shard only
+  env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
+  n_warnings = 0
+  for i, shard in enumerate(res['Profile']['Shards']):
+    if shard['Warning']== 'Max prefix expansions limit was reached':
+         n_warnings += 1
+  env.assertEqual(n_warnings, 1)

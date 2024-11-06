@@ -4,13 +4,12 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_CONFIG_H_
-#define RS_CONFIG_H_
+#pragma once
 
 #include "redismodule.h"
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 #include "query_error.h"
-#include "fields_global_stats.h"
+#include "reply.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -75,16 +74,6 @@ typedef struct {
   long long minUnionIterHeap;
 } IteratorsConfig;
 
-
-#ifdef MT_BUILD
-typedef enum {
-  MT_MODE_OFF,
-  MT_MODE_ONLY_ON_OPERATIONS,
-  MT_MODE_FULL
-} MTMode;
-#endif
-
-
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
 typedef struct {
@@ -110,18 +99,15 @@ typedef struct {
   size_t maxSearchResults;
   size_t maxAggregateResults;
 
-#ifdef MT_BUILD
+  // MT configuration
   size_t numWorkerThreads;
-  MTMode mt_mode;
+  size_t minOperationWorkers;
   size_t tieredVecSimIndexBufferLimit;
-  size_t privilegedThreadsNum;
-#endif
+  size_t highPriorityBiasNum;
 
   size_t minPhoneticTermLen;
 
   GCConfig gcConfigParams;
-
-  FieldsGlobalStats fieldsStats;
 
   // Chained configuration data
   void *chainedConfig;
@@ -146,8 +132,6 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
-  // bitarray of dialects used by all indices
-  uint_least8_t used_dialects;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
   // we allow redis process other commands.
@@ -155,21 +139,23 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+  // Limit the number of cursors that can be created for a single index
+  long long indexCursorLimit;
 } RSConfig;
 
 typedef enum {
   RSCONFIGVAR_F_IMMUTABLE = 0x01,
   RSCONFIGVAR_F_MODIFIED = 0x02,
   RSCONFIGVAR_F_FLAG = 0x04,
-  RSCONFIGVAR_F_SHORTHAND = 0x08
 } RSConfigVarFlags;
 
 typedef struct {
   const char *name;
   const char *helpText;
   uint32_t flags;
+  uint32_t triggerId;
   // Whether this configuration option can be modified after initial loading
-  int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
+  int (*setValue)(RSConfig *, ArgsCursor *, uint32_t, QueryError *);
   sds (*getValue)(const RSConfig *);
 } RSConfigVar;
 
@@ -179,6 +165,8 @@ typedef struct RSConfigOptions {
   struct RSConfigOptions *next;
 } RSConfigOptions;
 
+typedef int (*RSConfigExternalTrigger)(RSConfig *);
+
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
@@ -187,6 +175,16 @@ extern RSConfigOptions RSGlobalConfigOptions;
  * Add new configuration options to the chain of already recognized options
  */
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst);
+
+/**
+ * Register a new external trigger for configuration changes.
+ * This function should be called on the module load time, before we start reading
+ * any configuration.
+ * @param trigger the trigger function
+ * @param configs an array of configuration names that trigger the function.
+ *                The array must be NULL-terminated.
+ */
+void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const char **configs);
 
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
@@ -214,47 +212,37 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+void UpgradeDeprecatedMTConfigs();
 
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
-#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
-#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
-#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_MIN_STEM_LENGTH 4
-#define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
-
-#ifdef MT_BUILD
-#define MT_BUILD_CONFIG \
-    .numWorkerThreads = 0,                                                                                            \
-    .mt_mode = MT_MODE_OFF,                                                                                           \
-    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
-    .privilegedThreadsNum = DEFAULT_PRIVILEGED_THREADS_NUM,
-#else
-#define MT_BUILD_CONFIG
-#endif
+#define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
+#define MIN_OPERATION_WORKERS 4
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                                                           \
     .extLoad = NULL,                                                                                                  \
     .gcConfigParams.enableGC = 1,                                                                                     \
     .iteratorsConfigParams.minTermPrefix = 2,                                                                         \
-    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                                         \
+    .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,                                                   \
     .iteratorsConfigParams.maxPrefixExpansions = 200,                                                                 \
     .requestConfigParams.queryTimeoutMS = 500,                                                                        \
     .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                                                        \
     .cursorReadSize = 1000,                                                                                           \
     .cursorMaxIdle = 300000,                                                                                          \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                                                        \
-     MT_BUILD_CONFIG                                                                                                  \
+    .numWorkerThreads = 0,                                                                                            \
+    .minOperationWorkers = MIN_OPERATION_WORKERS,                                                                     \
+    .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                                                               \
+    .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,                                                      \
     .gcConfigParams.gcScanSize = GC_SCANSIZE,                                                                         \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                                                              \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                                                         \
@@ -276,9 +264,9 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .requestConfigParams.dialectVersion = 1,                                                                          \
     .vssMaxResize = 0,                                                                                                \
     .multiTextOffsetDelta = 100,                                                                                      \
-    .used_dialects = 0,                                                                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
-    .prioritizeIntersectUnionChildren = false                                                                         \
+    .prioritizeIntersectUnionChildren = false,                                                                        \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7
@@ -300,5 +288,4 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

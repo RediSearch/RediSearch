@@ -11,8 +11,8 @@ def array_of_key_value_to_map(res):
 
 def assert_index_num_docs(env, idx, attr, num_docs):
   if not env.isCluster():
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
-    res = env.cmd('FT.DEBUG', 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', idx, attr)
     res = array_of_key_value_to_map(res)
     env.assertEqual(res['num_docs'], num_docs)
 
@@ -66,6 +66,7 @@ def testSanitySearchPointWithin(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+@skip(no_json=True)
 def testSanitySearchJsonWithin(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT').ok()
@@ -79,6 +80,7 @@ def testSanitySearchJsonWithin(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON((0 0, 0 250, 250 250, 250 0, 0 0))', 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'large', 'small'])
 
+@skip(no_json=True)
 def testSanitySearchJsonCombined(env):
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx ON JSON SCHEMA $.geom AS geom GEOSHAPE FLAT $.name as name TEXT').ok()
@@ -110,9 +112,30 @@ def testSanitySearchHashIntersectsDisjoint(env):
   res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
   env.assertEqual(toSortedFlatList(res), [2, 'tall', 'wide'])
 
+def test_MOD_7126(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+
+  point1 = 'POINT(10 10)'
+  point2 = 'POINT(50 50)'
+  triangle = 'POLYGON((20 20, 25 35, 35 25, 20 20))'
+  rectangle = 'POLYGON((60 60, 65 75, 70 70, 65 55, 60 60))'
+  conn.execute_command('HSET', 'point1', 'geom', point1)
+  conn.execute_command('HSET', 'point2', 'geom', point2)
+  conn.execute_command('HSET', 'triangle', 'geom', triangle)
+  conn.execute_command('HSET', 'rectangle', 'geom', rectangle)
+
+  query = 'POLYGON((15 15, 75 15, 50 70, 20 40, 15 15))'
+
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[intersects $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point2', 'triangle'])
+  res = env.cmd('FT.SEARCH', 'idx', '@geom:[disjoint $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(toSortedFlatList(res), [2, 'point1', 'rectangle'])
+
+
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@skip(asan=True)
+@skip(asan=True, no_json=True)
 def testWKTIngestError(env):
   ''' Test ingest error '''
 
@@ -167,7 +190,7 @@ def testWKTIngestError(env):
 
 
 # TODO: GEOMETRY - Enable with sanitizer (MOD-5182)
-@skip(asan=True)
+@skip(asan=True, no_json=True)
 def testWKTQueryError(env):
   ''' Test query error '''
   conn = getConnectionByEnv(env)

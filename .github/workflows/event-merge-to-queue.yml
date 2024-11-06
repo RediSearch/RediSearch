@@ -20,6 +20,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: '7.4'
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
@@ -42,7 +43,7 @@ jobs:
 
   coverage:
     needs: docs-only
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
@@ -62,7 +63,7 @@ jobs:
       - test-macos
       - coverage
       - sanitize
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

@@ -8,6 +8,7 @@ from json_multi_text_content import *
 def expect_undef_order(query : Query):
     query.error().contains("has undefined ordering")
 
+@skip(no_json=True)
 def testMultiText(env):
     """ test multiple TEXT values at root level (array of strings) """
 
@@ -32,6 +33,7 @@ def testMultiText(env):
 
     searchMultiTextCategory(env)
 
+@skip(no_json=True)
 def testMultiTextNested(env):
     """ test multiple TEXT values at inner level (array of strings) """
 
@@ -158,6 +160,7 @@ def searchMultiTextAuthor(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
 
+@skip(no_json=True)
 def testInvalidPath(env):
     """ Test invalid JSONPath """
 
@@ -168,6 +171,7 @@ def testInvalidPath(env):
     .expect_when(True, lambda q: q.error().contains("Invalid JSONPath")) \
     .expect_when(False, lambda q: q.ok())
 
+@skip(no_json=True)
 def testUndefinedOrderingWithSlopAndInorder(env):
     """ Test that query attributes `slop` and `inorder` cannot be used when order is not well defined """
 
@@ -226,6 +230,7 @@ def testUndefinedOrderingWithSlopAndInorder(env):
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat_2', '@author:(does not matter)', 'INORDER', 'SLOP', '10').equal([0])
 
 
+@skip(no_json=True)
 def testMultiNonText(env):
     """
     test multiple TEXT values which include some non-text values at root level (null, number, bool, array, object)
@@ -254,6 +259,7 @@ def testMultiNonText(env):
     env.expect('FT.SEARCH', 'idx1', '@root:(third)', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:(third)', 'NOCONTENT').equal([1, 'doc:2:'])
 
+@skip(no_json=True)
 def testMultiNonTextNested(env):
     """
     test multiple TEXT values which include some non-text values at inner level (null, number, bool, array, object)
@@ -286,6 +292,7 @@ def trim_in_list(val, lst):
             lst[i] = v.replace(val, '')
     return lst
 
+@skip(no_json=True)
 def testMultiSortRoot(env):
     """
     test sorting by multiple TEXT at root level
@@ -313,6 +320,7 @@ def testMultiSortRoot(env):
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
+@skip(no_json=True)
 def testMultiSortNested(env):
     """
     Test sorting by multiple TEXT at inner level
@@ -406,6 +414,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
                             message = '{} arg {}'.format('multi TEXT with single TEXT', text_arg))
 
 
+@skip(no_json=True)
 def testMultiEmptyBlankOrNone(env):
     """ Test empty array or arrays comprised of empty strings or None """
     conn = getConnectionByEnv(env)
@@ -428,12 +437,7 @@ def testMultiEmptyBlankOrNone(env):
 
     env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')[0], len(values) + 1)
 
-def getFtConfigCmd(env):
-    if not env.isCluster():
-        return "FT.CONFIG"
-    else:
-        return "_FT.CONFIG"
-
+@skip(no_json=True)
 def testconfigMultiTextOffsetDelta(env):
     """ test default ft.config `MULTI_TEXT_SLOP` """
 
@@ -445,7 +449,7 @@ def testconfigMultiTextOffsetDelta(env):
     env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
-    env.expect(getFtConfigCmd(env), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
+    env.expect(config_cmd(), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains("Not modifiable at runtime")
 
 
     # MULTI_TEXT_SLOP = 100 (Default)
@@ -454,7 +458,7 @@ def testconfigMultiTextOffsetDelta(env):
     # ["mathematics and computer science", "logic", "programming", "database"]
     #   1                2        3      ,  103   ,  203         ,  303
 
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '100')
     env.expect('FT.SEARCH', 'idx_category_arr', '@category:(mathematics database)', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -466,13 +470,14 @@ def testconfigMultiTextOffsetDelta(env):
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
+@skip(no_json=True)
 def testconfigMultiTextOffsetDeltaSlop101():
     """ test ft.config `MULTI_TEXT_SLOP` 101 """
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 101')
 
     # MULTI_TEXT_SLOP = 101
     conn = getConnectionByEnv(env)
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '101')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
@@ -496,13 +501,14 @@ def testconfigMultiTextOffsetDeltaSlop101():
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
+@skip(no_json=True)
 def testconfigMultiTextOffsetDeltaSlop0():
     """ test ft.config `MULTI_TEXT_SLOP` 0 """
     env = Env(moduleArgs = 'MULTI_TEXT_SLOP 0')
 
     # MULTI_TEXT_SLOP = 0
     conn = getConnectionByEnv(env)
-    res = env.cmd(getFtConfigCmd(env), 'GET', 'MULTI_TEXT_SLOP')
+    res = env.cmd(config_cmd(), 'GET', 'MULTI_TEXT_SLOP')
     env.assertEqual(res[0][1], '0')
     # Offsets:
     # ["mathematics and computer science", "logic", "programming", "database"]
@@ -526,6 +532,7 @@ def testconfigMultiTextOffsetDeltaSlop0():
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
+@skip(no_json=True)
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT """
     pass
@@ -624,6 +631,7 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
 
+@skip(no_json=True)
 def testMultiTextReturn(env):
     """ test RETURN with multiple TEXT values """
 
@@ -638,6 +646,7 @@ def testMultiTextReturn(env):
     env.flush()
     checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, True)
 
+@skip(no_json=True)
 def testMultiTextReturnBWC(env):
     """ test backward compatibility of RETURN with multiple TEXT values """
     res1 = [1, 'doc:1', ['arr_1', 'AL']]

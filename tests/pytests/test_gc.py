@@ -5,7 +5,7 @@ from time import sleep
 
 @skip(cluster=True)
 def testBasicGC(env):
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     waitForIndex(env, 'idx')
@@ -15,43 +15,43 @@ def testBasicGC(env):
                              'id', '5',
                              't', 'tag1'))
 
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(1, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(1, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(1, 102)]]])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(1, 102)])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(1, 102)]])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(1, 102)]]])
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc0'), 1)
 
     forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(2, 102)])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'world'), [int(i) for i in range(2, 102)])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id'), [[int(i) for i in range(2, 102)]])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [int(i) for i in range(2, 102)]]])
 
 @skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         env.skip()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
     waitForIndex(env, 'idx')
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                          'title', 'hello world'))
 
-    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1])
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'world'), [1])
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc1'), 1)
 
     forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
-    env.expect('ft.debug', 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
 
 @skip(cluster=True)
 def testNumericGCIntensive(env):
     NumberOfDocs = 1000
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
     waitForIndex(env, 'idx')
 
@@ -64,7 +64,7 @@ def testNumericGCIntensive(env):
     for i in range(100):
         forceInvokeGC(env, 'idx')
 
-    res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id')
+    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
     for r1 in res:
         for r2 in r1:
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
@@ -73,7 +73,7 @@ def testNumericGCIntensive(env):
 @skip(cluster=True)
 def testGeoGCIntensive(env):
     NumberOfDocs = 1000
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo'))
     waitForIndex(env, 'idx')
 
@@ -86,7 +86,7 @@ def testGeoGCIntensive(env):
     for i in range(100):
         forceInvokeGC(env, 'idx')
 
-    res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'g')
+    res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'g')
     for r1 in res:
         for r2 in r1:
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
@@ -95,7 +95,7 @@ def testGeoGCIntensive(env):
 @skip(cluster=True)
 def testTagGC(env):
     NumberOfDocs = 101
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
     waitForIndex(env, 'idx')
 
@@ -109,7 +109,7 @@ def testTagGC(env):
         # gc is random so we need to do it long enough times for it to work
         forceInvokeGC(env, 'idx')
 
-    res = env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't')
+    res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
     for r1 in res:
         for r2 in r1[1]:
             # if r2 is greater then 100 its on the last block and fork GC does not clean the last block
@@ -117,7 +117,7 @@ def testTagGC(env):
 
 @skip(cluster=True)
 def testDeleteEntireBlock(env):
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
     waitForIndex(env, 'idx')
@@ -148,18 +148,18 @@ def testGCIntegrationWithRedisFork(env):
         env.skip()
     if env.env == 'enterprise':
         env.skip()
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+    if env.cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').true()
     forceInvokeGC(env, 'idx')
     env.expect('bgsave').true()
-    env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
+    env.cmd(config_cmd(), 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
 @skip(cluster=True)
 def testGCThreshold(env):
@@ -172,67 +172,67 @@ def testGCThreshold(env):
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
 
-    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
 
     for i in range(999):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
 
     env.expect('FT.DEL', 'idx', 'doc999').equal(1)
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
     # retry with replace
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
 
-    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
 
     for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
 
     env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
     # retry with replace partial
 
-    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1')
+    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1')
 
     for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').equal(debug_rep)
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1').equal(debug_rep)
 
     env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').error().contains('Can not find the inverted index')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1').error().contains('Can not find the inverted index')
 
 @skip(cluster=True)
 def testGCShutDownOnExit(env):
     if env.env == 'existing-env' or env.env == 'enterprise' or platform.system() == 'Darwin':
         env.skip()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
-    env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', 'idx').ok()
     env.stop()
     env.start()
 
@@ -255,12 +255,12 @@ def testGFreeEmpryTerms(env):
     for i in range(200):
         env.expect('del', 'doc%d'%i)
 
-    env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal(['foo'])
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal(['foo'])
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
 
 @skip(cluster=True)
-def testAutoMemory_MOD_3951():    
+def testAutoMemory_MOD_3951():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
     conn = getConnectionByEnv(env)
 

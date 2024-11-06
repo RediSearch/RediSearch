@@ -29,12 +29,14 @@ typedef struct {
   size_t appearances;
 } CardinalityValue;
 
-/* A numeric range is a node in a numeric range tree, representing a range of values bunched
- * together.
- * Since we do not know the distribution of scores ahead, we use a splitting approach - we start
- * with single value nodes, and when a node passes some cardinality we split it.
- * We save the minimum and maximum values inside the node, and when we split we split by finding the
- * median value */
+/* A numeric range is a node in a numeric range tree, representing a range of
+ * values bunched together.
+ * Since we do not know the distribution of scores ahead, we use a splitting
+ * approach - we start with single value nodes, and when a node passes some
+ * cardinality we split it.
+ * We save the minimum and maximum values inside the node, and when we split we
+ * split by finding the median value.
+ */
 typedef struct {
   double minVal;
   double maxVal;
@@ -89,11 +91,13 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti);
+struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
+                                              const NumericFilter *f, int skipMulti,
+                                              const FieldFilterContext* filterCtx);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config);
+struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx, FieldType forType,
+                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -115,8 +119,9 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
  * vector with range node pointers.  */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
 
-/* Recursively free a node and its children */
-void NumericRangeNode_Free(NumericRangeNode *n);
+/* Recursively free a node and its children
+ * rv will be updated with the number of cleaned up records and ranges in the subtree */
+void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv);
 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
@@ -140,7 +145,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);

@@ -65,17 +65,14 @@ typedef enum {
   QN_WILDCARD_QUERY,
 
   /* Null term - take no action */
-  QN_NULL
-} QueryNodeType;
+  QN_NULL,
 
-// Denotes that a node is searching for an empty, missing or NULL value.
-typedef enum NonExistNode {
-  NON_EXIST_NONE = 0,
-  NON_EXIST_EMPTY = 1,
-  // To be added in the future
-  // NON_EXIST_MISSING = 2,
-  // NON_EXIST_NULL = 3
-} NonExistNode;
+  /* Missing query */
+  QN_MISSING,
+
+  /* Max value, should be last */
+  QN_MAX
+} QueryNodeType;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
@@ -94,7 +91,6 @@ typedef struct {
 typedef struct {
   const char *fieldName;
   size_t len;
-  NonExistNode nen;
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -146,10 +142,17 @@ typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
 
+typedef struct {
+  const char *fieldName;
+  size_t len;
+} QueryMissingNode;
+
 typedef enum {
   QueryNode_Verbatim = 0x01,
   QueryNode_OverriddenInOrder = 0x02,
   QueryNode_YieldsDistance = 0x04,
+  QueryNode_IndexesEmpty = 0x08,
+  QueryNode_IsTag = 0x10,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -178,6 +181,7 @@ typedef struct {
 typedef struct {
   QueryNodeFlags flags;
   t_fieldMask fieldMask;
+  t_fieldIndex fieldIndex;
   int maxSlop;
   int inOrder;
   double weight;
@@ -206,6 +210,7 @@ typedef struct RSQueryNode {
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
+    QueryMissingNode miss;
   };
 
   /* The node type, for resolving the union access */
@@ -219,7 +224,6 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
-int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

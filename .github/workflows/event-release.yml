@@ -2,12 +2,12 @@ name: Release a Version
 
 on:
   release:
-    types: [released]
+    types: [published]
 
 jobs:
   update-version:
     # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -59,39 +59,116 @@ jobs:
             --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
             --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
             --base     "${{ github.event.release.target_commitish }}" \
-            --reviewer "${{ github.actor }}" \
+            --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
 
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
           BRANCH: bump-version-${{ steps.verify.outputs.next_version }}
-        run: gh pr ready $BRANCH -R ${{ github.repository }}
+        run: |
+          gh pr ready $BRANCH -R ${{ github.repository }}
+          gh pr merge $BRANCH -R ${{ github.repository }} --auto
 
   set-artifacts:
     needs: update-version
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
+      - name: Configure AWS Credentials Using Role
+        if: vars.USE_AWS_ROLE == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials Using Keys
+        if: vars.USE_AWS_ROLE == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Get boto3
+        run: pip install boto3
       - name: Set Version Artifacts
-        env:
-          ENT_DIR: s3://redismodules/redisearch
-          OSS_DIR: s3://redismodules/redisearch-oss
-          VERSION: ${{ needs.update-version.outputs.cur_version }}
-          VER_BRANCH: ${{ github.event.release.target_commitish }}
-          ARCHS: (x86_64|aarch64|arm64v8) # List of expected architectures - update as needed
+        shell: python
         run: |
-          for DIR in {$ENT_DIR,$OSS_DIR}; do
-            ARTIFACTS=$(aws s3 ls $DIR/snapshots/redisearch | grep -E "$ARCHS\.$VER_BRANCH\.zip$" | awk '{print $NF}')
-            echo "--------- Handling artifacts: ---------"
-            echo "$ARTIFACTS"
-            echo "----------------- END -----------------"
-            for ARTIFACT in $ARTIFACTS; do
-              aws s3 cp $DIR/snapshots/$ARTIFACT $DIR/${ARTIFACT/%.$VER_BRANCH.zip/.$VERSION.zip} --acl public-read --no-progress
-            done
-          done
+          import boto3
+          import os
+          import json
+          from concurrent.futures import ThreadPoolExecutor
+          from zipfile import ZipFile
+
+          bucket = "redismodules"
+          oss_dir = "redisearch-oss"
+          ent_dir = "redisearch"
+
+          suffix = ".${{ github.event.release.target_commitish }}.zip"
+          new_suffix = ".${{ needs.update-version.outputs.cur_version }}.zip"
+          expected_sha = "${{ github.sha }}"
+
+          client = boto3.client("s3")
+
+          ########################### Helper Functions ###########################
+
+          # List all file in `bucket`, with suffix `suffix` and the given prefix (path)
+          def list_files_by_branch(prefix):
+              paginator = client.get_paginator("list_objects_v2")
+              for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                  for obj in page.get("Contents", []):
+                      if obj["Key"].endswith(suffix):
+                          yield obj["Key"]
+
+          def list_snapshots_by_branch(dir):
+              return list_files_by_branch(f"{dir}/snapshots/{dir}")
+
+          # Return the git sha from the module.json file in the zip file (build sha)
+          def extract_sha(key):
+              zip_name = os.path.basename(key)
+              c = boto3.client("s3")
+              c.download_file(bucket, key, zip_name)
+              with ZipFile(zip_name, "r") as z:
+                  with z.open("module.json") as f:
+                      obj = json.load(f)
+                      sha = str(obj["git_sha"]) # handle bytes, str, and bytes string representation
+                      return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
+
+          # new location is outside snapshots/ directory and with the new suffix
+          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
+          def get_target_name(name):
+              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+
+          def group_print(title, args):
+              print(f"::group::{title} ({len(args)})")
+              print(*args, sep="\n")
+              print("::endgroup::")
+
+          ############################### Main Script ###############################
+
+          files = []
+          for dir in [oss_dir, ent_dir]:
+              files.extend(list_snapshots_by_branch(dir))
+
+          group_print("${{ github.event.release.target_commitish }} Branch candidates", files)
+
+          with ThreadPoolExecutor() as executor:
+              sha_list = executor.map(extract_sha, files)
+
+          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
+          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
+          dest_files = [get_target_name(f) for f in include_list]
+
+          # Log files
+          group_print("Excluded files", exclude_list)
+          group_print("Included files", include_list)
+          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
+
+          # Copy included files to new location
+          for src, dst in zip(include_list, dest_files):
+              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+
+          group_print("New Files", dest_files)
+
+          if len(exclude_list) > 0:
+              print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
+                    "expected git sha. These files will not be included in the release artifacts. Look for the "
+                    "`Excluded files` section above for more details.")

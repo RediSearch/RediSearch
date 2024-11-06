@@ -11,7 +11,6 @@ coverage:
         threshold: 1% # Allow `x%` of coverage to decrease without failing
         paths:
           - "src"
-          - "coord/src"
         # advanced
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
 

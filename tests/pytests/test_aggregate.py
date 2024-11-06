@@ -2,6 +2,7 @@ from common import *
 
 import bz2
 import json
+import distro
 import unittest
 from datetime import datetime, timezone
 
@@ -149,16 +150,34 @@ class TestAggregate():
         self.env.assertEqual(29, int(float(row['avgPrice'])))
 
     def testParseTime(self):
+        distro_name = distro.name().lower()
+
+        expected = ['brand', '', 'count', '1518', 'dt', '2018-01-31T16:45:44Z',
+                    'parsed_dt', '1517417144']
+
+        # Skip on Alpine Linux, as its strptime() doesn't support '%FT%TZ' format
+        if distro_name != 'alpine linux':
+            cmd = ['FT.AGGREGATE', 'games', '*',
+                'GROUPBY', '1', '@brand',
+                'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
+                'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
+                'LIMIT', '0', '1']
+            res = self.env.cmd(*cmd)
+
+            self.env.assertEqual(expected, res[1])
+        
+        # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
+        # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
-               'GROUPBY', '1', '@brand',
-               'REDUCE', 'COUNT', '0', 'AS', 'count',
-               'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
-               'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
-               'LIMIT', '0', '1']
+                'GROUPBY', '1', '@brand',
+                'REDUCE', 'COUNT', '0', 'AS', 'count',
+                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
+                'APPLY', 'parsetime(@dt, "%Y-%m-%dT%H:%M:%SZ")', 'as',
+                'parsed_dt', 'LIMIT', '0', '1']
         res = self.env.cmd(*cmd)
 
-        self.env.assertEqual(['brand', '', 'count', '1518', 'dt',
-                              '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
+        self.env.assertEqual(expected, res[1])
 
     def testRandomSample(self):
         cmd = ['FT.AGGREGATE', 'games', '*', 'GROUPBY', '1', '@brand',
@@ -558,7 +577,7 @@ class TestAggregate():
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
         # SEARCH should succeed
-        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', -1).ok()
         rv = self.env.cmd('ft.search', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(4531, len(rv))
@@ -567,18 +586,18 @@ class TestAggregate():
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(2266, len(rv))
         # AGGREGATE should fail
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
         self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
 
         # force global limit on aggregate
         num = 10
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', num).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', num).ok()
         rv = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertEqual(num + 1, len(rv))
 
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
-        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', -1).ok()
+        self.env.expect(config_cmd(), 'set', 'MAXSEARCHRESULTS', 1000000).ok()
 
     def testMultiSortByStepsError(self):
         self.env.expect('ft.aggregate', 'games', '*',
@@ -705,6 +724,26 @@ def testAggregateGroupByOnEmptyField(env):
                    ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertContains(var, res)
+
+def test_groupby_array(env: Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE').ok()
+  with env.getClusterConnectionIfNeeded() as con:
+    con.execute_command('HSET', 'doc1', 't1', 'foo,bar', 't2', 'baz,qux')
+
+  res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', 'split(@t1, ",")', 'AS', 't1',
+                'APPLY', 'split(@t2, ",")', 'AS', 't2',
+                'GROUPBY', '2', '@t1', '@t2')
+
+  exp = [4, ['t1', 'foo', 't2', 'baz'],
+            ['t1', 'foo', 't2', 'qux'],
+            ['t1', 'bar', 't2', 'baz'],
+            ['t1', 'bar', 't2', 'qux']]
+
+  # Check that the result is as expected (res elements contained in exp, and same size)
+  for row in res:
+    env.assertContains(row, exp)
+  env.assertEqual(len(res), len(exp), message=f'{res} != {exp}')
 
 def testMultiSortBy(env):
     conn = getConnectionByEnv(env)
@@ -911,8 +950,8 @@ def testMaxAggResults(env):
 
 @skip(cluster=True)
 def testMaxAggInf(env):
-    env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
-    env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
+    env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', -1).ok()
+    env.expect(config_cmd(), 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
 
 def testLoadPosition(env):
     conn = getConnectionByEnv(env)
@@ -1200,7 +1239,66 @@ def testWithKNN(env):
 
     expected_res = [['n', '100', 'c', '1'], ['n', '200', 'c', '1']]
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*=>[KNN 2 @v $blob]=>{$yield_distance_as: dist}',
-                               'GROUPBY', '1', '@n',
-                               'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
-                               'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', '2')
+                            'GROUPBY', '1', '@n',
+                            'REDUCE', 'COUNT', '0', 'AS', 'c', 'SORTBY', '1', '@n',
+                            'PARAMS', '2', 'blob', create_np_array_typed([0] * dim).tobytes(), 'DIALECT', 2)
     env.assertEqual(res[1:], expected_res)
+
+def setup_missing_values_index(index_missing):
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 ON_TIMEOUT FAIL")
+    conn = getConnectionByEnv(env)
+    schema = ['tag', 'TAG', 'INDEXMISSING' if index_missing else None, 'num1', 'NUMERIC', 'num2', 'NUMERIC']
+    schema = [part for part in schema if part is not None]
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+
+    # Add some documents, with\without the indexed fields.
+    conn.execute_command('HSET', 'doc1', 'tag', 'val', 'num2', '5.5')
+    conn.execute_command('HSET', 'doc2', 'tag', 'val', 'num1', '3')
+    if index_missing:
+        conn.execute_command('HSET', 'doc3', 'num1', '3', 'num2', '2.7')
+    return env
+
+def test_aggregate_filter_on_missing_values():
+    env = setup_missing_values_index(False)
+    # Search for the documents with the indexed fields (sanity)
+    # document doc1 has no value for num1, so we expect to receive the mentioned error
+    (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
+     contains('num1: has no value, consider using EXISTS if applicable'))
+    env.flush()
+
+def test_aggregate_filter_on_missing_indexed_values():
+    env = setup_missing_values_index(True)
+    # Search for the documents with the indexed fields (sanity)
+    # doc3 doesn't have a value for tag but we expect the pipeline to avoid using the not equal operator on it
+    (env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'FILTER',
+                '"@tag != \'va\'"', 'DIALECT', '2').contains(['tag', 'val']))
+    env.flush()
+
+def test_aggregate_group_by_on_missing_values():
+    env = setup_missing_values_index(False)
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'GROUPBY', '1', '@num1').equal([2, ['num1', '3'], ['num1', None]])
+    env.flush()
+
+def test_aggregate_group_by_on_missing_indexed_values():
+    def group_by_result_to_dict(lst):
+        if lst is None or len(lst) == 0:
+            return lst
+        return {element_list[1]: element_list[0] for element_list in lst[1:]}
+    env = setup_missing_values_index(True)
+    # Search for the documents with the indexed fields (sanity)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'GROUPBY', '1', '@tag').apply(group_by_result_to_dict).equal({None: 'tag', 'val': 'tag'})
+    env.flush()
+
+def test_aggregate_apply_on_missing_values():
+    env = setup_missing_values_index(False)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
+        "has no value, consider using EXISTS if applicable"
+    )
+    env.flush()
+
+def test_aggregate_apply_on_missing_indexed_values():
+    env = setup_missing_values_index(True)
+    env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
+               'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
+    env.flush()

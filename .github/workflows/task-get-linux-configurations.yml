@@ -3,18 +3,29 @@ name: Get Linux Configurations
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 env:
-  ALL_X86_IMAGES: "['ubuntu:jammy',
+  ALL_X86_IMAGES: "['ubuntu:noble',
+                    'ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'centos:7',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
+                    'gcc:12-bookworm',
                     'amazonlinux:2',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
-  ALL_ARM_IMAGES: "['ubuntu:jammy',
+                    'amazonlinux:2023',
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'alpine:3']"
+  ALL_ARM_IMAGES: "['ubuntu:noble',
+                    'ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:bionic',
+                    'rockylinux:8',
+                    'rockylinux:9',
+                    'debian:bullseye',
+                    'gcc:12-bookworm',
+                    'amazonlinux:2',
+                    'amazonlinux:2023',
+                    'alpine:3']"
 
 on:
   workflow_call:
@@ -38,7 +49,7 @@ on:
 jobs:
   get-required-envs:
     name: for ${{ inputs.platform }} platform on ${{ inputs.architecture }} architecture
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       platforms_arm: ${{ steps.get_platforms.outputs.arm_platforms }}
       platforms_x86: ${{ steps.get_platforms.outputs.x86_platforms }}
@@ -61,7 +72,10 @@ jobs:
           def needs_arch(arch):
             return requested_arch in ['all', arch]
 
-          naming = {'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0'}
+          naming = {
+            'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+            'debian:bookworm': 'gcc:12-bookworm',
+          }
 
           # Normalize the platform name
           requested_platform = naming.get(requested_platform, requested_platform)
@@ -96,16 +110,40 @@ jobs:
           x86_include = []
 
           # amazonlinux:2 needs pre-checkout dependencies
-          if x86_platforms.count('amazonlinux:2') > 0:
+          if 'amazonlinux:2' in x86_platforms:
             x86_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip"})
+          if 'amazonlinux:2' in arm_platforms:
+            arm_include.append({
+              'OS': 'amazonlinux:2',
+              'pre-deps': "yum install -y tar gzip"})
+
+          # amazonlinux:2023 needs pre-checkout dependencies
+          if 'amazonlinux:2023' in x86_platforms: 
+            x86_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip"})
+          if 'amazonlinux:2023' in arm_platforms:
+            arm_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip"})
 
           # mariner:2 needs pre-checkout dependencies
-          if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
+          if 'mcr.microsoft.com/cbl-mariner/base/core:2.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+
+          # alpine:3 needs pre-checkout dependencies
+          if 'alpine:3' in x86_platforms:
+            x86_include.append({
+              'OS': 'alpine:3',
+              'pre-deps': "apk add bash"})
+          if 'alpine:3' in arm_platforms:
+            arm_include.append({
+              'OS': 'alpine:3',
+              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc"})
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:

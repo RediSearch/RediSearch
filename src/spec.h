@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -35,6 +34,9 @@ extern "C" {
 
 struct IndexesScanner;
 struct DocumentIndexer;
+
+// Initial capacity (in bytes) of a new block
+#define INDEX_BLOCK_INITIAL_CAP 6
 
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
@@ -64,7 +66,9 @@ struct DocumentIndexer;
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
-#define SPEC_INDEXEMPTY_STR "ISEMPTY"
+#define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
+#define SPEC_INDEXMISSING_STR "INDEXMISSING"
+#define SPEC_INDEXALL_STR "INDEXALL"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
@@ -96,6 +100,10 @@ struct DocumentIndexer;
       {.name = "PAYLOAD_FIELD",                                             \
        .target = &(rule)->payload_field,                                    \
        .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = SPEC_INDEXALL_STR,                                           \
+       .target = &(rule)->index_all,                                        \
+       .len = &dummy2,                                                      \
        .type = AC_ARGTYPE_STRING},
 
 // TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace
@@ -107,6 +115,9 @@ struct DocumentIndexer;
 
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
+
+#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
+#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
@@ -120,15 +131,14 @@ typedef struct {
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
+  uint32_t activeQueries;
+  uint32_t activeWrites;
 } IndexStats;
 
 typedef enum {
@@ -159,6 +169,7 @@ typedef enum {
 
   Index_HasGeometry = 0x40000,
 
+  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -171,7 +182,6 @@ typedef struct Version {
   int buildVersion;  // if not exits then its zero
 } Version;
 
-extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
@@ -191,7 +201,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 23
+#define INDEX_CURRENT_VERSION 24
+#define INDEX_INDEXALL_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
 #define INDEX_VECSIM_TIERED_VERSION 22
 #define INDEX_VECSIM_MULTI_VERSION 21
@@ -252,6 +263,8 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
   char *name;                     // Index name
@@ -285,6 +298,8 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool monitorDocumentExpiration;
+  bool monitorFieldExpiration;
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
@@ -310,11 +325,19 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters
-  size_t cursorsCap;
   size_t activeCursors;
 
   // Quick access to the spec's strong ref
   StrongRef own_ref;
+
+  // Contains inverted indexes of missing fields
+  dict *missingFieldDict;
+  // Maps between field ftid and field index in the fields array
+  arrayof(t_fieldIndex) fieldIdToIndex;
+
+  // Contains all the existing documents (for wildcard search)
+  InvertedIndex *existingDocs;
+
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -337,6 +360,26 @@ typedef struct {
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
+
+static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
+}
+
+static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
 
 /**
  * This lightweight object contains a COPY of the actual index spec.
@@ -385,6 +428,17 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, siz
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
+/*
+* Get a field spec by field mask.
+* Return the field spec if found, NULL if not
+*/
+const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
+
+/**
+ * Get the field specs in the field mask `mask`.
+ */
+arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask);
+
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
@@ -411,6 +465,9 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
+
+/* Get the number of indexing failures */
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.
@@ -467,15 +524,29 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;
+} VectorIndexStats;
+
+/**
+ * Get an index's vector index stats.
+ */
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
  */
-int IndexSpec_CreateTextId(const IndexSpec *sp);
+int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
+
+// Translate the field mask to an array of field indices based on the "on" bits
+// Out capacity should be enough to hold 128 fields
+uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
@@ -536,7 +607,7 @@ void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);

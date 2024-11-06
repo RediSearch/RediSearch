@@ -495,17 +495,37 @@ ModuleValue::~ModuleValue() {
 }
 
 Datatype::TypemapType Datatype::typemap;
-Command::CommandMap Command::commands;
+RedisModuleCommand::CommandMap RedisModuleCommand::commands;
 
 int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc handler, const char *,
                        int, int, int) {
-  if (Command::commands.find(s) != Command::commands.end()) {
+  if (RedisModuleCommand::commands.find(s) != RedisModuleCommand::commands.end()) {
     return REDISMODULE_ERR;
   }
-  Command *c = new Command();
+  RedisModuleCommand *c = new RedisModuleCommand();
   c->name = s;
   c->handler = handler;
-  Command::commands[s] = c;
+  RedisModuleCommand::commands[s] = c;
+  return REDISMODULE_OK;
+}
+
+RedisModuleCommand *RMCK_GetCommand(RedisModuleCtx *ctx, const char *s) {
+  auto it = RedisModuleCommand::commands.find(s);
+  if (it == RedisModuleCommand::commands.end()) {
+    return NULL;
+  }
+  return it->second;
+}
+
+int RMCK_CreateSubcommand(RedisModuleCommand *parent, const char *s, RedisModuleCmdFunc handler, const char *,
+                       int, int, int) {
+  if (!parent || parent->handler || parent->subcommands.find(s) != parent->subcommands.end()) {
+    return REDISMODULE_ERR;
+  }
+  RedisModuleCommand *c = new RedisModuleCommand();
+  c->name = s;
+  c->handler = handler;
+  parent->subcommands[s] = c;
   return REDISMODULE_OK;
 }
 
@@ -607,7 +627,7 @@ static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd,
   return NULL;
 }
 
-static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                               va_list ap) {
   const char *id = NULL;
   if (*fmt == 'c') {
@@ -638,21 +658,32 @@ static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *c
   return r;
 }
 
+static RedisModuleCallReply *RMCK_CallHashFieldExpireTime(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  // return an empty array of expire times
+  // the bare minimum to get the code to not issue an error
+  RedisModuleCallReply *r = new RedisModuleCallReply(ctx);
+  r->type = REDISMODULE_REPLY_ARRAY;
+  return r;
+}
+
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
   // We only support HGETALL for now
   va_list ap;
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
+  errno = 0;
   if (strcasecmp(cmd, "HGETALL") == 0) {
-    reply = RMCK_CallHgelall(ctx, cmd, fmt, ap);
-  }
-
-  if (strcasecmp(cmd, "HSET") == 0) {
+    reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HPEXPIRETIME") == 0) {
+    reply = RMCK_CallHashFieldExpireTime(ctx, cmd, fmt, ap);
+  } else {
+    errno = ENOTSUP;
   }
 
   va_end(ap);
-
   return reply;
 }
 
@@ -752,6 +783,16 @@ static int RMCK_KillForkChild(int child_pid) {
   return waitpid(child_pid, NULL, 0);
 }
 
+static int RMCK_AddACLCategory(RedisModuleCtx *ctx, const char *category) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetCommandACLCategories(RedisModuleCommand *cmd, const char *categories) {
+  // Nothing for the mock.
+  return REDISMODULE_OK;
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -803,6 +844,10 @@ static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
   return fnregistry[name];
 }
 
+static mstime_t RMCK_GetAbsExpire(RedisModuleKey *key) {
+  return REDISMODULE_NO_EXPIRE;
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -816,6 +861,7 @@ static void registerApis() {
   REGISTER_API(KeyType);
   REGISTER_API(DeleteKey);
   REGISTER_API(ValueLength);
+  REGISTER_API(GetAbsExpire);
 
   REGISTER_API(HashSet);
   REGISTER_API(HashGet);
@@ -833,6 +879,8 @@ static void registerApis() {
   REGISTER_API(StringToLongLong);
 
   REGISTER_API(CreateCommand);
+  REGISTER_API(GetCommand);
+  REGISTER_API(CreateSubcommand);
   REGISTER_API(CreateDataType);
   REGISTER_API(ModuleTypeSetValue);
   REGISTER_API(ModuleTypeGetValue);
@@ -868,6 +916,8 @@ static void registerApis() {
   REGISTER_API(KillForkChild);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
+  REGISTER_API(AddACLCategory);
+  REGISTER_API(SetCommandACLCategories);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -897,7 +947,7 @@ void RMCK_Shutdown(void) {
   }
   KVDB::dbs.clear();
 
-  for (auto c : Command::commands) {
+  for (auto c : RedisModuleCommand::commands) {
     delete c.second;
   }
 
@@ -906,6 +956,6 @@ void RMCK_Shutdown(void) {
   }
   Datatype::typemap.clear();
 
-  Command::commands.clear();
+  RedisModuleCommand::commands.clear();
 }
 }

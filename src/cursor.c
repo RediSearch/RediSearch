@@ -69,7 +69,7 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->execState) {
-    Cursor_FreeExecState(cur->execState);
+    AREQ_Free(cur->execState);
     cur->execState = NULL;
   }
   // if There's a spec associated with the cursor
@@ -206,16 +206,14 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
   IndexSpec *spec = StrongRef_Get(global_spec_ref);
-
   // If we are in a coordinator ctx, the spec is NULL
-  if (spec && (spec->activeCursors >= spec->cursorsCap)) {
+  if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->activeCursors >= spec->cursorsCap) {
-      QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
+    if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
-
   }
 
   cur = rm_calloc(1, sizeof(*cur));
@@ -313,7 +311,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, 
     RedisModule_ReplyKV_LongLong(reply, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
                                                         ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
     RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
-    RedisModule_ReplyKV_LongLong(reply, "index_capacity", spec->cursorsCap);
+    RedisModule_ReplyKV_LongLong(reply, "index_capacity", RSGlobalConfig.indexCursorLimit);
     RedisModule_ReplyKV_LongLong(reply, "index_total", spec->activeCursors);
 
   RedisModule_Reply_MapEnd(reply);
@@ -330,7 +328,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec 
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
                                                         ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
-  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", spec->cursorsCap);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
   RedisModule_InfoEndDictField(ctx);
 

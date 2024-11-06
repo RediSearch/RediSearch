@@ -585,7 +585,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     PhoneticExpand(ctx, token);
   }
 
-  // stemmer is happenning last because it might free the given 'RSToken *token'
+  // stemmer is happening last because it might free the given 'RSToken *token'
   // this is a bad solution and should be fixed, but for now its good enough
   // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
   //       expnders ordering!!

@@ -25,7 +25,8 @@ from unittest import SkipTest
 import inspect
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
+REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW']
 
 class TimeLimit(object):
@@ -49,6 +50,27 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise Exception(f'Timeout: {self.message}')
 
+class DialectEnv(Env):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dialect = None
+
+    def set_dialect(self, dialect):
+        self.dialect = dialect
+        result = run_command_on_all_shards(self, config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        expected_result = ['OK'] * self.shardsCount
+        self.assertEqual(result, expected_result, message=f"Failed to set dialect to {dialect} on all shards")
+
+    def get_dialect(self):
+        return self.dialect
+
+    def assertEqual(self, first, second, depth=0, message=None):
+        if self.dialect is not None:
+            if message is None:
+                message = f'Dialect {self.dialect}'
+            else:
+                message = f'Dialect {self.dialect}, {message}'
+        super().assertEqual(first, second, depth=depth, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -115,12 +137,11 @@ def toSortedFlatList(res):
     return [res]
 
 def assertInfoField(env, idx, field, expected, delta=None):
-    if not env.isCluster():
-        d = index_info(env, idx)
-        if delta is None:
-            env.assertEqual(d[field], expected)
-        else:
-            env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
+    d = index_info(env, idx)
+    if delta is None:
+        env.assertEqual(d[field], expected)
+    else:
+        env.assertAlmostEqual(float(d[field]), float(expected), delta=delta)
 
 def sortedResults(res):
     n = res[0]
@@ -155,7 +176,9 @@ def arch_int_bits():
   if arch == 'x86_64':
     return 128
   elif arch == 'aarch64':
-    return 64
+    return 128
+  elif arch == 'arm64':
+    return 128
   else:
     return 64
 
@@ -201,14 +224,12 @@ def server_version_is_less_than(ver):
 
 def index_info(env, idx='idx'):
     res = env.cmd('FT.INFO', idx)
-    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return res
+    return to_dict(res)
 
 
 def dump_numeric_index_tree(env, idx, numeric_field):
-    res = env.cmd('FT.DEBUG', 'DUMP_NUMIDXTREE', idx, numeric_field)
-    tree_dump = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return tree_dump
+    tree_dump = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, numeric_field)
+    return to_dict(tree_dump)
 
 
 def dump_numeric_index_tree_root(env, idx, numeric_field):
@@ -218,17 +239,19 @@ def dump_numeric_index_tree_root(env, idx, numeric_field):
     return root_dump
 
 def numeric_tree_summary(env, idx, numeric_field):
-    res = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', idx, numeric_field)
-    tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return tree_summary
+    tree_summary = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', idx, numeric_field)
+    return to_dict(tree_summary)
 
 
 def getWorkersThpoolStats(env):
-    return to_dict(env.cmd(debug_cmd(), "worker_threads", "stats"))
+    return to_dict(env.cmd(debug_cmd(), "WORKERS", "stats"))
+
+def getWorkersThpoolNumThreads(env):
+    return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
 
 def getWorkersThpoolStatsFromShard(shard_conn):
-    return to_dict(shard_conn.execute_command(debug_cmd(), "worker_threads", "stats"))
+    return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
 
 def skipOnExistingEnv(env):
@@ -244,7 +267,7 @@ def skipOnCrdtEnv(env):
         env.skip()
 
 def skipOnDialect(env, dialect):
-    server_dialect = int(env.expect('FT.CONFIG', 'GET', 'DEFAULT_DIALECT').res[0][1])
+    server_dialect = int(env.expect(config_cmd(), 'GET', 'DEFAULT_DIALECT').res[0][1])
     if dialect == server_dialect:
         env.skip()
 
@@ -282,28 +305,32 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+
 def debug_cmd():
-    return '_ft.debug' if COORD else 'ft.debug'
+    return '_FT.DEBUG'
+
+def config_cmd():
+    return '_FT.CONFIG'
+
 
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
-def config_cmd():
-    return '_ft.config' if COORD else 'ft.config'
-
-
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
-
-def forceInvokeGC(env, idx = 'idx', timeout = None):
+def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
-        if timeout == 0:
-            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
+        # Note: timeout==0 means infinite (no timeout)
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
+
+def forceBGInvokeGC(env, idx='idx'):
+    waitForRdbSaveToFinish(env)
+    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
+
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -330,12 +357,12 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, **kwargs):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
+            if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
                 raise SkipTest()
-            if cluster == COORD:
+            if cluster == CLUSTER:
                 raise SkipTest()
             if macos and OS == 'macos':
                 raise SkipTest()
@@ -345,13 +372,15 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if msan and SANITIZER == 'memory':
                 raise SkipTest()
-            if noWorkers and not MT_BUILD:
-                raise SkipTest()
             if redis_less_than and server_version_is_less_than(redis_less_than):
                 raise SkipTest()
             if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
                 raise SkipTest()
             if min_shards and Defaults.num_shards < min_shards:
+                raise SkipTest()
+            if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
+                raise SkipTest()
+            if no_json and not REJSON:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
@@ -373,6 +402,15 @@ def to_list(input_dict: dict):
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
 
+MAX_DIALECT = 0
+def set_max_dialect(env):
+    global MAX_DIALECT
+    if MAX_DIALECT == 0:
+        info = env.cmd('INFO', 'MODULES')
+        prefix = 'search_dialect_'
+        MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
+    return MAX_DIALECT
+
 def get_redisearch_index_memory(env, index_key):
     return float(index_info(env, index_key)["inverted_sz_mb"])
 
@@ -390,13 +428,25 @@ def module_ver_filter(env, module_name, ver_filter):
 def has_json_api_v2(env):
     return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
 
+# A very simple implementation of a bfloat16 array type.
+# wrap a numpy array (for basic operations) and override `tobytes` to convert to bfloat16
+# This saves us the need to install a new package for bfloat16 support (e.g. tensorflow, torch, bfloat16 numpy extension)
+# and deal with dependencies and compatibility issues.
+class Bfloat16Array(np.ndarray):
+    offset = 2 if sys.byteorder == 'little' else 0
+    def __new__(cls, input_array):
+        return np.asarray(input_array).view(cls)
+
+    def tobytes(self):
+        b32 = np.ndarray.tobytes(self.astype(np.float32))
+        # Generate a byte string from every other pair of bytes in b32
+        return b''.join(b32[i:i+2] for i in range(Bfloat16Array.offset, len(b32), 4))
+
 # Helper function to create numpy array vector with a specific type
 def create_np_array_typed(data, data_type='FLOAT32'):
-    if data_type == 'FLOAT32':
-        return np.array(data, dtype=np.float32)
-    if data_type == 'FLOAT64':
-        return np.array(data, dtype=np.float64)
-    return None
+    if data_type.upper() == 'BFLOAT16':
+        return Bfloat16Array(data)
+    return np.array(data, dtype=data_type.lower())
 
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
@@ -605,14 +655,16 @@ def get_TLS_args():
     return cert_file, key_file, ca_cert_file, passphrase
 
 # Use FT.* command to make sure that the module is loaded and initialized
-def verify_shard_init(env, shard=None):
-    shard = shard if shard is not None else env # use default shard if not specified
-    try:
-        shard.execute_command('FT.SEARCH', 'non-existing', '*')
-        raise Exception('Expected FT.SEARCH to fail')
-    except redis_exceptions.ResponseError as e:
-        env.assertContains('no such index', str(e))
+def verify_shard_init(shard):
+    with TimeLimit(5, 'Failed to verify shard initialization'):
+        while True:
+            try:
+                shard.execute_command('FT.SEARCH', 'non-existing', '*')
+                raise Exception('Expected FT.SEARCH to fail')
+            except redis_exceptions.ResponseError as e:
+                if 'no such index' in str(e):
+                    break
 
-def cmd_assert(env, cmd, res):
+def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
-    env.assertEqual(db_res, res)
+    env.assertEqual(db_res, res, message=message)

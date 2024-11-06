@@ -31,7 +31,7 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
@@ -50,7 +50,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_EXTENDED;
+  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
   return 1;
 }
 
@@ -145,7 +145,7 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
         return REDISMODULE_ERR;
       }
     }
-    requiredFields = array_append(requiredFields, s);
+    array_append(requiredFields, s);
   }
 
   req->requiredFields = requiredFields;
@@ -291,7 +291,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     // If we have sort by clause and don't need to return scores, we can avoid computing them.
-    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
+    if (IsSearch(req) && !IsScorerNeeded(req)) {
       req->searchopts.flags |= Search_IgnoreScores;
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -388,7 +388,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
     const char *s = AC_GetStringNC(&subArgs, NULL);
-    keys = array_append(keys, s);
+    array_append(keys, s);
 
     if (legacyDesc) {
       SORTASCMAP_SETDESC(ascMap, 0);
@@ -403,7 +403,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
           goto err;
         }
         s++;
-        keys = array_append(keys, s);
+        array_append(keys, s);
         continue;
       }
 
@@ -487,6 +487,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
       {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+      {AC_MKBITFLAG("ADDSCORES", &req->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
@@ -566,6 +567,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
     QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
+    return REDISMODULE_ERR;
+  }
+
+  if (IsSearch(req) && HasScoreInPipeline(req)) {
+    QERR_MKBADARGS_FMT(status, "ADDSCORES is not supported on FT.SEARCH");
     return REDISMODULE_ERR;
   }
 
@@ -979,10 +985,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
 
+  if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
+    QueryError_SetError(
+        status, QUERY_EINVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
+    return REDISMODULE_ERR;
+  }
+
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
         status, QUERY_EINVAL,
-        "Cannot use highlight/summarize because NOOFSETS was specified at index level");
+        "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
     return REDISMODULE_ERR;
   }
 
@@ -1133,7 +1146,7 @@ static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *
 }
 
 static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
-                                   QueryError *status) {
+                                   QueryError *status, bool forceLoad) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
@@ -1147,7 +1160,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(req, firstLk, loadKeys, array_len(loadKeys));
+    ResultProcessor *rpLoader = RPLoader_New(req, firstLk, loadKeys, array_len(loadKeys), forceLoad);
     array_free(loadKeys);
     RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(req, rpLoader, rpUpstream);
@@ -1182,7 +1195,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
 }
 
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
-                                     QueryError *status, ResultProcessor *up) {
+                                     QueryError *status, ResultProcessor *up, bool forceLoad) {
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
@@ -1244,7 +1257,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys));
+        ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys), forceLoad);
         up = pushRP(req, rpLoader, up);
       }
       rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
@@ -1271,7 +1284,7 @@ end:
 }
 
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(AREQ *req) {
+static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   const char *scorer = req->searchopts.scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
@@ -1285,7 +1298,11 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   IndexSpec_GetStats(req->sctx->spec, &scargs.indexStats);
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
-  ResultProcessor *rp = RPScorer_New(fns, &scargs);
+  const RLookupKey *scoreKey = NULL;
+  if (HasScoreInPipeline(req)) {
+    scoreKey = RLookup_GetKey(rl, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  }
+  ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
 }
 
@@ -1333,10 +1350,10 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+  if (IsScorerNeeded(req) ||
       (IsSearch(req) && !IsCount(req) &&
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
-    rp = getScorerRP(req);
+    rp = getScorerRP(req, first);
     PUSH_RP();
   }
 }
@@ -1345,7 +1362,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
+int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool forceLoad) {
   AGGPlan *pln = &req->ap;
   ResultProcessor *rp = NULL, *rpUpstream = req->qiter.endProc;
 
@@ -1367,7 +1384,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status) {
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !req->outFields.explicitReturn) {
-    rp = RPLoader_New(req, lookup, loadkeys, array_len(loadkeys));
+    rp = RPLoader_New(req, lookup, loadkeys, array_len(loadkeys), forceLoad);
     if (isSpecJson(req->sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
       lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1412,8 +1429,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
-  uint32_t loadFlags = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) ?
-                       RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+  bool forceLoad = req->sctx && isSpecJson(req->sctx->spec) && (req->sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
+  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1424,7 +1441,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     switch (stp->type) {
       case PLN_T_GROUP: {
         // Adds group result processor and loader if needed.
-        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status);
+        rpUpstream = getGroupRP(req, (PLN_GroupStep *)stp, rpUpstream, status, forceLoad);
         if (!rpUpstream) {
           goto error;
         }
@@ -1432,7 +1449,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(req, pln, stp, status, rpUpstream);
+        rp = getArrangeRP(req, pln, stp, status, rpUpstream, forceLoad);
         if (!rp) {
           goto error;
         }
@@ -1511,7 +1528,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(req, curLookup, lstp->keys, lstp->nkeys);
+          rp = RPLoader_New(req, curLookup, lstp->keys, lstp->nkeys, forceLoad);
           if (isSpecJson(req->sctx->spec)) {
             // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -1536,7 +1553,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
-    rp = getArrangeRP(req, pln, NULL, status, rpUpstream);
+    rp = getArrangeRP(req, pln, NULL, status, rpUpstream, forceLoad);
     if (!rp) {
       goto error;
     }
@@ -1546,7 +1563,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
   if (IsSearch(req) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    if (buildOutputPipeline(req, loadFlags, status) != REDISMODULE_OK) {
+    if (buildOutputPipeline(req, loadFlags, status, forceLoad) != REDISMODULE_OK) {
       goto error;
     }
   }

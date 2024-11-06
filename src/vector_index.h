@@ -11,6 +11,8 @@
 #include "query_node.h"
 #include "query_ctx.h"
 
+#define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
+#define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
 #define VECSIM_TYPE_INT32 "INT32"
@@ -111,7 +113,7 @@ typedef struct VecSimLogCtx {
 VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);

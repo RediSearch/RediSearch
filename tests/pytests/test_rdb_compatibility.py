@@ -4,9 +4,6 @@ from includes import *
 from common import *
 from RLTest import Env
 
-
-REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
-
 RDBS = [
     'redisearch_1.2.0.rdb',
     'redisearch_1.4.0.rdb',
@@ -21,14 +18,7 @@ RDBS = [
 def downloadFiles(rdbs = None):
     rdbs = RDBS if rdbs is None else rdbs
 
-    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
-    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
-    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
-    # and the test can continue.
-    try:
-        os.makedirs(REDISEARCH_CACHE_DIR)
-    except FileExistsError:
-        pass
+    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
@@ -69,7 +59,7 @@ def testRDBCompatibility(env):
         env.expect('DBSIZE').equal(1000)
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
+        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload', 'indexes_all', 'false'])
         env.assertEqual(res['num_docs'], 1000)
         env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
@@ -81,7 +71,7 @@ def testRDBCompatibility(env):
 
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -118,7 +108,7 @@ def testRDBCompatibility_vecsim():
         env.assertEqual(res['hash_indexing_failures'], 0)
         infos = {}
         for vec_field, algo in zip(vec_fields, algorithms):
-            infos[algo] = to_dict(env.cmd('FT.DEBUG VECSIM_INFO idx ' + vec_field))
+            infos[algo] = to_dict(env.cmd(debug_cmd() + ' VECSIM_INFO idx ' + vec_field))
             for k, v in infos[algo].items():
                 if k in ['BACKEND_INDEX', 'FRONTEND_INDEX']:
                     infos[algo][k] = to_dict(v)

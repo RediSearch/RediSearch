@@ -25,6 +25,7 @@ jobs:
       test-config: QUICK=1
 
   coverage:
+    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
@@ -33,3 +34,18 @@ jobs:
     secrets: inherit
     with:
       flow-config: QUICK=1
+
+  notify-failure:
+    needs: [test-linux, test-macos, coverage, sanitize]
+    if: failure()
+    runs-on: ${{ vars.RUNS_ON }}
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

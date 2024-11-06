@@ -36,14 +36,27 @@ static int ParseInteger(const char *arg, long long *val) {
 }
 
 /* Parse string into double, returning 1 on success, 0 otherwise */
-static int ParseDouble(const char *arg, double *d) {
+static int ParseDouble(const char *arg, double *d, int sign) {
   char *e;
   errno = 0;
+
+  // Simulate the behavior of glibc's strtod
+  #if !defined(__GLIBC__)
+  if (strcmp(arg, "") == 0) {
+    *d = 0;
+    return 1;
+  }
+  #endif
+
   *d = strtod(arg, &e);
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
       *e != '\0') {
     return 0;
+  }
+  
+  if(sign == -1) {
+    *d = -(*d);
   }
 
   return 1;

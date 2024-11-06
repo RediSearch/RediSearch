@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: "${{ vars.RUNS_ON }}"
         type: string
       container:
         type: string
@@ -27,10 +27,13 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      test-timeout:
+        type: number
+        default: 50
 
 env:
-  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  VERBOSE_UTESTS: 1
 
 jobs:
   common-flow:
@@ -45,12 +48,38 @@ jobs:
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
+        shell: sh -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-      - name: Deps checkout
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        run: |
+          for platform in ubuntu:bionic centos:7 amazonlinux:2 alpine:3; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              # https://github.com/actions/checkout/issues/1809
+              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
+              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
+              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
+              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Deps checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: setup
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.*
+      - name: Deps checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
           path: setup
@@ -61,7 +90,13 @@ jobs:
       - name: Setup specific
         working-directory: setup/.install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Full checkout
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         uses: actions/checkout@v3
         with:
           submodules: recursive
@@ -72,8 +107,15 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
-      - name: Get Redis
-        if: inputs.get-redis != 'skip getting redis'
+      - name: Get Redis (node20)
+        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
+      - name: Get Redis (node20 not supported)
+        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
         uses: actions/checkout@v3
         with:
           repository: redis/redis
@@ -91,51 +133,33 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-      - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
-        run: |
-          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
-              echo "supported=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "supported=true" >> $GITHUB_OUTPUT
 
-      - name: Build Standalone
-        if: ${{ inputs.standalone }}
+      - name: Build
         run: make SAN=${{ inputs.san }}
-      - name: Build Coordinator
-        if: ${{ inputs.coordinator }}
-        run: make COORD=1 SAN=${{ inputs.san }}
-
-      - name: Unit tests (standalone)
-        id: test1
-        if: ${{ inputs.standalone }}
+      - name: Unit tests
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: unit_tests
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
-        id: test2
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-      - name: Unit tests (coordinator)
-        id: test3
-        if: ${{ inputs.coordinator }}
-        continue-on-error: true
-        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
-        id: test4
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -147,7 +171,7 @@ jobs:
         # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -155,5 +179,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure' || steps.test4.outcome == 'failure'
-        run: exit 1
+        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        run: |
+          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
+          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
+          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
+          exit 1

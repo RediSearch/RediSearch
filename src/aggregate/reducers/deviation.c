@@ -8,7 +8,6 @@
 #include <math.h>
 
 typedef struct {
-  const RLookupKey *srckey;
   size_t n;
   double oldM, newM, oldS, newS;
 } devCtx;
@@ -18,7 +17,6 @@ typedef struct {
 static void *stddevNewInstance(Reducer *rbase) {
   devCtx *dctx = BlkAlloc_Alloc(&rbase->alloc, sizeof(*dctx), BLOCK_SIZE);
   memset(dctx, 0, sizeof(*dctx));
-  dctx->srckey = rbase->srckey;
   return dctx;
 }
 
@@ -41,7 +39,7 @@ static void stddevAddInternal(devCtx *dctx, double d) {
 static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   devCtx *dctx = ctx;
   double d;
-  RSValue *v = RLookup_GetItem(dctx->srckey, srcrow);
+  RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (v) {
     if (v->t != RSValue_Array) {
       if (RSValue_ToNumber(v, &d)) {

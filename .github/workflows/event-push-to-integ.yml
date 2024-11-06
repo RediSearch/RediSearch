@@ -9,7 +9,6 @@ on:
       - '[0-9]+.[0-9]+'
     paths: # Only run on changes to these paths (code, deps, and benchmarks related changes)
       - 'src/**'
-      - 'coord/src/**'
       - 'deps/**'
       - 'tests/benchmarks/**'
       - '.github/workflows/benchmark-*.yml'
@@ -17,10 +16,31 @@ on:
       - '**/Makefile'
 
 jobs:
-  deploy-snapshot:
-    secrets: inherit
-    uses: ./.github/workflows/flow-build-artifacts.yml
+  ##### Remove path filter and uncomment the following lines if other jobs need to be triggered on push #####
+
+  # benchmark-needed:
+  #   runs-on: ${{ vars.RUNS_ON }}
+  #   outputs:
+  #     BENCHMARK_NEEDED: ${{ steps.check-benchmarks.outputs.any_modified }}
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@
+  #       with:
+  #         fetch-depth: 0 # required for changed-files action to work
+  #     - name: Check if benchmarks were changed
+  #       id: check-benchmarks
+  #       uses: tj-actions/changed-files@
+  #       with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
+  #         files: |
+  #           src/**
+  #           deps/**
+  #           tests/benchmarks/**
+  #           .github/workflows/benchmark-*.yml
+  #           **/CMakeLists.txt
+  #           **/Makefile
 
   benchmark:
+    # needs: benchmark-needed
+    # if: ${{ needs.benchmark-needed.outputs.BENCHMARK_NEEDED == 'true' }}
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit

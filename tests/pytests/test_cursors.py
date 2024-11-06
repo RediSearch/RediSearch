@@ -54,15 +54,14 @@ def testCursors(env):
     res = exhaustCursor(env, 'idx', res)
     env.assertEqual(11, len(res))
 
-@skip(noWorkers=True)
 def testCursorsBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL _PRINT_PROFILE_CLOCK FALSE')
+    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -235,9 +234,8 @@ def testIndexDropWhileIdle(env: Env):
     else:
         env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
 
-@skip(noWorkers=True)
 def testIndexDropWhileIdleBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     testIndexDropWhileIdle(env)
 
 def exceedCursorCapacity(env):
@@ -251,20 +249,20 @@ def exceedCursorCapacity(env):
         env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
 
     # Trying to create another cursor should fail
-    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('INDEX_CURSOR_LIMIT')
 
 @skip(cluster=True)
 def testExceedCursorCapacity(env):
     exceedCursorCapacity(env)
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testExceedCursorCapacityBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
 
-@skip(noWorkers=True, cluster=False)
+@skip(cluster=False)
 def testCursorOnCoordinatorBG():
-    env = Env(moduleArgs='WORKER_THREADS 1 MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs='WORKERS 1')
     CursorOnCoordinator(env)
 
 @skip(cluster=False)
@@ -302,10 +300,10 @@ def CursorOnCoordinator(env: Env):
     for i in range(n_docs):
         conn.execute_command('HSET', i ,'n', i)
 
-    default = int(env.cmd('_FT.CONFIG', 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
+    default = int(env.cmd(config_cmd(), 'GET', 'CURSOR_REPLY_THRESHOLD')[0][1])
     configs = {default, 1, env.shardsCount - 1, env.shardsCount}
     for threshold in configs:
-        env.expect('_FT.CONFIG', 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()
+        env.expect(config_cmd(), 'SET', 'CURSOR_REPLY_THRESHOLD', threshold).ok()
 
         result_set = set()
         def add_results(res):
@@ -386,6 +384,8 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
+    starting_cursor_count = getCursorStats(env, 'idx')['index_total']
+
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
@@ -395,6 +395,8 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         n_recieved += len(res) - 1
 
     env.assertEqual(n_recieved, num_docs)
+    # Ensure that the cursors we opened were closed properly
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
 
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when
@@ -429,7 +431,7 @@ def test_mod_6597(env):
 
     # Populate the db (and index) with enough documents for the GC to work (one
     # more than `FORK_GC_CLEAN_THRESHOLD`).
-    res = env.cmd('FT.CONFIG', 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
+    res = env.cmd(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
     num_docs = int(res) + 1
     for i in range(num_docs):
         conn.execute_command('hset', f'doc{i}', 'test', str(i))
@@ -439,7 +441,7 @@ def test_mod_6597(env):
     n = len(res) - 1
 
     # Make sure GC is not self-invoked (periodic run).
-    env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
 
     # Delete all documents of the index. The same effect is achieved if a split
     # occurred and a whole NumericRangeNode is deleted.

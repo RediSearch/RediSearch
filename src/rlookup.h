@@ -54,12 +54,6 @@ typedef enum {
  * The second array is a "dynamic" array within a given result's row data.
  * This is used for data generated on the fly, or for data not stored within
  * the sorting vector.
- *
- * It is possible to use the same name in both the sorting vector, and also in
- * the dynamic array. To accomplish this, create a key with the F_OUTPUT flag
- * set. This flag forces the lookup mechanism to ignore the presence of the
- * sorting vector, so that they are essentially different keys, even though
- * they have the same name.
  */
 typedef struct RLookupKey {
   /** The index into the array where the value resides */
@@ -72,8 +66,7 @@ typedef struct RLookupKey {
   uint16_t svidx;
 
   /**
-   * Can be F_SVSRC which means the target array is a sorting vector, or
-   * F_OUTPUT which means that the t
+   * Can be F_SVSRC which means the target array is a sorting vector)
    */
   uint32_t flags;
 
@@ -81,8 +74,6 @@ typedef struct RLookupKey {
    *  path AS name */
   const char *path;
   const char *name;
-
-  /** Size of this field */
   size_t name_len;
 
   /** Pointer to next field in the list */
@@ -360,12 +351,12 @@ typedef struct {
    * Don't use sortables when loading documents. This will enforce the loader to load
    * the fields from the document itself, even if they are sortables and un-normalized.
    */
-  int forceLoad;
+  bool forceLoad;
 
   /**
    * Force string return; don't coerce to native type
    */
-  int forceString;
+  bool forceString;
 
   struct QueryError *status;
 } RLookupLoadOptions;
@@ -392,15 +383,6 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
  * valid after this call!
  */
 void RLookup_Cleanup(RLookup *l);
-
-static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
-  for (const RLookupKey *k = l->head; k; k = k->next) {
-    if (k->flags & f) {
-      return k;
-    }
-  }
-  return NULL;
-}
 
 /**
  * Initialize the lookup with fields from hash.

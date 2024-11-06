@@ -160,7 +160,9 @@ UNION {
     }
   }
   INTERSECT {
-    goodbye
+    EXACT {
+      goodbye
+    }
     UNION {
       moon
       +moon(expanded)
@@ -187,7 +189,9 @@ UNION {
       +goodby(expanded)
       goodby(expanded)
     }
-    moon
+    EXACT {
+      moon
+    }
   }
 }
 '''[1:])
@@ -195,12 +199,20 @@ UNION {
     env.expect('FT.EXPLAIN', 'idx', '"hello" "world" | "goodbye" "moon"').equal(r'''
 UNION {
   INTERSECT {
-    hello
-    world
+    EXACT {
+      hello
+    }
+    EXACT {
+      world
+    }
   }
   INTERSECT {
-    goodbye
-    moon
+    EXACT {
+      goodbye
+    }
+    EXACT {
+      moon
+    }
   }
 }
 '''[1:])
@@ -208,25 +220,41 @@ UNION {
     env.expect('FT.EXPLAIN', 'idx', '("hello" "world")|(("hello" "world")|("hallo" "world"|"werld") | "hello" "world" "werld")').equal(r'''
 UNION {
   INTERSECT {
-    hello
-    world
+    EXACT {
+      hallo
+    }
+    EXACT {
+      world
+    }
   }
-  UNION {
-    INTERSECT {
+  EXACT {
+    werld
+  }
+  INTERSECT {
+    EXACT {
       hello
+    }
+    EXACT {
       world
     }
-    UNION {
-      INTERSECT {
-        hallo
-        world
-      }
+  }
+  INTERSECT {
+    EXACT {
+      hello
+    }
+    EXACT {
+      world
+    }
+    EXACT {
       werld
     }
-    INTERSECT {
+  }
+  INTERSECT {
+    EXACT {
       hello
+    }
+    EXACT {
       world
-      werld
     }
   }
 }
@@ -483,7 +511,9 @@ UNION {
     +hello(expanded)
   }
   INTERSECT {
-    world
+    EXACT {
+      world
+    }
     UNION {
       again
       +again(expanded)
@@ -500,7 +530,9 @@ UNION {
   }
   INTERSECT {
     NOT{
-      world
+      EXACT {
+        world
+      }
     }
     UNION {
       again
@@ -518,7 +550,9 @@ INTERSECT {
   }
   OPTIONAL{
     NOT{
-      world
+      EXACT {
+        world
+      }
     }
   }
   OPTIONAL{
@@ -582,7 +616,11 @@ def testLongUnionList(env):
 
     # Make sure we get a single union node of all the args, and not a deep tree
     exact_arg = '|'.join([f'"t{i}"' for i in range(1, num_args+1)])
-    env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    dialect = env.cmd(config_cmd(), "GET", "DEFAULT_DIALECT")[0][1]
+    if (dialect == 1):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:t{i}' for i in range(1, num_args+1)]) + '\n}\n')
+    elif (dialect == 2):
+      env.expect('FT.EXPLAIN', 'idx1', f'@t:({exact_arg})').equal('@t:UNION {\n' + '\n'.join([f'  @t:EXACT {{\n    @t:t{i}\n  }}' for i in range(1, num_args+1)]) + '\n}\n')
 
 def testModifierList(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
@@ -602,28 +640,26 @@ def testModifierList(env):
 
 def testCreateOptionalArgs(env):
   # the order of the optional arguments is not important
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'genre', 'TAG', 'SEPARATOR', ',', 'SORTABLE').ok()
-  env.expect('FT.DROP', 'testindex')
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'genre', 'TAG', 'SORTABLE', 'SEPARATOR', ',').ok()
-  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'genre', 'TAG',
+             'SEPARATOR', ',', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'genre', 'TAG',
+             'SORTABLE', 'SEPARATOR', ',').ok()
+  env.expect('FT.DROP', 'idx')
 
   # test case with multiple fields
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT',
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
     'WEIGHT', '5.0', 'plot', 'TEXT', 'SORTABLE', 'genre', 'TAG', 'SORTABLE',
     'SEPARATOR', ',', 'release_year', 'NUMERIC', 'SORTABLE', 'rating',
     'NUMERIC', 'SORTABLE', 'votes', 'NUMERIC', 'SORTABLE').ok()
-  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.DROP', 'idx')
 
   # test optional argument: SORTABLE
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-  env.expect('FT.DROP', 'testindex')
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'title', 'TEXT').ok()
-  env.expect('FT.DROP', 'testindex')
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'release_year', 'NUMERIC', 'SORTABLE').ok()
-  env.expect('FT.DROP', 'testindex')
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'release_year', 'NUMERIC').ok()
-  env.expect('FT.DROP', 'testindex')
-
-  # test SORTABLE with invalid type
-  env.expect('FT.CREATE', 'testindex', 'SCHEMA', 'g_shape', 'GEOSHAPE', 'SORTABLE').error().contains("Field `g_shape` can't have the option SORTABLE")
-  env.expect('FT.DROP', 'testindex')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geo', 'GEO', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')

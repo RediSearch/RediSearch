@@ -33,7 +33,12 @@ typedef enum {
   rename_to_cmd,
   trimmed_cmd,
   restore_cmd,
+  expire_cmd,
+  persist_cmd,
   expired_cmd,
+  hexpire_cmd,
+  hpersist_cmd,
+  hexpired_cmd,
   evicted_cmd,
   change_cmd,
   loaded_cmd,
@@ -72,7 +77,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0;
+                    *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
+                    *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
 
   // clang-format off
 
@@ -88,7 +94,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(hexpired)
+  else CHECK_CACHED_EVENT(expire)
   else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(persist)
+  else CHECK_CACHED_EVENT(hpersist)
   else CHECK_CACHED_EVENT(evicted)
   else CHECK_CACHED_EVENT(change)
   else CHECK_CACHED_EVENT(del)
@@ -111,6 +121,9 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(hexpire)
+    else CHECK_AND_CACHE_EVENT(hexpired)
+    else CHECK_AND_CACHE_EVENT(expire)
     else CHECK_AND_CACHE_EVENT(expired)
     else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)
@@ -138,12 +151,17 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
+    case hexpired_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       break;
 
 /********************************************************
  *              Handling Redis commands                 *
  ********************************************************/
+    case expire_cmd:
+    case persist_cmd:
+    case hexpire_cmd:
+    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
@@ -295,19 +313,15 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
       isTrimming = true;
-#ifdef MT_BUILD
-      workersThreadPool_Activate();
-#endif
+      workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
       RedisModule_Log(ctx, "notice", "%s", "Got trimming ended event, exit trimming phase.");
       isTrimming = false;
-#ifdef MT_BUILD
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs (in RCE mode), and terminate the threads
       // ONCE ALL PENDING JOBS ARE DONE.
-      workersThreadPool_SetTerminationWhenEmpty();
-#endif
+      workersThreadPool_OnEventEnd(false);
       break;
     default:
       RedisModule_Log(RSDummyContext, "warning", "Bad subevent given, ignored.");
@@ -327,14 +341,12 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
 
-  if(CompareVestions(redisVersion, noScanVersion) >= 0){
-    // we do not need to scan after rdb load, i.e, there is not danger of losing results
-    // after resharding, its safe to filter keys which are not in our slot range.
-    if (RedisModule_SubscribeToServerEvent && RedisModule_ShardingGetKeySlot) {
-      // we have server events support, lets subscribe to relevan events.
-      RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
-      RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
-    }
+  // we do not need to scan after rdb load, i.e, there is not danger of losing results
+  // after resharding, its safe to filter keys which are not in our slot range.
+  if (RedisModule_SubscribeToServerEvent && RedisModule_ShardingGetKeySlot) {
+    // we have server events support, lets subscribe to relevan events.
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
   if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {

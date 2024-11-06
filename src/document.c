@@ -219,7 +219,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   }
 
   aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords);
-//  aCtx->doc->docId = 0;
   return aCtx;
 }
 
@@ -321,10 +320,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
-  /**
-   * Free preprocessed data; this is the only reliable place
-   * to do it
-   */
+  // Free preprocessed data; this is the only reliable place to do it.
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     if (FIELD_IS_VALID(aCtx, ii)) {
       if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
@@ -405,6 +401,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = DocumentField_GetValueCStr(field, &fl);
   size_t valueCount = (field->unionType != FLD_VAR_T_ARRAY ? 1 : field->arrayLen);
+  bool indexesEmpty = FieldSpec_IndexesEmpty(fs);
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
@@ -449,8 +446,12 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
       Token tok = {0};
-      uint32_t newTokPos;
-      while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
+      while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
+        if (!indexesEmpty && strlen(tok.tok) == 0) {
+          // Skip empty values if the field should not index them
+          // Empty tokens are returned only if the original value was empty
+          continue;
+        }
         forwardIndexTokenFunc(&tokCtx, &tok);
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
@@ -544,16 +545,10 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
       return 0;
     case FLD_VAR_T_ARRAY:
       fdata->isMulti = 1;
-      // TODO: GEOMETRY - parse geometries from string
-      //fdata->arrGeometry = ...
       return 0;
     default:
       return -1;
   }
-
-  // TODO: GEOMETRY
-  // If this is a sortable geomtry value - copy the value to the sorting vector
-
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
@@ -694,8 +689,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-    case FLD_VAR_T_GEOMETRY:
-      RS_LOG_ASSERT(0, "Oops");
+      RS_LOG_ASSERT(0, "Unsupported field type for GEO index");
   }
 
   const char *str = NULL;
@@ -853,7 +847,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
         IndexError_AddError(&aCtx->spec->stats.indexError, QueryError_GetError(&aCtx->status), doc->docKey);
-        IndexError_AddError(&aCtx->spec->fields[fs->index].indexError, QueryError_GetError(&aCtx->status), doc->docKey);
+        FieldSpec_AddError(&aCtx->spec->fields[fs->index], QueryError_GetError(&aCtx->status), doc->docKey);
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }

@@ -95,7 +95,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
       tok = strtolower(tok);
     }
-    *resArray = array_append(*resArray, tok);
+    array_append(*resArray, tok);
     return REDISMODULE_OK;
   }
 
@@ -115,7 +115,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
         tok = strtolower(tok);
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      *resArray = array_append(*resArray, tok);
+      array_append(*resArray, tok);
     } else {
       break;
     }
@@ -126,7 +126,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (indexEmpty) {
     if (p == pp || last_is_sep)
     tok = rm_strdup("");
-    *resArray = array_append(*resArray, tok);
+    array_append(*resArray, tok);
   }
 
   rm_free(pp);
@@ -146,13 +146,8 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     tokenizeTagString(data->strval, fs, &arr);
     break;
   case FLD_VAR_T_ARRAY:
-    if (FieldSpec_IndexesEmpty(fs) && data->arrayLen == 0) {
-      // We wish to index empty JSON arrays as empty fields
-      arr = array_append(arr, rm_strdup(""));
-    } else {
-      for (int i = 0; i < data->arrayLen; i++) {
-        tokenizeTagString(data->multiVal[i], fs, &arr);
-      }
+    for (int i = 0; i < data->arrayLen; i++) {
+      tokenizeTagString(data->multiVal[i], fs, &arr);
     }
     break;
   case FLD_VAR_T_NULL:
@@ -169,23 +164,28 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
+                                          size_t len, int create, size_t *sz) {
+  *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1);
+      iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
   return iv;
 }
 
-/* Encode a single docId into a specific tag value */
+// Encode a single docId into a specific tag value
+// Returns the number of bytes occupied by the encoded entry plus the size of
+// the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
+  size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
+  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -220,10 +220,11 @@ static void TagReader_OnReopen(void *privdata) {
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
     if (ir->record->type == RSResultType_Term) {
+      size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                                    ir->record->term.term->len, 0);
+                                              ir->record->term.term->len, 0, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // the inverted index was collected entirely by GC, lets stop searching.
         // notice, it might be that a new inverted index was created, we will not
@@ -254,11 +255,12 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
 
-IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *value, size_t len,
-                                   double weight) {
+IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
+                                   double weight, t_fieldIndex fieldIndex) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
+  IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
   if (!r) {
     return NULL;
   }
@@ -267,14 +269,14 @@ IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
-                                   double weight) {
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+                                   double weight, t_fieldIndex fieldIndex) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(sp, iv, value, len, weight);
+  return TagIndex_GetReader(sctx, iv, value, len, weight, fieldIndex);
 }
 
 /* Format the key name for a tag index */
@@ -282,7 +284,7 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
-static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
+static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
   if (kdv) {
     return kdv->p;
@@ -300,35 +302,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
 /* Open the tag index */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
-  TagIndex *ret = NULL;
-  if (!sctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-    if (!keyp) {
-      keyp = &key_s;
-    }
-
-    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
-                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
-
-    int type = RedisModule_KeyType(*keyp);
-    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      if (openWrite) {
-        ret = NewTagIndex();
-        RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
-      }
-    } else {
-      ret = RedisModule_ModuleTypeGetValue(*keyp);
-    }
-  } else {
-    ret = openTagKeyDict(sctx, formattedKey, openWrite);
-  }
-
-  return ret;
+  return openTagKeyDict(sctx, formattedKey, openWrite);
 }
 
 /* Serialize all the tags in the index to the redis client */

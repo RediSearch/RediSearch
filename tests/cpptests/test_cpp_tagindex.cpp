@@ -16,9 +16,9 @@ TEST_F(TagIndexTest, testCreate) {
   //   printf("V[n]: %s\n", s);
   // }
   size_t totalSZ = 0;
-  for (t_docId d = 1; d <= N; d++) {
+  t_docId d;
+  for (d = 1; d <= N; d++) {
     size_t sz = TagIndex_Index(idx, &v[0], v.size(), d);
-    ASSERT_GT(sz, 0);
     totalSZ += sz;
     // make sure repeating push of the same vector doesn't get indexed
     sz = TagIndex_Index(idx, &v[0], v.size(), d);
@@ -26,9 +26,28 @@ TEST_F(TagIndexTest, testCreate) {
   }
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
-  ASSERT_EQ(300000, totalSZ);
 
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
+  // expectedTotalSZ should include the memory occupied by the inverted index 
+  // structure and its blocks.
+
+  // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
+  size_t buffer_cap = 1077;
+  size_t num_blocks = N / INDEX_BLOCK_SIZE_DOCID_ONLY;
+
+  // The size of the inverted index structure is 32 bytes
+  size_t iv_index_size = sizeof_InvertedIndex(Index_DocIdsOnly);
+
+  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + sizeof(IndexBlock)) * num_blocks));
+  ASSERT_EQ(expectedTotalSZ, totalSZ);
+
+  // Add a new entry to and check the last block size
+  std::vector<const char *> v2{"bye"};
+  size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
+  size_t last_block_size = sizeof_InvertedIndex(Index_DocIdsOnly) +
+                            sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
+
+  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
   RSIndexResult *r;
   t_docId n = 1;

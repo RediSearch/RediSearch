@@ -3,7 +3,6 @@
 import collections
 import random
 import re
-import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -13,6 +12,7 @@ import tempfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import redis
 
 from common import *
 from includes import *
@@ -21,35 +21,25 @@ from includes import *
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
-RDBS_SHORT_READS = [
-    'short-reads/redisearch_2.2.0.rdb.zip',
-    'short-reads/rejson_2.0.0.rdb.zip',
-    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
-    'short-reads/redisearch_2.8.0.rdb.zip',
-    'short-reads/redisearch_2.8.4.rdb.zip',
-    'short-reads/redisearch_2.8.12_rejson_2.0.0.rdb.zip',
-]
-RDBS_COMPATIBILITY = [
-    'redisearch_2.0.9.rdb',
-]
-
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
-RDBS_EXPECTED_INDICES = [
-                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
-                         ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
-                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
-                         ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-                         ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
-                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
-                        ]
 
-RDBS = []
-RDBS.extend(RDBS_SHORT_READS)
+RDBS_SHORT_READS = {
+    'short-reads/redisearch_2.2.0.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/rejson_2.0.0.rdb.zip'                 : ExpectedIndex(2, 'shortread_idxJson_[1-9]', [20, 55]),
+    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip': ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35]),
+    'short-reads/redisearch_2.8.0.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+    'short-reads/redisearch_2.8.4.rdb.zip'             : ExpectedIndex(2, 'shortread_idxSearch_with_geom_[1-9]', [20, 60]),
+    'short-reads/redisearch_2.10.3.rdb.zip'            : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [10, 35]),
+    'short-reads/redisearch_2.10.3_missing.rdb.zip'    : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+    'short-reads/redisearch_existing_3.0.rdb.zip'      : ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+}
+RDBS_COMPATIBILITY = {
+    'redisearch_2.0.9.rdb': ExpectedIndex(1, 'idx', [1000]),
+}
+
+RDBS = RDBS_SHORT_READS.copy()
 if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
-    RDBS.extend(RDBS_COMPATIBILITY)
-    RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
-
-LOCAL_RDBS_DIR = None # '/tmp'
+    RDBS.update(RDBS_COMPATIBILITY)
 
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
@@ -59,31 +49,6 @@ def unzip(zip_path, to_dir):
             if not os.path.exists(db_zip.extract(info, to_dir)):
                 return False
     return True
-
-
-def downloadFiles(target_dir, rdbs_start_idx, rdbs_end_idx):
-    for f in RDBS[rdbs_start_idx:rdbs_end_idx]:
-        path = os.path.join(target_dir, f)
-        path_dir = os.path.dirname(path)
-        if not os.path.exists(path_dir):
-            os.makedirs(path_dir)
-        if LOCAL_RDBS_DIR:
-            local_path = os.path.join(LOCAL_RDBS_DIR, os.path.basename(f))
-            if os.path.exists(local_path):
-                shutil.copyfile(local_path, path)
-                unzip(path, path_dir)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-            dpath = os.path.abspath(path)
-            _, ext = os.path.splitext(dpath)
-            if ext == '.zip':
-                if not unzip(path, path_dir):
-                    return False
-            else:
-                if not os.path.exists(path) or os.path.getsize(path) == 0:
-                    return False
-    return True
-
 
 def rand_name(k):
     # rand alphabetic string with between 2 to k chars
@@ -126,13 +91,10 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson, num_geometry_k
     tempdir = tempfile.TemporaryDirectory(prefix='test_')
     dbCopyFilePath = os.path.join(tempdir.name, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
-    if not os.path.exists(dbCopyFileDir):
-        os.makedirs(dbCopyFileDir)
+    os.makedirs(dbCopyFileDir, exist_ok=True)
     zipFilePath = dbCopyFilePath + '.zip'
     with zipfile.ZipFile(zipFilePath, 'w') as db_zip:
         db_zip.write(dbFilePath, dbFileName)
-    if LOCAL_RDBS_DIR:
-        shutil.copyfile(zipFilePath, os.path.join(LOCAL_RDBS_DIR, os.path.basename(zipFilePath)))
 
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
@@ -163,7 +125,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
     '''
 
     # Create the index
-    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON']
+    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON', 'INDEXALL', 'ENABLE']
     # With prefixes
     if num_prefs > 0:
         cmd_create.extend(['prefix', num_prefs])
@@ -190,8 +152,15 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
                        get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
-                       get_identifier('field6', isHash), 'as', 'f6', 'tag', 'isempty',
-                       get_identifier('field6', isHash), 'as', 'f7', 'tag', 'isempty', 'SORTABLE',
+                       get_identifier('field6', isHash), 'as', 'f6', 'tag', 'INDEXEMPTY',
+                       get_identifier('field7', isHash), 'as', 'f7', 'tag', 'INDEXEMPTY', 'SORTABLE',
+                       get_identifier('field8', isHash), 'as', 'f8', 'TEXT', 'INDEXEMPTY',
+                       get_identifier('field9', isHash), 'as', 'f9', 'TEXT', 'INDEXEMPTY', 'SORTABLE',
+                       get_identifier('field10', isHash), 'as', 'f10', 'tag', 'INDEXEMPTY', 'SORTABLE',
+                       get_identifier('field15', isHash), 'as', 'f15', 'tag', 'INDEXMISSING',
+                       get_identifier('field16', isHash), 'as', 'f16', 'tag', 'INDEXMISSING', 'SORTABLE',
+                       get_identifier('field17', isHash), 'as', 'f17', 'text', 'INDEXMISSING',
+                       get_identifier('field18', isHash), 'as', 'f18', 'text', 'INDEXMISSING', 'SORTABLE',
 
                        get_identifier('field11', isHash), 'text', 'nostem',
                        get_identifier('field12', isHash), 'numeric', 'noindex',
@@ -234,7 +203,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys, num_geom
 def _testCreateIndexRdbFiles(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
-    create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+    create_indices(env, 'redisearch_existing_3.0.rdb', 'idxSearch', True, False)
 
 def _testCreateIndexRdbFilesWithJSON(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -514,31 +483,6 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, macos=True, asan=True, arch='aarch64')
-def testShortReadSearch_part1(env):
-    ShortReadSearch(env, 0, len(RDBS)//2)
-
-@skip(cluster=True, macos=True, asan=True, arch='aarch64')
-def testShortReadSearch_part2(env):
-    ShortReadSearch(env, len(RDBS)//2, len(RDBS))
-
-def ShortReadSearch(env, rdbs_start_idx, rdbs_end_idx):
-    if not server_version_at_least(env, "6.2.0"):
-        env.skip()
-
-    if CODE_COVERAGE or SANITIZER:
-        env.skip()  # FIXME: enable coverage test
-
-    if env.env.endswith('existing-env') and CI:
-        env.skip()
-
-    seed = str(time.time())
-    env.assertNotEqual(seed, None, message='random seed ' + seed)
-    random.seed(seed)
-
-    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'testShortReadSearch')
-
-
 def sendShortReads(env, rdb_file, expected_index):
     # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
@@ -611,8 +555,17 @@ def runShortRead(env, data, total_len, expected_index):
         conn.close()
 
         # Make sure replica did not crash
-        res = env.cmd('PING')
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            try:
+                res = env.cmd('PING')
+                break
+            except redis.exceptions.BusyLoadingError:
+                max_up_attempt = max_up_attempt - 1
+                time.sleep(0.1)
+        env.assertGreater(max_up_attempt, 0)
         env.assertEqual(res, True)
+
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
@@ -641,36 +594,41 @@ def runShortRead(env, data, total_len, expected_index):
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
 
-def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
-    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
-        if not downloadFiles(temp_dir, rdbs_start_idx, rdbs_end_idx):
-            env.assertTrue(False, "downloadFiles failed")
+seed = str(time.time())
+random.seed(seed)
 
-        for f, expected_index in zip(RDBS[rdbs_start_idx:rdbs_end_idx], RDBS_EXPECTED_INDICES[rdbs_start_idx:rdbs_end_idx]):
-            name, ext = os.path.splitext(f)
-            if ext == '.zip':
-                f = name
-            fullfilePath = os.path.join(temp_dir, f)
-            env.assertNotEqual(fullfilePath, None, message=test_name)
-            sendShortReads(env, fullfilePath, expected_index)
+def downloadFile(file_name):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)
+    if not os.path.exists(path):
+        subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + file_name, "-O", path, "-q"])
+        if os.path.splitext(path)[-1] == '.zip':
+            return unzip(path, path_dir)
+        else:
+            return os.path.exists(path) and os.path.getsize(path) > 0
+    return True
 
-@skip(cluster=True, macos=True, asan=True, arch='aarch64')
-def test_short_read_with_MT_part1():
-    short_read_with_MT(0, len(RDBS)//2)
+def doTest(env: Env, test_name, rdb_name, expected_index):
+    env.debugPrint(f'random seed for {test_name}: {seed}', force=True)
+    env.assertTrue(downloadFile(rdb_name), message='Failed to download ' + rdb_name)
+    name, ext = os.path.splitext(rdb_name)
+    fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
 
-@skip(cluster=True, macos=True, asan=True, arch='aarch64')
-def test_short_read_with_MT_part2():
-    short_read_with_MT(len(RDBS)//2, len(RDBS))
+    env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '0') # test without MT
+    sendShortReads(env, fullPath, expected_index)
+    if server_version_at_least(env, "7.0.0"):
+        env.cmd(config_cmd(), 'SET', 'MIN_OPERATION_WORKERS', '2') # test with MT
+        sendShortReads(env, fullPath, expected_index)
 
-def short_read_with_MT(rdbs_start_idx, rdbs_end_idx):
-    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
-    if not MT_BUILD:
-        raise SkipTest('MT_BUILD is not set')
-    if not server_version_at_least(env, "7.0.0"):
-        env.skip()
-
-    seed = str(time.time())
-    env.assertNotEqual(seed, None, message='random seed ' + seed)
-    random.seed(seed)
-
-    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'test_short_read_with_MT')
+# Dynamically create a test function for each rdb file
+@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64')
+def register_tests():
+    test_func = lambda test, rdb, idx: lambda env: doTest(env, test, rdb, idx)
+    for rdb_name, expected_index in RDBS.items():
+        test_name = 'test_' + rdb_name.replace('/', '_').replace('.', '_')
+        globals()[test_name] = test_func(test_name, rdb_name, expected_index)
+try:
+    register_tests()
+except SkipTest:
+    pass

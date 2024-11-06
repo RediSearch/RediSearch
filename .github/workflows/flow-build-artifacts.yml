@@ -7,15 +7,18 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - ubuntu:bionic
-          - centos:7
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
+          - debian:bookworm
           - amazonlinux:2
+          - amazonlinux:2023
           - mariner:2
+          - alpine:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
@@ -39,7 +42,7 @@ on:
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
@@ -71,7 +74,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}
@@ -83,7 +86,7 @@ jobs:
           platforms = []
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-12')
+            platforms.append('macos-13')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
             platforms.append('macos-latest-xlarge')
 
@@ -114,19 +117,20 @@ jobs:
       matrix:
         OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
         include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      build: true
+      env: ${{ vars.RUNS_ON_ARM }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
-      get-redis: ${{ needs.setup.outputs.redis-ref }}
+      redis-ref: ${{ needs.setup.outputs.redis-ref }}
 
   build-macos:
     needs: [decide-macos, setup]
     if: contains(fromJson('["macos", "all"]'), inputs.platform)
     strategy:
+      fail-fast: false
       matrix:
         OS: ${{ fromJson(needs.decide-macos.outputs.platforms) }}
     uses: ./.github/workflows/task-build-artifacts.yml

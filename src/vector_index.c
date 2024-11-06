@@ -60,8 +60,8 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
   while (VecSimQueryReply_IteratorHasNext(iter)) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    docIdsList = array_append(docIdsList, VecSimQueryResult_GetId(res));
-    metricList = array_append(metricList, VecSimQueryResult_GetScore(res));
+    array_append(docIdsList, VecSimQueryResult_GetId(res));
+    array_append(metricList, VecSimQueryResult_GetScore(res));
   }
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);
@@ -70,7 +70,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
@@ -85,6 +85,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -108,7 +109,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .vectorScoreField = vq->scoreField,
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->timeout,
+                                      .timeout = q->sctx->time.timeout,
+                                      .sctx = q->sctx,
+                                      .filterCtx = &filterCtx,
       };
       return NewHybridVectorIterator(hParams, q->status);
     }
@@ -131,7 +134,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->timeout, .counter = 0 };
+      qParams.timeoutCtx = &(TimeoutCtx){ .timeout = q->sctx->time.timeout, .counter = 0 };
       VecSimQueryReply *results =
           VecSimIndex_RangeQuery(vecsim, vq->range.vector, vq->range.radius,
                                  &qParams, vq->range.order);
@@ -199,6 +202,8 @@ const char *VecSimType_ToString(VecSimType type) {
   switch (type) {
     case VecSimType_FLOAT32: return VECSIM_TYPE_FLOAT32;
     case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
+    case VecSimType_FLOAT16: return VECSIM_TYPE_FLOAT16;
+    case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
     case VecSimType_INT32: return VECSIM_TYPE_INT32;
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
@@ -209,6 +214,8 @@ size_t VecSimType_sizeof(VecSimType type) {
     switch (type) {
         case VecSimType_FLOAT32: return sizeof(float);
         case VecSimType_FLOAT64: return sizeof(double);
+        case VecSimType_FLOAT16: return sizeof(float)/2;
+        case VecSimType_BFLOAT16: return sizeof(float)/2;
         case VecSimType_INT32: return sizeof(int32_t);
         case VecSimType_INT64: return sizeof(int64_t);
     }
@@ -502,13 +509,10 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
   params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
-#ifdef MT_BUILD
   // We expect the thread pool to be initialized from the module init function, and to stay constant
   // throughout the lifetime of the module. It can be initialized to NULL.
-  // The `jobQueue` value will be NULL if `MT_BUILD` is not defined as well.
   params->jobQueue = _workers_thpool;
   params->flatBufferLimit = RSGlobalConfig.tieredVecSimIndexBufferLimit;
-#endif
   params->jobQueueCtx = StrongRef_Demote(sp_ref).rm;
   params->submitCb = (SubmitCB)ThreadPoolAPI_SubmitIndexJobs;
 }

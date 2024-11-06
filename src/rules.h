@@ -12,7 +12,6 @@
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
-#include "spec.h"
 #include "redisearch.h"
 #include "util/references.h"
 
@@ -43,6 +42,7 @@ typedef struct {
   char *payload_field;
   char *lang_default;
   char *score_default;
+  char *index_all;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
@@ -57,6 +57,7 @@ typedef struct SchemaRule {
   char *payload_field;
   double score_default;
   RSLanguage lang_default;
+  bool index_all;
 } SchemaRule;
 
 /*
@@ -82,7 +83,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
                                           RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
-int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver);
+int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 

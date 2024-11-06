@@ -14,11 +14,12 @@
 %left ORX.
 %left OR.
 
-%left ISEMPTY.
+%left ISMISSING.
 %left MODIFIER.
 
 %left RP RB RSQB.
 
+%left EXACT.
 %left TERM.
 %left QUOTE.
 %left LP LB LSQB.
@@ -28,6 +29,8 @@
 
 %left ARROW.
 %left COLON.
+%left NOT_EQUAL EQUALS.
+%left GE GT LE LT.
 
 %left NUMBER.
 %left SIZE.
@@ -42,8 +45,8 @@
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
-// if "as" is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM AS_T ISEMPTY.
+// if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
+%fallback TERM EXACT AS_T ISMISSING.
 
 %token_type {QueryToken}
 
@@ -111,6 +114,35 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
+static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        return NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing - `A` is already assigned
+    } else {
+        struct RSQueryNode* child;
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            A->opts.fieldMask |= B->opts.fieldMask;
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
+        A->opts.fieldMask |= child->opts.fieldMask;
+        QueryNode_SetFieldMask(A, A->opts.fieldMask);
+    }
+    return A;
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -130,6 +162,41 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
     QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
   }
 }
+
+//! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
+static const char ToksepParserMap_g[256] = {
+    [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
+    ['}'] = 1, ['['] = 1,  [']'] = 1,  [':'] = 1, [';'] = 1, ['~'] = 1, ['!'] = 1, ['@'] = 1,
+    ['#'] = 1,             ['%'] = 1,  ['^'] = 1, ['&'] = 1, ['*'] = 1, ['-'] = 1, ['='] = 1,
+    ['+'] = 1, ['|'] = 1,  ['\''] = 1, ['`'] = 1, ['"'] = 1, ['<'] = 1, ['>'] = 1, ['?'] = 1,
+};
+
+/**
+ * Copy of toksep.h function to use a different map
+ * Function reads string pointed to by `s` and indicates the length of the next
+ * token in `tokLen`. `s` is set to NULL if this is the last token.
+ */
+static inline char *toksep2(char **s, size_t *tokLen) {
+  uint8_t *pos = (uint8_t *)*s;
+  char *orig = *s;
+  int escaped = 0;
+  for (; *pos; ++pos) {
+    if (ToksepParserMap_g[*pos] && !escaped) {
+      *s = (char *)++pos;
+      *tokLen = ((char *)pos - orig) - 1;
+      if (!*pos) {
+        *s = NULL;
+      }
+      return orig;
+    }
+    escaped = !escaped && *pos == '\\';
+  }
+
+  // Didn't find a terminating token. Use a simpler length calculation
+  *s = NULL;
+  *tokLen = (char *)pos - orig;
+  return orig;
+};
 
 } // END %include
 
@@ -213,12 +280,14 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
 
 %type modifierlist { Vector* }
 %destructor modifierlist {
+  if ($$) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
         rm_free(s);
     }
     Vector_Free($$);
+  }
 }
 
 %type num { RangeNumber }
@@ -247,7 +316,7 @@ star ::= STAR.
 star ::= LP star RP.
 
 // This rule switches from text contex to regular context.
-// In general, we want to stay in text contex as long as we can (mostly for use of field modifiers).
+// In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
 }
@@ -341,77 +410,21 @@ expr(A) ::= union(B) . [ORX] {
 }
 
 union(A) ::= expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 union(A) ::= union(B) OR expr(C). [OR] {
-    A = B;
-    if (C) {
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 // This rule is needed for queries like "hello|(world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 union(A) ::= text_expr(B) OR expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 union(A) ::= expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 text_expr(A) ::= text_union(B) . [ORX] {
@@ -420,33 +433,11 @@ text_expr(A) ::= text_union(B) . [ORX] {
 
 // This rule is identical to "union ::= expr OR expr", but keeps the text context.
 text_union(A) ::= text_expr(B) OR text_expr(C) . [OR] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- already assigned
-    } else {
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
-            A = B;
-        } else {
-            A = NewUnionNode();
-            QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
-        }
-        // Handle C
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
-    A = B;
-    if (C) {
-        QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(C, A->opts.fieldMask);
-    }
+  A = union_step(B, C);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -462,6 +453,43 @@ expr(A) ::= modifier(B) COLON text_expr(C) . {
         }
         A = C;
     }
+}
+
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  QueryNode* E = NewNumericNode(qp);
+  A = NewNotNode(E);
+}
+
+expr(A) ::= modifier(B) EQUALS param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) GT param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) GE param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) LT param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
+}
+
+expr(A) ::= modifier(B) LE param_num(C) . {
+  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
+  qp->nf->fieldName = rm_strndup(B.s, B.len);
+  A = NewNumericNode(qp);
 }
 
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
@@ -520,11 +548,12 @@ attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
 
 attribute_list(A) ::= attribute(B) . {
   A = array_new(QueryAttribute, 2);
-  A = array_append(A, B);
+  array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-  A = array_append(B, C);
+  array_append(B, C);
+  A = B;
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
@@ -557,17 +586,24 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 // Term Lists
 /////////////////////////////////////////////////////////////////
 
-text_expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
-  // TODO: Quoted/verbatim string in termlist should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  B->pn.exact = 1;
-  B->opts.flags |= QueryNode_Verbatim;
+text_expr(A) ::= EXACT(B) . [TERMLIST] {
+  char *str = rm_strndup(B.s, B.len);
+  char *s = str;
 
-  A = B;
-}
+  A = NewPhraseNode(0);
 
-text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  while (str != NULL) {
+    // get the next token
+    size_t tokLen = 0;
+    char *tok = toksep2(&str, &tokLen);
+    if(tokLen > 0) {
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+      QueryNode_AddChild(A, C);
+    }
+  }
+
+  rm_free(s);
+  A->pn.exact = 1;
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -611,7 +647,6 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
     }
 }
 
-
 /////////////////////////////////////////////////////////////////
 // Negative Clause
 /////////////////////////////////////////////////////////////////
@@ -653,7 +688,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
 }
 
 /////////////////////////////////////////////////////////////////
-// Prefix experessions
+// Prefix expressions
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
@@ -697,47 +732,47 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-    B.len = unescapen((char*)B.s, B.len);
-    A = B;
- }
+  B.len = unescapen((char*)B.s, B.len);
+  A = B;
+}
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    A = NULL;
+  }
 }
 
+
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  if (__builtin_expect(C.len > 0, 1)) {
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
+  } else {
+    reportSyntaxError(ctx->status, &C, "Syntax error");
+    if (B) {
+      for (size_t i = 0; i < Vector_Size(B); i++) {
+        char *s;
+        Vector_Get(B, i, &s);
+        rm_free(s);
+      }
+      Vector_Free(B);
+    }
+    A = NULL;
+  }
 }
 
-expr(A) ::= ISEMPTY LP modifier(B) RP . {
+expr(A) ::= ISMISSING LP modifier(B) RP . {
   char *s = rm_strndup(B.s, B.len);
   size_t slen = unescapen(s, B.len);
-
-  const FieldSpec *fs = IndexSpec_GetField(ctx->sctx->spec, s, slen);
-  if (!fs) {
-    // Non-existing field
-    reportSyntaxError(ctx->status, &B, "Syntax error: Field not found");
-    A = NULL;
-    rm_free(s);
-  } else {
-    switch (fs->types) {
-      case INDEXFLD_T_TAG:
-        A = NewTagNode(s, slen);
-        A->tag.nen = NON_EXIST_EMPTY;
-        break;
-      default:
-        reportSyntaxError(ctx->status, &B, "Syntax error: Unsupported field type for ISEMPTY");
-        A = NULL;
-        rm_free(s);
-        break;
-    }
-  }
+  A = NewMissingNode(s, slen);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -797,8 +832,8 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
+  QueryNode_AddChild(B, C);
+  A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -886,7 +921,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 }
 
 /////////////////////////////////////////////////////////////////
-// Geomtriy Queries
+// Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   if (C) {
@@ -1060,15 +1095,17 @@ vector_attribute(A) ::= TERM(B) param_term(C). {
 }
 
 vector_attribute_list(A) ::= vector_attribute_list(B) vector_attribute(C). {
-  A.params = array_append(B.params, C.param);
-  A.needResolve = array_append(B.needResolve, C.needResolve);
+  array_append(B.params, C.param);
+  array_append(B.needResolve, C.needResolve);
+  A.params = B.params;
+  A.needResolve = B.needResolve;
 }
 
 vector_attribute_list(A) ::= vector_attribute(B). {
   A.params = array_new(VecSimRawParam, 1);
   A.needResolve = array_new(bool, 1);
-  A.params = array_append(A.params, B.param);
-  A.needResolve = array_append(A.needResolve, B.needResolve);
+  array_append(A.params, B.param);
+  array_append(A.needResolve, B.needResolve);
 }
 
 /*** Vector range queries ***/
@@ -1108,25 +1145,25 @@ num(A) ::= MINUS num(B). {
 
 term(A) ::= TERM(B) . {
   A = B;
+  A.type = QT_TERM;
 }
 
 term(A) ::= NUMBER(B) . {
   A = B;
+  A.type = QT_NUMERIC;
 }
 
 term(A) ::= SIZE(B). {
   A = B;
+  A.type = QT_SIZE;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-
-// Number is treated as a term here
 param_term(A) ::= term(B). {
   A = B;
-  A.type = QT_TERM;
 }
 
 param_term(A) ::= ATTRIBUTE(B). {
@@ -1155,7 +1192,14 @@ param_size(A) ::= ATTRIBUTE(B). {
 }
 
 param_num(A) ::= ATTRIBUTE(B). {
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 1;
+}
+
+param_num(A) ::= MINUS ATTRIBUTE(B). {
     A = B;
+    A.sign = -1;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 1;
 }
@@ -1176,4 +1220,11 @@ exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
     A = B;
     A.type = QT_PARAM_NUMERIC;
     A.inclusive = 0;
+}
+
+exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
+    A = B;
+    A.type = QT_PARAM_NUMERIC;
+    A.inclusive = 0;
+    A.sign = -1;
 }

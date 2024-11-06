@@ -18,8 +18,15 @@
 #include "spec.h"
 #include "util/dict.h"
 #include "resp3.h"
+#include "util/workers.h"
 
 #include "util/config_macros.h"
+
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
+#define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
+RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
@@ -65,8 +72,8 @@ CONFIG_GETTER(getMinPrefix) {
 CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
-  if (minStemLen < MIN_MIN_STEM_LENGHT) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGHT, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGHT);
+  if (minStemLen < MIN_MIN_STEM_LENGTH) {
+    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -168,12 +175,33 @@ CONFIG_GETTER(getTimeout) {
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
 }
 
-#ifdef MT_BUILD
+// We limit the number of worker threads to limit the amount of memory used by the thread pool
+// and to prevent the system from running out of resources.
+// The number of worker threads should be proportional to the number of cores in the system at most,
+// otherwise no performance improvement will be achieved.
+#ifndef MAX_WORKER_THREADS
+#define MAX_WORKER_THREADS (1 << 4)
+#endif
 
-// WORKER_THREADS
+static inline int errorTooManyThreads(QueryError *status) {
+  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  return REDISMODULE_ERR;
+}
+
+// WORKERS
 CONFIG_SETTER(setWorkThreads) {
-  int acrc = AC_GetSize(ac, &config->numWorkerThreads, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    return errorTooManyThreads(status);
+  }
+  config->numWorkerThreads = newNumThreads;
+
+  workersThreadPool_SetNumWorkers();
+  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  COORDINATOR_TRIGGER();
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getWorkThreads) {
@@ -181,25 +209,90 @@ CONFIG_GETTER(getWorkThreads) {
   return sdscatprintf(ss, "%lu", config->numWorkerThreads);
 }
 
-// MT_MODE
+// MIN_OPERATION_WORKERS
+CONFIG_SETTER(setMinOperationWorkers) {
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    return errorTooManyThreads(status);
+  }
+  config->minOperationWorkers = newNumThreads;
+  // Will only change the number of workers if we are in an event,
+  // and `numWorkerThreads` is less than `minOperationWorkers`.
+  workersThreadPool_SetNumWorkers();
+  return REDISMODULE_OK;
+}
 
+CONFIG_GETTER(getMinOperationWorkers) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->minOperationWorkers);
+}
+
+/************************************ DEPRECATION CANDIDATES *************************************/
+
+enum MTMode {
+  MT_MODE_OFF,
+  MT_MODE_ONLY_ON_OPERATIONS,
+  MT_MODE_FULL,
+};
+
+// Old configuration
+enum MTMode mt_mode_config = MT_MODE_OFF;
+size_t numWorkerThreads_config = 0;
+
+// WORKER_THREADS
+CONFIG_SETTER(setDeprWorkThreads) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
+  numWorkerThreads_config = newNumThreads;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getDeprWorkThreads) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  sds ss = sdsempty();
+  size_t numThreads;
+  switch (mt_mode_config) {
+  case MT_MODE_OFF:
+    numThreads = 0;
+    break;
+  case MT_MODE_ONLY_ON_OPERATIONS:
+    numThreads = config->minOperationWorkers;
+    break;
+  case MT_MODE_FULL:
+    numThreads = config->numWorkerThreads;
+    break;
+  }
+  return sdscatprintf(ss, "%lu", numThreads);
+}
+
+// MT_MODE
 CONFIG_SETTER(setMtMode) {
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
-    config->mt_mode = MT_MODE_OFF;
+    mt_mode_config = MT_MODE_OFF;
   } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
-    config->mt_mode = MT_MODE_ONLY_ON_OPERATIONS;
+    mt_mode_config = MT_MODE_ONLY_ON_OPERATIONS;
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
-    config->mt_mode = MT_MODE_FULL;
+    mt_mode_config = MT_MODE_FULL;
   } else {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
-static inline const char *MTMode_ToString(MTMode mt_mode) {
+
+static inline const char *MTMode_ToString(enum MTMode mt_mode) {
   switch (mt_mode) {
     case MT_MODE_OFF:
       return "MT_MODE_OFF";
@@ -207,13 +300,15 @@ static inline const char *MTMode_ToString(MTMode mt_mode) {
       return "MT_MODE_ONLY_ON_OPERATIONS";
     case MT_MODE_FULL:
       return "MT_MODE_FULL";
-    // No default so the compiler will warn us if we forget to handle a case
   }
 }
 
 CONFIG_GETTER(getMtMode) {
-  return sdsnew(MTMode_ToString(config->mt_mode));
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  return sdsnew(MTMode_ToString(mt_mode_config));
 }
+
+/********************************* END OF DEPRECATION CANDIDATES *********************************/
 
 // TIERED_HNSW_BUFFER_LIMIT
 CONFIG_SETTER(setTieredIndexBufferLimit) {
@@ -226,17 +321,22 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
 
-// PRIVILEGED_THREADS_NUM
-CONFIG_SETTER(setPrivilegedThreadsNum) {
-  int acrc = AC_GetSize(ac, &config->privilegedThreadsNum, AC_F_GE0);
+// WORKERS_PRIORITY_BIAS_THRESHOLD
+CONFIG_SETTER(setHighPriorityBiasNum) {
+  int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
-CONFIG_GETTER(getPrivilegedThreadsNum) {
+CONFIG_GETTER(getHighPriorityBiasNum) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->privilegedThreadsNum);
+  return sdscatprintf(ss, "%lu", config->highPriorityBiasNum);
 }
-#endif // MT_BUILD
+
+// PRIVILEGED_THREADS_NUM
+CONFIG_SETTER(setPrivilegedThreadsNum) {
+  RedisModule_Log(RSDummyContext, "warning", "PRIVILEGED_THREADS_NUM is deprecated. Setting WORKERS_PRIORITY_BIAS_THRESHOLD instead.");
+  return setHighPriorityBiasNum(config, ac, -1, status);
+}
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
@@ -255,7 +355,8 @@ CONFIG_SETTER(setOnTimeout) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
-    RETURN_ERROR("Invalid ON_TIMEOUT value");
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
+    return REDISMODULE_ERR;
   }
   config->requestConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
@@ -535,6 +636,16 @@ CONFIG_GETTER(getBGIndexSleepGap) {
 CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
 
+CONFIG_SETTER(setIndexCursorLimit) {
+  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexCursorLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -571,7 +682,10 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    if (curVar->setValue(&RSGlobalConfig, &ac, &status) != REDISMODULE_OK) {
+    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+    // If we don't have a coordinator or this configuration has no trigger, this value
+    // is meaningless and should be ignored
+    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
       *err = rm_strdup(QueryError_GetError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -633,38 +747,55 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
-#ifdef MT_BUILD
-        {.name = "WORKER_THREADS",
-         .helpText = "Create at most this number of search threads",
+        {.name = "WORKERS",
+         .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
+                     " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
+         ,
          .setValue = setWorkThreads,
          .getValue = getWorkThreads,
+        },
+        {.name = "MIN_OPERATION_WORKERS",
+         .helpText = "Number of worker threads to use for background tasks when the server is in an operation event. "
+                     "Default is " STRINGIFY(MIN_OPERATION_WORKERS),
+         .setValue = setMinOperationWorkers,
+         .getValue = getMinOperationWorkers,
+        },
+        {.name = "WORKER_THREADS",
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
+         .setValue = setDeprWorkThreads,
+         .getValue = getDeprWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
-         .helpText = "Let ft.search and vector indexing be done in background threads as default if"
-                        "set to MT_MODE_FULL. MT_MODE_ONLY_ON_OPERATIONS use workers thread pool for operational needs only otherwise",
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
          .setValue = setMtMode,
          .getValue = getMtMode,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                        " HNSW index, so that if we are using WORKER_THREADS for indexing, and the"
-                        " number of vectors waiting in the buffer to be indexed exceeds this limit, "
-                        " we insert new vectors directly into HNSW",
+                    " HNSW index, so that if we are using WORKERS for indexing, and the"
+                    " number of vectors waiting in the buffer to be indexed exceeds this limit,"
+                    " we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-        {.name = "PRIVILEGED_THREADS_NUM",
-            .helpText = "The number of threads in worker thread pool that always execute high"
-                        " priority tasks, if there exist any in the job queue. Other threads will"
-                        " excute high and low priority tasks alterntely.",
-            .setValue = setPrivilegedThreadsNum,
-            .getValue = getPrivilegedThreadsNum,
-            .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        {.name = "PRIVILEGED_THREADS_NUM", // Deprecated alias of WORKERS_PRIORITY_BIAS_THRESHOLD
+         .helpText = "Deprecated. See `WORKERS_PRIORITY_BIAS_THRESHOLD`",
+         .setValue = setPrivilegedThreadsNum,
+         .getValue = getHighPriorityBiasNum,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
         },
-#endif
+        {.name = "WORKERS_PRIORITY_BIAS_THRESHOLD",
+         .helpText = "The number of high priority tasks to be executed at any given time by the "
+                     "worker thread pool, before executing low priority tasks. After this number "
+                     "of high priority tasks are being executed, the worker thread pool will execute "
+                     "high and low priority tasks alternately.",
+         .setValue = setHighPriorityBiasNum,
+         .getValue = getHighPriorityBiasNum,
+         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
+        },
         {.name = "FRISOINI",
          .helpText = "Path to Chinese dictionary configuration file (for Chinese tokenization)",
          .setValue = setFrisoINI,
@@ -719,6 +850,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
+        {.name = "INDEX_CURSOR_LIMIT",
+         .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
+         .setValue = setIndexCursorLimit,
+         .getValue = getIndexCursorLimit},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
@@ -796,6 +931,68 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
   }
   src->next = dst;
   dst->next = NULL;
+}
+
+void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const char **configs) {
+  static uint32_t numTriggers = 0;
+  RS_LOG_ASSERT(numTriggers < RS_MAX_CONFIG_TRIGGERS, "Too many config triggers");
+  for (const char *config = *configs; config; config = *++configs) {
+    RSConfigVar *var = findConfigVar(&RSGlobalConfigOptions, config);
+    var->triggerId = numTriggers;
+  }
+  RSGlobalConfigTriggers[numTriggers++] = trigger;
+}
+
+// Upgrade deprecated configurations if needed.
+// Unless MT_MODE is OFF, only the relevant configuration is set, while the other keeps its default value.
+void UpgradeDeprecatedMTConfigs() {
+  RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
+  RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
+  if (!(mtMode->flags & RSCONFIGVAR_F_MODIFIED) && !(workerThreads->flags & RSCONFIGVAR_F_MODIFIED)) {
+    return; // No deprecated configurations were set.
+  }
+
+  // We now know that deprecated configurations were set, and new configurations were not set.
+  if ((mt_mode_config == MT_MODE_OFF && numWorkerThreads_config != 0) ||
+      (mt_mode_config != MT_MODE_OFF && numWorkerThreads_config == 0)) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Inconsistent configuration: MT_MODE `%s` and WORKER_THREADS `%lu`. Ignoring "
+                    "the deprecated configurations.",
+                    MTMode_ToString(mt_mode_config), numWorkerThreads_config);
+    return; // Inconsistent configuration. Ignore the deprecated configurations.
+  }
+
+  RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
+  RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
+  bool explicit_workers = workers->flags & RSCONFIGVAR_F_MODIFIED;
+  bool explicit_minOperationWorkers = minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED;
+
+  // Set the new configurations based on the deprecated ones.
+  // We know that at least one of the deprecated configurations was set.
+  // If the new configurations were also set, ignore the deprecated ones.
+  switch (mt_mode_config) {
+    case MT_MODE_OFF:
+      if (!explicit_workers) {
+        RSGlobalConfig.numWorkerThreads = 0;
+      }
+      if (!explicit_minOperationWorkers) {
+        RSGlobalConfig.minOperationWorkers = 0;
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
+                        "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
+      }
+      break;
+    case MT_MODE_FULL:
+      if (!explicit_workers) {
+        RSGlobalConfig.numWorkerThreads = numWorkerThreads_config;
+      }
+      break;
+    case MT_MODE_ONLY_ON_OPERATIONS:
+      if (!explicit_minOperationWorkers) {
+        RSGlobalConfig.minOperationWorkers = numWorkerThreads_config;
+      }
+      break;
+  }
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
@@ -897,7 +1094,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   }
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
-  int rc = var->setValue(config, &ac, status);
+  int rc = var->setValue(config, &ac, var->triggerId, status);
   *offset += ac.offset;
   return rc;
 }
@@ -925,16 +1122,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
-}
-
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
-  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    char field[16] = {0};
-    snprintf(field, sizeof field, "dialect_%d", dialect);
-    // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
-  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

@@ -124,12 +124,14 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
+static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
   auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
-  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1);
+  size_t sz;
+  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
+  sctx->spec->stats.invertedSize += sz;
   return iv;
 }
 
@@ -169,13 +171,16 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(docSize, fgc->stats.totalCollected);
+  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function 
+  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in 
+  // the block, collecting the remaining memory.
+  ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
   ASSERT_EQ(0, (get_spec(ism))->stats.numDocuments);
   ASSERT_EQ(1, (get_spec(ism))->stats.numRecords);
-  ASSERT_EQ(invertedSizeBeforeApply - docSize, (get_spec(ism))->stats.invertedSize);
+  ASSERT_EQ(invertedSizeBeforeApply - fgc->stats.totalCollected, (get_spec(ism))->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -244,6 +249,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
 
   // Now add documents until we have new blocks added.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
@@ -282,7 +288,8 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-
+  sctx.spec->monitorDocumentExpiration = false;
+  
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Measure the memory added by the last block.
@@ -336,7 +343,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  ASSERT_EQ(lastBlockMemory, sctx.spec->stats.invertedSize);
+  ASSERT_EQ(lastBlockMemory + sizeof_InvertedIndex(iv->flags), sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks);
 }
 
@@ -350,6 +357,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   unsigned curId = 1;
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
@@ -425,6 +433,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
@@ -466,6 +475,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
@@ -506,6 +516,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {

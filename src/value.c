@@ -66,7 +66,6 @@ void RSValue_Clear(RSValue *v) {
           sdsfree(v->strval.str);
           break;
         case RSString_Const:
-        case RSString_Volatile:
           break;
       }
       break;
@@ -88,9 +87,7 @@ void RSValue_Clear(RSValue *v) {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         RSValue_Decref(v->arrval.vals[i]);
       }
-      if (!v->arrval.staticarray) {
-        rm_free(v->arrval.vals);
-      }
+      rm_free(v->arrval.vals);
       break;
     case RSValue_Map:
       for (uint32_t i = 0; i < v->mapval.len; i++) {
@@ -371,43 +368,6 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   RSValue *arr = RS_NewValue(RSValue_Array);
   arr->arrval.vals = vals;
   arr->arrval.len = len;
-  arr->arrval.staticarray = 0;
-  return arr;
-}
-
-RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
-  RSValue *arr = RS_NewValue(RSValue_Array);
-  RSValue **list;
-  if (options & RSVAL_ARRAY_ALLOC) {
-    list = vals;
-  } else {
-    list = rm_malloc(sizeof(*list) * n);
-  }
-
-  arr->arrval.vals = list;
-
-  if (options & RSVAL_ARRAY_STATIC) {
-    arr->arrval.staticarray = 1;
-  } else {
-    arr->arrval.staticarray = 0;
-  }
-
-  if (!vals) {
-    arr->arrval.len = 0;
-  } else {
-    arr->arrval.len = n;
-    for (size_t ii = 0; ii < n; ++ii) {
-      RSValue *v = vals[ii];
-      list[ii] = v;
-      if (!v) {
-        continue;
-      }
-      if (!(options & RSVAL_ARRAY_NOINCREF)) {
-        RSValue_IncrRef(v);
-      }
-    }
-  }
-
   return arr;
 }
 
@@ -419,7 +379,7 @@ RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = rm_calloc(sz, sizeof(*arr));
+  RSValue **arr = RSValue_AllocateArray(sz);
   va_list ap;
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
@@ -427,30 +387,30 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
     arr[i] = RS_StringValC(p);
   }
   va_end(ap);
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
+  RSValue **arr = RSValue_AllocateArray(sz);
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
   }
-  return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
+  return RSValue_NewArray(arr, sz);
 }
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-/* Create a new NULL RSValue */
+/* Returns a pointer to the NULL RSValue */
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
@@ -647,12 +607,12 @@ static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue 
       RSValue_SendReply(reply, v, flags);
       return false;
     }
-    stack = array_append(stack, ((Item){.v = w, .k = k + 1}));
-    stack = array_append(stack, ((Item){.v = v, 0}));
+    array_append(stack, ((Item){.v = w, .k = k + 1}));
+    array_append(stack, ((Item){.v = v, 0}));
     return true;
   }
 
-  stack = array_append(stack, ((Item){.v = v, .k = 0}));
+  array_append(stack, ((Item){.v = v, .k = 0}));
   while (array_len(stack) > 0) {
     Item item = array_pop(stack);
     const RSValue *w = item.v;

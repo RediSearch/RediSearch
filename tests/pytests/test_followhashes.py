@@ -423,7 +423,8 @@ def testInfo(env):
                     'language_field', 'lang',
                     'default_score', '0.5',
                     'score_field', 'score',
-                    'payload_field', 'pl']
+                    'payload_field', 'pl',
+                    'indexes_all', 'false']
     env.assertEqual(res_actual[5], res_expected)
 
     env.expect('ft.drop test').ok()
@@ -432,7 +433,8 @@ def testInfo(env):
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH',
                     'prefixes', [''],
-                    'default_score', '1']
+                    'default_score', '1',
+                    'indexes_all', 'false']
     env.assertEqual(res_actual[5], res_expected)
 
 def testCreateDropCreate(env):
@@ -459,53 +461,53 @@ def testPartial(env):
     # HSET
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(1)
     env.expect('HSET doc1 testtest foo').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(1)
     env.expect('HSET doc1 test bar').equal(0)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(2)
     env.expect('FT.SEARCH idx bar').equal([1, 'doc1', ['test', 'bar', 'testtest', 'foo']])
 
     # HMSET
     env.expect('HMSET doc2 test foo').ok()
-    env.expect('FT.DEBUG docidtoid idx doc2').equal(3)
+    env.expect(debug_cmd() + ' docidtoid idx doc2').equal(3)
     env.expect('HMSET doc2 testtest foo').ok()
-    env.expect('FT.DEBUG docidtoid idx doc2').equal(3)
+    env.expect(debug_cmd() + ' docidtoid idx doc2').equal(3)
     env.expect('HMSET doc2 test baz').ok()
-    env.expect('FT.DEBUG docidtoid idx doc2').equal(4)
+    env.expect(debug_cmd() + ' docidtoid idx doc2').equal(4)
     env.expect('FT.SEARCH idx baz').equal([1, 'doc2', ['test', 'baz', 'testtest', 'foo']])
 
     # HSETNX
     env.expect('HSETNX doc3 test foo').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc3').equal(5)
+    env.expect(debug_cmd() + ' docidtoid idx doc3').equal(5)
     env.expect('HSETNX doc3 testtest foo').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc3').equal(5)
+    env.expect(debug_cmd() + ' docidtoid idx doc3').equal(5)
     env.expect('HSETNX doc3 test bad').equal(0)
-    env.expect('FT.DEBUG docidtoid idx doc3').equal(5)
+    env.expect(debug_cmd() + ' docidtoid idx doc3').equal(5)
     env.expect('FT.SEARCH idx foo').equal([1, 'doc3', ['test', 'foo', 'testtest', 'foo']])
 
     # HINCRBY
     env.expect('HINCRBY doc4 test 5').equal(5)
-    env.expect('FT.DEBUG docidtoid idx doc4').equal(6)
+    env.expect(debug_cmd() + ' docidtoid idx doc4').equal(6)
     env.expect('HINCRBY doc4 testtest 5').equal(5)
-    env.expect('FT.DEBUG docidtoid idx doc4').equal(6)
+    env.expect(debug_cmd() + ' docidtoid idx doc4').equal(6)
     env.expect('HINCRBY doc4 test 6').equal(11)
-    env.expect('FT.DEBUG docidtoid idx doc4').equal(7)
+    env.expect(debug_cmd() + ' docidtoid idx doc4').equal(7)
     env.expect('HINCRBY doc4 test 5.5').error(). contains('value is not an integer or out of range')
-    env.expect('FT.DEBUG docidtoid idx doc4').equal(7)
+    env.expect(debug_cmd() + ' docidtoid idx doc4').equal(7)
     env.expect('FT.SEARCH idx 11').equal([1, 'doc4', ['test', '11', 'testtest', '5']])
 
     # HINCRBYFLOAT
     env.expect('HINCRBYFLOAT doc5 test 5.5').equal('5.5')
-    env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
+    env.expect(debug_cmd() + ' docidtoid idx doc5').equal(8)
     env.expect('HINCRBYFLOAT doc5 testtest 5.5').equal('5.5')
-    env.expect('FT.DEBUG docidtoid idx doc5').equal(8)
+    env.expect(debug_cmd() + ' docidtoid idx doc5').equal(8)
     res = env.cmd('HINCRBYFLOAT doc5 test 6.6')
     env.assertEqual(float(res), 12.1)
-    env.expect('FT.DEBUG docidtoid idx doc5').equal(9)
+    env.expect(debug_cmd() + ' docidtoid idx doc5').equal(9)
     res = env.cmd('HINCRBYFLOAT doc5 test 5')
     env.assertEqual(float(res), 17.1)
-    env.expect('FT.DEBUG docidtoid idx doc5').equal(10)
+    env.expect(debug_cmd() + ' docidtoid idx doc5').equal(10)
     res = env.cmd('FT.SEARCH idx *')
     res[8][1] = float(res[8][1])
     res[10][1] = float(res[10][1])
@@ -524,11 +526,11 @@ def testHDel(env):
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('FT.CREATE idx2 SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(1)
     env.expect('HDEL doc1 test1').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(2)
     env.expect('HDEL doc1 test3').equal(1)
-    env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
+    env.expect(debug_cmd() + ' docidtoid idx doc1').equal(2)
     env.expect('FT.SEARCH idx bar').equal([1, 'doc1', ['test2', 'bar']])
     env.expect('HDEL doc1 test2').equal(1)
     env.expect('FT.SEARCH idx bar').equal([0])
@@ -560,7 +562,7 @@ def testEvicted(env):
             memory = int(sub[1])
 
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
-    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 100000)
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
@@ -686,7 +688,7 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0])
 
-@no_msan
+@skip(msan=True, no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx1',
@@ -705,6 +707,7 @@ def testIdxFieldJson(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1, '$', 'doc:1', '{"name":"foo","indexName":"idx1"}']))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1, '$', 'doc:2', '{"name":"bar","indexName":"idx2"}']))
 
+@skip(no_json=True)
 def testFilterStartWith(env):
     conn = getConnectionByEnv(env)
 
@@ -718,6 +721,7 @@ def testFilterStartWith(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['$', '{"name":"foo","indexName":"idx1"}']])
 
+@skip(no_json=True)
 def testFilterWithOperator(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
@@ -731,6 +735,7 @@ def testFilterWithOperator(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:foo', ['$', '{"name":"foo","num":5}']])
 
+@skip(no_json=True)
 def testFilterWithNot(env):
     conn = getConnectionByEnv(env)
     # check NOT on a non existing value return 1 result
