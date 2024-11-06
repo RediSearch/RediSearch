@@ -100,6 +100,7 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
