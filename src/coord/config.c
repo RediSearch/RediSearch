@@ -109,6 +109,18 @@ CONFIG_GETTER(getSearchThreads) {
   return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
+// search-threads
+CONFIG_API_NUMERIC_SETTER(set_search_threads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  realConfig->coordinatorPoolSize = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_search_threads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  return realConfig->coordinatorPoolSize;
+}
+
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
@@ -119,6 +131,18 @@ CONFIG_SETTER(setTopologyValidationTimeout) {
 CONFIG_GETTER(getTopologyValidationTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
+}
+
+// topology-validation-timeout
+CONFIG_API_NUMERIC_SETTER(set_topology_validation_timeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  realConfig->topologyValidationTimeoutMS = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_API_NUMERIC_GETTER(get_topology_validation_timeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  return realConfig->topologyValidationTimeoutMS;
 }
 
 static RSConfigOptions clusterOptions_g = {
@@ -196,4 +220,33 @@ RSConfigOptions *GetClusterConfigOptions(void) {
 void ClusterConfig_RegisterTriggers(void) {
   const char *connPerShardConfigs[] = {"WORKERS", NULL};
   RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+}
+
+int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE, 1, 999999, get_search_threads,
+        set_search_threads, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "search-threads registered");
+  }
+
+  if (RedisModule_RegisterNumericConfig (
+        ctx, "topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_topology_validation_timeout,
+        set_topology_validation_timeout, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "topology-validation-timeout registered");
+  }
+
+  // Apply configuration
+  if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "error", "Invalid Cluster LoadConfigs");
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "RegisterClusterModuleConfig() success");
+  }
+  return REDISMODULE_OK;
 }

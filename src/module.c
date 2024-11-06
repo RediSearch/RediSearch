@@ -3318,6 +3318,14 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
+  if (isClusterEnabled) {
+    // Register module configuration parameters for cluster
+    if (RegisterClusterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering cluster module configuration");
+      return REDISMODULE_ERR;
+    }
+  }
+
   // Init the aggregation thread pool
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 

@@ -31,6 +31,7 @@ extern SearchClusterConfig clusterConfig;
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
+#define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 
 #define DEFAULT_CLUSTER_CONFIG                                                             \
   (SearchClusterConfig) {                                                                  \
@@ -40,7 +41,7 @@ extern SearchClusterConfig clusterConfig;
     .globalPass = NULL,                                                                    \
     .cursorReplyThreshold = 1,                                                             \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
-    .topologyValidationTimeoutMS = 30000,                                                  \
+    .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,                    \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
@@ -50,3 +51,4 @@ MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
+int RegisterClusterModuleConfig(RedisModuleCtx *ctx);

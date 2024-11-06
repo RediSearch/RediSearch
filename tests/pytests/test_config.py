@@ -542,6 +542,12 @@ def testConfigAPIRunTime():
                                    'TIERED_HNSW_BUFFER_LIMIT', 1024)
     _test_immutable_numeric_config(env, 'search.workers-priority-bias-threshold',
                                    'WORKERS_PRIORITY_BIAS_THRESHOLD', 1)
+    
+    if env.isCluster():
+        _test_immutable_numeric_config(env, 'search.search-threads',
+                                       'SEARCH_THREADS', 20)
+        _test_numeric_config(env, 'search.topology-validation-timeout',
+                             'TOPOLOGY_VALIDATION_TIMEOUT', 30000, 0, 999999999)
 
     # Boolean Immutable parameters
     _test_immutable_boolean_config(env, 'search.no-mem-pools',
@@ -556,6 +562,7 @@ def testConfigAPIRunTime():
     # String parameters
     _test_immutable_string_config(env, 'search.ext-load', 'EXTLOAD', None)
     _test_immutable_string_config(env, 'search.friso-ini', 'FRISOINI', None)
+
 
 # TODO: Test passing immutable config values at load time
 # def testConfigAPIAtLoadTime():
