@@ -62,7 +62,10 @@ typedef enum {
   QN_WILDCARD_QUERY,
 
   /* Null term - take no action */
-  QN_NULL
+  QN_NULL,
+
+  /* Max value, should be last */
+  QN_MAX
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case

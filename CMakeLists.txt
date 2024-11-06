@@ -76,6 +76,7 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -139,7 +140,7 @@ else() # OSS RediSearch
     target_link_libraries(redisearch VectorSimilarity ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
-    
+
     add_dependencies(redisearch VectorSimilarity)
 endif()
 
