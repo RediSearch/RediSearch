@@ -3078,6 +3078,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     MR_requestCompleted();
     MRCtx_Free(mrctx);
   }
+  return REDISMODULE_OK;
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
