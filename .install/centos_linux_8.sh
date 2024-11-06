@@ -20,11 +20,11 @@ $MODE yum groupinstall -y "Development Tools"
 
 set_all_baseurls # set the baseurls again before installing devtoolset-11 (some new repos were added)
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
-    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync
+    gcc-toolset-11-gcc gcc-toolset-11-gcc-c++ gcc-toolset-11-make gcc-toolset-11-libatomic-devel rsync
 
-source /opt/rh/devtoolset-11/enable
+source /opt/rh/gcc-toolset-11/enable
 
-cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
+cp /opt/rh/gcc-toolset-11/enable /etc/profile.d/scl-gcc-toolset-11.sh
 
 # get a newer libstc++ library. The one that comes with the gcc version (6.0.19) will fail with
 # the error: `/usr/lib64/libstdc++.so.6: version `GLIBCXX_3.4.20' not found`
