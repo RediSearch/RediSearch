@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import skip, config_cmd
+from common import *
 
 not_modifiable = 'Not modifiable at runtime'
 
@@ -393,8 +393,23 @@ def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'OSS_GLOBAL_PASSWORD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'OSS_ACL_USERNAME').error().contains(not_modifiable)
 
+@skip(cluster=False)
 def testSetACLUsername():
     """Tests that the OSS_ACL_USERNAME configuration is set correctly on module
     load"""
 
+    # Setting the `OSS_ACL_USERNAME` configuration without the `OSS_GLOBAL_PASSWORD`
+    # the configuration should not do anything since we don't try to authenticate.
     _test_arg_str('OSS_ACL_USERNAME', 'test')
+
+    # Set both the username and password. This should fail since we have no such
+    # user.
+    env = Env(moduleArgs='OSS_ACL_USERNAME test_user OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
+
+    timeout = 3 # 5 seconds, more than enough for the an env to be up
+    try:
+        with TimeLimit(timeout):
+            env.cmd('FT.SEARCH', 'idx', '*')
+            env.assertTrue(False)
+    except Exception as e:
+        env.assertEqual(str(e), 'Timeout: operation timeout exceeded')
