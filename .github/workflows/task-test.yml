@@ -138,18 +138,18 @@ jobs:
         run: make SAN=${{ inputs.san }}
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: test1
+        id: unit_tests
         continue-on-error: true
         run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: test2
+        id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
-        id: test3
+        id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
         run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
@@ -159,7 +159,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -171,7 +171,7 @@ jobs:
         # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v3
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -179,5 +179,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
-        if: steps.test1.outcome == 'failure' || steps.test2.outcome == 'failure' || steps.test3.outcome == 'failure'
-        run: exit 1
+        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        run: |
+          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
+          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
+          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
+          exit 1
