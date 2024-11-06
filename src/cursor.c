@@ -144,7 +144,7 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
+void CursorList_AddSpec(CursorList *cl, const char *k) {
   CursorSpecInfo *info = findInfo(cl, k);
   if (!info) {
     info = rm_malloc(sizeof(*info));
@@ -152,7 +152,6 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
     info->used = 0;
     dictAdd(cl->specsDict, (void *)k, info);
   }
-  info->cap = capacity;
 }
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k) {
@@ -314,7 +313,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const char *name,
   RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
 
   RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-  RedisModule_ReplyWithLongLong(ctx, info->cap + (info_coord ? info_coord->cap : 0));
+  RedisModule_ReplyWithLongLong(ctx, RSGlobalConfig.indexCursorLimit);
 
   RedisModule_ReplyWithSimpleString(ctx, "index_total");
   RedisModule_ReplyWithLongLong(ctx, info->used + (info_coord ? info_coord->used : 0));
