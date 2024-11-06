@@ -137,7 +137,7 @@ typedef struct {
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
-  uint32_t activeReads;
+  uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
 
@@ -361,14 +361,14 @@ typedef struct {
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
 
-static inline void IndexSpec_IncrActiveReads(IndexSpec *sp) {
-  __atomic_add_fetch(&sp->stats.activeReads, 1, __ATOMIC_RELAXED);
+static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
 }
-static inline void IndexSpec_DecrActiveReads(IndexSpec *sp) {
-  __atomic_sub_fetch(&sp->stats.activeReads, 1, __ATOMIC_RELAXED);
+static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
 }
-static inline uint32_t IndexSpec_GetActiveReads(IndexSpec *sp) {
-  return __atomic_load_n(&sp->stats.activeReads, __ATOMIC_RELAXED);
+static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
 }
 
 static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {

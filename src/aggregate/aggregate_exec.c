@@ -664,7 +664,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     limit = req->maxAggregateResults;
   }
   if (req->sctx->spec) {
-    IndexSpec_IncrActiveReads(req->sctx->spec);
+    IndexSpec_IncrActiveQueries(req->sctx->spec);
   }
 
   cachedVars cv = {
@@ -682,7 +682,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 
   if (req->sctx->spec) {
-    IndexSpec_DecrActiveReads(req->sctx->spec);
+    IndexSpec_DecrActiveQueries(req->sctx->spec);
   }
 }
 
