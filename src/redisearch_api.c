@@ -956,11 +956,13 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
 
     // Index
-    bool isOnActiveRead = IndexSpec_GetActiveReads(sp) > 0;
-    bool isOnActiveWrite = IndexSpec_GetActiveWrites(sp) > 0;
-    if (isOnActiveRead) info.num_active_read_indexes++;
-    if (isOnActiveWrite) info.num_active_write_indexes++;
-    if (isOnActiveRead || isOnActiveWrite) info.num_active_indexes++;
+    size_t activeReads = IndexSpec_GetActiveReads(sp);
+    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+    if (activeReads) info.num_active_read_indexes++;
+    if (activeWrites) info.num_active_write_indexes++;
+    if (activeReads || activeWrites) info.num_active_indexes++;
+    info.total_active_reads += activeReads;
+    info.total_active_writes += activeWrites;
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);

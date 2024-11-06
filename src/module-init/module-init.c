@@ -112,6 +112,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info.num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info.num_active_read_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info.num_active_write_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info.total_active_writes);
 
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
@@ -141,6 +142,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Query statistics
   TotalGlobalStats_Queries_AddToInfo(ctx);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info.total_active_reads);
 
   // Errors statistics
   RedisModule_InfoAddSection(ctx, "errors");

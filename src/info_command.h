@@ -38,9 +38,11 @@ typedef struct TotalSpecsInfo {
   size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
 
   // Index
-  size_t num_active_indexes;  // Number of active indexes
-  size_t num_active_read_indexes;  // Number of active read indexes
+  size_t num_active_indexes;        // Number of active indexes
+  size_t num_active_read_indexes;   // Number of active read indexes
   size_t num_active_write_indexes;  // Number of active write indexes
+  size_t total_active_writes;       // Total number of active writes
+  size_t total_active_reads;        // Total number of active reads
 } TotalSpecsInfo;
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
