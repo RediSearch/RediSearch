@@ -99,6 +99,7 @@ file(GLOB SOURCES
     "src/trie/*.c"
     "src/info/*.c"
     "src/module-init/*.c"
+    "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
