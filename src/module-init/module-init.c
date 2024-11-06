@@ -134,11 +134,15 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
 
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
   // Numer of indexes
   RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
-
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info.num_active_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info.num_active_indexes_querying);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info.num_active_indexes_indexing);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info.total_active_writes);
 
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
@@ -168,6 +172,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Query statistics
   TotalGlobalStats_Queries_AddToInfo(ctx);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info.total_active_queries);
 
   // Errors statistics
   RedisModule_InfoAddSection(ctx, "errors");

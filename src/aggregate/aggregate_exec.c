@@ -660,6 +660,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
   }
+  if (req->sctx->spec) {
+    IndexSpec_IncrActiveQueries(req->sctx->spec);
+  }
 
   cachedVars cv = {
     .lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST),
@@ -673,6 +676,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     sendChunk_Resp3(req, reply, limit, cv);
   } else {
     sendChunk_Resp2(req, reply, limit, cv);
+  }
+
+  if (req->sctx->spec) {
+    IndexSpec_DecrActiveQueries(req->sctx->spec);
   }
 }
 

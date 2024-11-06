@@ -418,23 +418,31 @@ def test_counting_queries_BG():
 
 @skip(cluster=True, noWorkers=True)
 def test_redis_info_modules_vecsim():
-  env = Env(moduleArgs='WORKERS 2')
+  env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  set_doc = lambda: env.expect('HSET', '1', 'vec', '????')
-
-  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  set_doc = lambda: env.expect('HSET', '1', 'vec', '????????')
+  field_infos = lambda: [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
   set_doc().equal(1) # Add a document for the first time
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+  # Busy wait until the new vector is indexed to HNSW in both indexes.
+  while True:
+    infos = field_infos()
+    # Once the backend index is no longer empty for ALL fields, we can continue to the test (async indexing is done).
+    # print([to_dict(f_info['BACKEND_INDEX'])['INDEX_SIZE'] == 0 for f_info in infos[:2]].any())
+    # return
+    if all([to_dict(f_info['BACKEND_INDEX'])['INDEX_SIZE'] > 0 for f_info in infos[:2]]):
+      break
+
 
   info = env.cmd('INFO', 'MODULES')['search_fields_vector']
-  field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  field_infos = field_infos()
   env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['mark_deleted_vectors'], 0)
 
-  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+  [env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # Stop the gc
   set_doc().equal(0) # Add (override) the document for the second time
 
   info = env.cmd('INFO', 'MODULES')['search_fields_vector']
@@ -444,7 +452,7 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
-  env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+  [env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # resume gc
   [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
 
   info = env.cmd('INFO', 'MODULES')['search_fields_vector']

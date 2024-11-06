@@ -124,15 +124,14 @@ typedef struct {
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
+  uint32_t activeQueries;
+  uint32_t activeWrites;
 } IndexStats;
 
 typedef enum {
@@ -338,6 +337,26 @@ typedef struct {
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
+
+static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
+}
+
+static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
 
 /**
  * This lightweight object contains a COPY of the actual index spec.
