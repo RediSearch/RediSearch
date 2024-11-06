@@ -425,7 +425,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
 
-  indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
+  indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   indexer->specId = spec->uniqueId;
   indexer->specKeyName =
       RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
