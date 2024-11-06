@@ -627,8 +627,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
-  // If this is an authenticated connection, we need to atu
-
+  // If this is an authenticated connection, we need to authenticate
   if (conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       detachFromConn(conn, 1);
