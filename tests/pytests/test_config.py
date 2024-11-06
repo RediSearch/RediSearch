@@ -197,7 +197,7 @@ def testInitConfig():
     _test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     _test_arg_num('BG_INDEX_SLEEP_GAP', 15)
     _test_arg_num('MINSTEMLEN', 3)
-    test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    _test_arg_num('INDEX_CURSOR_LIMIT', 128)
 
 # True/False arguments
     _test_arg_true_false('NOGC', 'true')
