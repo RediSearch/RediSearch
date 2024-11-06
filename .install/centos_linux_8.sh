@@ -17,7 +17,6 @@ set_all_baseurls # set the baseurls to the working mirror before installing basi
 $MODE yum update -y
 $MODE yum install -y https://packages.endpointdev.com/rhel/8/main/${ARCH}/endpoint-repo.noarch.rpm
 $MODE yum groupinstall -y "Development Tools"
-$MODE yum -y install centos-release-scl
 
 set_all_baseurls # set the baseurls again before installing devtoolset-11 (some new repos were added)
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
