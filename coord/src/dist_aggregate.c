@@ -18,12 +18,7 @@
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
-static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
-  long long cursorId;
-  if (!MRReply_ToInteger(MRReply_ArrayElement(prev, 1), &cursorId)) {
-    // Invalid format?!
-    return 0;
-  }
+static int getCursorCommand(long long cursorId, MRCommand *cmd) {
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
@@ -56,11 +51,14 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRComman
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
+    return;
   }
 
-  // rewrite and resend the cursor command if needed
-  int isDone = !getCursorCommand(rep, cmd);
-
+  long long cursorId;
+  MRReply* cursor = MRReply_ArrayElement(rep, 1);
+  if (!MRReply_ToInteger(cursor, &cursorId)) {
+    cursorId = 0;
+  }
   // Push the reply down the chain
   MRReply *arr = MRReply_ArrayElement(rep, 0);
   if (arr && MRReply_Type(arr) == MR_REPLY_ARRAY && MRReply_Length(arr) > 1) {
@@ -69,7 +67,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRComman
     rep = NULL;
   }
 
-  if (isDone) {
+  if (!getCursorCommand(cursorId, cmd)) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
