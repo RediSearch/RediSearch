@@ -326,7 +326,6 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters
-  size_t cursorsCap;
   size_t activeCursors;
 
   // Quick access to the spec's strong ref
@@ -505,6 +504,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  * Get the total memory usage of all the vector fields in the index (in bytes).
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
+
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;
+} VectorIndexStats;
+
+/**
+ * Get an index's vector index stats.
+ */
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
