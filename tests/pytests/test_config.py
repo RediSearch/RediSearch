@@ -173,7 +173,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
 
-# @skip(cluster=True)
 def testInitConfig():
 
     # Numeric arguments
@@ -396,7 +395,10 @@ def testImmutableCoord(env):
 @skip(cluster=False)
 def testSetACLUsername():
     """Tests that the OSS_ACL_USERNAME configuration is set correctly on module
-    load"""
+    load
+    we also test that the client hangs when trying to authenticate with a
+    non-existing user. This is a BUG that should be fixed - see MOD-8071.
+    """
 
     # Setting the `OSS_ACL_USERNAME` configuration without the `OSS_GLOBAL_PASSWORD`
     # the configuration should not do anything since we don't try to authenticate.
@@ -406,10 +408,11 @@ def testSetACLUsername():
     # user.
     env = Env(moduleArgs='OSS_ACL_USERNAME test_user OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
 
-    timeout = 3 # 3 seconds, more than enough for the an env to be up
+    timeout = 3 # 3 seconds, more than enough for the an env to be up normally
     try:
         with TimeLimit(timeout):
             env.cmd('FT.SEARCH', 'idx', '*')
+            # Client hangs.
             env.assertTrue(False)
     except Exception as e:
         env.assertEqual(str(e), 'Timeout: operation timeout exceeded')
