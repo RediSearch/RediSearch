@@ -90,3 +90,16 @@ def test_acl_non_default_user(env):
     # `test` should now be able to run `search` commands like `FT.CREATE`
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').ok()
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+def test_sug_commands_acl(env):
+    """Tests that our FT.SUG* commands are properly validated for ACL key
+    permissions."""
+
+    # Create an ACL user without permissions to the key we're going to use
+    env.expect('ACL', 'SETUSER', 'test_user', 'on', '>123', '~h:*', '&*', '+@all').ok()
+    env.expect('AUTH', 'test_user', '123').true()
+    env.expect('FT.SUGADD', 'test_key', 'hello world', '1').error().contains(
+        "NOPERM No permissions to access a key")
+
+    # Test that `test_user` can create a key it has permissions to access
+    env.expect('FT.SUGADD', 'htest_key', 'hello world', '1').equal(1)
