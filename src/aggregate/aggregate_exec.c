@@ -1080,11 +1080,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, bool bg) {
+static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count, bool bg) {
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
 
   if (cursor == NULL) {
-    RedisModule_Reply_Error(reply, "Cursor not found");
+    RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
   QueryError status = {0};
@@ -1100,7 +1100,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
-      RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
+      RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
       return;
     }
     if (HasLoader(req)) { // Quick check if the cursor has loaders.
@@ -1123,7 +1123,9 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
     req->initClock = clock(); // Reset the clock for the current cursor read
   }
 
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   runCursor(reply, cursor, count);
+  RedisModule_EndReply(reply);
   if (has_spec) {
     StrongRef_Release(execution_ref);
   }
@@ -1137,9 +1139,7 @@ typedef struct {
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cid, cr_ctx->count, true);
-  RedisModule_EndReply(reply);
+  cursorRead(ctx, cr_ctx->cid, cr_ctx->count, true);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, NULL);
@@ -1147,72 +1147,80 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 }
 
 /**
- * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
- * FT.CURSOR DEL {index} {CID}
- * FT.CURSOR GC {index}
+ * FT.CURSOR READ {index} {CID} [COUNT {COUNT}]
  */
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4) {
+int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 4 || argc > 6) {
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
-  long long cid = 0;
-  // argv[0] - FT.CURSOR
-  // argv[1] - subcommand
-  // argv[2] - index
-  // argv[3] - cursor ID
-
+  long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  long long count = 0;
+  if (argc > 4) {
+    // e.g. 'COUNT <chunk size>'
+    // Verify that the 4'th argument is `COUNT`.
+    if (strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "count") != 0) {
+      return RedisModule_ReplyWithError(ctx, "Unknown argument at offset 4");
+    }
 
-  if (strcasecmp(cmd, "READ") == 0) {
-    long long count = 0;
-    if (argc > 5) {
-      // e.g. 'COUNT <timeout>'
-      // Verify that the 4'th argument is `COUNT`.
-      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
-      if (strcasecmp(count_str, "count") != 0) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
-      }
+    if (argc < 6) {
+      return RedisModule_ReplyWithError(ctx, "COUNT requires an argument");
+    }
 
-      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
-        RedisModule_EndReply(reply);
-        return REDISMODULE_OK;
-      }
+    if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
     }
-    // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
-    if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
-      CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-      cr_ctx->cid = cid;
-      cr_ctx->count = count;
-      RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
-      workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
-    } else {
-      cursorRead(reply, cid, count, false);
-    }
-  } else if (strcasecmp(cmd, "DEL") == 0) {
-    int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
-    if (rc != REDISMODULE_OK) {
-      RedisModule_Reply_Error(reply, "Cursor does not exist");
-    } else {
-      RedisModule_Reply_SimpleString(reply, "OK");
-    }
-  } else if (strcasecmp(cmd, "GC") == 0) {
-    int rc = Cursors_CollectIdle(&g_CursorsList);
-    rc += Cursors_CollectIdle(&g_CursorsListCoord);
-    RedisModule_Reply_LongLong(reply, rc);
+  }
+
+  // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
+  if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+    CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+    cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    cr_ctx->cid = cid;
+    cr_ctx->count = count;
+    RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
+    workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
   } else {
-    RedisModule_Reply_Error(reply, "Unknown subcommand");
+    cursorRead(ctx, cid, count, false);
   }
-  RedisModule_EndReply(reply);
+
   return REDISMODULE_OK;
+}
+
+/**
+ * FT.CURSOR DEL {index} {CID}
+ */
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long cid;
+  if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+  }
+
+  if (Cursors_Purge(GetGlobalCursor(cid), cid) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
+  } else {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+}
+
+/**
+ * FT.CURSOR GC [{index}]
+ */
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2 && argc != 3) { // TODO: drop the index argument?
+    return RedisModule_WrongArity(ctx);
+  }
+
+  int rc = Cursors_CollectIdle(&g_CursorsList);
+  rc += Cursors_CollectIdle(&g_CursorsListCoord);
+
+  return RedisModule_ReplyWithLongLong(ctx, rc);
 }
