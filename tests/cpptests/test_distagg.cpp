@@ -43,7 +43,7 @@ static void testAverage() {
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -61,7 +61,7 @@ static void testAverage() {
   assert(dstp);
 
   printf("Printing local plan\n");
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
 
@@ -71,7 +71,7 @@ static void testAverage() {
   printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
-    AGPLN_Dump(&r->ap);
+    AGPLN_Dump(&r->ap, false);
   }
   AREQ_Free(r);
 }
@@ -102,7 +102,7 @@ static void testCountDistinct() {
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -114,7 +114,7 @@ static void testCountDistinct() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
@@ -140,7 +140,7 @@ static void testSplit() {
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -152,7 +152,7 @@ static void testSplit() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
