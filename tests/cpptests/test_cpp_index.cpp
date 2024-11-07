@@ -832,7 +832,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .spaceMetric = met,
                                   .query = top_k_query,
                                   .qParams = queryParams,
-                                  .vectorScoreField = (char *)"__v_score",
+                                  .vectorScoreField = "__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
@@ -990,7 +990,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .index = index,
                                   .query = top_k_query,
                                   .qParams = queryParams,
-                                  .vectorScoreField = (char *)"__v_score",
+                                  .vectorScoreField = "__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii,
                                   .filterCtx = &filterCtx};

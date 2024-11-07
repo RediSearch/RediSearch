@@ -9,6 +9,7 @@
 #include "expr/expression.h"
 #include <util/arr.h>
 #include <ctype.h>
+#include "obfuscation/obfuscation_api.h"
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {
@@ -221,7 +222,7 @@ void AGPLN_FreeSteps(AGGPlan *pln) {
   }
 }
 
-void AGPLN_Dump(const AGGPlan *pln) {
+void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
   for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
@@ -229,7 +230,9 @@ void AGPLN_Dump(const AGGPlan *pln) {
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
+        char name[MAX_OBFUSCATED_FIELD_NAME];
+        Obfuscate_Field(kk->uniqueId, name);
+        printf("    %s @%p: FLAGS=0x%x\n", name, kk, kk->flags);
       }
     }
 
@@ -238,7 +241,11 @@ void AGPLN_Dump(const AGGPlan *pln) {
       case PLN_T_FILTER:
         printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
-          printf("  AS:%s\n", stp->alias);
+          const char* alias = HiddenName_GetUnsafe(stp->alias, NULL);
+          if (obfuscate) {
+            alias = Obfuscate_Text(alias);
+          }
+          printf("  AS:%s\n", alias);
         }
         break;
       case PLN_T_ARRANGE: {
@@ -267,11 +274,19 @@ void AGPLN_Dump(const AGGPlan *pln) {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
         printf("  BY:\n");
         for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          printf("    %s\n", gstp->properties[ii]);
+          const char* property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
+          if (obfuscate) {
+            property = Obfuscate_Text(property);
+          }
+          printf("    %s\n", property);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           const PLN_Reducer *r = gstp->reducers + ii;
-          printf("  REDUCE: %s AS %s\n", r->name, r->alias);
+          const char* alias = HiddenName_GetUnsafe(r->alias, NULL);
+          if (obfuscate) {
+            alias = Obfuscate_Text(alias);
+          }
+          printf("  REDUCE: %s AS %s\n", r->name, alias);
           if (r->args.argc) {
             printf("    ARGS:[");
           }
@@ -318,7 +333,8 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
-    append_string(arr, stp->alias);
+    const char* alias = HiddenName_GetUnsafe(stp->alias, NULL);
+    append_string(arr, alias);
   }
 }
 
@@ -363,7 +379,8 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   append_string(arr, "GROUPBY");
   append_uint(arr, gstp->nproperties);
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    append_string(arr, gstp->properties[ii]);
+    const char* property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
+    append_string(arr, property);
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -374,7 +391,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_ac(arr, &r->args);
     if (r->alias) {
       append_string(arr, "AS");
-      append_string(arr, r->alias);
+      append_string(arr, HiddenName_GetUnsafe(r->alias, NULL));
     }
   }
 }
