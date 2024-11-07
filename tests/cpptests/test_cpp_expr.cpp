@@ -3,6 +3,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "common.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -125,9 +126,12 @@ TEST_F(ExprTest, testGetFields) {
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbaz = RLookup_GetKey(&lk, "baz", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenName("foo");
+  auto bar = RS::MakeHiddenName("bar");
+  auto baz = RS::MakeHiddenName("baz");
+  auto *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbaz = RLookup_GetKey(&lk, baz.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   int rc = ExprAST_GetLookupKeys(root, &lk, &status);
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   RLookup_Cleanup(&lk);
@@ -184,8 +188,10 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
 TEST_F(ExprTest, testPredicate) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenName("foo");
+  auto bar = RS::MakeHiddenName("bar");
+  auto *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
@@ -253,8 +259,10 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookup lk;
   RLookup_Init(&lk, NULL);
   RLookupRow rr = {0};
-  RLookupKey *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenName("foo");
+  auto bar = RS::MakeHiddenName("bar");
+  RLookupKey *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(10));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
 

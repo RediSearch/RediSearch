@@ -21,7 +21,7 @@ HiddenString *NewHiddenString(const char* name, uint64_t length, bool takeOwners
   return (HiddenString*)value;
 };
 
-void HiddenString_Free(HiddenString* hn, bool tookOwnership) {
+void HiddenString_Free(const HiddenString* hn, bool tookOwnership) {
   UserString* value = (UserString*)hn;
   if (tookOwnership) {
     rm_free((void*)value->user);
