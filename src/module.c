@@ -3303,20 +3303,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  // Init RediSearch internal search
-  if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Could not init search library...");
-    return REDISMODULE_ERR;
-  }
-
   // Check if we are actually in cluster mode
   bool isClusterEnabled = checkClusterEnabled(ctx);
-
-  // Init the global cluster structs
-  if (initSearchCluster(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Could not init MR search cluster");
-    return REDISMODULE_ERR;
-  }
 
   if (isClusterEnabled) {
     // Register module configuration parameters for cluster
@@ -3324,6 +3312,18 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_Log(ctx, "warning", "Error registering cluster module configuration");
       return REDISMODULE_ERR;
     }
+  }
+
+  // Init RediSearch internal search
+  if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not init search library...");
+    return REDISMODULE_ERR;
+  }
+
+  // Init the global cluster structs
+  if (initSearchCluster(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not init MR search cluster");
+    return REDISMODULE_ERR;
   }
 
   // Init the aggregation thread pool

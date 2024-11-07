@@ -111,13 +111,13 @@ CONFIG_GETTER(getSearchThreads) {
 
 // search-threads
 CONFIG_API_NUMERIC_SETTER(set_search_threads) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   realConfig->coordinatorPoolSize = val;
   return REDISMODULE_OK;
 }
 
 CONFIG_API_NUMERIC_GETTER(get_search_threads) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   return realConfig->coordinatorPoolSize;
 }
 
@@ -135,13 +135,13 @@ CONFIG_GETTER(getTopologyValidationTimeout) {
 
 // topology-validation-timeout
 CONFIG_API_NUMERIC_SETTER(set_topology_validation_timeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   realConfig->topologyValidationTimeoutMS = val;
   return REDISMODULE_OK;
 }
 
 CONFIG_API_NUMERIC_GETTER(get_topology_validation_timeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)privdata);
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   return realConfig->topologyValidationTimeoutMS;
 }
 
@@ -248,5 +248,6 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   } else {
     RedisModule_Log(ctx, "notice", "RegisterClusterModuleConfig() success");
   }
+
   return REDISMODULE_OK;
 }
