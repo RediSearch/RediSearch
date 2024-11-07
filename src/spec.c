@@ -2804,26 +2804,14 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-int CompareVestions(Version v1, Version v2) {
-  if (v1.majorVersion < v2.majorVersion) {
-    return -1;
-  } else if (v1.majorVersion > v2.majorVersion) {
-    return 1;
+int CompareVersions(Version v1, Version v2) {
+  if (v1.majorVersion != v2.majorVersion) {
+    return v1.majorVersion - v2.majorVersion;
   }
-
-  if (v1.minorVersion < v2.minorVersion) {
-    return -1;
-  } else if (v1.minorVersion > v2.minorVersion) {
-    return 1;
+  if (v1.minorVersion != v2.minorVersion) {
+    return v1.minorVersion - v2.minorVersion;
   }
-
-  if (v1.patchVersion < v2.patchVersion) {
-    return -1;
-  } else if (v1.patchVersion > v2.patchVersion) {
-    return 1;
-  }
-
-  return 0;
+  return v1.patchVersion - v2.patchVersion;
 }
 // This funciton is called in case the server is started or
 // when the replica is loading the RDB file from the master.

@@ -955,22 +955,15 @@ void GetFormattedRedisEnterpriseVersion(char *buf, size_t len) {
 }
 
 int IsMaster() {
-  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER) {
-    return 1;
-  } else {
-    return 0;
-  }
+  return RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER;
 }
 
 int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
-int CheckSupportedVestion() {
-  if (CompareVestions(redisVersion, supportedVersion) < 0) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+static inline int isSupportedVersion() {
+  return CompareVersions(redisVersion, supportedVersion) >= 0;
 }
 
 // Creates a command and registers it to its corresponding ACL categories
@@ -1029,7 +1022,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
   }
 
-  if (CheckSupportedVestion() != REDISMODULE_OK) {
+  if (!isSupportedVersion()) {
     RedisModule_Log(ctx, "warning",
                     "Redis version is too old, please upgrade to redis %d.%d.%d and above.",
                     supportedVersion.majorVersion, supportedVersion.minorVersion,
