@@ -814,45 +814,45 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 }
 
-int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Not bound to a specific index, so...
+int ConfigSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // CONFIG SET <NAME> [value]
+  size_t offset = 3;  // Might be == argc. SetOption deals with it.
+  if (argc < offset) {
+    return RedisModule_WrongArity(ctx);
+  }
   QueryError status = {0};
+  const char *name = RedisModule_StringPtrLen(argv[2], NULL);
 
-  // CONFIG <GET|SET> <NAME> [value]
-  if (argc < 3) {
+  if (REDISMODULE_OK != RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions,
+                                            name, argv, argc, &offset, &status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  // Logging the configuration name is safe here, as we now know it's a valid configuration option
+  RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
+  const char *reply = (offset != argc) ? "EXCESSARGS" : "OK";
+  return RedisModule_ReplyWithSimpleString(ctx, reply);
+}
+
+static int ConfigGetOrHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isHelp) {
+  // CONFIG <GET|HELP> <NAME>
+  if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
-  if (!strcasecmp(action, "GET")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, false);
-  } else if (!strcasecmp(action, "HELP")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, true);
-  } else if (!strcasecmp(action, "SET")) {
-    size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
-                                &offset, &status);
-    if (rc == REDISMODULE_ERR) {
-      RedisModule_Reply_QueryError(reply, &status);
-      QueryError_ClearError(&status);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-    if (offset != argc) {
-      RedisModule_Reply_SimpleString(reply, "EXCESSARGS");
-    } else {
-      RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
-      RedisModule_Reply_SimpleString(reply, "OK");
-    }
-  } else {
-    RedisModule_Reply_SimpleString(reply, "No such configuration action");
-  }
+  RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, isHelp);
 
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
+  return RedisModule_EndReply(reply);
+}
+
+int ConfigGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ConfigGetOrHelpCommand(ctx, argv, argc, false);
+}
+
+int ConfigHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ConfigGetOrHelpCommand(ctx, argv, argc, true);
 }
 
 int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1176,7 +1176,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0, "admin"))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, NULL, "readonly", 0, 0, 0, "admin"))
+  RedisModuleCommand *config_cmd = RedisModule_GetCommand(ctx, RS_CONFIG);
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "SET", ConfigSetCommand, "readonly", 0, 0, 0) // TODO: ACL "admin"
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "GET", ConfigGetCommand, "readonly", 0, 0, 0)   // TODO: ACL categories?
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "HELP", ConfigHelpCommand, "readonly", 0, 0, 0) // TODO: ACL categories?
 
   // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
   // Cluster is managed outside of module lets trust it and not raise cross slot error.
@@ -3286,8 +3290,6 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   return isClusterEnabled;
 }
 
-int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -3364,7 +3366,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!IsEnterprise()) {
     if (!isClusterEnabled) {
       // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
+      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", NULL, "readonly", 0, 0, 0, "admin"));
+      RedisModuleCommand *config_cmd = RedisModule_GetCommand(ctx, "FT.CONFIG");
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "SET", ConfigSetCommand, "readonly", 0, 0, 0) // TODO: ACL "admin"
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "GET", ConfigGetCommand, "readonly", 0, 0, 0)   // TODO: ACL categories?
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "HELP", ConfigHelpCommand, "readonly", 0, 0, 0) // TODO: ACL categories?
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // suggestion commands
