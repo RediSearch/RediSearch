@@ -1,4 +1,5 @@
 
+from includes import *
 try:
     from collections.abc import Iterable
 except ImportError:
@@ -12,11 +13,16 @@ import itertools
 from redis.client import NEVER_DECODE
 import RLTest
 from typing import Any, Callable
+from RLTest import Env
 from RLTest.env import Query
-from includes import *
+import numpy as np
+from scipy import spatial
+from pprint import pprint as pp
+import inspect
+from unittest import SkipTest
 
-BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-oss/rdbs/'
-
+BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
+VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64']
 
 class TimeLimit(object):
     """
@@ -24,8 +30,9 @@ class TimeLimit(object):
     return within the specified amount of time.
     """
 
-    def __init__(self, timeout):
+    def __init__(self, timeout, message='operation timeout exceeded'):
         self.timeout = timeout
+        self.message = message
 
     def __enter__(self):
         signal.signal(signal.SIGALRM, self.handler)
@@ -36,7 +43,7 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception('timeout')
+        raise Exception(f'Timeout: {self.message}')
 
 
 def getConnectionByEnv(env):
@@ -142,7 +149,7 @@ def module_version_less_than(env, ver):
     return not module_version_at_least(env, ver)
 
 server_ver = None
-def server_version_at_least(env, ver):
+def server_version_at_least(env: Env, ver):
     global server_ver
     if server_ver is None:
         v = env.execute_command('INFO')['redis_version']
@@ -151,13 +158,44 @@ def server_version_at_least(env, ver):
         ver = version.parse(ver)
     return server_ver >= ver
 
-def server_version_less_than(env, ver):
+def server_version_less_than(env: Env, ver):
     return not server_version_at_least(env, ver)
+
+def server_version_is_at_least(ver):
+    global server_ver
+    if server_ver is None:
+        import subprocess
+        # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
+        v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
+        server_ver = version.parse(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return server_ver >= ver
+
+def server_version_is_less_than(ver):
+    return not server_version_is_at_least(ver)
 
 def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
-    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return res
+    return to_dict(res)
+
+
+def dump_numeric_index_tree(env, idx, numeric_field):
+    res = env.cmd('FT.DEBUG', 'DUMP_NUMIDXTREE', idx, numeric_field)
+    tree_dump = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return tree_dump
+
+
+def dump_numeric_index_tree_root(env, idx, numeric_field):
+    tree_root_stats = dump_numeric_index_tree(env, idx, numeric_field)['root']
+    root_dump = {tree_root_stats[i]: tree_root_stats[i + 1]
+                 for i in range(0, len(tree_root_stats), 2)}
+    return root_dump
+
+def numeric_tree_summary(env, idx, numeric_field):
+    res = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', idx, numeric_field)
+    tree_summary = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return tree_summary
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -205,19 +243,17 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
-def forceInvokeGC(env, idx):
+def ftDebugCmdName(env):
+    return '_ft.debug' if env.isCluster() else 'ft.debug'
+
+def forceInvokeGC(env, idx = 'idx', timeout = None):
     waitForRdbSaveToFinish(env)
-    env.cmd(('_' if env.isCluster() else '') + 'ft.debug', 'GC_FORCEINVOKE', idx)
-
-def skip(f, on_cluster=False):
-    @wraps(f)
-    def wrapper(env, *args, **kwargs):
-        if not on_cluster or env.isCluster():
-            env.skip()
-            return
-        return f(env, *args, **kwargs)
-    return wrapper
-
+    if timeout is not None:
+        if timeout == 0:
+            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
+        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx, timeout)
+    else:
+        env.cmd(ftDebugCmdName(env), 'GC_FORCEINVOKE', idx)
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
@@ -251,6 +287,35 @@ def unstable(f):
         return f(env, *args, **kwargs)
     return wrapper
 
+# Wraps the decorator `skip` for calling from within a test function
+def skipTest(**kwargs):
+    skip(**kwargs)(lambda: None)()
+
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None):
+    def decorate(f):
+        def wrapper():
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal):
+                raise SkipTest()
+            if cluster == COORD:
+                raise SkipTest()
+            if macos and OS == 'macos':
+                raise SkipTest()
+            if asan and SANITIZER == 'address':
+                raise SkipTest()
+            if msan and SANITIZER == 'memory':
+                raise SkipTest()
+            if redis_less_than and server_version_is_less_than(redis_less_than):
+                raise SkipTest()
+            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
+                raise SkipTest()
+            if len(inspect.signature(f).parameters) > 0:
+                env = Env()
+                return f(env)
+            else:
+                return f()
+        return wrapper
+    return decorate
+
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
@@ -275,6 +340,14 @@ def module_ver_filter(env, module_name, ver_filter):
 
 def has_json_api_v2(env):
     return module_ver_filter(env, 'ReJSON', lambda ver: True if ver == 999999 or ver >= 20200 else False)
+
+# Helper function to create numpy array vector with a specific type
+def create_np_array_typed(data, data_type='FLOAT32'):
+    if data_type == 'FLOAT32':
+        return np.array(data, dtype=np.float32)
+    if data_type == 'FLOAT64':
+        return np.array(data, dtype=np.float64)
+    return None
 
 def compare_lists_rec(var1, var2, delta):
     if type(var1) != type(var2):
@@ -360,3 +433,35 @@ class ConditionalExpected:
         if cond_val == self.cond_val:
             func(self.env.expect(*self.query))
         return self
+
+def number_to_ordinal(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = 'th'
+    else:
+        suffix = ['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]
+    return str(n) + suffix
+
+
+def get_TLS_args():
+    root = os.environ.get('ROOT', None)
+    if root is None:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # go up 3 levels from common.py
+
+    cert_file       = os.path.join(root, 'bin', 'tls', 'redis.crt')
+    key_file        = os.path.join(root, 'bin', 'tls', 'redis.key')
+    ca_cert_file    = os.path.join(root, 'bin', 'tls', 'ca.crt')
+    passphrase_file = os.path.join(root, 'bin', 'tls', '.passphrase')
+
+    with_pass = server_version_is_at_least('6.2')
+
+    # If any of the files are missing, generate them
+    import subprocess
+    subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
+
+    def get_passphrase():
+        with open(passphrase_file, 'r') as f:
+            return f.read()
+
+    passphrase = get_passphrase() if with_pass else None
+
+    return cert_file, key_file, ca_cert_file, passphrase

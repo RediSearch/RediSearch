@@ -5,7 +5,7 @@ on:
     inputs:
       platforms:
         description: 'Build platforms'
-        default: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "rockylinux:8", "debian:bullseye"]'
+        default: '["ubuntu:jammy", "ubuntu:bionic", "centos:7", "centos:8", "rockylinux:8", "debian:bullseye"]'
 
 jobs:
   build-linux-matrix:

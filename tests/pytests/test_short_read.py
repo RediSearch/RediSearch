@@ -12,6 +12,7 @@ import tempfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import redis
 
 from common import *
 from includes import *
@@ -61,7 +62,8 @@ def downloadFiles(target_dir):
         if not os.path.exists(path_dir):
             os.makedirs(path_dir)
         if not os.path.exists(path):
-            dpath = paella.wget(BASE_RDBS_URL + f, dest=path)
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+            dpath = os.path.abspath(path)
             _, ext = os.path.splitext(dpath)
             if ext == '.zip':
                 if not unzip(path, path_dir):
@@ -464,7 +466,7 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@no_msan
+@skip(cluster=True, msan=True)
 def testShortReadSearch(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
@@ -472,7 +474,6 @@ def testShortReadSearch(env):
     if CODE_COVERAGE or SANITIZER:
         env.skip()  # FIXME: enable coverage test
 
-    env.skipOnCluster()
     if env.env.endswith('existing-env') and CI:
         env.skip()
 
@@ -568,8 +569,17 @@ def runShortRead(env, data, total_len, expected_index):
         conn.close()
 
         # Make sure replica did not crash
-        res = env.cmd('PING')
+        max_up_attempt = 60
+        while max_up_attempt > 0:
+            try:
+                res = env.cmd('PING')
+                break
+            except redis.exceptions.BusyLoadingError:
+                max_up_attempt = max_up_attempt - 1
+                time.sleep(0.1)
+        env.assertGreater(max_up_attempt, 0)
         env.assertEqual(res, True)
+
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 

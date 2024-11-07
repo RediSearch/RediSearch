@@ -1,0 +1,26 @@
+name: Benchmark
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  pull_request:
+   types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
+
+concurrency:
+  # Group by flow, PR number, and a trigger condition (so other labels don't cancel an in-progress job)
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.action != 'labeled' || github.event.label.name == 'action:run-benchmark' }}
+  cancel-in-progress: true # TODO: reconsider, currently we use the free tier and have 20 concurrent jobs limit
+
+jobs:
+  perf-ci:
+    name: Trigger
+    if: >
+      (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-benchmark'
+      ) || (
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
+      )
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit

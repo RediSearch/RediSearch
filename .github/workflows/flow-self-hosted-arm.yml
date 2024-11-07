@@ -1,0 +1,129 @@
+name: self-hosted ARM flow (container)
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        required: true
+        type: string
+      pre-steps-script:
+        type: string
+      get-redis:
+        type: string
+      test:
+        type: boolean
+        description: Run test flow
+      build:
+        description: Run build flow
+        type: boolean
+
+      # Build inputs
+      ref:
+        type: string
+        description: 'Ref to checkout (defaults to the ref of the triggering event)'
+      sha:
+        type: string
+        description: 'Optional: SHA to checkout. If not provided, `ref` will be used'
+
+      # Test inputs
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        type: string
+      coordinator:
+        type: boolean
+        default: true
+      standalone:
+        type: boolean
+        default: true
+
+env:
+  AWS_IMAGE_ID: ami-0d8e10b4bd5d65c57  # Ubuntu 22.04 region AMI for ARM with Docker installed
+  AWS_INSTANCE_TYPE: t4g.medium
+  TAGS: | # Make sure there is no trailing comma!
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
+      {"Key": "Container",    "Value": "${{ inputs.container }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"}
+    ]
+
+jobs:
+  start-runner:
+    name: Start self-hosted EC2 runner
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.start-ec2-runner.outputs.label }}
+      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
+      - name: Start EC2 runner
+        id: start-ec2-runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: start
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          ec2-image-id: ${{ env.AWS_IMAGE_ID }}
+          ec2-instance-type: ${{ env.AWS_INSTANCE_TYPE }}
+          subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
+          security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
+          aws-resource-tags: ${{ env.TAGS }}
+
+  test:
+    if: inputs.test
+    needs: start-runner # required to start the main job when the runner is ready
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      env: ${{ needs.start-runner.outputs.label }}
+      container: ${{ inputs.container }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
+      coordinator: ${{ inputs.coordinator }}
+      standalone: ${{ inputs.standalone }}
+      test-config: ${{ inputs.test-config }}
+      get-redis: ${{ inputs.get-redis }}
+
+  build:
+    if: inputs.build
+    needs: start-runner # required to start the main job when the runner is ready
+    secrets: inherit
+    uses: ./.github/workflows/task-build-artifacts.yml
+    with:
+      env: ${{ needs.start-runner.outputs.label }}
+      container: ${{ inputs.container }}
+      pre-steps-script: ${{ inputs.pre-steps-script }}
+      ref: ${{ inputs.ref }}
+      sha: ${{ inputs.sha }}
+      redis-ref: ${{ inputs.get-redis }}
+
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs:
+      - start-runner # required to get output from the start-runner job
+      - test  # required to wait when the main job is done
+      - build # required to wait when the main job is done
+    runs-on: ubuntu-latest
+    if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2
+        with:
+          mode: stop
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          label: ${{ needs.start-runner.outputs.label }}
+          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
