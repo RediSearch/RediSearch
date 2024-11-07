@@ -519,7 +519,7 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
 
 void VecSimLogCallback(void *ctx, const char *level, const char *message) {
   VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
-  RedisModule_Log(NULL, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
+  RedisModule_Log(RSDummyContext, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
 
 int VecSim_CallTieredIndexesGC(WeakRef spRef) {
