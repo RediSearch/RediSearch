@@ -432,6 +432,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
     array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
+  HiddenName_Free(it->scoreField, false);
   IndexResult_Free(it->base.current);
   VecSimQueryReply_Free(it->reply);
   VecSimQueryReply_IteratorFree(it->iter);
@@ -457,7 +458,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->indexMetric = hParams.spaceMetric;
   hi->query = hParams.query;
   hi->runtimeParams = hParams.qParams;
-  hi->scoreField = hParams.vectorScoreField;
+  hi->scoreField = NewHiddenName(hParams.vectorScoreField, strlen(hParams.vectorScoreField), false);
   hi->base.isValid = 1;
   hi->reply = NULL;
   hi->iter = NULL;

@@ -21,7 +21,7 @@ typedef struct {
   VecSimMetric spaceMetric;
   KNNVectorQuery query;
   VecSimQueryParams qParams;
-  char *vectorScoreField;
+  const char *vectorScoreField;
   bool ignoreDocScore;
   IndexIterator *childIt;
   struct timespec timeout;
@@ -45,7 +45,7 @@ typedef struct {
   VecSimQueryReply_Iterator *iter;
   t_docId lastDocId;
   RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
-  char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
+  HiddenName *scoreField;          // To use by the sorter, for distinguishing between different vector fields.
   mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.

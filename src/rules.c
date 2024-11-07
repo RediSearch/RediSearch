@@ -162,7 +162,7 @@ error:
  * expensive comparisons.
  */
 void SchemaRule_FilterFields(IndexSpec *spec) {
-  char **properties = array_new(char *, 8);
+  HiddenName **properties = array_new(HiddenName *, 8);
   SchemaRule *rule = spec->rule;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
@@ -173,10 +173,9 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
       for (int j = 0; j < spec->numFields; ++j) {
         // a match. save the field index for fast access
         FieldSpec *fs = spec->fields + j;
-        const char* property = properties[i];
-        size_t length = strlen(property);
-        if (!HiddenString_CompareC(fs->fieldName, property, length)
-            || !HiddenString_CompareC(fs->fieldPath, property, length)) {
+        const HiddenString* property = properties[i];
+        if (!HiddenString_Compare(fs->fieldName, property)
+            || !HiddenString_CompareC(fs->fieldPath, property)) {
           rule->filter_fields_index[i] = j;
           break;
         }
