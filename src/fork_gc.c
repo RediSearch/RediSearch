@@ -56,7 +56,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   if (size != len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
-    RedisModule_Log(NULL, "warning", "GC fork: broken pipe, exiting");
+    RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
     exit(1);
   }
 }
@@ -1490,7 +1490,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
-  forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
+  forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
 
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
