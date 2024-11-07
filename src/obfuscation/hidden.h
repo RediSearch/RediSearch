@@ -18,7 +18,7 @@ typedef struct HiddenString HiddenString;
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
 HiddenString *NewHiddenString(const char *name, uint64_t length, bool takeOwnership);
-void HiddenString_Free(HiddenString *value, bool tookOwnership);
+void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
 // comparison
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
