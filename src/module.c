@@ -896,14 +896,12 @@ Version supportedVersion = {
     .patchVersion = 0,
 };
 
-static void GetRedisVersion() {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+static void GetRedisVersion(RedisModuleCtx *ctx) {
   RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
   if (!reply) {
     // could not get version, it can only happened when running the tests.
     // set redis version to supported version.
     redisVersion = supportedVersion;
-    RedisModule_FreeThreadSafeContext(ctx);
     return;
   }
   RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
@@ -924,7 +922,7 @@ static void GetRedisVersion() {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
                &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
     if (n != 4) {
-      RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
+      RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
     }
   }
 
@@ -940,7 +938,6 @@ static void GetRedisVersion() {
     RedisModule_FreeCallReply(reply);
   }
 
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1020,7 +1017,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  GetRedisVersion();
+  GetRedisVersion(ctx);
 
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));
