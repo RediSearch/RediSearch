@@ -280,7 +280,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   checkCardinality(n->range, value);
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value);
   ++rv.numRecords;
-  int card = hll_count(&n->range->hll);
+  size_t card = hll_count(&n->range->hll);
 
   if (card >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {

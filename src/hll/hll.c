@@ -16,7 +16,7 @@
 
 #include "rmalloc.h"
 
-#define INVALID_CARDINALITY (-1.0)
+#define INVALID_CARDINALITY SIZE_MAX
 
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
@@ -35,8 +35,8 @@ int hll_init(struct HLL *hll, uint8_t bits) {
 
   hll->bits = bits;
   hll->rank_bits = 32 - bits;
-  hll->cachedCard = INVALID_CARDINALITY;
-  hll->size = 1ULL << bits;
+  hll->size = 1U << bits;
+  hll->cachedCard = 0; // Initially the cardinality is 0
   hll->registers = rm_calloc(hll->size, sizeof(*hll->registers));
 
   return 0;
@@ -63,12 +63,11 @@ void hll_add_hash(struct HLL *hll, uint32_t h) {
 }
 
 void hll_add(struct HLL *hll, const void *buf, size_t size) {
-  uint32_t hash = rs_fnv_32a_buf(buf, (uint32_t)size, 0x5f61767a);
-
+  uint32_t hash = rs_fnv_32a_buf(buf, size, 0x5f61767a);
   _hll_add_hash(hll, hash);
 }
 
-double hll_count(const struct HLL *hll) {
+size_t hll_count(const struct HLL *hll) {
   // Return the cached cardinality if it's available
   if (INVALID_CARDINALITY != hll->cachedCard) return hll->cachedCard;
 
@@ -112,7 +111,7 @@ double hll_count(const struct HLL *hll) {
   return estimate;
 }
 
-static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, size_t size) {
+static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, uint32_t size) {
   if (hll->size != size) {
     errno = EINVAL;
     return -1;
@@ -132,33 +131,33 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
   return hll_merge_internal(dst, src->registers, src->size);
 }
 
-int hll_merge_registers(struct HLL *hll, const void *registers, size_t size) {
+int hll_merge_registers(struct HLL *hll, const void *registers, uint32_t size) {
   return hll_merge_internal(hll, registers, size);
 }
 
-int hll_load(struct HLL *hll, const void *registers, size_t size) {
-  if (__builtin_popcountll(size) != 1) {
+int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
+  if (__builtin_popcount(size) != 1) {
     errno = EINVAL; // size must be a power of 2 - a single bit set
     return -1;
   }
 
   // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
-  if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
+  if (hll_init(hll, __builtin_ctz(size)) == -1) return -1;
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
 
   return 0;
 }
 
-int hll_set_registers(struct HLL *hll, const void *registers, size_t size) {
-  if (__builtin_popcountll(size) != 1) {
+int hll_set_registers(struct HLL *hll, const void *registers, uint32_t size) {
+  if (__builtin_popcount(size) != 1) {
     errno = EINVAL; // size must be a power of 2 - a single bit set
     return -1;
   }
 
   if (hll->size != size) {
     hll_destroy(hll);
-    if (hll_init(hll, __builtin_ctzll(size)) == -1) return -1;
+    if (hll_init(hll, __builtin_ctz(size)) == -1) return -1;
   }
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
@@ -169,5 +168,5 @@ int hll_set_registers(struct HLL *hll, const void *registers, size_t size) {
 
 void hll_clear(struct HLL *hll) {
   memset(hll->registers, 0, hll->size * sizeof(*hll->registers));
-  hll->cachedCard = INVALID_CARDINALITY;
+  hll->cachedCard = 0; // No elements, so the cardinality is 0
 }
