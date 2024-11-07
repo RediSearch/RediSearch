@@ -12,8 +12,9 @@
 
 struct HLL {
   uint8_t bits;
-  uint8_t rank_bits; // cached value of 32 - bits. Represents the number of bits used for the rank/max rank
-  size_t size;
+  uint8_t rank_bits;  // cached value of 32 - bits. Represents the number of bits used for the rank/max rank
+  uint32_t size;      // number of registers (2^bits). bits <= 20 so this fits in 32 bits
+  double cachedCard;  // cached cardinality. -1 if not cached
   uint8_t *registers;
 };
 

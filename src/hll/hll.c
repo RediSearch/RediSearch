@@ -16,6 +16,8 @@
 
 #include "rmalloc.h"
 
+#define INVALID_CARDINALITY (-1.0)
+
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
   return (rank > max ? max : rank) + 1;
@@ -33,6 +35,7 @@ int hll_init(struct HLL *hll, uint8_t bits) {
 
   hll->bits = bits;
   hll->rank_bits = 32 - bits;
+  hll->cachedCard = INVALID_CARDINALITY;
   hll->size = 1ULL << bits;
   hll->registers = rm_calloc(hll->size, sizeof(*hll->registers));
 
@@ -50,6 +53,8 @@ static inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
 
   if (rank > hll->registers[index]) {
     hll->registers[index] = rank;
+    // New max rank, invalidate the cached cardinality
+    hll->cachedCard = INVALID_CARDINALITY;
   }
 }
 
@@ -64,6 +69,9 @@ void hll_add(struct HLL *hll, const void *buf, size_t size) {
 }
 
 double hll_count(const struct HLL *hll) {
+  // Return the cached cardinality if it's available
+  if (INVALID_CARDINALITY != hll->cachedCard) return hll->cachedCard;
+
   double alpha_mm;
   switch (hll->bits) {
     case 4:
@@ -76,11 +84,11 @@ double hll_count(const struct HLL *hll) {
       alpha_mm = 0.709;
       break;
     default:
-      alpha_mm = 0.7213 / (1.0 + 1.079 / (double)hll->size);
+      alpha_mm = 0.7213 / (1.0 + 1.079 / hll->size);
       break;
   }
 
-  alpha_mm *= ((double)hll->size * (double)hll->size);
+  alpha_mm *= hll->size * hll->size;
 
   double sum = 0;
   for (uint32_t i = 0; i < hll->size; i++) {
@@ -89,17 +97,18 @@ double hll_count(const struct HLL *hll) {
 
   double estimate = alpha_mm / sum;
 
-  if (estimate <= 5.0 / 2.0 * (double)hll->size) {
+  if (estimate <= 5.0 / 2.0 * hll->size) {
     int zeros = 0;
 
     for (uint32_t i = 0; i < hll->size; i++) if (hll->registers[i] == 0) zeros++;
 
-    if (zeros) estimate = (double)hll->size * log((double)hll->size / zeros);
+    if (zeros) estimate = hll->size * log((double)hll->size / zeros);
 
   } else if (estimate > (1.0 / 30.0) * 4294967296.0) {
     estimate = -4294967296.0 * log(1.0 - (estimate / 4294967296.0));
   }
 
+  ((struct HLL*)hll)->cachedCard = estimate; // cache the current estimate
   return estimate;
 }
 
@@ -110,7 +119,11 @@ static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, 
   }
 
   for (uint32_t i = 0; i < size; i++) {
-    if (hll->registers[i] < registers[i]) hll->registers[i] = registers[i];
+    if (hll->registers[i] < registers[i]) {
+      hll->registers[i] = registers[i];
+      // New max rank, invalidate the cached cardinality
+      hll->cachedCard = INVALID_CARDINALITY;
+    }
   }
   return 0;
 }
@@ -149,10 +162,12 @@ int hll_set_registers(struct HLL *hll, const void *registers, size_t size) {
   }
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
+  hll->cachedCard = INVALID_CARDINALITY; // Invalidate the cached cardinality
 
   return 0;
 }
 
 void hll_clear(struct HLL *hll) {
   memset(hll->registers, 0, hll->size * sizeof(*hll->registers));
+  hll->cachedCard = INVALID_CARDINALITY;
 }
