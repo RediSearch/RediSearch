@@ -93,13 +93,30 @@ def test_acl_non_default_user(env):
 
 def test_sug_commands_acl(env):
     """Tests that our FT.SUG* commands are properly validated for ACL key
-    permissions."""
+    permissions.
+    """
+
+    # Create a suggestion key
+    env.expect('FT.SUGADD', 'test_key', 'hello world', '1').equal(1)
 
     # Create an ACL user without permissions to the key we're going to use
     env.expect('ACL', 'SETUSER', 'test_user', 'on', '>123', '~h:*', '&*', '+@all').ok()
     env.expect('AUTH', 'test_user', '123').true()
-    env.expect('FT.SUGADD', 'test_key', 'hello world', '1').error().contains(
+    env.expect('FT.SUGADD', 'test_key_2', 'hello world', '1').error().contains(
         "NOPERM No permissions to access a key")
 
     # Test that `test_user` can create a key it has permissions to access
     env.expect('FT.SUGADD', 'htest_key', 'hello world', '1').equal(1)
+
+    # Test other `FT.SUG*` commands
+    env.expect('FT.SUGGET', 'test_key', 'hello').error().contains(
+        "NOPERM No permissions to access a key")
+    env.expect('FT.SUGGET', 'htest_key', 'hello').equal(['hello world'])
+
+    env.expect('FT.SUGLEN', 'test_key').error().contains(
+        "NOPERM No permissions to access a key")
+    env.expect('FT.SUGLEN', 'htest_key', 'hello').equal(1)
+
+    env.expect('FT.SUGDEL', 'test_key', 'hello world').error().contains(
+        "NOPERM No permissions to access a key")
+    env.expect('FT.SUGDEL', 'htest_key', 'hello world').equal(1)
