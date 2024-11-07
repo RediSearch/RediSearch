@@ -1431,7 +1431,7 @@ def test_score_name_case_sensitivity():
 
 
 def test_max_knn_k():
-    env = Env(moduleArgs='DEFAULT_DIALECT 3')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 2
     k = pow(2, 59)
