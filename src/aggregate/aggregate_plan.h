@@ -28,6 +28,7 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
+  PLN_T_HIDE,
   PLN_T__MAX
 } PLN_StepType;
 
@@ -50,7 +51,7 @@ typedef struct PLN_BaseStep {
   PLN_StepType type : 32;
   uint32_t flags;  // PLN_F_XXX
 
-  const char *alias;
+  HiddenName *alias;
   // Called to destroy step-specific data
   void (*dtor)(struct PLN_BaseStep *);
 
@@ -113,14 +114,15 @@ typedef struct {
   PLN_BaseStep base;
   RLookup lookup;
 
-  const char **properties;
+  HiddenName **properties;
   size_t nproperties;
+  bool propertiesOwned;
 
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
     const char *name;  // Name of function
-    char *alias;       // Output key
-    bool isHidden;     // If the output key is hidden. Used by the coordinator
+    HiddenName *alias; // Output key
+    bool hideReducer;  // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
@@ -129,7 +131,7 @@ typedef struct {
 /**
  * Returns a new group step with the appropriate constructor
  */
-PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
+PLN_GroupStep *PLNGroupStep_New(HiddenName **props, size_t nprops, bool owner);
 
 /**
  * Adds a reducer (with its arguments) to the group step
@@ -253,7 +255,7 @@ typedef enum {
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
 
-void AGPLN_Dump(const AGGPlan *pln);
+void AGPLN_Dump(const AGGPlan *pln, bool obfuscate);
 
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which

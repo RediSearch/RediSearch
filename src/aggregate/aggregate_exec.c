@@ -186,7 +186,8 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = &rsv;
       }
       if (need_map) {
-        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
+        const char* key = HiddenName_GetUnsafe(req->requiredFields[currentField], NULL);
+        RedisModule_Reply_CString(reply, key); // key name
       }
       reeval_key(reply, v);
     }
@@ -222,7 +223,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
           RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+          size_t nameLen = 0;
+          const char *unsafeName = HiddenName_GetUnsafe(kk->name, &nameLen);
+          RedisModule_Reply_StringBuffer(reply, unsafeName, nameLen);
 
           SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
           flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;

@@ -6,6 +6,7 @@
 
 #include "exprast.h"
 #include <ctype.h>
+#include "obfuscation/obfuscation_api.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
@@ -103,7 +104,7 @@ RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = rm_strndup(str, len);
+  e->property.key = NewHiddenName(str, len, true);
   e->property.lookupObj = NULL;
   return e;
 }
@@ -149,11 +150,11 @@ void RSExpr_Free(RSExpr *e) {
 }
 
 // Extract all field names from an RSExpr tree recursively
-void RSExpr_GetProperties(RSExpr *e, char ***props) {
+void RSExpr_GetProperties(RSExpr *e, HiddenName ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      array_append(*props, rm_strdup(e->property.key));
+      array_append(*props, HiddenName_Duplicate(e->property.key));
       break;
     case RSExpr_Literal:
       break;
@@ -175,7 +176,7 @@ void RSExpr_GetProperties(RSExpr *e, char ***props) {
   }
 }
 
-void RSExpr_Print(const RSExpr *e) {
+void RSExpr_Print(const RSExpr *e, bool obfuscate) {
   if (!e) {
     printf("NULL");
     return;
@@ -187,33 +188,39 @@ void RSExpr_Print(const RSExpr *e) {
     case RSExpr_Function:
       printf("%s(", e->func.name);
       for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i]);
+        RSExpr_Print(e->func.args->args[i], obfuscate);
         if (i < e->func.args->len - 1) printf(", ");
       }
       printf(")");
       break;
     case RSExpr_Op:
       printf("(");
-      RSExpr_Print(e->op.left);
+      RSExpr_Print(e->op.left, obfuscate);
       printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right);
+      RSExpr_Print(e->op.right, obfuscate);
       printf(")");
       break;
 
     case RSExpr_Predicate:
       printf("(");
-      RSExpr_Print(e->pred.left);
+      RSExpr_Print(e->pred.left, obfuscate);
       printf(" %s ", getRSConditionStrings(e->pred.cond));
-      RSExpr_Print(e->pred.right);
+      RSExpr_Print(e->pred.right, obfuscate);
       printf(")");
 
       break;
     case RSExpr_Property:
-      printf("@%s", e->property.key);
+      {
+        const char* key = HiddenName_GetUnsafe(e->property.key, NULL);
+        if (obfuscate) {
+          key = Obfuscate_Text(key);
+        }
+        printf("@%s", key);
+      }
       break;
     case RSExpr_Inverted:
       printf("!");
-      RSExpr_Print(e->inverted.child);
+      RSExpr_Print(e->inverted.child, obfuscate);
       break;
   }
 }
@@ -222,8 +229,8 @@ void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
 }
 
-void ExprAST_Print(const RSExpr *e) {
-  RSExpr_Print(e);
+void ExprAST_Print(const RSExpr *e, bool obfuscate) {
+  RSExpr_Print(e, obfuscate);
 }
 
 RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {

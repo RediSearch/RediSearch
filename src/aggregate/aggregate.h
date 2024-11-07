@@ -180,7 +180,7 @@ typedef struct AREQ {
   clock_t parseTime;         // Time for parsing the query
   clock_t pipelineBuildTime; // Time for creating the pipeline
 
-  const char** requiredFields;
+  HiddenName** requiredFields;
 
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
 

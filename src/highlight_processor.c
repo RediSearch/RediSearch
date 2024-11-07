@@ -45,7 +45,7 @@ typedef struct {
  *
  * Returns true if the fragmentation succeeded, false otherwise.
  */
-static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, const char *fieldText,
+static int fragmentizeOffsets(const RLookup *lookup, const HiddenName *fieldName, const char *fieldText,
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
@@ -167,7 +167,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const char *fieldName, const RSValue *returnedField,
+                               HiddenName *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;
@@ -258,13 +258,12 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 }
 
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
-  const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, spec->name, fieldValue, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);

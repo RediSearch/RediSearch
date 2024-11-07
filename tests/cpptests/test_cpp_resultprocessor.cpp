@@ -2,6 +2,7 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
+#include "common.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -48,7 +49,8 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   p->counter = 0;
   p->Next = p1_Next;
   p->Free = resultProcessor_GenericFree;
-  p->kout = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenName("foo");
+  p->kout = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   QITR_PushRP(&qitr, p);
 
   processor1Ctx *p2 = new processor1Ctx();
