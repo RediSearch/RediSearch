@@ -288,7 +288,6 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -1149,7 +1148,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read"))
 
   // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0, "read"));
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, NULL, "readonly", 0, 0, 0, ""));
+  RedisModuleCommand *cursor_cmd = RedisModule_GetCommand(ctx, RS_CURSOR_CMD);
+  // TODO: ACL categories?
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "READ", RSCursorReadCommand, "readonly", 0, 0, 0)
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "DEL", RSCursorDelCommand, "readonly", 0, 0, 0)
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "GC", RSCursorGCCommand, "readonly", 0, 0, 0)
 
   // todo: what to do with this?
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
@@ -2874,11 +2878,15 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
                                                RSExecDistAggregate, ctx, argv, argc);
 }
 
-static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorCommand(ctx, argv, argc);
+static void CursorReadCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorReadCommand(ctx, argv, argc);
 }
 
-static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static void CursorDelCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorDelCommand(ctx, argv, argc);
+}
+
+static int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2886,13 +2894,30 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return RSCursorCommand(ctx, argv, argc);
+    return RSCursorReadCommand(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               CursorReadCommandInternal, ctx, argv, argc);
+}
+
+static int CursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSCursorDelCommand(ctx, argv, argc);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
+                                               CursorDelCommandInternal, ctx, argv, argc);
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3319,14 +3344,29 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, ""))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read"))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read"))
+
+  int cursorFirst, cursorLast, cursorStep;
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read"))
+    cursorFirst = 3;
+    cursorLast = 1;
+    cursorStep = -3;
   } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read"))
+    cursorFirst = 0;
+    cursorLast = 0;
+    cursorStep = -1;
   }
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", cursorFirst, cursorLast, cursorStep, "read"));
+  RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
+  // Register "READ" and "DEL" subcommands to run from the coordinator thread pool
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  // Register "GC" subcommand as the local handler (exactly like its `_FT` variants)
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(RSCursorGCCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  // TODO: ACLs for cursor commands?
+
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, ""))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
-  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
+  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, RS_DEBUG)));
 
   if (!IsEnterprise()) {
     if (!isClusterEnabled) {
