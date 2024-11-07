@@ -4,7 +4,7 @@ from common import *
 
 not_modifiable = 'Not modifiable at runtime'
 
-def _test_arg_str(arg_name, arg_value, ret_value=None):
+def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
         ret_value = arg_value
     env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
@@ -13,14 +13,14 @@ def _test_arg_str(arg_name, arg_value, ret_value=None):
     env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, ret_value]])
     env.stop()
 
-def _test_arg_num(arg_name, arg_value):
+def _test_config_num(arg_name, arg_value):
     env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
     env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, str(arg_value)]])
     env.stop()
 
-def _test_arg_true_false(arg_name, res):
+def _test_config_true_false(arg_name, res):
     env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
@@ -177,51 +177,51 @@ def testAllConfig(env):
 def testInitConfig():
 
     # Numeric arguments
-    _test_arg_num('MAXDOCTABLESIZE', 123456)
-    _test_arg_num('TIMEOUT', 0)
-    _test_arg_num('MINPREFIX', 3)
-    _test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
-    _test_arg_num('MAXEXPANSIONS', 5)
-    _test_arg_num('MAXPREFIXEXPANSIONS', 5)
-    _test_arg_num('WORKERS', 3)
-    _test_arg_num('MIN_OPERATION_WORKERS', 3)
-    _test_arg_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
-    _test_arg_num('PRIVILEGED_THREADS_NUM', 4)
-    _test_arg_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
-    _test_arg_num('GCSCANSIZE', 3)
-    _test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
-    _test_arg_num('FORK_GC_RUN_INTERVAL', 3)
-    _test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
-    _test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
-    _test_arg_num('UNION_ITERATOR_HEAP', 20)
-    _test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
-    _test_arg_num('BG_INDEX_SLEEP_GAP', 15)
-    _test_arg_num('MINSTEMLEN', 3)
-    _test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    _test_config_num('MAXDOCTABLESIZE', 123456)
+    _test_config_num('TIMEOUT', 0)
+    _test_config_num('MINPREFIX', 3)
+    _test_config_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
+    _test_config_num('MAXEXPANSIONS', 5)
+    _test_config_num('MAXPREFIXEXPANSIONS', 5)
+    _test_config_num('WORKERS', 3)
+    _test_config_num('MIN_OPERATION_WORKERS', 3)
+    _test_config_num('TIERED_HNSW_BUFFER_LIMIT', 50000)
+    _test_config_num('PRIVILEGED_THREADS_NUM', 4)
+    _test_config_num('WORKERS_PRIORITY_BIAS_THRESHOLD', 4)
+    _test_config_num('GCSCANSIZE', 3)
+    _test_config_num('MIN_PHONETIC_TERM_LEN', 3)
+    _test_config_num('FORK_GC_RUN_INTERVAL', 3)
+    _test_config_num('FORK_GC_CLEAN_THRESHOLD', 3)
+    _test_config_num('FORK_GC_RETRY_INTERVAL', 3)
+    _test_config_num('UNION_ITERATOR_HEAP', 20)
+    _test_config_num('_NUMERIC_RANGES_PARENTS', 1)
+    _test_config_num('BG_INDEX_SLEEP_GAP', 15)
+    _test_config_num('MINSTEMLEN', 3)
+    _test_config_num('INDEX_CURSOR_LIMIT', 128)
 
 # True/False arguments
-    _test_arg_true_false('NOGC', 'true')
-    _test_arg_true_false('NO_MEM_POOLS', 'true')
-    _test_arg_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
+    _test_config_true_false('NOGC', 'true')
+    _test_config_true_false('NO_MEM_POOLS', 'true')
+    _test_config_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
-    _test_arg_str('GC_POLICY', 'fork')
-    _test_arg_str('GC_POLICY', 'default', 'fork')
-    _test_arg_str('ON_TIMEOUT', 'fail')
-    _test_arg_str('TIMEOUT', '0', '0')
-    _test_arg_str('PARTIAL_INDEXED_DOCS', '0', 'false')
-    _test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
-    _test_arg_str('MAXSEARCHRESULTS', '100', '100')
-    _test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
-    _test_arg_str('MAXAGGREGATERESULTS', '100', '100')
-    _test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
-    _test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
-    _test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
-    _test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')
-    _test_arg_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', 'true')
-    _test_arg_str('_FREE_RESOURCE_ON_THREAD', 'false', 'false')
-    _test_arg_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
-    _test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
-    _test_arg_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
+    _test_config_str('GC_POLICY', 'fork')
+    _test_config_str('GC_POLICY', 'default', 'fork')
+    _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('TIMEOUT', '0', '0')
+    _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
+    _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
+    _test_config_str('MAXSEARCHRESULTS', '100', '100')
+    _test_config_str('MAXSEARCHRESULTS', '-1', 'unlimited')
+    _test_config_str('MAXAGGREGATERESULTS', '100', '100')
+    _test_config_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
+    _test_config_str('RAW_DOCID_ENCODING', 'false', 'false')
+    _test_config_str('RAW_DOCID_ENCODING', 'true', 'true')
+    _test_config_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false', 'false')
+    _test_config_str('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', 'true')
+    _test_config_str('_FREE_RESOURCE_ON_THREAD', 'false', 'false')
+    _test_config_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
+    _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
+    _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -372,8 +372,8 @@ def testAllConfigCoord(env):
 @skip(cluster=False)
 def testInitConfigCoord():
 
-    _test_arg_num('SEARCH_THREADS', 3)
-    _test_arg_num('CONN_PER_SHARD', 3)
+    _test_config_num('SEARCH_THREADS', 3)
+    _test_config_num('CONN_PER_SHARD', 3)
 
     def _testOSSGlobalPasswordConfig():
         env = Env(moduleArgs='OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
@@ -385,7 +385,7 @@ def testInitConfigCoord():
     # We test `OSS_GLOBAL_PASSWORD` manually since the getter obfuscates the value
     _testOSSGlobalPasswordConfig()
 
-    _test_arg_str('OSS_ACL_USERNAME', 'default')
+    _test_config_str('OSS_ACL_USERNAME', 'default')
 
 @skip(cluster=False)
 def testImmutableCoord(env):
@@ -400,13 +400,13 @@ def testSetACLUsername():
 
     # Setting the `OSS_ACL_USERNAME` configuration without the `OSS_GLOBAL_PASSWORD`
     # the configuration should not do anything since we don't try to authenticate.
-    _test_arg_str('OSS_ACL_USERNAME', 'test')
+    _test_config_str('OSS_ACL_USERNAME', 'test')
 
     # Set both the username and password. This should fail since we have no such
     # user.
     env = Env(moduleArgs='OSS_ACL_USERNAME test_user OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
 
-    timeout = 3 # 5 seconds, more than enough for the an env to be up
+    timeout = 3 # 3 seconds, more than enough for the an env to be up
     try:
         with TimeLimit(timeout):
             env.cmd('FT.SEARCH', 'idx', '*')

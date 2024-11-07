@@ -6,7 +6,7 @@
 
 #include "conn.h"
 #include "reply.h"
-#include "../config.h"
+#include "src/coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
 
