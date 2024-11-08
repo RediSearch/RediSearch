@@ -929,3 +929,60 @@ def testNumericOperatorsModifierWithEscapes():
         env.assertEqual(res, [1, 'key2'])
 
         env.flush()
+
+@skip(cluster=True)
+def testNumericTree(env:Env):
+    cardCheck = 10 # currently we check the cardinality every 10 docs
+    maxSplitCard = 2500 # current max cardinality
+    splitCard = dict()
+    c = 16 # current initial tree cardinality
+    d = 0
+    while c < maxSplitCard:
+        splitCard[d] = c
+        c = c * 4 + 1 # current cardinality growth rate
+        d += 1
+
+    cur_id = 0
+    def add_val(conn, val):
+        nonlocal cur_id
+        for i in range(cardCheck):
+            conn.execute_command('HSET', 'doc%d' % (i + cur_id), 'n', val)
+        cur_id += cardCheck
+
+    def add_burst(conn, val, num):
+        for i in range(num):
+            add_val(conn, val + i * 0.001)
+
+    # Recursively validate the maxDepth field in the tree
+    def validate_tree(tree):
+        maxDepthRange = int(env.cmd(config_cmd(), 'GET', '_NUMERIC_RANGES_PARENTS')[0][1])
+        print('maxDepthRange', maxDepthRange)
+        def validate_subtree(subtree):
+            subtree = to_dict(subtree)
+            if 'left' not in subtree or 'right' not in subtree:
+                env.assertContains('range', subtree)
+                return 0 # a leaf
+            left_max_depth = validate_subtree(subtree['left'])
+            right_max_depth = validate_subtree(subtree['right'])
+            expected_max_depth = max(left_max_depth, right_max_depth) + 1
+            env.assertEqual(subtree['maxDepth'], expected_max_depth)
+            env.assertEqual(subtree['maxDepth'] <= maxDepthRange, 'range' in subtree)
+            return expected_max_depth
+        validate_subtree(to_dict(tree)['root'])
+
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    # add 5 bursts of values, to get enough nodes and balancing
+    for i in range(5):
+        add_burst(env, i, splitCard.get(i, maxSplitCard))
+
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'n'))
+
+    env.flush()
+    env.expect(config_cmd(), 'SET', '_NUMERIC_RANGES_PARENTS', '2').ok()
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+
+    # add 5 bursts of values, to get enough nodes and balancing
+    for i in range(4):
+        add_burst(env, i, splitCard.get(i, maxSplitCard))
+
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'n'))
