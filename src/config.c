@@ -318,12 +318,19 @@ CONFIG_GETTER(getWorkThreads) {
 
 // workers
 CONFIG_API_NUMERIC_SETTER(set_workers) {
-  RSGlobalConfig.numWorkerThreads = val;
+  // TODO: Implement external trigger
+  // uint32_t externalTriggerId = 0;
+  RSConfig *config = (RSConfig *)privdata;
+  config->numWorkerThreads = val;
+  workersThreadPool_SetNumWorkers();
+  // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
 CONFIG_API_NUMERIC_GETTER(get_workers) {
-  return RSGlobalConfig.numWorkerThreads;
+  RSConfig *config = (RSConfig *)privdata;
+  return config->numWorkerThreads;
 }
 
 // MIN_OPERATION_WORKERS
@@ -656,7 +663,7 @@ CONFIG_API_NUMERIC_GETTER(get_union_iterator_heap) {
   return RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
 }
 
-// MAX_CURSOR_IDLE
+// CURSOR_MAX_IDLE
 CONFIG_SETTER(setCursorMaxIdle) {
   int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -667,13 +674,13 @@ CONFIG_GETTER(getCursorMaxIdle) {
   return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
 }
 
-// max-cursor-idle
-CONFIG_API_NUMERIC_SETTER(set_max_cursor_idle) {
+// cursor-max-idle
+CONFIG_API_NUMERIC_SETTER(set_cursor_max_idle) {
   RSGlobalConfig.cursorMaxIdle = val;
   return REDISMODULE_OK;
 }
 
-CONFIG_API_NUMERIC_GETTER(get_max_cursor_idle) {
+CONFIG_API_NUMERIC_GETTER(get_cursor_max_idle) {
   return RSGlobalConfig.cursorMaxIdle;
 }
 
@@ -1536,7 +1543,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
       ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
       REDISMODULE_CONFIG_IMMUTABLE, 1, 999999999,
-      get_multi_text_slop, set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
+      get_bg_index_sleep_gap, set_bg_index_sleep_gap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "default-dialect registered");
@@ -1641,12 +1648,12 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-cursor-idle", DEFAULT_MAX_CURSOR_IDLE,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_max_cursor_idle,
-        set_max_cursor_idle, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
+        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_cursor_max_idle,
+        set_cursor_max_idle, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
-    RedisModule_Log(ctx, "notice", "max-cursor-idle registered");
+    RedisModule_Log(ctx, "notice", "cursor-max-idle registered");
   }
 
   // TODO: Define max value for this configuration
@@ -1748,7 +1755,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
         ctx, "workers", DEFAULT_WORKER_THREADS,
         REDISMODULE_CONFIG_DEFAULT, 0, 8192, get_workers,
-        set_workers, NULL, NULL) == REDISMODULE_ERR) {
+        set_workers, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "workers registered");

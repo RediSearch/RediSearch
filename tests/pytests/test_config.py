@@ -382,38 +382,9 @@ def testInitConfigCoord():
 def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
 
-def testConfigAPIRunTime():
+def testConfigAPIRunTimeNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
-    def _test_config_valid_value(env, config_name, config_value):
-        env.expect('CONFIG', 'SET', config_name, config_value).equal('OK')
-        env.expect('CONFIG', 'GET', config_name).equal([config_name, config_value])
-
-    def _test_config_invalid_value(env, config_name, config_value):
-        env.expect('CONFIG', 'SET', config_name, config_value).error()\
-            .contains('CONFIG SET failed')
-
-    def _test_boolean_config(env, config_name, ft_config_name, default):
-        # Check default value
-        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
-
-        for val in ['yes', 'no']:
-            old_val = 'true' if val == 'yes' else 'false'
-            
-            # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-            env.expect('CONFIG', 'SET', config_name, val).equal('OK')
-            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'GET', ft_config_name)\
-                .equal([[ft_config_name, old_val]])
-
-            # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-            env.expect(config_cmd(), 'SET', ft_config_name, old_val).ok()
-            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
-            env.expect(config_cmd(), 'GET', ft_config_name)\
-                .equal([[ft_config_name, old_val]])
-
-        _test_config_invalid_value(env, config_name, 'invalid_boolean')
-    
     def _test_numeric_config(env, config_name, ft_config_name, default, min, max):
         # Check default value
         env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
@@ -430,11 +401,20 @@ def testConfigAPIRunTime():
         env.expect(config_cmd(), 'GET', ft_config_name)\
             .equal([[ft_config_name, str(min)]])
 
-        _test_config_invalid_value(env, config_name, 'invalid_numeric')
-        _test_config_invalid_value(env, config_name, str(min - 1))
-        _test_config_invalid_value(env, config_name, str(max + 1))
-        _test_config_valid_value(env, config_name, str(min))
-        _test_config_valid_value(env, config_name, str(max))
+        # test invalid values
+        env.expect('CONFIG', 'SET', config_name, 'invalid_numeric').error()\
+            .contains('CONFIG SET failed')
+        env.expect('CONFIG', 'SET', config_name, str(min - 1)).error()\
+            .contains('CONFIG SET failed')
+        env.expect('CONFIG', 'SET', config_name, str(max + 1)).error()\
+            .contains('CONFIG SET failed')
+
+        # test valid range limits
+        env.expect('CONFIG', 'SET', config_name, str(min)).equal('OK')
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(min)])
+        env.expect('CONFIG', 'SET', config_name, str(max)).equal('OK')
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(max)])
+
 
     def _test_immutable_numeric_config(env, config_name, ft_config_name,
                                        default):
@@ -442,55 +422,10 @@ def testConfigAPIRunTime():
         env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
         env.expect(config_cmd(), 'GET', ft_config_name).\
             equal([[ft_config_name, str(default)]])
-        
+
         # Check that the value is immutable
         env.expect('CONFIG', 'SET', config_name, str(default)).error()\
             .contains('CONFIG SET failed')
-        
-    def _test_immutable_boolean_config(env, config_name, ft_config_name,
-                                       default):
-        # Check default value
-        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
-
-        old_val = 'true' if default == 'yes' else 'false'
-        env.expect(config_cmd(), 'GET', ft_config_name).\
-            equal([[ft_config_name, str(old_val)]])
-        
-        # Check that the value is immutable
-        env.expect('CONFIG', 'SET', config_name, str(default)).error()\
-            .contains('CONFIG SET failed')
-        
-    def _test_immutable_string_config(env, config_name, ft_config_name, default):
-        # Check default value
-        if default == None:
-            config_default = ''
-
-        env.expect('CONFIG', 'GET', config_name).equal([config_name, config_default])
-        env.expect(config_cmd(), 'GET', ft_config_name).\
-            equal([[ft_config_name, default]])
-        
-        # Check that the value is immutable
-        env.expect('CONFIG', 'SET', config_name, config_default).error()\
-            .contains('CONFIG SET failed')
-
-    # Test enum parameters - search.on-timeout
-    _test_config_valid_value(env, 'search.on-timeout', 'RETURN')
-    _test_config_valid_value(env, 'search.on-timeout', 'FAIL')
-    _test_config_invalid_value(env, 'search.on-timeout', 'invalid_value')
-
-    # Test boolean parameters
-    _test_boolean_config(env, 'search._free-resource-on-thread',
-                         '_FREE_RESOURCE_ON_THREAD', 'yes')
-    _test_boolean_config(env, 'search._numeric-compress',
-                         '_NUMERIC_COMPRESS', 'no')
-    _test_boolean_config(env, 'search._print-profile-clock',
-                         '_PRINT_PROFILE_CLOCK', 'yes')
-    _test_boolean_config(env, 'search._prioritize-intersect-union-children',
-                         '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no')
-    # TODO: Confirm if we need to test this parameter, because it will be
-    # deprecated in  8.0
-    # _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
-    #                      '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # Test numeric parameters
     _test_numeric_config(env, 'search.index-cursor-limit', 'INDEX_CURSOR_LIMIT',
@@ -501,7 +436,7 @@ def testConfigAPIRunTime():
                          100, 1, 999999999)
     _test_numeric_config(env, 'search._numeric-ranges-parents',
                          '_NUMERIC_RANGES_PARENTS', 0, 0, 2)
-    _test_numeric_config(env, 'search.max-cursor-idle', 'CURSOR_MAX_IDLE',
+    _test_numeric_config(env, 'search.cursor-max-idle', 'CURSOR_MAX_IDLE',
                          300_000, 1, 999999999)
     _test_numeric_config(env, 'search.fork-gc-clean-threshold',
                          'FORK_GC_CLEAN_THRESHOLD', 100, 1, 999999999)
@@ -542,12 +477,105 @@ def testConfigAPIRunTime():
                                    'TIERED_HNSW_BUFFER_LIMIT', 1024)
     _test_immutable_numeric_config(env, 'search.workers-priority-bias-threshold',
                                    'WORKERS_PRIORITY_BIAS_THRESHOLD', 1)
-    
+
     if env.isCluster():
         _test_immutable_numeric_config(env, 'search.search-threads',
                                        'SEARCH_THREADS', 20)
         _test_numeric_config(env, 'search.topology-validation-timeout',
                              'TOPOLOGY_VALIDATION_TIMEOUT', 30000, 0, 999999999)
+
+def testConfigAPIRunTimeEnumParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    # Test search.on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'RETURN').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout').\
+        equal(['search.on-timeout', 'RETURN'])
+
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'FAIL').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout').\
+        equal(['search.on-timeout', 'FAIL'])
+
+    # Test search.on-timeout - invalid values
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'invalid_value').error()\
+            .contains('CONFIG SET failed')
+
+
+def testConfigAPIRunTimeStringParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    def _test_immutable_string_config(env, config_name, ft_config_name, default):
+        # Check default value
+        if default == None:
+            config_default = ''
+
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, config_default])
+        env.expect(config_cmd(), 'GET', ft_config_name).\
+            equal([[ft_config_name, default]])
+
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', config_name, config_default).error()\
+            .contains('CONFIG SET failed')
+
+    # String parameters
+    _test_immutable_string_config(env, 'search.ext-load', 'EXTLOAD', None)
+    _test_immutable_string_config(env, 'search.friso-ini', 'FRISOINI', None)
+
+
+def testConfigAPIRunTime():
+    env = Env(noDefaultModuleArgs=True)
+
+    def _test_config_invalid_value(env, config_name, config_value):
+        env.expect('CONFIG', 'SET', config_name, config_value).error()\
+            .contains('CONFIG SET failed')
+
+    def _test_boolean_config(env, config_name, ft_config_name, default):
+        # Check default value
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
+
+        for val in ['yes', 'no']:
+            old_val = 'true' if val == 'yes' else 'false'
+
+            # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect('CONFIG', 'SET', config_name, val).equal('OK')
+            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'GET', ft_config_name)\
+                .equal([[ft_config_name, old_val]])
+
+            # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect(config_cmd(), 'SET', ft_config_name, old_val).ok()
+            env.expect('CONFIG', 'GET', config_name).equal([config_name, val])
+            env.expect(config_cmd(), 'GET', ft_config_name)\
+                .equal([[ft_config_name, old_val]])
+
+        _test_config_invalid_value(env, config_name, 'invalid_boolean')
+
+    def _test_immutable_boolean_config(env, config_name, ft_config_name,
+                                       default):
+        # Check default value
+        env.expect('CONFIG', 'GET', config_name).equal([config_name, str(default)])
+
+        old_val = 'true' if default == 'yes' else 'false'
+        env.expect(config_cmd(), 'GET', ft_config_name).\
+            equal([[ft_config_name, str(old_val)]])
+
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', config_name, str(default)).error()\
+            .contains('CONFIG SET failed')
+
+    # Test boolean parameters
+    _test_boolean_config(env, 'search._free-resource-on-thread',
+                         '_FREE_RESOURCE_ON_THREAD', 'yes')
+    _test_boolean_config(env, 'search._numeric-compress',
+                         '_NUMERIC_COMPRESS', 'no')
+    _test_boolean_config(env, 'search._print-profile-clock',
+                         '_PRINT_PROFILE_CLOCK', 'yes')
+    _test_boolean_config(env, 'search._prioritize-intersect-union-children',
+                         '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no')
+    # TODO: Confirm if we need to test this parameter, because it will be
+    # deprecated in  8.0
+    # _test_boolean_config(env, 'search._fork-gc-clean-numeric-empty-nodes',
+    #                      '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')
 
     # Boolean Immutable parameters
     _test_immutable_boolean_config(env, 'search.no-mem-pools',
@@ -558,14 +586,96 @@ def testConfigAPIRunTime():
                                    'PARTIAL_INDEXED_DOCS', 'no')
     _test_immutable_boolean_config(env, 'search.raw-docid-encoding',
                                    'RAW_DOCID_ENCODING', 'no')
-    
-    # String parameters
-    _test_immutable_string_config(env, 'search.ext-load', 'EXTLOAD', None)
-    _test_immutable_string_config(env, 'search.friso-ini', 'FRISOINI', None)
 
 
-# TODO: Test passing immutable config values at load time
-# def testConfigAPIAtLoadTime():
-#     pass
+@skip(cluster=True)
+def testConfigAPIModuleLoadex():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
     
-    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    numericConfigs = [
+        ('search._numeric-ranges-parents', '1', '_NUMERIC_RANGES_PARENTS', '2', '0'),
+        ('search.bg-index-sleep-gap', '18', 'BG_INDEX_SLEEP_GAP', '30', '100'),
+        ('search.cursor-max-idle', '400000', 'CURSOR_MAX_IDLE', '500000', '300000'),
+        ('search.default-dialect', '2', 'DEFAULT_DIALECT', '3', '1'),
+        ('search.fork-gc-clean-threshold', '50', 'FORK_GC_CLEAN_THRESHOLD', '200', '100'),
+        ('search.fork-gc-retry-interval', '10', 'FORK_GC_RETRY_INTERVAL', '3', '5'),
+        ('search.fork-gc-run-interval', '15', 'FORK_GC_RUN_INTERVAL', '20', '30'),
+        ('search.fork-gc-sleep-before-exit', '1', 'FORKGC_SLEEP_BEFORE_EXIT', '2', '0'),
+        ('search.gc-scan-size', '150', 'GCSCANSIZE', '50', '100'),
+        ('search.index-cursor-limit', '64', 'INDEX_CURSOR_LIMIT', '188', '128'),
+        # TODO: MAXAGGREGATERESULTS has not been configured, its code is commented out
+        # ('search.max-aggregate-results', '50', 'MAXAGGREGATERESULTS', '100', 'unlimited'),
+        ('search.max-doctablesize', '200', 'MAXDOCTABLESIZE', '300', '1000000'),
+        ('search.max-prefix-expansions', '100', 'MAXPREFIXEXPANSIONS', '300', '200'),
+        ('search.min-operation-workers', '12', 'MIN_OPERATION_WORKERS', '8', '4'),
+        ('search.min-phonetic-term-len', '5', 'MIN_PHONETIC_TERM_LEN', '2', '3'),
+        ('search.min-prefix', '3', 'MINPREFIX', '4', '2'),
+        ('search.min-stem-len', '6', 'MINSTEMLEN', '5', '4'),
+        ('search.multi-text-slop', '200', 'MULTI_TEXT_SLOP', '230', '100'),
+        # TODO: Boolean ('search.partial-indexed-docs', '1', 'PARTIAL_INDEXED_DOCS', '0', 'false'),
+        ('search.tiered-hnsw-buffer-limit', '2048', 'TIERED_HNSW_BUFFER_LIMIT', '512', '1024'),
+        ('search.timeout', '250', 'TIMEOUT', '600', '500'),
+        ('search.union-iterator-heap', '10', 'UNION_ITERATOR_HEAP', '18', '20'),
+        ('search.vss-max-resize', '1', 'VSS_MAX_RESIZE', '2', '0'),
+        # TODO: this is failing ('search.workers', '512', 'WORKERS', '1024', '0'),
+        ('search.workers-priority-bias-threshold', '2', 'WORKERS_PRIORITY_BIAS_THRESHOLD', '3', '1'),
+    ]
+
+    for configName, configValue, argName, argValue, defaultValue in numericConfigs:
+        env.assertNotEqual(configValue, defaultValue)
+        env.assertNotEqual(argValue, defaultValue)
+        env.assertNotEqual(configValue, argValue)
+        # Load module using module arguments
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'ARGS', argName, argValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'CONFIG', configName, configValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG and module arguments
+        # the CONFIG values should take precedence
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'CONFIG', configName, configValue,
+                      'ARGS', argName, argValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
