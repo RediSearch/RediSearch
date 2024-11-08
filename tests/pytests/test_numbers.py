@@ -956,7 +956,6 @@ def testNumericTree(env:Env):
     # Recursively validate the maxDepth field in the tree
     def validate_tree(tree):
         maxDepthRange = int(env.cmd(config_cmd(), 'GET', '_NUMERIC_RANGES_PARENTS')[0][1])
-        print('maxDepthRange', maxDepthRange)
         def validate_subtree(subtree):
             subtree = to_dict(subtree)
             if 'left' not in subtree or 'right' not in subtree:
@@ -984,5 +983,6 @@ def testNumericTree(env:Env):
     # add 5 bursts of values, to get enough nodes and balancing
     for i in range(4):
         add_burst(env, i, splitCard.get(i, maxSplitCard))
+    add_burst(env, 1.5, splitCard[1])
 
     validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'n'))
