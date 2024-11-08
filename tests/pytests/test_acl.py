@@ -96,27 +96,47 @@ def test_sug_commands_acl(env):
     permissions.
     """
 
-    # Create a suggestion key
-    env.expect('FT.SUGADD', 'test_key', 'hello world', '1').equal(1)
+    with env.getClusterConnectionIfNeeded() as conn:
+        # Create a suggestion key
+        res = conn.execute_command('FT.SUGADD', 'test_key', 'hello world', '1')
+        env.assertEqual(res, 1)
 
-    # Create an ACL user without permissions to the key we're going to use
-    env.expect('ACL', 'SETUSER', 'test_user', 'on', '>123', '~h:*', '&*', '+@all').ok()
-    env.expect('AUTH', 'test_user', '123').true()
-    env.expect('FT.SUGADD', 'test_key_2', 'hello world', '1').error().contains(
-        "NOPERM No permissions to access a key")
+        # Create an ACL user without permissions to the key we're going to use
+        res = conn.execute_command('ACL', 'SETUSER', 'test_user', 'on', '>123', '~h:*', '&*', '+@all')
+        env.assertEqual(res, 'OK')
+        res = conn.execute_command('AUTH', 'test_user', '123')
+        env.assertEqual(res, True)
+        try:
+            res = conn.execute_command('FT.SUGADD', 'test_key_2', 'hello world', '1')
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
 
-    # Test that `test_user` can create a key it has permissions to access
-    env.expect('FT.SUGADD', 'htest_key', 'hello world', '1').equal(1)
+        # Test that `test_user` can create a key it has permissions to access
+        res = conn.execute_command('FT.SUGADD', 'h:test_key', 'hello world', '1')
+        env.assertEqual(res, 1)
 
-    # Test other `FT.SUG*` commands
-    env.expect('FT.SUGGET', 'test_key', 'hello').error().contains(
-        "NOPERM No permissions to access a key")
-    env.expect('FT.SUGGET', 'htest_key', 'hello').equal(['hello world'])
+        # Test other `FT.SUG*` commands. They should fail on `test_key` but
+        # succeed on `h:test_key`
+        # FT.SUGGET
+        try:
+            conn.execute_command('FT.SUGGET', 'test_key', 'hello')
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGGET', 'h:test_key', 'hello')
+        env.assertEqual(res, ['hello world'])
 
-    env.expect('FT.SUGLEN', 'test_key').error().contains(
-        "NOPERM No permissions to access a key")
-    env.expect('FT.SUGLEN', 'htest_key', 'hello').equal(1)
+        # FT.SUGLEN
+        try:
+            conn.execute_command('FT.SUGLEN', 'test_key')
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGLEN', 'h:test_key')
+        env.assertEqual(res, 1)
 
-    env.expect('FT.SUGDEL', 'test_key', 'hello world').error().contains(
-        "NOPERM No permissions to access a key")
-    env.expect('FT.SUGDEL', 'htest_key', 'hello world').equal(1)
+        # FT.SUGDEL
+        try:
+            conn.execute_command('FT.SUGDEL', 'test_key', 'hello world')
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
+        env.assertEqual(res, 1)
