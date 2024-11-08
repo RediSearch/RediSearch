@@ -965,7 +965,9 @@ def testNumericTree(env:Env):
             right_max_depth = validate_subtree(subtree['right'])
             expected_max_depth = max(left_max_depth, right_max_depth) + 1
             env.assertEqual(subtree['maxDepth'], expected_max_depth)
-            env.assertEqual(subtree['maxDepth'] <= maxDepthRange, 'range' in subtree)
+            # Some balancing rotation might cause a node with no range to go below the maxDepth,
+            # but at this point we don't want to create the needed range on the fly
+            env.assertTrue(subtree['maxDepth'] <= maxDepthRange or 'range' not in subtree)
             return expected_max_depth
         validate_subtree(to_dict(tree)['root'])
 

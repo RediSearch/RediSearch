@@ -269,7 +269,7 @@ static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, doub
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
-      if (n->range && n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+      if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
         removeRange(n, &rv);
       }
     }
