@@ -15,7 +15,7 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/heap_doubles.h"
-//#include "tests/time_sample.h"
+
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
@@ -29,64 +29,6 @@ typedef struct {
 
 void NumericRangeIterator_OnReopen(void *privdata);
 
-#ifdef _DEBUG
-void NumericRangeTree_Dump(NumericRangeTree *t, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRangeTree {\n");
-  ++indent;
-
-  PRINT_INDENT(indent);
-  printf("numEntries %lu,  numRanges %lu, lastDocId %lu\n", t->numEntries, t->numRanges, t->lastDocId);
-  NumericRangeNode_Dump(t->root, indent + 1);
-
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-void NumericRangeNode_Dump(NumericRangeNode *n, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRangeNode {\n");
-  ++indent;
-
-  PRINT_INDENT(indent);
-  printf("value %f, maxDepath %i\n", n->value, n->maxDepth);
-
-  if (n->range) {
-    PRINT_INDENT(indent);
-    printf("range:\n");
-    NumericRange_Dump(n->range, indent + 1);
-  }
-
-  if (n->left) {
-    PRINT_INDENT(indent);
-    printf("left:\n");
-    NumericRangeNode_Dump(n->left, indent + 1);
-  }
-  if (n->right) {
-    PRINT_INDENT(indent);
-    printf("right:\n");
-    NumericRangeNode_Dump(n->right, indent + 1);
-  }
-
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-
-void NumericRange_Dump(NumericRange *r, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRange {\n");
-  ++indent;
-  PRINT_INDENT(indent);
-  // printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
-  InvertedIndex_Dump(r->entries, indent + 1);
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-
-#endif // #ifdef _DEBUG
-
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   return n->minVal >= min && n->maxVal <= max;
@@ -97,8 +39,12 @@ static inline int NumericRange_Overlaps(NumericRange *n, double min, double max)
   return !(min > n->maxVal || max < n->minVal);
 }
 
-static inline void checkCardinality(NumericRange *n, double value) {
+static inline void updateCardinality(NumericRange *n, double value) {
   hll_add(&n->hll, &value, sizeof(value));
+}
+
+static inline size_t getCardinality(NumericRange *n) {
+  return hll_count(&n->hll);
 }
 
 static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
@@ -110,13 +56,6 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
   n->invertedIndexSize += size;
   return size;
 }
-
-// static double NumericRange_EstimateMedian(NumericRange *n) {
-//   size_t numSamples = 10 * (31 - __builtin_clz(n->entries->numDocs));
-//   // Sample the range uniformly
-//   // Pick values with IR_SkipTo
-//   // Get the median value of the samples
-// }
 
 static double NumericRange_GetMedian(IndexReader *ir) {
   size_t median_idx = ir->idx->numEntries / 2;
@@ -147,9 +86,6 @@ static double NumericRange_GetMedian(IndexReader *ir) {
 static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
 
-  // double split = n->minVal + (n->maxVal - n->minVal) / 2; // TODO: this is a naive split. we should estimate the median
-  // double split = NumericRange_EstimateMedian(n);
-
   *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
   *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
@@ -159,16 +95,13 @@ static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, Numeric
   RSIndexResult *res = NULL;
   IndexReader *ir = NewMinimalNumericReader(n->entries, false);
   double split = NumericRange_GetMedian(ir);
-  // if (split == n->minVal || split == n->maxVal) {
-  //   split = n->minVal + (n->maxVal - n->minVal) / 2;
-  // }
   if (split == n->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
   }
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     NumericRange *cur = res->num.value < split ? (*lp)->range : (*rp)->range;
-    checkCardinality(cur, res->num.value);
+    updateCardinality(cur, res->num.value);
     rv->sz += NumericRange_Add(cur, res->docId, res->num.value);
     ++rv->numRecords;
   }
@@ -277,10 +210,10 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  checkCardinality(n->range, value);
+  updateCardinality(n->range, value);
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value);
   ++rv.numRecords;
-  size_t card = hll_count(&n->range->hll);
+  size_t card = getCardinality(n->range);
 
   if (card >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {

@@ -148,16 +148,6 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
-#ifdef _DEBUG
-static inline void PRINT_INDENT(int indent) {
-  for (int i = 0; i < indent; ++i)
-    printf("  ");
-}
-
-void NumericRangeNode_Dump(NumericRangeNode *n, int indent);
-void NumericRange_Dump(NumericRange *r, int indent);
-#endif // #ifdef _DEBUG
-
 #ifdef __cplusplus
 }
 #endif
