@@ -218,24 +218,23 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
 static void NumericRangeNode_Balance(NumericRangeNode **n) {
   NumericRangeNode *node = *n;
-  node->maxDepth = MAX(node->right->maxDepth, node->left->maxDepth) + 1;
-  // check if we need to rebalance the child.
-  // To ease the rebalance we don't rebalance the root
-  // nor do we rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
+  // check if we need to rebalance.
+  // To ease the rebalance we don't rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
   if ((node->right->maxDepth - node->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {  // role to the left
     NumericRangeNode *right = node->right;
     node->right = right->left;
     right->left = node;
-    --node->maxDepth;
+    node->maxDepth = MAX(node->left->maxDepth, node->right->maxDepth) + 1;
     *n = right;
   } else if ((node->left->maxDepth - node->right->maxDepth) >
               NR_MAX_DEPTH_BALANCE) {  // role to the right
     NumericRangeNode *left = node->left;
     node->left = left->right;
     left->right = node;
-    --node->maxDepth;
+    node->maxDepth = MAX(node->left->maxDepth, node->right->maxDepth) + 1;
     *n = left;
   }
+  (*n)->maxDepth = MAX((*n)->left->maxDepth, (*n)->right->maxDepth) + 1;
 }
 
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
