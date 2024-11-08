@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
+#include "global_stats.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -1302,7 +1303,7 @@ static int periodicCb(void *privdata) {
     StrongRef_Release(early_check);
     return 1;
   }
-
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   int gcrv = 1;
   pid_t cpid;
   TimeSample ts;
@@ -1395,6 +1396,7 @@ static int periodicCb(void *privdata) {
   gc->stats.numCycles++;
   gc->stats.totalMSRun += msRun;
   gc->stats.lastRunTimeMs = msRun;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
 
   return gcrv;
 }
@@ -1437,6 +1439,7 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-gc->deletedDocsFromLastRun);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
@@ -1473,6 +1476,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
+  IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
 static struct timespec getIntervalCb(void *ctx) {

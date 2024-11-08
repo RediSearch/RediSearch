@@ -162,3 +162,12 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect));
   }
 }
+
+void IndexsGlobalStats_UpdateLogicallyDeleted(int toAdd) {
+    INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
+}
+
+void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+    RedisModule_InfoAddSection(ctx, "indexes_statistics");
+    RedisModule_InfoAddFieldULongLong(ctx, "total_logically_deleted_docs", READ(RSGlobalStats.totalStats.logically_deleted));
+}

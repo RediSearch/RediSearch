@@ -145,6 +145,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", total_info.max_indexing_failures);
 
+  // Indexes related statistics
+  IndexesGlobalStats_AddToInfo(ctx);
+
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);
 
