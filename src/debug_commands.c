@@ -453,13 +453,12 @@ DEBUG_COMMAND(DumpTagIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[3], INDEXFLD_T_TAG);
   if (!keyName) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false, &keyp);
+  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false);
   if (!tagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;
@@ -484,9 +483,6 @@ DEBUG_COMMAND(DumpTagIndex) {
   TrieMapIterator_Free(iter);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -530,7 +526,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, false, NULL);
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
     if (!idx) {
       RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
       goto end;
@@ -926,7 +922,6 @@ DEBUG_COMMAND(InfoTagIndex) {
       {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
       {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
       {NULL}};
-  RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
   ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
@@ -942,7 +937,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, false, &keyp);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;
@@ -1005,9 +1000,6 @@ reply_done:
   RedisModule_ReplySetArrayLength(ctx, nelem);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

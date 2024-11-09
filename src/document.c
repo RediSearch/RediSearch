@@ -762,8 +762,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-    tidx = bulk->indexDatas[IXFLDPOS_TAG] =
-        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
+    tidx = bulk->indexDatas[IXFLDPOS_TAG] = TagIndex_Open(ctx, kname, 1);
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
@@ -820,14 +819,6 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
     }
   }
   return rc;
-}
-
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
-  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
-    if (cur->indexKeys[ii]) {
-      RedisModule_CloseKey(cur->indexKeys[ii]);
-    }
-  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
