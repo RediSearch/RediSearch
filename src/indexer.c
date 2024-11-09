@@ -216,8 +216,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
   IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
-  IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
-  size_t numActiveBulks = 0;
 
   for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
@@ -232,10 +230,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];
-      if (!bulk->found) {
-        bulk->found = 1;
-        activeBulks[numActiveBulks++] = bulk;
-      }
 
       if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
@@ -245,12 +239,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
     }
-  }
-
-  // Flush it!
-  for (size_t ii = 0; ii < numActiveBulks; ++ii) {
-    IndexBulkData *cur = activeBulks[ii];
-    IndexerBulkCleanup(cur, sctx);
   }
 }
 

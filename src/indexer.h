@@ -82,12 +82,10 @@ typedef struct {
   RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
   void *indexDatas[INDEXFLD_NUM_TYPES];
   FieldType typemask;
-  int found;
 } IndexBulkData;
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
-void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx);
 
 #endif
