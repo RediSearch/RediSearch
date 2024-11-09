@@ -584,8 +584,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] = OpenNumericIndex(ctx, keyName);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
@@ -640,8 +639,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+    rt = bulk->indexDatas[IXFLDPOS_VECTOR] = OpenVectorIndex(sp, keyName);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
       return -1;

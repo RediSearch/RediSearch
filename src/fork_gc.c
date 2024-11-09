@@ -421,12 +421,11 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
 }
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
-  RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
@@ -459,10 +458,6 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       // "no more strings" terminator in FGC_sendTerminator
       void *pdummy = NULL;
       FGC_SEND_VAR(gc, pdummy);
-    }
-
-    if (idxKey) {
-      RedisModule_CloseKey(idxKey);
     }
 
     NumericRangeTreeIterator_Free(gcIterator);
@@ -951,7 +946,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
-    RedisModuleKey *idxKey = NULL;
     // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
@@ -973,7 +967,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    rt = OpenNumericIndex(sctx, keyName);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
@@ -997,9 +991,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       freeInvIdx(&ninfo.idxbufs, &ninfo.info);
     } else {
       rm_free(ninfo.idxbufs.changedBlocks);
-    }
-    if (idxKey) {
-      RedisModule_CloseKey(idxKey);
     }
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);

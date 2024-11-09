@@ -658,8 +658,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName) {
   return openNumericKeysDict(ctx->spec, keyName, 1);
 }
 

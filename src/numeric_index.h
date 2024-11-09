@@ -145,8 +145,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey);
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
