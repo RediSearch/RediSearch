@@ -79,7 +79,6 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 typedef struct {
-  RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
   void *indexDatas[INDEXFLD_NUM_TYPES];
   FieldType typemask;
 } IndexBulkData;

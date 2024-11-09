@@ -934,7 +934,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs);
   if (!index) {
     return NULL;
   }

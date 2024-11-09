@@ -281,14 +281,13 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleKey *keyp = NULL;
   const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
   const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const GeometryIndex *idx = OpenGeometryIndex(sctx->redisCtx, sctx->spec, &keyp, fs);
+  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
@@ -297,9 +296,6 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   api->dump(idx, ctx);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

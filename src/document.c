@@ -554,8 +554,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 FIELD_BULK_INDEXER(geometryIndexer) {
   GeometryIndex *rt = bulk->indexDatas[IXFLDPOS_GEOMETRY];
   if (!rt) {
-    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
-        OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
+    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] = OpenGeometryIndex(ctx->spec, fs);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
       return -1;
