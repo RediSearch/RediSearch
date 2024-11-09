@@ -291,14 +291,10 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
-    RedisModuleKey *idxKey = NULL;
-    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
-    }
-    if (idxKey) {
-      RedisModule_CloseKey(idxKey);
     }
     rm_free(term);
   }
@@ -855,7 +851,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   if (FGC_recvBuffer(gc, (void **)&term, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
-  RedisModuleKey *idxKey = NULL;
 
   if (term == RECV_BUFFER_EMPTY) {
     return FGC_DONE;
@@ -880,7 +875,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, 1, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -918,9 +913,6 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
 cleanup:
 
-  if (idxKey) {
-    RedisModule_CloseKey(idxKey);
-  }
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);

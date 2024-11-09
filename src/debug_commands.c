@@ -127,10 +127,9 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -158,9 +157,6 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -170,10 +166,9 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  RedisModuleKey *keyp = NULL;
   size_t len;
   const char *invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(sctx, invIdxName, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -182,9 +177,6 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   ReplyReaderResults(reader, sctx->redisCtx);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
