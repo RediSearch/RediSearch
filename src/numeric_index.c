@@ -226,14 +226,15 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
   NumericRangeNode *node = *n;
   // check if we need to rebalance.
   // To ease the rebalance we don't rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
-  if ((node->right->maxDepth - node->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {  // role to the left
+  if ((node->right->maxDepth - node->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {
+    // rotate to the left
     NumericRangeNode *right = node->right;
     node->right = right->left;
     right->left = node;
     node->maxDepth = MAX(node->left->maxDepth, node->right->maxDepth) + 1;
     *n = right;
-  } else if ((node->left->maxDepth - node->right->maxDepth) >
-              NR_MAX_DEPTH_BALANCE) {  // role to the right
+  } else if ((node->left->maxDepth - node->right->maxDepth) > NR_MAX_DEPTH_BALANCE) {
+    // rotate to the right
     NumericRangeNode *left = node->left;
     node->left = left->right;
     left->right = node;
@@ -266,7 +267,6 @@ static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, doub
     if (rv.changed) {
       NumericRangeNode_Balance(np);
       n = *np; // rebalance might have changed the root
-      // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
