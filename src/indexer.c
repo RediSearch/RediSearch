@@ -210,8 +210,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
-  IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
-
   for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
@@ -224,9 +222,8 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-      IndexBulkData *bulk = &bData[fs->index];
 
-      if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+      if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
         FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.detail, doc->docKey);
         QueryError_ClearError(&cur->status);

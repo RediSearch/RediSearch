@@ -78,12 +78,7 @@ typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, Do
 typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
-typedef struct {
-  void *indexDatas[INDEXFLD_NUM_TYPES];
-  FieldType typemask;
-} IndexBulkData;
-
-int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
+int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
 
