@@ -245,7 +245,6 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
 }
 
 static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double value) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   NumericRangeNode *n = *np;
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
@@ -260,7 +259,7 @@ static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, doub
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     // if the child has split we get 1 in return
-    rv = NumericRangeNode_Add(childP, docId, value);
+    NRN_AddRv rv = NumericRangeNode_Add(childP, docId, value);
     rv.sz += s;
     rv.numRecords += nRecords;
 
@@ -278,10 +277,14 @@ static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, doub
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
-  ++rv.numRecords;
-  int card = n->range->card;
+  NRN_AddRv rv = {
+    .sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1),
+    .numRecords = 1,
+    .changed = 0,
+    .numRanges = 0,
+  };
 
+  int card = n->range->card;
   if (card * NR_CARD_CHECK >= n->range->splitCard ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
