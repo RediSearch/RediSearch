@@ -672,10 +672,6 @@ def testConfigAPIModuleLoadexBoolean():
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # TODO: NOGC default value fails when it is set at load time
-        if configName == 'search.no-gc':
-            continue
-
         # Load module using CONFIG
         env.start()
         res = env.cmd('MODULE', 'LIST')

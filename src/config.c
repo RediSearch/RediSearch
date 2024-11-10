@@ -68,7 +68,14 @@ CONFIG_SETTER(setNoGc) {
 CONFIG_BOOLEAN_GETTER(getNoGc, gcConfigParams.enableGC, 1)
 
 // no-gc
-CONFIG_API_BOOL_SETTER(set_no_gc, gcConfigParams.enableGC)
+static int set_no_gc(const char *name, int val, void *privdata,
+                      RedisModuleString **err) {
+  // getNoGc and get_no_gc return the inverted value, so we need to invert 
+  // when setting
+  RSGlobalConfig.gcConfigParams.enableGC = (val == 0);
+  return REDISMODULE_OK;
+}
+
 CONFIG_API_BOOL_GETTER(get_no_gc, gcConfigParams.enableGC, 1)
 
 // NO_MEM_POOLS
@@ -1809,7 +1816,8 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       get_print_profile_clock, set_print_profile_clock, 1,
       REDISMODULE_CONFIG_DEFAULT);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
-      get_prioritize_intersect_union_children, set_prioritize_intersect_union_children,
+      get_prioritize_intersect_union_children,
+      set_prioritize_intersect_union_children,
       0, REDISMODULE_CONFIG_DEFAULT);
   // CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_fork-gc-clean-numeric-empty-nodes",
   //     get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
@@ -1818,7 +1826,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       get_no_mem_pools, set_no_mem_pools, 0,
       REDISMODULE_CONFIG_IMMUTABLE);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-gc",
-      get_no_gc, set_no_gc, 1,
+      get_no_gc, set_no_gc, 0,
       REDISMODULE_CONFIG_IMMUTABLE);
   CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "partial-indexed-docs",
       get_partial_indexed_docs, set_partial_indexed_docs, 0,
