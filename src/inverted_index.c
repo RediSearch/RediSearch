@@ -99,8 +99,8 @@ void TermReader_OnReopen(void *privdata) {
     // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
-    InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
-                                                   ir->record->term.term->len, 0, NULL, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, ir->record->term.term->str,
+                                                 ir->record->term.term->len, 0, NULL);
     if (!idx || ir->idx != idx) {
       // the inverted index was collected entirely by GC, lets stop searching.
       // notice, it might be that a new inverted index was created, we will not

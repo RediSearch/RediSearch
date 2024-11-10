@@ -655,37 +655,8 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
-
-  NumericRangeTree *t;
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-
-    if (!idxKey) {
-      idxKey = &key_s;
-    }
-
-    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-    int type = RedisModule_KeyType(*idxKey);
-    if (type != REDISMODULE_KEYTYPE_EMPTY &&
-        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      t = NewNumericRangeTree();
-      ctx->spec->stats.invertedSize += t->root->range->invertedIndexSize;
-      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
-    } else {
-      t = RedisModule_ModuleTypeGetValue(*idxKey);
-    }
-  } else {
-    t = openNumericKeysDict(ctx->spec, keyName, 1);
-  }
-  return t;
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName) {
+  return openNumericKeysDict(ctx->spec, keyName, 1);
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
