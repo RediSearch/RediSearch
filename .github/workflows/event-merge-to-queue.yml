@@ -116,7 +116,6 @@ jobs:
       - test-linux-x86_64-redis-6-2
       - test-linux-x86_64-redis-6-0
       - test-linux-aarch64
-      - test-macos
       - coverage
       - sanitize
     runs-on: ubuntu-latest
