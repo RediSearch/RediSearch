@@ -355,7 +355,7 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
     REPLY_WITH_DOUBLE("invertedIndexSize [bytes]", r->invertedIndexSize, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_LONG_LONG("card", hll_count(&r->hll), ARRAY_LEN_VAR(numericRangeInfo));
     // REPLY_WITH_LONG_LONG("cardCheck", r->cardCheck, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_LONG_LONG("splitCard", r->splitCard, ARRAY_LEN_VAR(numericRangeInfo));
+    // REPLY_WITH_LONG_LONG("splitCard", r->splitCard, ARRAY_LEN_VAR(numericRangeInfo));
 
     REPLY_WITH_STR("entries", ARRAY_LEN_VAR(numericRangeInfo))
     ret = InvertedIndex_DebugReply(ctx, r->entries);

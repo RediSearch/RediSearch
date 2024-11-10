@@ -45,7 +45,6 @@ typedef struct {
 
   size_t invertedIndexSize;
 
-  uint32_t splitCard;
   struct HLL hll;
   InvertedIndex *entries;
 } NumericRange;
@@ -96,13 +95,6 @@ struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, Numeri
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType,
                                                IteratorsConfig *config, const FieldFilterContext* filterCtx);
-
-/* Create a new range node with the given capacity, minimum and maximum values */
-NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
-
-/* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
- * Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value);
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */

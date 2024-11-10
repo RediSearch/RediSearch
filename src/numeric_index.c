@@ -16,9 +16,19 @@
 #include "util/misc.h"
 #include "util/heap_doubles.h"
 
-#define NR_EXPONENT 4
+#define NR_MINRANGE_CARD 16
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
+
+#define LAST_DEPTH_OF_NON_MAX_CARD 3 // Last depth to not have the max split cardinality
+#define _SPLIT_CARD_BY_DEPTH(depth) (NR_MINRANGE_CARD << ((depth) * 2)) // *2 to get exponential growth of 4
+static_assert(NR_MAXRANGE_CARD < _SPLIT_CARD_BY_DEPTH(LAST_DEPTH_OF_NON_MAX_CARD + 1));
+static_assert(NR_MAXRANGE_CARD >= _SPLIT_CARD_BY_DEPTH(LAST_DEPTH_OF_NON_MAX_CARD));
+
+static inline size_t getSplitCardinality(size_t depth) {
+  if (depth > LAST_DEPTH_OF_NON_MAX_CARD) return NR_MAXRANGE_CARD;
+  return _SPLIT_CARD_BY_DEPTH(depth);
+}
 
 typedef struct {
   IndexIterator *it;
@@ -83,13 +93,27 @@ static double NumericRange_GetMedian(IndexReader *ir) {
   return median;
 }
 
+static NumericRangeNode *NewLeafNode() {
+  NumericRangeNode *n = rm_new(NumericRangeNode);
+  n->left = NULL;
+  n->right = NULL;
+  n->value = 0;
+  n->maxDepth = 0;
+
+  n->range = rm_new(NumericRange);
+  n->range->entries = NewInvertedIndex(Index_StoreNumeric, 1, &n->range->invertedIndexSize);
+  n->range->minVal = INFINITY;
+  n->range->maxVal = -INFINITY;
+  hll_init(&n->range->hll, NR_BIT_PRECISION);
+
+  return n;
+}
+
 static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
                           NRN_AddRv *rv) {
 
-  *lp = NewLeafNode(n->entries->numDocs / 2 + 1,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->entries->numDocs / 2 + 1,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  *lp = NewLeafNode();
+  *rp = NewLeafNode();
   rv->sz += (*lp)->range->invertedIndexSize + (*rp)->range->invertedIndexSize;
 
   RSIndexResult *res = NULL;
@@ -108,30 +132,6 @@ static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, Numeric
   IR_Free(ir);
 
   return split;
-}
-
-NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard) {
-
-  NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
-  n->left = NULL;
-  n->right = NULL;
-  n->value = 0;
-
-  n->maxDepth = 0;
-  n->range = rm_malloc(sizeof(NumericRange));
-  size_t index_memsize;
-
-  *n->range = (NumericRange){
-      .minVal = INFINITY,
-      .maxVal = -INFINITY,
-      .splitCard = splitCard,
-      .entries = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize),
-  };
-
-  hll_init(&n->range->hll, NR_BIT_PRECISION);
-  n->range->invertedIndexSize = index_memsize;
-
-  return n;
 }
 
 static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
@@ -175,7 +175,7 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
   }
 }
 
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
+static NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value, size_t depth) {
   NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
@@ -191,7 +191,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
-    rv = NumericRangeNode_Add(child, docId, value);
+    rv = NumericRangeNode_Add(child, docId, value, depth + 1);
     rv.sz += s;
     rv.numRecords += nRecords;
 
@@ -215,7 +215,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   ++rv.numRecords;
   size_t card = getCardinality(n->range);
 
-  if (card >= n->range->splitCard ||
+  if (card >= getSplitCardinality(depth) ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
@@ -324,8 +324,7 @@ uint16_t numericTreesUniqueId = 0;
 NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
-  // updated value since splitCard should be >NR_CARD_CHECK
-  ret->root = NewLeafNode(2, 16);
+  ret->root = NewLeafNode();
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;
@@ -346,7 +345,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
 
   NumericRangeNode* root = t->root;
 
-  NRN_AddRv rv = NumericRangeNode_Add(root, docId, value);
+  NRN_AddRv rv = NumericRangeNode_Add(root, docId, value, 0);
 
   // Since we never rebalance the root, we don't update its max depth.
   if (!NumericRangeNode_IsLeaf(root)) {
