@@ -498,3 +498,5 @@ def test_indexes_logically_deleted_docs(env):
   # Run GC, expect that the deleted document will not be accounted anymore.
   forceInvokeGC(env, idx='idx2')
   env.assertEqual(get_logically_deleted_docs(), 0)
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx2')
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
