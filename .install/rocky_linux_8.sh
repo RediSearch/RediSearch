@@ -7,7 +7,7 @@ $MODE dnf update -y
 # Development Tools includes python11 and config-manager
 $MODE dnf groupinstall "Development Tools" -yqq
 # install pip
-$MODE dnf install python3.11-pip -y
+$MODE dnf install python3.11-pip python3-devel -y
 
 # powertools is needed to install epel
 $MODE dnf config-manager --set-enabled powertools
