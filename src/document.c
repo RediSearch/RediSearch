@@ -586,7 +586,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+        OpenNumericIndex(ctx, keyName);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
@@ -642,7 +642,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
     rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
-        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+        OpenVectorIndex(sp, keyName);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
       return -1;
@@ -763,7 +763,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   if (!tidx) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
     tidx = bulk->indexDatas[IXFLDPOS_TAG] =
-        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
+        TagIndex_Open(ctx, kname, 1);
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;

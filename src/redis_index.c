@@ -284,7 +284,7 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
 }
 
 InvertedIndex *Redis_OpenInvertedIndexEx(const RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew, RedisModuleKey **keyp) {
+                                         int write, bool *outIsNew) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
   RedisModule_FreeString(ctx->redisCtx, termKey);

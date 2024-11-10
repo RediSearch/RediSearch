@@ -300,8 +300,7 @@ static TagIndex *openTagKeyDict(const RedisSearchCtx *ctx, RedisModuleString *ke
 }
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp) {
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite) {
   return openTagKeyDict(sctx, formattedKey, openWrite);
 }
 
@@ -404,7 +403,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  idx = TagIndex_Open(&sctx, keyName, 0);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

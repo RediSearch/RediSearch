@@ -93,9 +93,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
 
   while (entry != NULL) {
-    RedisModuleKey *idxKey = NULL;
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew);
     if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
@@ -114,10 +113,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         && entry->term[0] != SYNONYM_PREFIX_CHAR
         && strlen(entry->term) != 0) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
-    }
-
-    if (idxKey) {
-      RedisModule_CloseKey(idxKey);
     }
 
     entry = ForwardIndexIterator_Next(&it);
