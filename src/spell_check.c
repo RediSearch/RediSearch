@@ -84,8 +84,7 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
  */
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
-  RedisModuleKey *keyp = NULL;
-  InvertedIndex *invidx = Redis_OpenInvertedIndexEx(scCtx->sctx, suggestion, len, 0, NULL, &keyp);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
   double retVal = 0;
   if (!invidx) {
     // can not find inverted index key, score is 0.
@@ -105,9 +104,6 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   ReadIterator_Free(iter);
 
 end:
-  if (keyp) {
-    RedisModule_CloseKey(keyp);
-  }
   return retVal;
 }
 
