@@ -259,7 +259,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   return kdv->p;
 }
 
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
+InvertedIndex *Redis_OpenInvertedIndex(RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = NULL;
 
@@ -293,10 +293,6 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
     }
     if (idx == NULL) {
       RedisModule_CloseKey(k);
-    } else {
-      if (keyp) {
-        *keyp = k;
-      }
     }
   } else {
     idx = openIndexKeysDict(ctx, termKey, write, outIsNew);

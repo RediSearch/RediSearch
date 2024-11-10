@@ -753,7 +753,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, 1, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;

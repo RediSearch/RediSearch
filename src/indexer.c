@@ -165,10 +165,8 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
-
-      RedisModuleKey *idxKey = NULL;
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &isNew, &idxKey);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, fwent->term, fwent->len, 1, &isNew);
 
       if (isNew) {
         // Add the term to the prefix trie. This only needs to be done once per term
@@ -196,10 +194,6 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
-      }
-
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
       }
 
       if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
