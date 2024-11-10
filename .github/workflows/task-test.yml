@@ -27,12 +27,16 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      rejson:
+        type: number
+        default: 1
       test-timeout:
         type: number
         default: 50
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  LLVM_VERSION: ${{vars.LLVM_VERSION}}
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -89,7 +93,10 @@ jobs:
             tests/pytests/requirements.*
       - name: Setup specific
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
+          ./test_deps/install_rust.sh
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -102,30 +109,34 @@ jobs:
           submodules: recursive
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
-
       - name: Get Redis (node20)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
+        if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Get Redis (node20 not supported)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
+        if: ${{ steps.node20.outputs.supported == 'false' }}
         uses: actions/checkout@v3
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
+      - name: verify CC and CXX
+        if: inputs.san == 'address'
+        run: |
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Build Redis
-        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
-
+        run: |
+          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
@@ -133,7 +144,6 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-
       - name: Build
         run: make SAN=${{ inputs.san }}
       - name: Unit tests
@@ -146,20 +156,21 @@ jobs:
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure' ||
+           steps.unit_tests.outcome == 'cancelled' || steps.standalone_tests.outcome == 'cancelled' || steps.coordinator_tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
