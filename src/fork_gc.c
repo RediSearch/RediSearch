@@ -958,6 +958,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
+    RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
     rt = OpenNumericIndex(sctx, keyName);
 
     if (rt->uniqueId != rtUniqueId) {
