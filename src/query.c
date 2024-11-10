@@ -935,7 +935,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs);
   if (!index) {
     return NULL;
   }
@@ -1347,13 +1347,12 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-  RedisModuleKey *k = NULL;
   const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
@@ -1368,7 +1367,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-        k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
       }
@@ -1394,7 +1392,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (total_its) {
     if (q->conc) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-      k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);
     }
@@ -1403,9 +1400,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
   return ret;
 }
 
