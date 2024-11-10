@@ -670,15 +670,11 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       return RedisModule_Reply_String(reply, v->rstrval);
 
     case RSValue_Number: {
-      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+      if (!(flags & SENDREPLY_FLAG_EXPAND) && (flags & SENDREPLY_FLAG_TYPED)) {
+        // If STRING format and `_NUM_SSTRING` is enabled, return the number as a string
         char buf[128];
         size_t len = RSValue_NumToString(v->numval, buf);
-
-        if (flags & SENDREPLY_FLAG_TYPED) {
-          return RedisModule_Reply_Error(reply, buf);
-        } else {
-          return RedisModule_Reply_StringBuffer(reply, buf, len);
-        }
+        return RedisModule_Reply_StringBuffer(reply, buf, len);
       } else {
         long long ll = v->numval;
         if (ll == v->numval) {
