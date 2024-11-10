@@ -126,9 +126,8 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const char *field,
                                    const char *value) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sp, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(&sctx, fmtkey, 1, &keyp);
+  auto tix = TagIndex_Open(&sctx, fmtkey, 1);
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1);
   return iv;
 }
