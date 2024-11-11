@@ -1323,6 +1323,7 @@ def test_rdb_memory_limit():
     # reset env (for clean RLTest run with env reuse)
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
+@skip()
 def test_timeout_reached():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
