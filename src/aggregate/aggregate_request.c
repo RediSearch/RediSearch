@@ -649,7 +649,7 @@ static void groupStepFree(PLN_BaseStep *base) {
   }
   if (g->propertiesOwned) {
     for (size_t ii = 0; ii < g->nproperties; ++ii) {
-      HiddenName_Free(g->properties[ii], true);
+      HiddenName_Free(g->properties[ii]);
     }
     array_free(g->properties);
   }
@@ -748,7 +748,8 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   HiddenName** properties = array_new(HiddenName*, groupArgs.argc);
   for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
     // Account for the leading '@', note it is verified above that the first character is @
-    array_append(properties, NewHiddenName(groupArgs.objs[ii] + 1, strlen(groupArgs.objs[ii]), false));
+    HiddenName* property = NewHiddenName(groupArgs.objs[ii] + 1, strlen(groupArgs.objs[ii]), false);
+    array_append(properties, property);
   }
 
   // Number of fields.. now let's see the reducers
@@ -1259,21 +1260,23 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
-        HiddenName* key = NewHiddenName(keystr, strlen(keystr), false);
+        HiddenName *key = NewHiddenName(keystr, strlen(keystr), false);
         RLookupKey *sortkey = RLookup_GetKey(lk, key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
           // We failed to get the key for reading, so we can't fail to get it for loading.
-          sortkey = RLookup_GetKey_Load(lk, key, key, RLOOKUP_F_NOFLAGS);
+          sortkey = RLookup_GetKey_Load(lk, key, NULL, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            HiddenName_Free(key);
             QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
         }
+        HiddenName_Free(key);
         sortkeys[ii] = sortkey;
       }
       if (loadKeys) {
@@ -1321,7 +1324,9 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
   if (HasScoreInPipeline(req)) {
-    scoreKey = RLookup_GetKey(rl, NewHiddenName(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE), false), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    HiddenName *scoreName = NewHiddenName(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE), false);
+    scoreKey = RLookup_GetKey(rl, scoreName, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
+    HiddenName_Free(scoreName);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
@@ -1541,7 +1546,11 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             name = path;
           }
 
-          RLookupKey *kk = RLookup_GetKey_Load(curLookup, NewHiddenName(name, name_len, false), NewHiddenName(path, strlen(path), false), loadFlags);
+          HiddenName *hiddenName = NewHiddenName(name, name_len, false);
+          HiddenName *hiddenPath = NewHiddenName(path, strlen(path), false);
+          RLookupKey *kk = RLookup_GetKey_Load(curLookup, hiddenName, hiddenPath, loadFlags);
+          HiddenName_Free(hiddenName);
+          HiddenName_Free(hiddenPath);
           // We only get a NULL return if the key already exists, which means
           // that we don't need to retrieve it again.
           if (kk) {

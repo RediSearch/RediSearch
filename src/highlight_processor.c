@@ -167,7 +167,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               HiddenName *fieldName, const RSValue *returnedField,
+                               const HiddenName *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;

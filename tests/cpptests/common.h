@@ -74,7 +74,7 @@ std::vector<std::string> search(RSIndex *index, const char *s);
 
 struct HiddenNameDeleter {
   void operator()(HiddenName *value) {
-    HiddenName_Free(value, false);
+    HiddenName_Free(value);
   }
 };
 

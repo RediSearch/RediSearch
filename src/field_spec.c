@@ -15,11 +15,11 @@
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
-    HiddenString_Free(fs->fieldPath, true);
+    HiddenString_Free(fs->fieldPath);
   }
   fs->fieldPath = NULL;
   if (fs->fieldName) {
-    HiddenString_Free(fs->fieldName, true);
+    HiddenString_Free(fs->fieldName);
     fs->fieldName = NULL;
   }
 
