@@ -257,7 +257,7 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   *curSize = newSize;
 }
 
-static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
+static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, const ReturnedField *spec) {
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
