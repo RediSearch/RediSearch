@@ -932,26 +932,35 @@ def testNumericOperatorsModifierWithEscapes():
 
 @skip(cluster=True)
 def testNumericTree(env:Env):
+    idx = 'idx'
+    field = 'n'
     cardCheck = 10 # currently we check the cardinality every 10 docs
-    maxSplitCard = 2500 # current max cardinality
-    splitCard = dict()
-    c = 16 # current initial tree cardinality
-    d = 0
-    while c < maxSplitCard:
-        splitCard[d] = c
-        c = c * 4 + 1 # current cardinality growth rate
-        d += 1
 
     cur_id = 0
-    def add_val(conn, val):
+    def add_val(val):
+        # Adds `cardCheck` docs with value `val` for field `n`, so the
+        # range-node cardinality is updated with this value
         nonlocal cur_id
         for i in range(cardCheck):
-            conn.execute_command('HSET', 'doc%d' % (i + cur_id), 'n', val)
+            env.cmd('HSET', 'doc%d' % (i + cur_id), 'n', val)
         cur_id += cardCheck
 
-    def add_burst(conn, val, num):
-        for i in range(num):
-            add_val(conn, val + i * 0.001)
+    def equal_structure(tree1, tree2):
+        def equal_subtree_structure(st1, st2):
+            st1 = to_dict(st1)
+            st2 = to_dict(st2)
+            if 'left' not in st1 or 'right' not in st1:
+                return 'left' not in st2 or 'right' not in st2
+            return equal_subtree_structure(st1['left'], st2['left']) and equal_subtree_structure(st1['right'], st2['right'])
+        return equal_subtree_structure(to_dict(tree1)['root'], to_dict(tree2)['root'])
+
+    def cause_split(val):
+        # Add close-but-not-equal values to the tree, until the tree is split
+        start_tree = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)
+        epsilon = 0.
+        while equal_structure(start_tree, env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)):
+            add_val(val + epsilon)
+            epsilon += 0.0001
 
     # Recursively validate the maxDepth field in the tree
     def validate_tree(tree):
@@ -965,26 +974,27 @@ def testNumericTree(env:Env):
             right_max_depth = validate_subtree(subtree['right'])
             expected_max_depth = max(left_max_depth, right_max_depth) + 1
             env.assertEqual(subtree['maxDepth'], expected_max_depth)
-            # Some balancing rotation might cause a node with no range to go below the maxDepth,
-            # but at this point we don't want to create the needed range on the fly
+            # Some balancing rotation might cause a node with no range to get a maxDepth below the maxDepthRange,
+            # so we can't validate all nodes to be below the maxDepthRange have a range.
+            # We validate that if the maxDepth is above the maxDepthRange, there is no range
             env.assertTrue(subtree['maxDepth'] <= maxDepthRange or 'range' not in subtree)
             return expected_max_depth
         validate_subtree(to_dict(tree)['root'])
 
-    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
-    # add 5 bursts of values, to get enough nodes and balancing
+    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
+    # Split to the right 5 times
     for i in range(5):
-        add_burst(env, i, splitCard.get(i, maxSplitCard))
+        cause_split(i)
 
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'n'))
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
 
     env.flush()
     env.expect(config_cmd(), 'SET', '_NUMERIC_RANGES_PARENTS', '2').ok()
-    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
 
-    # add 5 bursts of values, to get enough nodes and balancing
-    for i in range(4):
-        add_burst(env, i, splitCard.get(i, maxSplitCard))
-    add_burst(env, 1.5, splitCard[1])
+    # Split to the right and then to the left
+    cause_split(0)
+    cause_split(2) # to the right
+    cause_split(1) # to the left (of 2, right of 0)
 
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'n'))
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
