@@ -42,20 +42,21 @@ CONFIG_GETTER(getExtLoad) {
 
 // ext-load
 CONFIG_API_STRING_SETTER(set_ext_load) {
-  RSGlobalConfig.extLoad = NULL;
+  RSConfig *config = (RSConfig *)privdata;
   if (val) {
     size_t len;
     const char *ret = RedisModule_StringPtrLen(val, &len);
     if (len > 0) {
-      RSGlobalConfig.extLoad = ret;
+      config->extLoad = rm_strndup(ret, len);
     }
   }
   return REDISMODULE_OK;
 }
 
 CONFIG_API_STRING_GETTER(get_ext_load) {
-  return RSGlobalConfig.extLoad ? 
-    RedisModule_CreateString(NULL, RSGlobalConfig.extLoad, strlen(RSGlobalConfig.extLoad)) : 
+  RSConfig *config = (RSConfig *)privdata;
+  return config->extLoad ? 
+    RedisModule_CreateString(NULL, config->extLoad, strlen(config->extLoad)) : 
     NULL;
 }
 
@@ -517,20 +518,21 @@ CONFIG_GETTER(getFrisoINI) {
 
 // friso-ini
 CONFIG_API_STRING_SETTER(set_friso_ini) {
-  RSGlobalConfig.frisoIni = NULL;
+  RSConfig *config = (RSConfig *)privdata;
   if (val) {
     size_t len;
     const char *ret = RedisModule_StringPtrLen(val, &len);
     if (len > 0) {
-      RSGlobalConfig.frisoIni = ret;
+      config->frisoIni = rm_strndup(ret, len);
     }
   }
   return REDISMODULE_OK;
 }
 
 CONFIG_API_STRING_GETTER(get_friso_ini) {
-  if (RSGlobalConfig.frisoIni && strlen(RSGlobalConfig.frisoIni) > 0) {
-    return RedisModule_CreateString(NULL, RSGlobalConfig.frisoIni, strlen(RSGlobalConfig.frisoIni));
+  RSConfig *config = (RSConfig *)privdata;
+  if (config->frisoIni && strlen(config->frisoIni) > 0) {
+    return RedisModule_CreateString(NULL, config->frisoIni, strlen(config->frisoIni));
   } else {
     return NULL;
   }
@@ -1780,16 +1782,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   // String parameters
   if (RedisModule_RegisterStringConfig(
-        ctx, "ext-load", "", REDISMODULE_CONFIG_IMMUTABLE, 
-        get_ext_load, set_ext_load, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "ext-load", "", REDISMODULE_CONFIG_IMMUTABLE, get_ext_load,
+        set_ext_load, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "ext-load registered");
   }
 
   if (RedisModule_RegisterStringConfig(
-        ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, 
-        get_friso_ini, set_friso_ini, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, get_friso_ini,
+        set_friso_ini, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "friso-ini registered");

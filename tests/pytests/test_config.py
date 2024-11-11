@@ -474,7 +474,7 @@ def testConfigAPIRunTimeNumericParams():
                            'TOPOLOGY_VALIDATION_TIMEOUT', 30000, 0, 999999999)
 
 @skip(cluster=True)
-def testConfigAPIModuleLoadexNumeric():
+def testModuleLoadexNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
@@ -567,25 +567,97 @@ def testConfigAPIRunTimeEnumParams():
 ################################################################################
 # Test CONFIG SET/GET string parameters
 ################################################################################
+stringConfigs = [
+    # configName, ftConfigName, ftDefault, testValue
+    ('search.ext-load', 'EXTLOAD', None,
+     'example_extension/libexample_extension.so'),
+    ('search.friso-ini', 'FRISOINI', None, 'deps/cndict/friso.ini'),
+]
+
 def testConfigAPIRunTimeStringParams():
     env = Env(noDefaultModuleArgs=True)
 
-    def _testImmutableStringConfig(env, configName, ftConfigName, default):
+    def _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
+                                   testValue):
         # Check default value
-        if default == None:
-            config_default = ''
-
-        env.expect('CONFIG', 'GET', configName).equal([configName, config_default])
+        if ftDefault == None:
+            default = ''
+        env.expect('CONFIG', 'GET', configName).\
+            equal([configName, default])
         env.expect(config_cmd(), 'GET', ftConfigName).\
-            equal([[ftConfigName, default]])
+            equal([[ftConfigName, ftDefault]])
 
         # Check that the value is immutable
-        env.expect('CONFIG', 'SET', configName, config_default).error()\
+        env.expect('CONFIG', 'SET', configName, testValue).error()\
             .contains('CONFIG SET failed')
 
     # String parameters
-    _testImmutableStringConfig(env, 'search.ext-load', 'EXTLOAD', None)
-    _testImmutableStringConfig(env, 'search.friso-ini', 'FRISOINI', None)
+    for configName, ftConfigName, ftDefault, testValue in stringConfigs:
+        _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
+                                   testValue)
+
+@skip(cluster=True)
+def testModuleLoadexStringParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+            modpath = env.module[0]
+            testValue = os.path.abspath(os.path.join(os.path.dirname(modpath), testValue))
+
+        # Test setting the parameter using CONFIG
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, testValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Test setting the parameter using ARGS
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'ARGS', argName, testValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG and module arguments, the CONFIG values should
+        # take precedence
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, testValue,
+                    'ARGS', argName, 'invalid_value'
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
 
 ################################################################################
 # Test CONFIG SET/GET boolean parameters
@@ -652,7 +724,7 @@ def testConfigAPIRunTimeBooleanParams():
 
 
 @skip(cluster=True)
-def testConfigAPIModuleLoadexBoolean():
+def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
