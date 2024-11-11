@@ -244,7 +244,7 @@ struct KVDB {
     Value *v = e->second;
     db.erase(e);
     v->decref();
-   	return true;
+    return true;
   }
 
   void clear() {

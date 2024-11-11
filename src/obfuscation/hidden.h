@@ -23,8 +23,8 @@ void HiddenName_Free(HiddenName *value, bool tookOwnership);
 // comparison
 int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
 int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
-int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
+int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 
 // ownership managment
 HiddenName *HiddenName_Duplicate(const HiddenName *value);

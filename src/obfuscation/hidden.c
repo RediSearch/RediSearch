@@ -7,14 +7,15 @@
 
 typedef struct {
   const char *user;
-  uint64_t length;
+  size_t length;
 } UserString;
 
 HiddenName *NewHiddenName(const char* name, uint64_t length, bool takeOwnership) {
   UserString* value = rm_malloc(sizeof(*value));
-  value->user = name;
   if (takeOwnership) {
     value->user = rm_strndup(name, length);
+  } else {
+    value->user = name;
   }
   value->length = length;
   return (HiddenName*)value;
@@ -33,7 +34,7 @@ static inline int Compare(const char *left, size_t left_length, const char *righ
   if (result != 0 || left_length == right_length) {
     return result;
   } else {
-    return left_length < right_length ? -1 : 1;
+    return (int)(left_length - right_length);
   }
 }
 
@@ -42,7 +43,7 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
   if (result != 0 || left_length == right_length) {
     return result;
   } else {
-    return left_length < right_length ? -1 : 1;
+    return (int)(left_length - right_length);
   }
 }
 
@@ -56,14 +57,14 @@ int HiddenName_Compare(const HiddenName* left, const HiddenName* right) {
   return HiddenName_CompareC(left, r->user, r->length);
 }
 
-int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length) {
-  UserString* l = (UserString*)left;
-  return CaseSensitiveCompare(l->user, l->length, right, right_length);
-}
-
 int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right) {
   UserString* r = (UserString*)right;
   return HiddenName_CaseInsensitiveCompareC(left, r->user, r->length);
+}
+
+int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length) {
+  UserString* l = (UserString*)left;
+  return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }
 
 HiddenName *HiddenName_Duplicate(const HiddenName *value) {
