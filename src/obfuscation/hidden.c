@@ -7,7 +7,9 @@
 
 typedef struct {
   const char *user;
-  size_t length;
+  uint32_t length;
+  uint16_t refcount;
+  bool owner;
 } UserString;
 
 HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
@@ -18,15 +20,19 @@ HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnershi
     value->user = name;
   }
   value->length = length;
+  value->owner = takeOwnership;
+  value->refcount = 1;
   return (HiddenString*)value;
 };
 
-void HiddenString_Free(const HiddenString* hn, bool tookOwnership) {
+void HiddenString_Free(const HiddenString* hn) {
   UserString* value = (UserString*)hn;
-  if (tookOwnership) {
-    rm_free((void*)value->user);
+  if (--value->refcount == 0) {
+    if (value->owner) {
+      rm_free((void*)value->user);
+    }
+    rm_free(value);
   }
-  rm_free(value);
 };
 
 static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
@@ -57,6 +63,11 @@ int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
   return HiddenString_CompareC(left, r->user, r->length);
 }
 
+int HiddenName_CompareEx(const HiddenName *left, const LooseHiddenName *right) {
+  const UserString* r = (const UserString*)right;
+  return HiddenName_CompareC(left, r->user, r->length);
+}
+
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
   UserString* r = (UserString*)right;
   return HiddenString_CaseInsensitiveCompareC(left, r->user, r->length);
@@ -67,34 +78,20 @@ int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *r
   return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }
 
-HiddenString *HiddenString_Duplicate(const HiddenString *value) {
-  const UserString* text = (const UserString*)value;
-  return NewHiddenString(text->user, text->length, true);
+HiddenString *HiddenString_Retain(HiddenString *value) {
+  HiddenString_TakeOwnership(value);
+  UserString* text = (UserString*)value;
+  text->refcount++;
+  return (HiddenString*)text;
 }
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
   UserString* userString = (UserString*)hidden;
-  userString->user = rm_strndup(userString->user, userString->length);
-}
-
-void HiddenString_Clone(const HiddenString* src, HiddenString** dst) {
-  const UserString* s = (const UserString*)src;
-  if (*dst == NULL) {
-    *dst = NewHiddenString(s->user, s->length, true);
-  } else {
-    UserString* d = (UserString*)*dst;
-    if (s->length > d->length) {
-      d->user = rm_realloc((void*)d->user, s->length);
-    }
-    // strncpy will pad d->user with zeroes per documentation if there is room
-    // also remember d->user[d->length] == '\0' due to rm_strdup
-    strncpy((void*)d->user, s->user, d->length);
-    // By setting the length we cause rm_realloc to potentially be called
-    // in the future if this function is called again
-    // But a reasonable allocator should do zero allocation work and identify the memory chunk is enough
-    // That saves us from storing a capacity field
-    d->length = s->length;
+  if (userString->owner) {
+    return;
   }
+  userString->user = rm_strndup(userString->user, userString->length);
+  userString->owner = true;
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {

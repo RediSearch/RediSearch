@@ -1528,7 +1528,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
-  array_foreach(q->metricRequests, request, HiddenName_Free(request.metric_name, true));
+  array_foreach(q->metricRequests, request, HiddenName_Free(request.metric_name));
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;
