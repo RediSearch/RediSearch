@@ -202,7 +202,7 @@ typedef enum {
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
                                RLOOKUP_F_FORCE_LOAD)
 // Flags do not persist to the key, they are just options to GetKey()
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
@@ -214,14 +214,14 @@ typedef enum {
  *
  * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const HiddenName *name, RLookupMode mode, uint32_t flags);
+RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName *name, RLookupMode mode, uint32_t flags);
 
  /**
  * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
  *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
  *    and the field was normalized. A sortable un-normalized field counts as loaded.
  */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const HiddenName *name, const HiddenName *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -396,8 +396,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
-const FieldSpec *findFieldInSpecCacheC(const RLookup *lookup, const char *name, size_t name_len);
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenName *name);
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenName* name);
 
 #ifdef __cplusplus
 }

@@ -818,8 +818,16 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
-  HiddenString_Clone(specField->fieldName, &infoField->name);
-  HiddenString_Clone(specField->fieldPath, &infoField->path);
+  HiddenString *newName = HiddenString_Retain(specField->fieldName);
+  HiddenString *newPath = HiddenString_Retain(specField->fieldPath);
+  if (infoField->name) {
+    HiddenString_Free(infoField->name);
+  }
+  if (infoField->path) {
+    HiddenString_Free(infoField->path);
+  }
+  infoField->name = newName;
+  infoField->path = newPath;
   if (specField->types & INDEXFLD_T_FULLTEXT) {
     infoField->types |= RSFLDTYPE_FULLTEXT;
     infoField->textWeight = specField->ftWeight;
@@ -925,8 +933,8 @@ TotalIndexesInfo RediSearch_TotalInfo(void) {
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
-    HiddenString_Free(info->fields[i].name, true);
-    HiddenString_Free(info->fields[i].path, true);
+    HiddenString_Free(info->fields[i].name);
+    HiddenString_Free(info->fields[i].path);
   }
   rm_free((void *)info->fields);
 }

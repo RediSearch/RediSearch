@@ -1149,7 +1149,7 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);
   }
-  HiddenString_Free(fieldName, false);
+  HiddenString_Free(fieldName);
   rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);

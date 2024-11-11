@@ -797,7 +797,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   // We aren't taking ownership on the string we got from the user, less cost memory-wise
   HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
   if (dictFetchValue(legacySpecRules, indexName)) {
-    HiddenString_Free(indexName, false);
+    HiddenString_Free(indexName);
     QueryError_SetError(status, QUERY_EPARSEARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
@@ -819,7 +819,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       rm_free(rule);
-      HiddenString_Free(indexName, false);
+      HiddenString_Free(indexName);
       return REDISMODULE_ERR;
     }
   }
@@ -849,7 +849,7 @@ CONFIG_SETTER(setUpgradeIndex) {
 
   // add rule to rules dictionary
   dictAdd(legacySpecRules, (void*)indexName, rule);
-  HiddenString_Free(indexName, false);
+  HiddenString_Free(indexName);
   return REDISMODULE_OK;
 }
 
