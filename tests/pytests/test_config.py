@@ -551,18 +551,85 @@ def testModuleLoadexNumericParams():
 def testConfigAPIRunTimeEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
-    # Test search.on-timeout - valid values
-    env.expect('CONFIG', 'SET', 'search.on-timeout', 'RETURN').equal('OK')
-    env.expect('CONFIG', 'GET', 'search.on-timeout').\
-        equal(['search.on-timeout', 'RETURN'])
+    # Test default value
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'return'])
 
-    env.expect('CONFIG', 'SET', 'search.on-timeout', 'FAIL').equal('OK')
-    env.expect('CONFIG', 'GET', 'search.on-timeout').\
-        equal(['search.on-timeout', 'FAIL'])
+    # Test search.on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'fail'])
+
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'return').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'return'])
 
     # Test search.on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search.on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
+
+@skip(cluster=True)
+def testModuleLoadexEnumParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+    defaultValue = 'return'
+
+    # Test setting the parameter using CONFIG
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Test setting the parameter using ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'ARGS', argName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG and module arguments, the CONFIG values should
+    # take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue,
+                'ARGS', argName, defaultValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
 
 ################################################################################
 # Test CONFIG SET/GET string parameters

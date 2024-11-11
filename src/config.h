@@ -18,8 +18,14 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static const int int_on_timeout_vals[2] = {TimeoutPolicy_Return, TimeoutPolicy_Fail};
-static const char *on_timeout_vals[2] = {"RETURN", "FAIL"};
+static const int int_on_timeout_vals[2] = {
+  TimeoutPolicy_Return,
+  TimeoutPolicy_Fail
+};
+static const char *on_timeout_vals[2] = {
+  "return",
+  "fail"
+};
 
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
