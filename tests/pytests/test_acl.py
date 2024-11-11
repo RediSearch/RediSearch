@@ -108,6 +108,7 @@ def test_sug_commands_acl(env):
         env.assertEqual(res, True)
         try:
             res = conn.execute_command('FT.SUGADD', 'test_key_2', 'hello world', '1')
+            env.assertTrue(False)
         except Exception as e:
             env.assertEqual(str(e), "No permissions to access a key")
 
@@ -120,6 +121,7 @@ def test_sug_commands_acl(env):
         # FT.SUGGET
         try:
             conn.execute_command('FT.SUGGET', 'test_key', 'hello')
+            env.assertTrue(False)
         except Exception as e:
             env.assertEqual(str(e), "No permissions to access a key")
         res = conn.execute_command('FT.SUGGET', 'h:test_key', 'hello')
@@ -128,6 +130,7 @@ def test_sug_commands_acl(env):
         # FT.SUGLEN
         try:
             conn.execute_command('FT.SUGLEN', 'test_key')
+            env.assertTrue(False)
         except Exception as e:
             env.assertEqual(str(e), "No permissions to access a key")
         res = conn.execute_command('FT.SUGLEN', 'h:test_key')
@@ -136,6 +139,7 @@ def test_sug_commands_acl(env):
         # FT.SUGDEL
         try:
             conn.execute_command('FT.SUGDEL', 'test_key', 'hello world')
+            env.assertTrue(False)
         except Exception as e:
             env.assertEqual(str(e), "No permissions to access a key")
         res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
