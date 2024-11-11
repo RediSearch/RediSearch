@@ -180,7 +180,7 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 43);
+  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 36);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
