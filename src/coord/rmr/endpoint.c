@@ -17,7 +17,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   // see if we have an auth password
   char *at = strchr(addr, '@');
   if (at) {
-    ep->auth = rm_strndup(addr, at - addr);
+    ep->password = rm_strndup(addr, at - addr);
     addr = at + 1;
   }
 
@@ -63,8 +63,8 @@ void MREndpoint_Copy(MREndpoint *dst, const MREndpoint *src) {
     dst->unixSock = rm_strdup(src->unixSock);
   }
 
-  if (src->auth) {
-    dst->auth = rm_strdup(src->auth);
+  if (src->password) {
+    dst->password = rm_strdup(src->password);
   }
 }
 
@@ -77,8 +77,8 @@ void MREndpoint_Free(MREndpoint *ep) {
     rm_free(ep->unixSock);
     ep->unixSock = NULL;
   }
-  if (ep->auth) {
-    rm_free(ep->auth);
-    ep->auth = NULL;
+  if (ep->password) {
+    rm_free(ep->password);
+    ep->password = NULL;
   }
 }

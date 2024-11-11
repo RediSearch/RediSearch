@@ -109,29 +109,36 @@ static NumericRangeNode *NewLeafNode() {
   return n;
 }
 
-static double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
-                          NRN_AddRv *rv) {
+static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
+  NumericRange *r = n->range;
 
-  *lp = NewLeafNode();
-  *rp = NewLeafNode();
-  rv->sz += (*lp)->range->invertedIndexSize + (*rp)->range->invertedIndexSize;
+  n->left  = NewLeafNode();
+  n->right = NewLeafNode();
+
+  NumericRange *lr = n->left->range;
+  NumericRange *rr = n->right->range;
+
+  rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(n->entries, false);
+  IndexReader *ir = NewMinimalNumericReader(r->entries, false);
   double split = NumericRange_GetMedian(ir);
-  if (split == n->minVal) {
+  if (split == r->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
   }
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange *cur = res->num.value < split ? (*lp)->range : (*rp)->range;
+    NumericRange *cur = res->num.value < split ? lr : rr;
     updateCardinality(cur, res->num.value);
     rv->sz += NumericRange_Add(cur, res->docId, res->num.value);
     ++rv->numRecords;
   }
   IR_Free(ir);
 
-  return split;
+  n->maxDepth = 1;
+  n->value = split;
+  rv->changed = 1;
+  rv->numRanges += 2;
 }
 
 static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
@@ -155,78 +162,71 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
 static void NumericRangeNode_Balance(NumericRangeNode **n) {
   NumericRangeNode *node = *n;
-  node->maxDepth = MAX(node->right->maxDepth, node->left->maxDepth) + 1;
-  // check if we need to rebalance the child.
-  // To ease the rebalance we don't rebalance the root
-  // nor do we rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
-  if ((node->right->maxDepth - node->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {  // role to the left
+  // check if we need to rebalance.
+  // To ease the rebalance we don't rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
+  if ((node->right->maxDepth - node->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {
+    // rotate to the left
     NumericRangeNode *right = node->right;
     node->right = right->left;
     right->left = node;
-    --node->maxDepth;
+    node->maxDepth = MAX(node->left->maxDepth, node->right->maxDepth) + 1;
     *n = right;
-  } else if ((node->left->maxDepth - node->right->maxDepth) >
-              NR_MAX_DEPTH_BALANCE) {  // role to the right
+  } else if ((node->left->maxDepth - node->right->maxDepth) > NR_MAX_DEPTH_BALANCE) {
+    // rotate to the right
     NumericRangeNode *left = node->left;
     node->left = left->right;
     left->right = node;
-    --node->maxDepth;
+    node->maxDepth = MAX(node->left->maxDepth, node->right->maxDepth) + 1;
     *n = left;
   }
+  (*n)->maxDepth = MAX((*n)->left->maxDepth, (*n)->right->maxDepth) + 1;
 }
 
-static NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value, size_t depth) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
+static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double value, size_t depth) {
+  NumericRangeNode *n = *np;
   if (!NumericRangeNode_IsLeaf(n)) {
-    // if this node has already split but retains a range, just add to the range without checking
-    // anything
-    size_t s = 0;
-    size_t nRecords = 0;
-    if (n->range) {
-      s += NumericRange_Add(n->range, docId, value);
-      ++nRecords;
-    }
-
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
-    NumericRangeNode *child = *childP;
-    // if the child has split we get 1 in return
-    rv = NumericRangeNode_Add(child, docId, value, depth + 1);
-    rv.sz += s;
-    rv.numRecords += nRecords;
+    NRN_AddRv rv = NumericRangeNode_Add(childP, docId, value, depth + 1);
+
+    if (n->range) {
+      // if this inner node retains a range, add the value to the range without
+      // updating the cardinality
+      rv.sz += NumericRange_Add(n->range, docId, value);
+      rv.numRecords++;
+    }
 
     if (rv.changed) {
-      // if there was a split it means our max depth has increased.
-      // we are too deep - we don't retain this node's range anymore.
-      // this keeps memory footprint in check
-      if (++n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange && n->range) {
+      NumericRangeNode_Balance(np);
+      n = *np; // rebalance might have changed the root
+      if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+        // we are too high up - we don't retain this node's range anymore.
         removeRange(n, &rv);
       }
-
-      NumericRangeNode_Balance(childP);
     }
-    // return 1 or 0 to our called, so this is done recursively
+
     return rv;
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
   updateCardinality(n->range, value);
-  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value);
-  ++rv.numRecords;
-  size_t card = getCardinality(n->range);
+  NRN_AddRv rv = {
+    .sz = (uint32_t)NumericRange_Add(n->range, docId, value),
+    .numRecords = 1,
+    .changed = 0,
+    .numRanges = 0,
+  };
 
+  size_t card = getCardinality(n->range);
   if (card >= getSplitCardinality(depth) ||
       (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
-    double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
-    rv.numRanges += 2;
-    if (RSGlobalConfig.numericTreeMaxDepthRange == 0) {
+    NumericRangeNode_Split(n, &rv);
+
+    if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
       removeRange(n, &rv);
     }
-    n->value = split;
-    n->maxDepth = 1;
-    rv.changed = 1;
   }
 
   return rv;
@@ -343,14 +343,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   }
   t->lastDocId = docId;
 
-  NumericRangeNode* root = t->root;
-
-  NRN_AddRv rv = NumericRangeNode_Add(root, docId, value, 0);
-
-  // Since we never rebalance the root, we don't update its max depth.
-  if (!NumericRangeNode_IsLeaf(root)) {
-    root->maxDepth = MAX(root->right->maxDepth, root->left->maxDepth) + 1;
-  }
+  NRN_AddRv rv = NumericRangeNode_Add(&t->root, docId, value, 0);
 
   // rv != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
@@ -588,8 +581,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName) {
   return openNumericKeysDict(ctx->spec, keyName, 1);
 }
 

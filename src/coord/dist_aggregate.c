@@ -16,18 +16,13 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "dist_profile.h"
+#include "util/misc.h"
 
 #include <err.h>
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
-  long long cursorId;
-  if (!MRReply_ToInteger(MRReply_ArrayElement(res, 1), &cursorId)) {
-    // Invalid format?!
-    return false;
-  }
-
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
@@ -73,7 +68,7 @@ static bool getCursorCommand(MRReply *res, MRCommand *cmd, MRIteratorCtx *ctx) {
 }
 
 
-static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
@@ -85,23 +80,25 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
-    return REDIS_OK;
+    return;
   }
 
   // Check if an error returned from the shard
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error from a shard");
-    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", MRReply_String(rep, NULL));
+    const char* error = MRReply_String(rep, NULL);
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
+    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
-    return REDIS_ERR;
+    return;
   }
 
+  const bool isResp3 = cmd->protocol == 3;
   bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
 
   if (!bail_out) {
     size_t len = MRReply_Length(rep);
-    if (cmd->protocol == 3) {
+    if (isResp3) {
       bail_out = len != 2; // (map, cursor)
       if (bail_out) {
         RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
@@ -118,15 +115,17 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
-    return REDIS_ERR;
+    return;
   }
 
-  // rewrite and resend the cursor command if needed
-  int rc = REDIS_OK;
-  bool done = !getCursorCommand(rep, cmd, MRIteratorCallback_GetCtx(ctx));
+  long long cursorId;
+  MRReply* cursor = MRReply_ArrayElement(rep, 1);
+  if (!MRReply_ToInteger(cursor, &cursorId)) {
+    cursorId = 0;
+  }
 
   // Push the reply down the chain
-  if (cmd->protocol == 3) // RESP3
+  if (isResp3) // RESP3
   {
     MRReply *map = MRReply_ArrayElement(rep, 0);
     MRReply *results = NULL;
@@ -137,11 +136,7 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
-      } else {
-        done = true;
       }
-    } else {
-      done = true;
     }
   }
   else // RESP2
@@ -151,28 +146,23 @@ static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
       // User code now owns the reply, so we can't free it here ourselves!
       rep = NULL;
-    } else {
-      done = true;
     }
   }
 
-  if (done) {
+  // rewrite and resend the cursor command if needed
+  // should only be determined based on the cursor and not on the set of results we get
+  if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx))) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
-  } else {
-    // resend command
-    if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
-      MRIteratorCallback_Done(ctx, 1);
-      rc = REDIS_ERR;
-    }
+  } else if (MRIteratorCallback_ResendCommand(ctx) == REDIS_ERR) {
+    MRIteratorCallback_Done(ctx, 1);
   }
 
   if (rep != NULL) {
     // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
-  return rc;
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {
@@ -560,6 +550,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
   }
 
+  argOffset = RMUtil_ArgIndex("SCORER", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
+    array_append(tmparr, "SCORER");
+    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the scorer
+  }
+
   if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
     array_append(tmparr, "ADDSCORES");
   }
@@ -657,7 +653,6 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
-    r->initClock = clock();
     r->reqflags |= QEXEC_F_PROFILE;
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
@@ -682,7 +677,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   r->qiter.err = &status;
-  r->reqflags |= QEXEC_F_IS_EXTENDED | QEXEC_F_BUILDPIPELINE_NO_ROOT;
+  r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
+  r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;

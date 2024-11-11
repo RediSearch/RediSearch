@@ -884,9 +884,9 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = sp->stats.invertedCap;
-  info->skipIndexesSize = sp->stats.skipIndexesSize;
-  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->invertedCap = 0;
+  info->skipIndexesSize = 0;
+  info->scoreIndexesSize = 0;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
@@ -917,18 +917,16 @@ size_t RediSearch_MemUsage(RSIndex* rm) {
   res += IndexSpec_collect_text_overhead(sp);
   res += IndexSpec_collect_tags_overhead(sp);
   res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
 }
 
-// Collect mem-usage, indexing time and gc statistics of all the currently
-// existing indexes
+// Collect statistics of all the currently existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
-  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  info.min_mem = -1; // Initialize to max value
+  // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
@@ -939,8 +937,16 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
-    info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
+
+    // Vector index stats
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    info.fields_stats.total_vector_idx_mem += vec_info.memory;
+    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
@@ -948,9 +954,27 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       info.gc_stats.totalCycles += gcStats.numCycles;
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
+
+    // Index
+    size_t activeQueries = IndexSpec_GetActiveQueries(sp);
+    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+    if (activeQueries) info.num_active_indexes_querying++;
+    if (activeWrites) info.num_active_indexes_indexing++;
+    if (activeQueries || activeWrites) info.num_active_indexes++;
+    info.total_active_queries += activeQueries;
+    info.total_active_writes += activeWrites;
+
+    // Index errors metrics
+    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
+    }
+
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
   return info;
 }
 

@@ -6,14 +6,18 @@
 
 #include "threadpool_api.h"
 #include "rmalloc.h"
+#include "spec.h"
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;
   StrongRef spec_ref = WeakRef_Promote(job->spec_ref);
 
   // If the spec is still alive, execute the callback
-  if (StrongRef_Get(spec_ref)) {
+  IndexSpec *spec = StrongRef_Get(spec_ref);
+  if (spec) {
+    IndexSpec_IncrActiveWrites(spec); // Currently assuming all jobs are writes
     job->cb(job->arg);
+    IndexSpec_DecrActiveWrites(spec);
     StrongRef_Release(spec_ref);
   }
 

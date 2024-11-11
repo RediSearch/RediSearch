@@ -136,7 +136,6 @@ void CursorList_Empty(CursorList *cl);
  */
 void CursorList_Expire(CursorList *cl);
 
-#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
