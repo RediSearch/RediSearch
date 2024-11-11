@@ -152,7 +152,7 @@ void RSExpr_GetProperties(RSExpr *e, HiddenName ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      array_append(*props, HiddenName_Duplicate(e->property.key));
+      array_append(*props, HiddenName_Retain(e->property.key));
       break;
     case RSExpr_Literal:
       break;

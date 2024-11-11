@@ -427,7 +427,7 @@ static bool checkIfSpecExists(const char *rawSpecName) {
   bool found = false;
   HiddenString* specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
   found = dictFetchValue(specDict_g, specName);
-  HiddenString_Free(specName, false);
+  HiddenString_Free(specName);
   return found;
 }
 
@@ -1421,9 +1421,9 @@ void Spec_AddToDict(RefManager *rm) {
 static void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     if (c->fields[ii].fieldName != c->fields[ii].fieldPath) {
-      HiddenString_Free(c->fields[ii].fieldName, true);
+      HiddenString_Free(c->fields[ii].fieldName);
     }
-    HiddenString_Free(c->fields[ii].fieldPath, true);
+    HiddenString_Free(c->fields[ii].fieldPath);
   }
   rm_free(c->fields);
   rm_free(c);
@@ -1448,10 +1448,10 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
-    field->fieldName = HiddenString_Duplicate(fs->fieldName);
+    field->fieldName = HiddenString_Retain(fs->fieldName);
     // if name & path are pointing to the same string, copy only pointer
     if (fs->fieldName != fs->fieldPath) {
-      field->fieldPath = HiddenString_Duplicate(fs->fieldPath);
+      field->fieldPath = HiddenString_Retain(fs->fieldPath);
     } else {
       // use the same pointer for both name and path
       field->fieldPath = field->fieldName;
@@ -1561,7 +1561,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   // Free spec name
-  HiddenString_Free(spec->specName, true);
+  HiddenString_Free(spec->specName);
   rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
@@ -1721,7 +1721,7 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
     spec_ref = IndexAlias_Get(specNameOrAlias);
     sp = StrongRef_Get(spec_ref);
   }
-  HiddenString_Free(specNameOrAlias, false);
+  HiddenString_Free(specNameOrAlias);
   if (!sp) {
     return spec_ref;
   }
@@ -2650,7 +2650,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     HiddenString* alias = NewHiddenString(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
-    HiddenString_Free(alias, false);
+    HiddenString_Free(alias);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
@@ -2745,7 +2745,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       HiddenString* alias = NewHiddenString(s, strlen(s), false);
       int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
-      HiddenString_Free(alias, false);
+      HiddenString_Free(alias);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
@@ -3088,7 +3088,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+  LooseHiddenName* name = NewHiddenName(UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), false);
+  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, underscore, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);

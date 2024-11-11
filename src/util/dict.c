@@ -103,7 +103,7 @@ void stringsKeyDestructor(void *privdata, void *key){
 
 void hiddenNameKeyDestructor(void *privdata, void *key){
   HiddenString* keyStr = key;
-  HiddenString_Free(keyStr, true);
+  HiddenString_Free(keyStr);
 }
 
 void redisStringsKeyDestructor(void *privdata, void *key){
@@ -117,7 +117,7 @@ void* stringsKeyDup(void *privdata, const void *key){
 
 void* hiddenNameKeyDup(void *privdata, const void *key){
   const HiddenString* keyStr = key;
-  return HiddenString_Duplicate(keyStr);
+  return HiddenString_Retain(keyStr);
 }
 
 void* redisStringsKeyDup(void *privdata, const void *key){

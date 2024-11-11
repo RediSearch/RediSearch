@@ -45,7 +45,7 @@ static void freeDocumentContext(void *p) {
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
   if (aCtx->specName) {
-    HiddenString_Free(aCtx->specName, true);
+    HiddenString_Free(aCtx->specName);
   }
   rm_free(aCtx);
 }
@@ -184,7 +184,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    HiddenString_Clone(sp->specName, &aCtx->specName);
+    aCtx->specName = HiddenString_Retain(sp->specName);
   }
 
   // Assign the document:
