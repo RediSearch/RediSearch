@@ -322,7 +322,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   HiddenString_Free(expr, false);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = HiddenName_Duplicate(src->alias);
+  applyStep->base.alias = HiddenName_Retain(src->alias);
 
   assert(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
@@ -514,9 +514,9 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
         for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
           const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          HiddenName* prop = NewHiddenName(s, strlen(s), false);
+          HiddenName *prop = NewHiddenName(s, strlen(s), false);
           RLookup_GetKey(lookup, prop, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-          HiddenName_Free(prop, false);
+          HiddenName_Free(prop);
         }
         break;
       }
