@@ -731,16 +731,12 @@ def testNumericOperatorsModifierWithEscapes():
 def testNumericTree(env:Env):
     idx = 'idx'
     field = 'n'
-    cardCheck = 10 # currently we check the cardinality every 10 docs
 
     cur_id = 0
     def add_val(val):
-        # Adds `cardCheck` docs with value `val` for field `n`, so the
-        # range-node cardinality is updated with this value
         nonlocal cur_id
-        for i in range(cardCheck):
-            env.cmd('HSET', 'doc%d' % (i + cur_id), 'n', val)
-        cur_id += cardCheck
+        env.cmd('HSET', 'doc%d' % cur_id, 'n', val)
+        cur_id += 1
 
     def equal_structure(tree1, tree2):
         def equal_subtree_structure(st1, st2):
