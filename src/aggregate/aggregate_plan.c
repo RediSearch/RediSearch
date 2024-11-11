@@ -230,8 +230,14 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        char name[MAX_OBFUSCATED_FIELD_NAME];
-        Obfuscate_Field(kk->uniqueId, name);
+        char nameBuffer[MAX_OBFUSCATED_FIELD_NAME];
+        const char* name = NULL;
+        if (obfuscate) {
+          Obfuscate_Field(kk->uniqueId, nameBuffer);
+          name = nameBuffer;
+        } else {
+          name = HiddenName_GetUnsafe(kk->name, NULL);
+        }
         printf("    %s @%p: FLAGS=0x%x\n", name, kk, kk->flags);
       }
     }
@@ -241,9 +247,11 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
       case PLN_T_FILTER:
         printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
-          const char* alias = HiddenName_GetUnsafe(stp->alias, NULL);
+          const char* alias = NULL;
           if (obfuscate) {
             alias = Obfuscate_Text(alias);
+          } else {
+            alias = HiddenName_GetUnsafe(stp->alias, NULL);
           }
           printf("  AS:%s\n", alias);
         }
@@ -274,17 +282,21 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
         printf("  BY:\n");
         for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          const char* property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
+          const char* property = NULL;
           if (obfuscate) {
             property = Obfuscate_Text(property);
+          } else {
+            property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
           }
           printf("    %s\n", property);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           const PLN_Reducer *r = gstp->reducers + ii;
-          const char* alias = HiddenName_GetUnsafe(r->alias, NULL);
+          const char* alias = NULL;
           if (obfuscate) {
             alias = Obfuscate_Text(alias);
+          } else {
+            alias = HiddenName_GetUnsafe(r->alias, NULL);
           }
           printf("  REDUCE: %s AS %s\n", r->name, alias);
           if (r->args.argc) {
