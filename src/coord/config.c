@@ -225,7 +225,7 @@ void ClusterConfig_RegisterTriggers(void) {
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
         ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE, 1, 999999, get_search_threads,
+        REDISMODULE_CONFIG_IMMUTABLE, 1, LLONG_MAX, get_search_threads,
         set_search_threads, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -234,7 +234,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   if (RedisModule_RegisterNumericConfig (
         ctx, "topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_topology_validation_timeout,
+        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_topology_validation_timeout,
         set_topology_validation_timeout, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {

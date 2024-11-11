@@ -139,8 +139,8 @@ typedef struct {
   // 0 indicates no limit. Default value is 0.
   unsigned int vssMaxResize;
   // The delta used to increase positional offsets between array slots for multi text values.
-  // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
-  // Default value is 100. 0 will not increment (as if all text is a continus phrase).
+  // Can allow to control the separation between phrases in different array slots (related to the SLOP parameter in ft.search command)
+  // Default value is 100. 0 will not increment (as if all text is a continuous phrase).
   unsigned int multiTextOffsetDelta;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that

@@ -1547,10 +1547,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   } else {
     RedisModule_Log(ctx, "notice", "_numeric-ranges-parents registered");
   }
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
       ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
-      REDISMODULE_CONFIG_IMMUTABLE, 1, 999999999,
+      REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX,
       get_bg_index_sleep_gap, set_bg_index_sleep_gap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1566,59 +1565,54 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "default-dialect registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig (
         ctx, "fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_fork_gc_clean_threshold,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_clean_threshold,
         set_fork_gc_clean_threshold, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "fork-gc-clean-threshold registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig (
         ctx, "fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_fork_gc_retry_interval,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_retry_interval,
         set_fork_gc_retry_interval, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "fork-gc-run-interval registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_fork_gc_run_interval,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_run_interval,
         set_fork_gc_run_interval, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "fork-gc-run-interval registered");
   }
 
-  // TODO: check if this is a boolean configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "fork-gc-sleep-before-exit", 0,
-        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_fork_gc_sleep_before_exit,
+        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_fork_gc_sleep_before_exit,
         set_fork_gc_sleep_before_exit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "fork-gc-sleep-before-exit registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "gc-scan-size", DEFAULT_GC_SCANSIZE, REDISMODULE_CONFIG_DEFAULT,
-        1, 999999999, get_gc_scan_size, set_gc_scan_size, NULL, NULL) == REDISMODULE_ERR) {
+        1, LLONG_MAX, get_gc_scan_size, set_gc_scan_size, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "gc-scan-size registered");
   }
 
-  // TODO: Define min/max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT, 
-        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_index_cursor_limit,
+        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_index_cursor_limit,
         set_index_cursor_limit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1628,17 +1622,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // TODO: Define min/max value for this configuration
   // if (RedisModule_RegisterNumericConfig(
   //       ctx, "max-aggregate-results", DEFAULT_MAX_AGGREGATE_RESULTS,
-  //       REDISMODULE_CONFIG_DEFAULT, -1, 999999999, get_max_aggregate_results,
+  //       REDISMODULE_CONFIG_DEFAULT, -1, LLONG_MAX, get_max_aggregate_results,
   //       set_max_aggregate_results, NULL, NULL) == REDISMODULE_ERR) {
   //   return REDISMODULE_ERR;
   // } else {
   //   RedisModule_Log(ctx, "notice", "max-aggregate-results registered");
   // }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_max_prefix_expansions,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_max_prefix_expansions,
         set_max_prefix_expansions, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1654,10 +1647,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "max-doctablesize registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_cursor_max_idle,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_cursor_max_idle,
         set_cursor_max_idle, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1683,30 +1675,27 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "min-operation-workers registered");
   }
 
-  // TODO: Define min/max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-phonetic-term-len", DEFAULT_MIN_PHONETIC_TERM_LEN,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_min_phonetic_term_len,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_phonetic_term_len,
         set_min_phonetic_term_len, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "min-phonetic-term-len registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-prefix", DEFAULT_MIN_TERM_PREFIX,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_min_prefix,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_prefix,
         set_min_prefix, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "min-prefix registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-stem-len", DEFAULT_MIN_STEM_LENGTH,
-        REDISMODULE_CONFIG_DEFAULT, 2, 999999999, get_min_stem_len,
+        REDISMODULE_CONFIG_DEFAULT, 2, UINT32_MAX, get_min_stem_len,
         set_min_stem_len, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1715,17 +1704,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "multi-text-slop", DEFAULT_MULTI_TEXT_SLOP,
-        REDISMODULE_CONFIG_IMMUTABLE, 1, 999999999, get_multi_text_slop,
+        REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX, get_multi_text_slop,
         set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "multi-text-slop registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "tiered-hnsw-buffer-limit", DEFAULT_BLOCK_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE, 0, 999999999, get_tiered_hnsw_buffer_limit,
+        REDISMODULE_CONFIG_IMMUTABLE, 0, LLONG_MAX, get_tiered_hnsw_buffer_limit,
         set_tiered_hnsw_buffer_limit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1734,7 +1722,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "timeout", DEFAULT_QUERY_TIMEOUT_MS,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_timeout,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_timeout,
         set_timeout, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1743,7 +1731,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
-        REDISMODULE_CONFIG_DEFAULT, 1, 999999999, get_union_iterator_heap,
+        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_union_iterator_heap,
         set_union_iterator_heap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1752,7 +1740,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
-        REDISMODULE_CONFIG_DEFAULT, 0, 999999999, get_vss_max_resize,
+        REDISMODULE_CONFIG_DEFAULT, 0, UINT32_MAX, get_vss_max_resize,
         set_vss_max_resize, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
@@ -1768,10 +1756,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "workers registered");
   }
 
-  // workers-priority-bias-threshold
   if (RedisModule_RegisterNumericConfig(
         ctx, "workers-priority-bias-threshold", DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
-        REDISMODULE_CONFIG_IMMUTABLE, 0, 999999999, get_workers_priority_bias_threshold,
+        REDISMODULE_CONFIG_IMMUTABLE, 0, LLONG_MAX, get_workers_priority_bias_threshold,
         set_workers_priority_bias_threshold, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {

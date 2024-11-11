@@ -385,32 +385,39 @@ def testImmutableCoord(env):
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
+LLONG_MAX = 2**63 - 1
+UINT32_MAX = 2**32 - 1
+
 numericConfigs = [
     # configName, ftConfigName, defaultValue, minValue, maxValue, immutable
     ('search._numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False),
-    ('search.bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, 999999999, True),
-    ('search.cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, 999999999, False),
+    ('search.bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True),
+    ('search.cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False),
     ('search.default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False),
-    ('search.fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, 999999999, False),
-    ('search.fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, 999999999, False),
-    ('search.fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, 999999999, False),
-    ('search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, 999999999, False),
-    ('search.gc-scan-size', 'GCSCANSIZE', 100, 1, 999999999, False),
-    ('search.index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, 999999999, False),
-    ('search.max-aggregate-results', 'MAXAGGREGATERESULTS', 'unlimited', 1, 999999999, False),
+    ('search.fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, LLONG_MAX, False),
+    ('search.fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False),
+    ('search.fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False),
+    ('search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False),
+    ('search.gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, False),
+    ('search.index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False),
+    ('search.max-aggregate-results', 'MAXAGGREGATERESULTS', 'unlimited', 1, LLONG_MAX, False),
     ('search.max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True),
-    ('search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, 999999999, False),
+    ('search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False),
+    ('search.max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 1, LLONG_MAX, False),
     ('search.min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False),
-    ('search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, 999999999, False),
-    ('search.min-prefix', 'MINPREFIX', 2, 1, 999999999, False),
-    ('search.min-stem-len', 'MINSTEMLEN', 4, 2, 999999999, False),
-    ('search.multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, 999999999, True),
-    ('search.tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, 999999999, True),
-    ('search.timeout', 'TIMEOUT', 500, 1, 999999999, False),
-    ('search.union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, 999999999, False),
-    ('search.vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, 999999999, False),
+    ('search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False),
+    ('search.min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False),
+    ('search.min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False),
+    ('search.multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True),
+    ('search.tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True),
+    ('search.timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False),
+    ('search.union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False),
+    ('search.vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False),
     ('search.workers', 'WORKERS', 0, 0, 16, False),
-    ('search.workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, 999999999, True),
+    ('search.workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True),
+    # Cluster parameters
+    ('search.search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True),
+    ('search.topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False),
 ]
 
 def testConfigAPIRunTimeNumericParams():
@@ -458,20 +465,21 @@ def testConfigAPIRunTimeNumericParams():
 
     # Test numeric parameters
     for configName, ftConfigName, default, min, max, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results, the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results']:
+        # TODO: Implement search.max-aggregate-results and search.max-search-results,
+        # the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
             continue
+
+        if configName in ['search.search-threads',
+                          'search.topology-validation-timeout']:
+            if not env.isCluster():
+                continue
 
         if immutable:
             _testImmutableNumericConfig(env, configName, ftConfigName, default)
         else:
             _testNumericConfig(env, configName, ftConfigName, default, min, max)
 
-    if env.isCluster():
-        _testImmutableNumericConfig(env, 'search.search-threads',
-                                    'SEARCH_THREADS', 20)
-        _testNumericConfig(env, 'search.topology-validation-timeout',
-                           'TOPOLOGY_VALIDATION_TIMEOUT', 30000, 0, 999999999)
 
 @skip(cluster=True)
 def testModuleLoadexNumericParams():
@@ -494,8 +502,9 @@ def testModuleLoadexNumericParams():
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results, the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results']:
+        # TODO: Implement search.max-aggregate-results and search.max-search-results,
+        # the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
             continue
 
         if (minValue != default):
@@ -544,6 +553,30 @@ def testModuleLoadexNumericParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
+
+        # For immutable parameters, we need to test that the limits are enforced
+        # using MODULE LOADEX
+        if immutable:
+            env.start()
+            res = env.cmd('MODULE', 'LIST')
+            env.assertEqual(res, [])
+            env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(minValue - 1)).error()\
+                        .contains('Error loading the extension')
+            env.assertTrue(env.isUp())
+            env.stop()
+            os.unlink(rdbFilePath)
+
+            env.start()
+            res = env.cmd('MODULE', 'LIST')
+            env.assertEqual(res, [])
+            env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(maxValue + 1)).error()\
+                        .contains('Error loading the extension')
+            env.assertTrue(env.isUp())
+            env.stop()
+            os.unlink(rdbFilePath)
+
 
 ################################################################################
 # Test CONFIG SET/GET enum parameters
