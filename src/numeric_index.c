@@ -333,7 +333,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 
   Vector *leaves = NewVector(NumericRange *, 8);
   __recursiveAddRange(leaves, n, min, max);
-  
+
   return leaves;
 }
 
@@ -623,16 +623,12 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName) {
 
   NumericRangeTree *t;
   if (!ctx->spec->keysDict) {
     RedisModuleKey *key_s = NULL;
-
-    if (!idxKey) {
-      idxKey = &key_s;
-    }
+    RedisModuleKey **idxKey = &key_s;
 
     *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
 
