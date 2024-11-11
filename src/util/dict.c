@@ -116,7 +116,7 @@ void* stringsKeyDup(void *privdata, const void *key){
 }
 
 void* hiddenNameKeyDup(void *privdata, const void *key){
-  const HiddenString* keyStr = key;
+  HiddenString* keyStr = (HiddenString*)key;
   return HiddenString_Retain(keyStr);
 }
 

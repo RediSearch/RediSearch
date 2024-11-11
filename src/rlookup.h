@@ -73,8 +73,8 @@ typedef struct RLookupKey {
 
   /** Path and name of this field
    *  path AS name */
-  const HiddenName *path;
-  const HiddenName *name;
+  HiddenName *path;
+  HiddenName *name;
   t_uniqueId uniqueId;
 
   /** Pointer to next field in the list */
