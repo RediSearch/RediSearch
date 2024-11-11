@@ -3332,11 +3332,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
-    // suggestion commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGGET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
     // write commands (on enterprise we do not define them, the dmc take care of them)
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))

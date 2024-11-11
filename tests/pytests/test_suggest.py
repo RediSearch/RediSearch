@@ -84,15 +84,22 @@ def testSuggestPayload(env):
 
 def testIssue_866(env):
     skipOnCrdtEnv(env)
-    env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
-    env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
-    env.expect('ft.sugdel', 'sug', 'test').equal(0)
-    env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
+    with env.getClusterConnectionIfNeeded() as conn:
+        res = conn.execute_command('ft.sugadd', 'sug', 'test123', '1')
+        env.assertEqual(res, 1)
+        res = conn.execute_command('ft.sugadd', 'sug', 'test456', '1')
+        env.assertEqual(res, 2)
+        res = conn.execute_command('ft.sugdel', 'sug', 'test')
+        env.assertEqual(res, 0)
+        res = conn.execute_command('ft.sugget', 'sug', '')
+        env.assertEqual(res, ['test123', 'test456'])
 
 def testSuggestMax(env):
     #skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
     for i in range(10):
-        env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
+        res = conn.execute_command('ft.sugadd', 'sug', 'test%d' % i, i + 1)
+        env.assertEqual(res, i + 1)
         #  for j in range(i + 1):
         #env.expect('ft.sugadd', 'sug', 'test10', '1', 'INCR').equal(i + 1)
 
@@ -101,9 +108,9 @@ def testSuggestMax(env):
                   'test3', '2.8284270763397217', 'test2', '2.1213202476501465', 'test1', '1.4142135381698608',
                   'test0', '0.70710676908493042']
     for i in range(1,11):
-        res = env.cmd('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES')
+        res = conn.execute_command('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES')
         compare_lists(env, res, expected_res[0:i*2], delta=0.0001)
-    res = env.cmd('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES')
+    res = conn.execute_command('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES')
     compare_lists(env, res, expected_res, delta=0.0001)
 
 def testSuggestMax2(env):
