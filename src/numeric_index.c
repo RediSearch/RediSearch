@@ -247,32 +247,26 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
 static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double value) {
   NumericRangeNode *n = *np;
   if (!NumericRangeNode_IsLeaf(n)) {
-    // if this node has already split but retains a range, just add to the range without checking
-    // anything
-    size_t s = 0;
-    size_t nRecords = 0;
-    if (n->range) {
-      s += NumericRange_Add(n->range, docId, value, 0);
-      ++nRecords;
-    }
-
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
-    // if the child has split we get 1 in return
     NRN_AddRv rv = NumericRangeNode_Add(childP, docId, value);
-    rv.sz += s;
-    rv.numRecords += nRecords;
+
+    if (n->range) {
+      // if this inner node retains a range, add the value to the range without
+      // updating the cardinality
+      rv.sz += NumericRange_Add(n->range, docId, value, 0);
+      rv.numRecords++;
+    }
 
     if (rv.changed) {
       NumericRangeNode_Balance(np);
       n = *np; // rebalance might have changed the root
-      // we are too deep - we don't retain this node's range anymore.
-      // this keeps memory footprint in check
       if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+        // we are too high up - we don't retain this node's range anymore.
         removeRange(n, &rv);
       }
     }
-    // return 1 or 0 to our called, so this is done recursively
+
     return rv;
   }
 
