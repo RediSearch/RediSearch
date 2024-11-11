@@ -15,7 +15,7 @@
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKeyCommon(RLookup *lookup, uint32_t flags) {
-    RLookupKey *ret = rm_calloc(1, sizeof(*ret));
+  RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
@@ -31,18 +31,13 @@ static RLookupKey *createNewKeyCommon(RLookup *lookup, uint32_t flags) {
   ++(lookup->rowlen);
 }
 
-static RLookupKey *createNewKeyC(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
+static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, uint32_t flags) {
   RLookupKey *ret = createNewKeyCommon(lookup, flags);
   // Set the name of the key.
-  ret->name = NewHiddenName(name, name_len, (flags & RLOOKUP_F_NAMEALLOC));
-  return ret;
-}
-
-static RLookupKey *createNewKey(RLookup *lookup, const HiddenName *name, uint32_t flags) {
-  RLookupKey *ret = createNewKeyCommon(lookup, flags);
-  // Set the name of the key.
-  const bool own = flags & RLOOKUP_F_NAMEALLOC;
-  ret->name = own ? HiddenName_Duplicate(name) : name;
+  if (flags & RLOOKUP_F_NAMEALLOC) {
+    HiddenName_TakeOwnership(keyName);
+  }
+  ret->name = HiddenName_Retain(keyName);
   return ret;
 }
 
@@ -57,14 +52,8 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
 
   /* Set the new flags */
   new->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
-  // If the old key was allocated, we take ownership of the name.
-  new->flags |= old->flags & RLOOKUP_F_NAMEALLOC;
 
   /* Make the old key inaccessible for new lookups */
-  if (old->path == old->name) {
-    // If the old key allocated the name and not the path, we take ownership of the allocation
-    old->flags &= ~RLOOKUP_F_NAMEALLOC;
-  }
   old->name = NULL;
   // 0 is a valid length if the user provided an empty string as a name.
   // This is safe as whenever we compare key names, we first check that the length are equal.
@@ -79,24 +68,6 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   }
 
   return new;
-}
-
-const FieldSpec *findFieldInSpecCacheC(const RLookup *lookup, const char *name, size_t name_len) {
-  const IndexSpecCache *cc = lookup->spcache;
-  if (!cc) {
-    return NULL;
-  }
-
-  const FieldSpec *fs = NULL;
-  for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!HiddenString_CompareC(cc->fields[ii].fieldName, name, name_len)) {
-      fs = cc->fields + ii;
-      break;
-    }
-  }
-
-  return fs;
-
 }
 
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenName *name) {
@@ -118,7 +89,13 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenName *n
 
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
-  key->path = (key->flags & RLOOKUP_F_NAMEALLOC) ? HiddenString_Duplicate(fs->fieldPath) : fs->fieldPath;
+  // TODO: Rlookup should also use hidden string
+  size_t pathLen = 0;
+  HiddenString* path = HiddenString_Retain(fs->fieldPath);
+  if (key->flags & RLOOKUP_F_NAMEALLOC) {
+    HiddenString_TakeOwnership(path);
+  }
+  key->path = path;
   if (FieldSpec_IsSortable(fs)) {
     key->flags |= RLOOKUP_F_SVSRC;
     key->svidx = fs->sortIdx;
@@ -136,15 +113,15 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
 
 // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
 // has promised to load the entire document.
-static RLookupKey *genKeyFromSpec(RLookup *lookup, const HiddenName *name, uint32_t flags) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+static RLookupKey *genKeyFromSpec(RLookup *lookup, HiddenName *fieldName, uint32_t flags) {
+  const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
   // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
   //        if the field has a different name (alias) than its path.
   if (!fs || (!FieldSpec_IsSortable(fs) && !(lookup->options & RLOOKUP_OPT_ALL_LOADED))) {
     return NULL;
   }
 
-  RLookupKey *key = createNewKey(lookup, name, flags);
+  RLookupKey *key = createNewKey(lookup, fieldName, flags);
   setKeyByFieldSpec(key, fs);
   return key;
 }
@@ -159,21 +136,26 @@ static RLookupKey *RLookup_FindKey(const RLookup *lookup, const HiddenName *name
   return NULL;
 }
 
-static RLookupKey *RLookup_FindKeyC(RLookup *lookup, const char *name, size_t name_len) {
-  for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    // match `name` to the name of the key
-    if (!HiddenName_CompareC(kk->name, name, name_len)) {
-      return kk;
+static RLookupKey *RLookup_CreateKey(RLookup* lookup, HiddenName *name, RLookupMode mode, uint32_t flags) {
+  flags &= RLOOKUP_GET_KEY_FLAGS;
+  if (mode != RLOOKUP_M_READ) {
+    return createNewKey(lookup, name, flags);
+  } else {
+    // Return the key if it exists in the lookup table, or if it exists in the schema as SORTABLE, or if unresolved keys are okay.
+    RLookupKey *key = genKeyFromSpec(lookup, name, flags);
+
+    // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
+    if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
+      key = createNewKey(lookup, name, flags);
+      key->flags |= RLOOKUP_F_UNRESOLVED;
     }
+    return key;
   }
-  return NULL;
 }
 
-static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const HiddenName *name, const HiddenName *field_name, RLookupMode mode, uint32_t flags) {
+static RLookupKey *RLookup_GetKey_common(RLookup* lookup, RLookupKey* key, HiddenName *field_name, RLookupMode mode, uint32_t flags) {
   // remove all flags that are not relevant to getting a key
   flags &= RLOOKUP_GET_KEY_FLAGS;
-  // First, look for the key in the lookup table for an existing key with the same name
-  RLookupKey *key = RLookup_FindKey(lookup, name);
 
   switch (mode) {
   // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
@@ -184,10 +166,8 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const HiddenName *name
   case RLOOKUP_M_LOAD:
     // NOTICE: you should not call GetKey for loading if it's illegal to load the key at the given state.
     // The responsibility of checking this is on the caller.
-    if (!key) {
-      key = createNewKey(lookup, name, flags);
-    } else if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
-                                                          !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
+    if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
+                                                   !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
                 (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
                 (key->flags & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
       // We found a key with the same name. We return NULL if:
@@ -213,14 +193,15 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const HiddenName *name
         // so we can use the sorting vector as the source, and we don't need to load it from the document.
         return NULL;
       }
-    } else {
+    } else if (HiddenName_Compare(key->name, field_name)) {
+      HiddenName *path = HiddenName_Retain(field_name);
+      if (key->flags & RLOOKUP_F_NAMEALLOC) {
+        HiddenName_TakeOwnership(path);
+      }
       // Field not found in the schema.
       // We assume `field_name` is the path to load from in the document.
-      if (!(key->flags & RLOOKUP_F_NAMEALLOC)) {
-        key->path = field_name;
-      } else if (HiddenName_Compare(field_name, name)) {
-        key->path = HiddenName_Duplicate(field_name);
-      } // else
+      key->path = path;
+      // else
         // If the caller requested to allocate the name, and the name is the same as the path,
         // it was already set to the same allocation for the name, so we don't need to do anything.
     }
@@ -234,45 +215,41 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const HiddenName *name
   // B. we didn't find the key at the lookup table:
   //    create a new key with the name and flags
   case RLOOKUP_M_WRITE:
-    if (!key) {
-      key = createNewKey(lookup, name, flags);
-    } else if (!(flags & RLOOKUP_F_OVERRIDE)) {
-      return NULL;
+    if (!(flags & RLOOKUP_F_OVERRIDE)) {
+      key = NULL;
     } else {
       // overrides the key, and sets the new key according to the flags.
       key = overrideKey(lookup, key, flags);
     }
-
-    key->flags |= RLOOKUP_F_QUERYSRC;
+    flags |= RLOOKUP_F_QUERYSRC;
     return key;
 
-  // Return the key if it exists in the lookup table, or if it exists in the schema as SORTABLE.
   case RLOOKUP_M_READ:
-    if (!key) {
-      // If we didn't find the key at the lookup table, check if it exists in
-      // the schema as SORTABLE, and create only if so.
-      key = genKeyFromSpec(lookup, name, flags);
-    }
-
-    // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
-    if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
-      key = createNewKey(lookup, name, flags);
-      key->flags |= RLOOKUP_F_UNRESOLVED;
-    }
     return key;
   }
-
   return NULL;
 }
 
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const HiddenName* name, const HiddenName *field_name, uint32_t flags) {
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName* name, HiddenName *field_name, uint32_t flags) {
   size_t name_len = 0;
-  return RLookup_GetKey_common(lookup, name, field_name, RLOOKUP_M_LOAD, flags);
+  // First, look for the key in the lookup table for an existing key with the same name
+  RLookupKey *key = RLookup_FindKey(lookup, name);
+  if (!key) {
+    // We know for sure we need to allocate a loose name
+    key = RLookup_CreateKey(lookup, name, RLOOKUP_M_LOAD, flags);
+  }
+  return RLookup_GetKey_common(lookup, key, field_name, RLOOKUP_M_LOAD, flags);
 }
 
-RLookupKey *RLookup_GetKey(RLookup *lookup, const HiddenName* name, RLookupMode mode, uint32_t flags) {
+RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName* name, RLookupMode mode, uint32_t flags) {
   assert(mode != RLOOKUP_M_LOAD);
-  return RLookup_GetKey_common(lookup, name, NULL, mode, flags);
+  // First, look for the key in the lookup table for an existing key with the same name
+  RLookupKey *key = RLookup_FindKey(lookup, name);
+  if (!key) {
+    // We know for sure we need to allocate a loose name
+    key = RLookup_CreateKey(lookup, name, mode, flags);
+  }
+  return RLookup_GetKey_common(lookup, key, NULL, mode, flags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -334,12 +311,12 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
   // Get the key first
-  HiddenName* value = NewHiddenName(name, len, false);
+  HiddenName *value = NewHiddenName(name, len, false);
   RLookupKey *k = RLookup_FindKey(lookup, value);
   if (!k) {
     k = RLookup_GetKey(lookup, value, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
   }
-  HiddenName_Free(value, false);
+  HiddenName_Free(value);
   RLookup_WriteKey(k, dst, v);
 }
 
@@ -398,9 +375,9 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     if (k->name != k->path) {
-      HiddenName_Free(k->path, true);
+      HiddenName_Free(k->path);
     }
-    HiddenName_Free(k->name, true);
+    HiddenName_Free(k->name);
   }
 }
 
@@ -808,17 +785,16 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
-  RLookupKey *rlk = RLookup_FindKeyC(pd->it, fieldCStr, fieldCStrLen);
+  HiddenName *hiddenField = NewHiddenName(fieldCStr, fieldCStrLen, false);
+  RLookupKey *rlk = RLookup_FindKey(pd->it, hiddenField);
   if (!rlk) {
     // First returned document, create the key.
-    HiddenName* hiddenField = NewHiddenName(fieldCStr, fieldCStrLen, false);
-    rlk = RLookup_GetKey_Load(pd->it, hiddenField, hiddenField, RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC);
-    HiddenName_Free(hiddenField, false);
-  } else {
-    if ((rlk->flags & RLOOKUP_F_QUERYSRC)
+    rlk = RLookup_GetKey_Load(pd->it, hiddenField, NULL, RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC);
+  }
+  HiddenName_Free(hiddenField);
+  if ((rlk->flags & RLOOKUP_F_QUERYSRC)
             /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
-      return; // Key name is already taken by a query key, or it's already loaded.
-    }
+    return; // Key name is already taken by a query key, or it's already loaded.
   }
 
   RLookupCoerceType ctype = RLOOKUP_C_STR;
@@ -859,13 +835,14 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
 
       const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-      RLookupKey *rlk = RLookup_FindKeyC(it, kstr, klen);
+      HiddenName *hiddenField = NewHiddenName(kstr, klen, false);
+      RLookupKey *rlk = RLookup_FindKey(it, hiddenField);
       if (!rlk) {
         // First returned document, create the key.
-        HiddenName* hiddenField = NewHiddenName(kstr, klen, false);
-        rlk = RLookup_GetKey_Load(it, hiddenField, hiddenField, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-        HiddenName_Free(hiddenField, false);
-      } else if ((rlk->flags & RLOOKUP_F_QUERYSRC)
+        rlk = RLookup_GetKey_Load(it, hiddenField, NULL, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
+      }
+      HiddenName_Free(hiddenField);
+      if ((rlk->flags & RLOOKUP_F_QUERYSRC)
                  /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
         continue; // Key name is already taken by a query key, or it's already loaded.
       }
@@ -939,12 +916,13 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   if (res == REDISMODULE_ERR) {
     goto done;
   }
-  RLookupKey *rlk = RLookup_FindKeyC(it, JSON_ROOT, strlen(JSON_ROOT));
+  HiddenName *hiddenJsonRoot = NewHiddenName(JSON_ROOT, strlen(JSON_ROOT), false);
+  RLookupKey *rlk = RLookup_FindKey(it, jsonRoot);
   if (!rlk) {
     // First returned document, create the key.
-    HiddenName* jsonRoot = NewHiddenName(JSON_ROOT, strlen(JSON_ROOT), false);
-    rlk = RLookup_GetKey_Load(it, jsonRoot, jsonRoot, RLOOKUP_F_NOFLAGS);
+    rlk = RLookup_GetKey_Load(it, hiddenJsonRoot, NULL, RLOOKUP_F_NOFLAGS);
   }
+  HiddenName_Free(hiddenJsonRoot);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
@@ -986,8 +964,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
     }
     FieldSpec *fs = spec->fields + idx;
     size_t length = 0;
-    const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
-    keys[i] = createNewKeyC(it, name, length, RLOOKUP_F_NOFLAGS);
+    keys[i] = createNewKey(it, fs->fieldName, RLOOKUP_F_NOFLAGS);
     keys[i]->path = fs->fieldPath;
   }
 

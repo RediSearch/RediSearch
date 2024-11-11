@@ -432,7 +432,7 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
     array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
-  HiddenName_Free(it->scoreField, false);
+  HiddenName_Free(it->scoreField);
   IndexResult_Free(it->base.current);
   VecSimQueryReply_Free(it->reply);
   VecSimQueryReply_IteratorFree(it->iter);
