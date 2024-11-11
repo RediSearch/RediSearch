@@ -14,22 +14,23 @@ extern "C" {
 #endif
 
 typedef struct HiddenString HiddenString;
+typedef struct LooseHiddenName LooseHiddenName;
 
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
 HiddenString *NewHiddenString(const char *name, uint64_t length, bool takeOwnership);
-void HiddenString_Free(const HiddenString *value, bool tookOwnership);
+void HiddenString_Free(const HiddenString *value);
 
 // comparison
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
+int HiddenString_CompareEx(const HiddenString *left, const LooseHiddenName *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
 int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right);
 int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length);
 
 // ownership managment
-HiddenString *HiddenString_Duplicate(const HiddenString *value);
+HiddenString *HiddenString_Retain(HiddenString *value);
 void HiddenString_TakeOwnership(HiddenString *hidden);
-void HiddenString_Clone(HiddenString *src, HiddenString **dst);
 
 // allowed actions
 void HiddenString_SaveToRdb(HiddenString* value, RedisModuleIO* rdb);
