@@ -354,7 +354,8 @@ InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRange
       RedisModule_ReplyWithStringBuffer(ctx, "range", strlen("range"));
       invIdxStats.blocks_efficiency += NumericRange_DebugReply(ctx, n->range).blocks_efficiency;
       len += 2;
-    } else {
+    }
+    if (!NumericRangeNode_IsLeaf(n)) {
       REPLY_WITH_DOUBLE("value", n->value, len);
       REPLY_WITH_LONG_LONG("maxDepth", n->maxDepth, len);
 
