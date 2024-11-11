@@ -36,7 +36,7 @@ void testEndpoint() {
 
   mu_assert_int_eq(REDIS_OK, MREndpoint_Parse("pass@[fe80::8749:8fe8:f206:2ab9]:6380", &ep));
   mu_check(!strcmp(ep.host, "fe80::8749:8fe8:f206:2ab9"));
-  mu_check(!strcmp(ep.auth, "pass"));
+  mu_check(!strcmp(ep.password, "pass"));
   mu_assert_int_eq(6380, ep.port);
   MREndpoint_Free(&ep);
 

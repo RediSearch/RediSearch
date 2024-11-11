@@ -93,7 +93,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
-                  .host = rm_strndup(host, hostlen), .port = port, .auth = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
+                  .host = rm_strndup(host, hostlen), .port = port, .password = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
           .id = id_str,
           .flags = 0,
       };
