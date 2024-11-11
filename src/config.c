@@ -326,13 +326,12 @@ CONFIG_GETTER(getWorkThreads) {
 
 // workers
 CONFIG_API_NUMERIC_SETTER(set_workers) {
-  // TODO: Implement external trigger
-  // uint32_t externalTriggerId = 0;
+  uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  // COORDINATOR_TRIGGER();
+  COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
@@ -1760,10 +1759,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "vss-max-resize registered");
   }
 
-  // TODO: Define max value for this configuration
   if (RedisModule_RegisterNumericConfig(
         ctx, "workers", DEFAULT_WORKER_THREADS,
-        REDISMODULE_CONFIG_DEFAULT, 0, 8192, get_workers,
+        REDISMODULE_CONFIG_DEFAULT, 0, MAX_WORKER_THREADS, get_workers,
         set_workers, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {

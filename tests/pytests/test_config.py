@@ -409,7 +409,7 @@ numericConfigs = [
     ('search.timeout', 'TIMEOUT', 500, 1, 999999999, False),
     ('search.union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, 999999999, False),
     ('search.vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, 999999999, False),
-    ('search.workers', 'WORKERS', 0, 0, 8192, False),
+    ('search.workers', 'WORKERS', 0, 0, 16, False),
     ('search.workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, 999999999, True),
 ]
 
@@ -458,8 +458,8 @@ def testConfigAPIRunTimeNumericParams():
 
     # Test numeric parameters
     for configName, ftConfigName, default, min, max, immutable in numericConfigs:
-        # TODO: These tests are not working as expected. Need to fix them.
-        if configName in ['search.max-aggregate-results', 'search.workers']:
+        # TODO: Implement search.max-aggregate-results, the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results']:
             continue
 
         if immutable:
@@ -494,8 +494,8 @@ def testModuleLoadexNumericParams():
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        # TODO: These tests are not working as expected. Need to fix them.
-        if configName in ['search.max-aggregate-results', 'search.workers']:
+        # TODO: Implement search.max-aggregate-results, the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results']:
             continue
 
         if (minValue != default):
