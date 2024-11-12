@@ -985,6 +985,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     applyNumIdx(gc, sctx, &ninfo);
     rt->numEntries -= ninfo.info.nentriesCollected;
+    rt->invertedIndexSize -= ninfo.info.nbytesCollected;
+    rt->invertedIndexSize += ninfo.info.nbytesAdded;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;

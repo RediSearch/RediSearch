@@ -222,6 +222,113 @@ TEST_F(RangeTest, testRangeIteratorMulti) {
   testRangeIteratorHelper(true);
 }
 
+TEST_F(RangeTest, EmptyTreeSanity) {
+  NumericRangeNode *failed_range = NULL;
+
+  NumericRangeTree *rt = NewNumericRangeTree();
+  size_t empty_numeric_mem_size = sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  if (failed_range) {
+    FAIL();
+  }
+
+  ASSERT_EQ(numeric_tree_mem, empty_numeric_mem_size);
+  ASSERT_EQ(numeric_tree_mem, rt->invertedIndexSize);
+
+  NumericRangeTree_Free(rt);
+}
+
+class RangeIndexTest : public ::testing::Test {
+protected:
+  RefManager *index;
+  RMCK::Context ctx;
+
+  void SetUp() override {
+    RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
+    index = createSpec(ctx);
+
+  }
+
+  void TearDown() override {
+    IndexSpec_RemoveFromGlobals({index});
+  }
+};
+
+TEST_F(RangeIndexTest, testNumericTreeMemory) {
+  size_t num_docs = 1000;
+
+  // adding the numeric field to the index
+  const char *numeric_field_name = "n";
+  RediSearch_CreateNumericField(index, numeric_field_name);
+
+  std::mt19937 gen(42);
+  std::uniform_int_distribution<size_t> dis(0, num_docs - 1);
+  std::unordered_set<size_t> generated_numbers;
+
+  size_t expected_mem = 0;
+  size_t last_added_mem = 0;
+  NumericRangeNode *failed_range = NULL;
+
+  auto print_failure = [&]() {
+    std::cout << "Expected range memory = " << expected_mem << std::endl;
+    std::cout << "Failed range mem: " << NumericRangeGetMemory(failed_range) << std::endl;
+  };
+
+  // add docs with random numbers
+  for (size_t i = 0 ; i < num_docs ; i++) {
+    size_t random_val = dis(gen);
+    generated_numbers.insert(random_val);
+    std::string val_str = std::to_string(random_val);
+    last_added_mem = ::addDocumentWrapper(ctx, index, numToDocStr(i).c_str(), numeric_field_name, val_str.c_str());
+    expected_mem += last_added_mem;
+  }
+
+  // Get the numeric tree
+  NumericRangeTree *rt = getNumericTree(get_spec(index), numeric_field_name);
+  ASSERT_NE(rt, nullptr);
+
+  // check memory
+  size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  ASSERT_EQ(rt->invertedIndexSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexSize, expected_mem);
+
+  if (failed_range) {
+    print_failure();
+    FAIL();
+  }
+
+  // delete some docs
+  size_t deleted_docs = num_docs / 4;
+
+  // Add random numbers if needed
+  while (generated_numbers.size() < deleted_docs) {
+      size_t random_val = dis(gen);
+      generated_numbers.insert(random_val);
+  }
+
+  for (const size_t& random_id : generated_numbers) {
+    auto rv = RS::deleteDocument(ctx, index, numToDocStr(random_id).c_str());
+    ASSERT_TRUE(rv) << "Failed to delete doc " << random_id;
+  }
+
+  // config gc
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  // Collect deleted docs
+  GCContext *gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+
+  // check memory
+  expected_mem = get_spec(index)->stats.invertedSize;
+  numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  if (failed_range) {
+    print_failure();
+    FAIL();
+  }
+  ASSERT_EQ(rt->invertedIndexSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexSize, expected_mem);
+
+}
+
 // int benchmarkNumericRangeTree() {
 //   NumericRangeTree *t = NewNumericRangeTree();
 //   int count = 1;

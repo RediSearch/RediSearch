@@ -77,3 +77,53 @@ void freeSpec(RefManager *ism) {
     IndexSpec_RemoveFromGlobals({ism});
     RSGlobalConfig.freeResourcesThread = free_resources_config;
 }
+
+NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
+  RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(spec, field, INDEXFLD_T_NUMERIC);
+
+  return openNumericKeysDict(spec, fmtkey, OPEN_INDEX_READ);
+}
+
+size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
+    InvertedIndex *idx = Node->range->entries;
+
+    size_t curr_node_memory = sizeof(InvertedIndex);
+
+    // iterate idx blocks
+    for (size_t i = 0; i < idx->size; ++i) {
+        curr_node_memory += sizeof(IndexBlock);
+        IndexBlock *blk = idx->blocks + i;
+        curr_node_memory += blk->buf.cap;
+    }
+
+    return curr_node_memory;
+
+}
+
+size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
+    if (!rt) {
+        return 0;
+    }
+
+    NumericRangeTreeIterator *Iterator = NumericRangeTreeIterator_New(rt);
+    NumericRangeNode *currNode = NULL;
+
+    size_t total_tree_mem = 0;
+
+    while ((currNode = NumericRangeTreeIterator_Next(Iterator))) {
+    if (!currNode->range) {
+        continue;
+    }
+    size_t curr_node_memory = NumericRangeGetMemory(currNode);
+
+    // Ensure stats are correct
+    if (curr_node_memory != currNode->range->invertedIndexSize) {
+        *failed_range = currNode;
+    }
+
+    total_tree_mem += curr_node_memory;
+    }
+
+    NumericRangeTreeIterator_Free(Iterator);
+    return total_tree_mem;
+}

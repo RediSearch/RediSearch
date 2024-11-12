@@ -25,4 +25,23 @@ RefManager *createSpec(RedisModuleCtx *ctx);
 
 void freeSpec(RefManager *ism);
 
-InvertedIndex *createIndex(int size, int idStep, int start_with=0);
+/**
+ * Iterates the inverted indices in a the numeric tree and calculates the memory used by them.
+ * This memory includes memory allocated for data and blocks metadata.
+ * NOTE: the returned memory doesn't not include the memory used by the tree itself.
+ *
+ * If @param rt is NULL, the function will return 0.
+ *
+ * this function also verifies that the memory counter of each range is equal to its actual memory.
+ * if not, if will set @param failed_range to point to the range that failed the check.
+ * Then, you can get the range memory by calling NumericRangeGetMemory(failed_range);
+ * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
+ */
+size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
+
+/**
+ * Returns the total memory consumed by the inverted index of a numeric tree node.
+ */
+size_t NumericRangeGetMemory(const NumericRangeNode *Node);
+
+NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);

@@ -394,6 +394,7 @@ NumericRangeTree *NewNumericRangeTree() {
 
   // updated value since splitCard should be >NR_CARD_CHECK
   ret->root = NewLeafNode(2, 16);
+  ret->invertedIndexSize = ret->root->range->invertedIndexSize;
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;
@@ -422,6 +423,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   }
   t->numRanges += rv.numRanges;
   t->numEntries++;
+  t->invertedIndexSize += rv.sz;
 
   return rv;
 }
@@ -513,6 +515,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
     t->revisionId++;
     t->numRanges += rv.numRanges;
     t->emptyLeaves = 0;
+    t->invertedIndexSize += rv.sz;
   }
   return rv;
 }
