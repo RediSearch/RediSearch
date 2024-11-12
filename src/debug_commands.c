@@ -192,9 +192,9 @@ DEBUG_COMMAND(NumericIndexSummary) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithError(sctx->redisCtx, "numeric inverted index was not initialized yet");
     goto end;
   }
 
@@ -227,9 +227,9 @@ DEBUG_COMMAND(DumpNumericIndex) {
   // It's a debug command... lets not waste time on string comparison.
   int with_headers = argc == 5 ? true : false;
 
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithError(sctx->redisCtx, "numeric inverted index was not initialized yet");
     goto end;
   }
   NumericRangeNode *currNode;
@@ -412,9 +412,9 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithError(sctx->redisCtx, "numeric inverted index was not initialized yet");
     goto end;
   }
 
@@ -688,9 +688,9 @@ DEBUG_COMMAND(GCCleanNumeric) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithError(sctx->redisCtx, "numeric inverted index was not initialized yet");
     goto end;
   }
 

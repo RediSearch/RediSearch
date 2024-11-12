@@ -23,6 +23,7 @@
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "redis_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -578,7 +579,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(ctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, OPEN_INDEX_WRITE);
   if (!rt) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
     return -1;

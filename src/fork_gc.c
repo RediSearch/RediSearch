@@ -421,7 +421,12 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+
+    // No entries were added to the numeric field, hence the tree was not initialized
+    if (!rt) {
+      continue;
+    }
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
@@ -958,8 +963,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    rt = OpenNumericIndex(sctx, keyName);
+      rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
