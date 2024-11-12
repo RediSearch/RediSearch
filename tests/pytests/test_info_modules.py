@@ -1,6 +1,7 @@
 from common import *
 from RLTest import Env
 import redis
+from inspect import currentframe
 
 
 def info_modules_to_dict(conn):
@@ -17,28 +18,21 @@ def info_modules_to_dict(conn):
         info[section_name][data[0]] = data[1]
   return info
 
-def get_search_field_info(type: str, count: int, sortable_count: int = 0, no_index_count: int = 0, index_errors: int = 0):
-    return f'{type}={count}' \
-           f'{",Sortable=" + str(sortable_count) if sortable_count else ""}' \
-           f'{",NoIndex=" + str(no_index_count) if no_index_count else ""}' \
-           f',IndexErrors={index_errors}'
+def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs):
+  # Base info
+  info = {
+    type: str(count),
+    'IndexErrors': str(index_errors),
+    **{key: str(value) for key, value in kwargs.items()}
+  }
+  # Default values Per field type (if needed)
+  if type == 'Vector':
+    info.setdefault('used_memory', ANY)
+    info.setdefault('mark_deleted_vectors', '0')
+  return info
 
-def get_search_tag_field_info(count:int,
-                              sortable_count: int = 0,
-                              no_index_count:int = 0,
-                              case_sensitive_count:int = 0,
-                              index_errors:int = 0):
-  return f'Tag={count}' \
-         f'{",Sortable=" + str(sortable_count) if sortable_count else ""}' \
-         f'{",NoIndex=" + str(no_index_count) if no_index_count else ""}' \
-         f'{",CaseSensitive=" + str(case_sensitive_count) if case_sensitive_count else ""}' \
-         f',IndexErrors={index_errors}'
-
-def get_search_vector_field_info(count: int, flat_count: int = 0, hnsw_count: int = 0, index_errors: int = 0):
-    return f'Vector={count}' \
-           f'{",Flat=" + str(flat_count) if flat_count else ""}' \
-           f'{",HNSW=" + str(hnsw_count) if hnsw_count else ""}' \
-           f',IndexErrors={index_errors}'
+def field_info_to_dict(info):
+  return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
 def testInfoModulesBasic(env):
   conn = env.getConnection()
@@ -70,12 +64,12 @@ def testInfoModulesBasic(env):
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',2,sortable_count=1,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_tag'], get_search_tag_field_info(2,sortable_count=1,case_sensitive_count=1))
-  env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',2,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geo'], get_search_field_info('Geo',1))
-  env.assertEqual(fieldsInfo['search_fields_vector'], get_search_vector_field_info(2,flat_count=1, hnsw_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], get_search_field_info('Geoshape',2,sortable_count=1,no_index_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 2, Sortable=1, CaseSensitive=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 2, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_vector']), get_search_field_info('Vector', 2, Flat=1, HNSW=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 2, Sortable=1 ,NoIndex=1))
 
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
@@ -105,9 +99,9 @@ def testInfoModulesAlter(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',1,sortable_count=1))
-  env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',1,no_index_count=1))
-  env.assertEqual(fieldsInfo['search_fields_geoshape'], get_search_field_info('Geoshape',1,sortable_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 1, Sortable=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, NoIndex=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 1, Sortable=1))
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
@@ -132,7 +126,7 @@ def testInfoModulesDrop(env):
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
-  env.assertEqual(fieldsInfo['search_fields_text'], get_search_field_info('Text',2,sortable_count=1))
+  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1))
   env.assertFalse('search_fields_numeric' in fieldsInfo) # no numeric fields since we removed idx2
 
 
@@ -150,9 +144,9 @@ def testInfoModulesAfterReload(env):
 
     fieldsInfo = info['search_fields_statistics']
     env.assertFalse('search_fields_text' in fieldsInfo) # no text fields
-    env.assertEqual(fieldsInfo['search_fields_numeric'], get_search_field_info('Numeric',1,sortable_count=1))
-    env.assertEqual(fieldsInfo['search_fields_geo'], get_search_field_info('Geo',1,sortable_count=1, no_index_count=1))
-    env.assertEqual(fieldsInfo['search_fields_tag'], get_search_tag_field_info(1, no_index_count=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, Sortable=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geo']), get_search_field_info('Geo', 1, Sortable=1, NoIndex=1))
+    env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 1, NoIndex=1))
 
 # This tests relies on shard info, which depends on the hashes in the *shard*.
 # In cluster mode, hashes might be stored in different shards, and the shard we call INFO for,
@@ -354,13 +348,170 @@ def test_redis_info():
     conn.execute_command('DEL', f'h{i}')
 
   # Force-invoke the GC
-  forceInvokeGC(env, 'idx')
-
-  # Wait for GC to finish
-  time.sleep(2)
+  forceInvokeGC(env)
 
   # Call `INFO` and check that the data is updated accordingly
   res = env.cmd('INFO', 'MODULES')
   env.assertGreater(res['search_bytes_collected'], 0)
   env.assertGreater(res['search_total_cycles'], 0)
   env.assertGreater(res['search_total_ms_run'], 0)
+
+
+def test_counting_queries(env: Env):
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  # Add some data
+  n_docs = 10
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(n_docs):
+      con.execute_command('HSET', i, 'n', i)
+
+  # Initiate counters
+  queries_counter = 0
+  query_commands_counter = 0
+  def check_counters():
+    line_number = currentframe().f_back.f_lineno
+    info = env.cmd('INFO', 'MODULES')
+    env.assertEqual(info['search_total_queries_processed'], queries_counter, message=f'line {line_number}')
+    env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
+
+  # Call `INFO` and check that the counters are 0
+  check_counters()
+
+  env.cmd('FT.SEARCH', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  env.cmd('FT.AGGREGATE', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', (n_docs // 2) + 1)
+  env.assertNotEqual(cursor, 0) # Cursor is not done
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(cursor, 0) # Cursor is done
+  query_commands_counter += 1 # Another query command, but not a unique query
+
+  # Only the query commands counter should be updated
+  check_counters()
+
+  # Call commands that do not count as queries
+
+  # Search with a non-existing index
+  env.expect('FT.SEARCH', 'idx2', '*').error()
+  check_counters()
+
+  # Search with a syntax error
+  env.expect('FT.SEARCH', 'idx', '(*').error()
+  check_counters()
+
+  # Aggregate with a non-existing index
+  env.expect('FT.AGGREGATE', 'idx2', '*').error()
+  check_counters()
+
+  # Aggregate with a syntax error
+  env.expect('FT.AGGREGATE', 'idx', '(*').error()
+  check_counters()
+
+  # Cursor read with a non-existing cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
+  check_counters()
+
+  if env.isCluster() and env.shardsCount > 1:
+    # Verify that the counters are updated correctly on a cluster
+    # We expect all the counters to sum up to the total number of queries
+
+    for i in range(1, env.shardsCount + 1):
+      env.getConnection(i).execute_command('FT.SEARCH', 'idx', '*')
+
+    queries_counter += env.shardsCount
+    query_commands_counter += env.shardsCount
+
+    actual_queries_counter = 0
+    actual_query_commands_counter = 0
+    for i in range(1, env.shardsCount + 1):
+      info = env.getConnection(i).execute_command('INFO', 'MODULES')
+      actual_queries_counter += info['search_total_queries_processed']
+      actual_query_commands_counter += info['search_total_query_commands']
+
+    env.assertEqual(actual_queries_counter, queries_counter)
+    env.assertEqual(actual_query_commands_counter, query_commands_counter)
+
+  # Validate we count the execution time of the query (with any command)
+  timeout = 300 # 5 minutes
+  total_query_execution_time = lambda: env.cmd('INFO', 'MODULES')['search_total_query_execution_time_ms']
+  with TimeLimit(timeout, 'FT.SEARCH'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.SEARCH', 'idx', '*')
+
+  with TimeLimit(timeout, 'FT.AGGREGATE'):
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      env.cmd('FT.AGGREGATE', 'idx', '*')
+
+  with TimeLimit(timeout, 'FT.CURSOR READ'):
+    cursor = 0
+    cur_time_count = total_query_execution_time()
+    while total_query_execution_time() == cur_time_count:
+      if cursor == 0:
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+        cur_time_count = total_query_execution_time()
+      _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+
+@skip(noWorkers=True)
+def test_counting_queries_BG():
+  env = Env(moduleArgs='WORKERS 2')
+  test_counting_queries(env)
+
+
+@skip(cluster=True, noWorkers=True)
+def test_redis_info_modules_vecsim():
+  env = Env(moduleArgs='WORKERS 2')
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  set_doc = lambda: env.expect('HSET', '1', 'vec', '????')
+
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  set_doc().equal(1) # Add a document for the first time
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['mark_deleted_vectors'], 0)
+
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+  set_doc().equal(0) # Add (override) the document for the second time
+
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['mark_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
+  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
+
+  env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+  [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
+
+  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['mark_deleted_vectors'], 0)
+  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)

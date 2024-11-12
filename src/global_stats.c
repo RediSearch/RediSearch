@@ -7,7 +7,8 @@
 #include "global_stats.h"
 #include "aggregate/aggregate.h"
 
-#define INCR(x) __atomic_add_fetch(&(x), 1, __ATOMIC_RELAXED)
+#define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
+#define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
 GlobalStats RSGlobalStats = {0};
@@ -59,7 +60,7 @@ void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd) {
 }
 
 // Assuming that the GIL is already acquired
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFieldsStats) {
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 
   if (RSGlobalStats.fieldsStats.numTextFields > 0){
@@ -115,6 +116,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    RedisModule_InfoAddFieldDouble(ctx, "used_memory", aggregatedFieldsStats->total_vector_idx_mem);
+    RedisModule_InfoAddFieldULongLong(ctx, "mark_deleted_vectors", aggregatedFieldsStats->total_mark_deleted_vectors);
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", FieldIndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)]);
     RedisModule_InfoEndDictField(ctx);
   }
@@ -129,6 +132,25 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", FieldIndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)]);
     RedisModule_InfoEndDictField(ctx);
   }
+}
+
+void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration) {
+  if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
+
+  INCR(RSGlobalStats.totalStats.total_query_commands);
+  INCR_BY(RSGlobalStats.totalStats.total_query_execution_time, duration);
+
+  if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
+    // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
+    INCR(RSGlobalStats.totalStats.total_queries_processed);
+  }
+}
+
+void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "queries");
+  RedisModule_InfoAddFieldULongLong(ctx, "total_queries_processed", READ(RSGlobalStats.totalStats.total_queries_processed));
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", READ(RSGlobalStats.totalStats.total_query_commands));
+  RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", READ(RSGlobalStats.totalStats.total_query_execution_time) / CLOCKS_PER_MILLISEC);
 }
 
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {

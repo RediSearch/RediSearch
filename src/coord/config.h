@@ -23,6 +23,8 @@ typedef struct {
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
   size_t topologyValidationTimeoutMS;
+  // The username for the ACL user used by the coordinator to connect to the shards on OSS cluster.
+  const char* aclUsername;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -31,16 +33,18 @@ extern SearchClusterConfig clusterConfig;
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
+#define DEFAULT_ACL_USERNAME "default"
 
-#define DEFAULT_CLUSTER_CONFIG                                                             \
-  (SearchClusterConfig) {                                                                  \
-    .connPerShard = 0,                                                                     \
-    .type = DetectClusterType(),                                                           \
-    .timeoutMS = 0,                                                                        \
-    .globalPass = NULL,                                                                    \
-    .cursorReplyThreshold = 1,                                                             \
-    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                                  \
-    .topologyValidationTimeoutMS = 30000,                                                  \
+#define DEFAULT_CLUSTER_CONFIG                                                 \
+  (SearchClusterConfig) {                                                      \
+    .connPerShard = 0,                                                         \
+    .type = DetectClusterType(),                                               \
+    .timeoutMS = 0,                                                            \
+    .globalPass = NULL,                                                        \
+    .cursorReplyThreshold = 1,                                                 \
+    .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
+    .topologyValidationTimeoutMS = 30000,                                      \
+    .aclUsername = DEFAULT_ACL_USERNAME,                                       \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
