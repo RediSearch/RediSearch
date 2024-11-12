@@ -391,8 +391,9 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   append_string(arr, "GROUPBY");
   append_uint(arr, gstp->nproperties);
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    const char* property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
-    append_string(arr, property);
+    char *property;
+    rm_asprintf(&property, "@%s", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
+    array_append(*arr, property);
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {

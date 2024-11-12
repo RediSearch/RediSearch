@@ -60,6 +60,18 @@ static void ReturnedField_Free(ReturnedField *field) {
   rm_free(field->highlightSettings.openTag);
   rm_free(field->highlightSettings.closeTag);
   rm_free(field->summarizeSettings.separator);
+  if (field->name) {
+    HiddenName_Free(field->name);
+  }
+  if (field->path) {
+    HiddenName_Free(field->path);
+  }
+}
+
+static ReturnedField ReturndedField_Copy(ReturnedField field) {
+  HiddenName_Retain(field.name);
+  HiddenName_Retain(field.path);
+  return field;
 }
 
 void FieldList_Free(FieldList *fields) {
@@ -82,8 +94,7 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
   ret->name = NewHiddenName(name, strlen(name), false);
-  const char* pathOrName = path ? path : name;
-  ret->path = NewHiddenName(pathOrName, strlen(pathOrName), false);
+  ret->path = path ? NewHiddenName(path, strlen(path), false) : HiddenName_Retain(ret->name);
   return ret;
 }
 
@@ -93,7 +104,7 @@ static void FieldList_RestrictReturn(FieldList *fields) {
     if (fields->fields[ii].explicitReturn == 0) {
       ReturnedField_Free(fields->fields + ii);
     } else if (ii != oix) {
-      fields->fields[oix++] = fields->fields[ii];
+      fields->fields[oix++] = ReturndedField_Copy(fields->fields[ii]);
     } else {
       ++oix;
     }
@@ -1527,10 +1538,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
+        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", HiddenName_GetUnsafe(ff->name, NULL));
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
+        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", HiddenName_GetUnsafe(ff->name, NULL));
         goto error;
       }
       ff->lookupKey = kk;

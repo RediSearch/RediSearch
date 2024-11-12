@@ -39,7 +39,6 @@ static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRe
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
-  RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
   // Dictionary holds a pointer tho the spec manager. Its the same reference owned by the specs dictionary.
   e->v.val = spec_ref.rm;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
