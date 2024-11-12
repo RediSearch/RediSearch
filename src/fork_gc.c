@@ -934,9 +934,12 @@ cleanup:
 static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
+  const FieldSpec *fs = NULL;
+  RedisModuleString *keyName = NULL;
   uint64_t rtUniqueId;
   NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
+  bool initialized = false;
   if (status == FGC_DONE) {
     return FGC_DONE;
   }
@@ -963,7 +966,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
+    if (!initialized) {
+      fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+      keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
+      fieldStats = FGC_getFieldStatsObject(gc, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+    }
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;

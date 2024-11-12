@@ -7,13 +7,16 @@
 #include "rules.h"
 #include "query_error.h"
 #include "inverted_index.h"
+#include "numeric_index.h"
 #include "rwlock.h"
+#include "index_utils.h"
 extern "C" {
 #include "util/dict.h"
 }
 
 #include <set>
-
+#include <random>
+#include <unordered_set>
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
  * without causing any data corruption or loss.
@@ -40,7 +43,6 @@ static timespec getTimespecCb(void *) {
 }
 
 typedef struct {
-  RedisModuleCtx *ctx;
   void *fgc;
   RefManager *ism;
 } args_t;
@@ -57,12 +59,10 @@ void *cbWrapper(void *args) {
   }
 
   // run ForkGC
-  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgcArgs->fgc);
+  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgc);
   rm_free(args);
   return NULL;
 }
-
-
 
 class FGCTest : public ::testing::Test {
  protected:
@@ -71,56 +71,29 @@ class FGCTest : public ::testing::Test {
   ForkGC *fgc;
 
   void SetUp() override {
-    ism = createIndex(ctx);
+    ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
     runGcThread();
   }
 
   void runGcThread() {
-    Spec_AddToDict(ism);
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
     thread = {0};
     args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-    *args = {.ctx = ctx, .fgc = fgc, .ism = ism};
+    *args = {.fgc = fgc, .ism = ism};
 
     pthread_create(&thread, NULL, cbWrapper, args);
   }
+
   void TearDown() override {
-    // Return the reference
-    IndexSpec_RemoveFromGlobals({ism});
+    freeSpec(ism);
     // Detach from the gc to make sure we are not stuck on waiting
     // for the pauseState to be changed.
     pthread_detach(thread);
   }
 
-  RefManager *createIndex(RedisModuleCtx *ctx) {
-    RSIndexOptions opts = {0};
-    opts.gcPolicy = GC_POLICY_FORK;
-    auto ism = RediSearch_CreateIndex("idx", &opts);
-    EXPECT_FALSE(ism == NULL);
-    EXPECT_FALSE(get_spec(ism)->gc == NULL);
-
-    // Let's use a tag field, so that there's only one entry in the tag index
-    RediSearch_CreateField(ism, "f1", RSFLDTYPE_TAG, 0);
-
-    const char *pref = "";
-    SchemaRuleArgs args = {0};
-    args.type = "HASH";
-    args.prefixes = &pref;
-    args.nprefixes = 1;
-
-    QueryError status = {};
-
-    get_spec(ism)->rule = SchemaRule_Create(&args, {ism}, &status);
-
-    return ism;
-  }
-
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
-    size_t beforAddMem = (get_spec(ism))->stats.invertedSize;
-    assert(RS::addDocument(ctx, ism, docid, field, value));
-    return (get_spec(ism))->stats.invertedSize - beforAddMem;
-
+    return ::addDocumentWrapper(ctx, ism, docid, field, value);
   }
 };
 
@@ -134,20 +107,25 @@ static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
   return iv;
 }
 
-static std::string numToDocid(unsigned id) {
-  char buf[1024];
-  sprintf(buf, "doc%u", id);
-  return std::string(buf);
+class FGCTestTag : public FGCTest {
+protected:
+  const char *tag_field_name = "f1";
+
+  void SetUp() override {
+    FGCTest::SetUp();
+    RediSearch_CreateTagField(ism, "f1");
+  }
+};
 }
 
 /** Mark one of the entries in the last block as deleted while the child is running.
  * This means the number of original entries recorded by the child and the current number of
  * entries are equal, and we conclude there weren't any changes in the parent to the block buffer.
  * Make sure the modification take place. */
-TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
+TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // Add two documents
-  size_t docSize = addDocumentWrapper("doc1", "f1", "hello");
+  size_t docSize = this->addDocumentWrapper("doc1", "f1", "hello");
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
   /**
    * To properly test this; we must ensure that the gc is forked AFTER
@@ -189,7 +167,7 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
  * In this case, we discard the changes collected by the child process, so eventually the
  * index contains both documents.
  * */
-TEST_F(FGCTest, testRemoveLastBlockWhileUpdate) {
+TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
 
   // Add a document
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
@@ -229,14 +207,14 @@ TEST_F(FGCTest, testRemoveLastBlockWhileUpdate) {
  * fill up the last block and add more blocks.
  * Make sur eno modifications are applied.
  * */
-TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
+TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
 
   unsigned curId = 1;
 
 
   // populate the first(last) block with two document
-  ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
-  ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
 
   // Delete one of the documents.
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
@@ -251,7 +229,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
   sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
-    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
   }
   ASSERT_EQ(3, TotalIIBlocks);
 
@@ -282,7 +260,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
 /** Delete all the blocks, while the main process adds entries to the last block.
  * All the blocks, except the last block, should be removed.
 */
-TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
+TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
 
   unsigned curId = 1;
   char buf[1024];
@@ -295,7 +273,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   size_t lastBlockMemory = 0;
   while (iv->size < 2) {
     size_t n = sprintf(buf, "doc%u", curId++);
-    lastBlockMemory = addDocumentWrapper(buf, "f1", "hello");
+    lastBlockMemory = this->addDocumentWrapper(buf, "f1", "hello");
   }
 
   ASSERT_EQ(2, TotalIIBlocks);
@@ -319,7 +297,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   size_t invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
   // Add a new document so the last block's is different from the the one copied to the fork.
   size_t n = sprintf(buf, "doc%u", curId);
-  lastBlockMemory += addDocumentWrapper(buf, "f1", "hello");
+  lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
   const char *originalData = iv->blocks[iv->size - 1].buf.data;
@@ -350,7 +328,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
  * Repair the last block, while adding more documents to it and removing a middle block.
  * This test should be checked with valgrind as it cause index corruption.
  */
-TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
+TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // Delete the first block:
   char buf[1024];
   unsigned curId = 1;
@@ -428,7 +406,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 /**
  * Repair the last block, while adding more documents to it...
  */
-TEST_F(FGCTest, testRepairLastBlock) {
+TEST_F(FGCTestTag, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
@@ -470,7 +448,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
  * Test repair middle block while last block is removed on child and modified on parent.
  * Make sure there is no datalose.
  */
-TEST_F(FGCTest, testRepairMiddleRemoveLast) {
+TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
@@ -511,7 +489,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
  * Ensure that removing a middle block while adding to the parent will maintain
  * the parent's changes
  */
-TEST_F(FGCTest, testRemoveMiddleBlock) {
+TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
@@ -519,12 +497,12 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
-    RS::addDocument(ctx, ism, numToDocid(++curId).c_str(), "f1", "hello");
+    RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
 
   unsigned firstMidId = curId;
   while (iv->size < 3) {
-    RS::addDocument(ctx, ism, numToDocid(++curId).c_str(), "f1", "hello");
+    RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
   unsigned firstLastBlockId = curId;
   unsigned lastMidId = curId - 1;
@@ -534,7 +512,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
 
   // Delete the middle block
   for (size_t ii = firstMidId; ii < firstLastBlockId; ++ii) {
-    RS::deleteDocument(ctx, ism, numToDocid(ii).c_str());
+    RS::deleteDocument(ctx, ism, numToDocStr(ii).c_str());
   }
 
   FGC_ForkAndWaitBeforeApply(fgc);
@@ -542,7 +520,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // While the child is running, fill the last block and add another block.
   unsigned newLastBlockId = curId + 1;
   while (iv->size < 4) {
-    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(++curId).c_str(), "f1", "hello"));
+    ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
   }
   unsigned lastLastBlockId = curId - 1;
 
@@ -563,7 +541,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Now search for the ID- let's be sure it exists
   auto vv = RS::search(ism, "@f1:{hello}");
   std::set<std::string> ss(vv.begin(), vv.end());
-  ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
-  ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
-  ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
+  ASSERT_NE(ss.end(), ss.find(numToDocStr(newLastBlockId)));
+  ASSERT_NE(ss.end(), ss.find(numToDocStr(newLastBlockId - 1)));
+  ASSERT_NE(ss.end(), ss.find(numToDocStr(lastLastBlockId)));
 }

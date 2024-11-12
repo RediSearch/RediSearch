@@ -4,8 +4,13 @@
 #include "numeric_index.h"
 #include "index.h"
 #include "rmutil/alloc.h"
+#include "index_utils.h"
+#include "redisearch_api.h"
+#include "common.h"
 
 #include <stdio.h>
+#include <random>
+#include <unordered_set>
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
@@ -71,7 +76,6 @@ void testRangeIteratorHelper(bool isMulti) {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT_TRUE(t != NULL);
 
-  
   const size_t N = 100000;
   std::vector<d_arr> lookup;
   std::vector<uint8_arr> matched;
@@ -147,13 +151,13 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      
+
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
-      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);      
+      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }
 
     for (int i = 1; i <= N; i++) {
@@ -168,7 +172,7 @@ void testRangeIteratorHelper(bool isMulti) {
           // Keep trying - could be found
         }
       }
-      
+
       if (missed) {
         printf("Miss: %d\n", i);
       }
@@ -185,11 +189,11 @@ void testRangeIteratorHelper(bool isMulti) {
 
 
   // test loading limited range
-  double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}}; 
+  double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}};
 
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
-    for (int j = 0; j < 2; ++j) {   
+    for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
