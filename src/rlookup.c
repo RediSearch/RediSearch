@@ -14,7 +14,7 @@
 #include "util/arr.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
-static RLookupKey *createNewKeyCommon(RLookup *lookup, uint32_t flags) {
+static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
   if (!lookup->head) {
@@ -29,10 +29,6 @@ static RLookupKey *createNewKeyCommon(RLookup *lookup, uint32_t flags) {
 
   // Increase the RLookup table row length. (all rows have the same length).
   ++(lookup->rowlen);
-}
-
-static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, uint32_t flags) {
-  RLookupKey *ret = createNewKeyCommon(lookup, flags);
   // Set the name of the key.
   if (flags & RLOOKUP_F_NAMEALLOC) {
     HiddenName_TakeOwnership(keyName);
@@ -153,7 +149,7 @@ static RLookupKey *RLookup_CreateKey(RLookup* lookup, HiddenName *name, RLookupM
   }
 }
 
-static RLookupKey *RLookup_GetKey_common(RLookup* lookup, RLookupKey* key, HiddenName *field_name, RLookupMode mode, uint32_t flags) {
+static RLookupKey *RLookup_GetExistingKey(RLookup* lookup, RLookupKey* key, HiddenName *field_name, RLookupMode mode, uint32_t flags) {
   // remove all flags that are not relevant to getting a key
   flags &= RLOOKUP_GET_KEY_FLAGS;
 
@@ -236,9 +232,10 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName* name, HiddenName *f
   RLookupKey *key = RLookup_FindKey(lookup, name);
   if (!key) {
     // We know for sure we need to allocate a loose name
-    key = RLookup_CreateKey(lookup, name, RLOOKUP_M_LOAD, flags);
+    return RLookup_CreateKey(lookup, name, RLOOKUP_M_LOAD, flags);
+  } else {
+    return RLookup_GetExistingKey(lookup, key, field_name, RLOOKUP_M_LOAD, flags);
   }
-  return RLookup_GetKey_common(lookup, key, field_name, RLOOKUP_M_LOAD, flags);
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName* name, RLookupMode mode, uint32_t flags) {
@@ -247,9 +244,10 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName* name, RLookupMode mode, 
   RLookupKey *key = RLookup_FindKey(lookup, name);
   if (!key) {
     // We know for sure we need to allocate a loose name
-    key = RLookup_CreateKey(lookup, name, mode, flags);
+    return RLookup_CreateKey(lookup, name, mode, flags);
+  } else {
+    return RLookup_GetExistingKey(lookup, key, NULL, mode, flags);
   }
-  return RLookup_GetKey_common(lookup, key, NULL, mode, flags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
