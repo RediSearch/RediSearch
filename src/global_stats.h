@@ -40,6 +40,7 @@ typedef struct {
   clock_t total_query_execution_time; // Total time spent on queries (in clock ticks)
   uint_least8_t used_dialects;        // bitarray of dialects used by all indices
   size_t logically_deleted;           // Number of logically deleted documents in all indices
+                                      // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
 } TotalGlobalStats;
 
 // The global stats object type
@@ -90,4 +91,4 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
 /**
  * Add all the index-related global information to the INFO command.
  */
-void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);

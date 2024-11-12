@@ -1273,7 +1273,6 @@ static int periodicCb(void *privdata) {
     return 0;
   }
 
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
     StrongRef_Release(early_check);
     return 1;
@@ -1300,6 +1299,9 @@ static int periodicCb(void *privdata) {
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
+  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
+  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
 
   gc->execState = FGC_STATE_SCANNING;
 
@@ -1363,6 +1365,7 @@ static int periodicCb(void *privdata) {
     }
   }
 
+  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);
@@ -1370,7 +1373,6 @@ static int periodicCb(void *privdata) {
   gc->stats.numCycles++;
   gc->stats.totalMSRun += msRun;
   gc->stats.lastRunTimeMs = msRun;
-  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
 
   return gcrv;
 }
