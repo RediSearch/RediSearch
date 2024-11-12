@@ -1332,7 +1332,8 @@ TEST_F(LLApiTest, testInfoSize) {
 TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  SchemaRuleArgs args = {.type = "HASH", .index_all = "ENABLE"};
+  char config_index_all[] = "ENABLE";
+  SchemaRuleArgs args = {.type = "HASH", .index_all = config_index_all};
   RediSearch_IndexExisting(index, &args);
 
   GCContext *gc;

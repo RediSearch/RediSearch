@@ -51,7 +51,6 @@ static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.totalCollected += bytesCollected;
   gc->stats.totalCollected -= bytesAdded;
 }
-}
 
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
@@ -972,7 +971,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (!initialized) {
       fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
-      fieldStats = FGC_getFieldStatsObject(gc, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
     }
 
