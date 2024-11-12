@@ -351,7 +351,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -896,14 +896,12 @@ Version supportedVersion = {
     .patchVersion = 0,
 };
 
-static void GetRedisVersion() {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+static void GetRedisVersion(RedisModuleCtx *ctx) {
   RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
   if (!reply) {
     // could not get version, it can only happened when running the tests.
     // set redis version to supported version.
     redisVersion = supportedVersion;
-    RedisModule_FreeThreadSafeContext(ctx);
     return;
   }
   RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
@@ -924,7 +922,7 @@ static void GetRedisVersion() {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
                &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
     if (n != 4) {
-      RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
+      RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
     }
   }
 
@@ -940,7 +938,6 @@ static void GetRedisVersion() {
     RedisModule_FreeCallReply(reply);
   }
 
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1020,7 +1017,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  GetRedisVersion();
+  GetRedisVersion(ctx);
 
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));
@@ -2728,12 +2725,13 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
   rm_asprintf(&localCmd, "_%.*s", len, cmd);
   /*
    * v - argv input array of RedisModuleString
+   * E - return errors as RedisModuleCallReply object (instead of NULL)
    * C - same client
    * M - respect OOM
    * 0 - same RESP protocol
    * ! - replicate the command if needed (allows for replication)
    */
-  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vCM0!", argv + 1, argc - 1);
+  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vECM0!", argv + 1, argc - 1);
   RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
   rm_free(localCmd);
   RedisModule_FreeCallReply(r);
@@ -3078,6 +3076,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     MR_requestCompleted();
     MRCtx_Free(mrctx);
   }
+  return REDISMODULE_OK;
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -3334,11 +3333,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
-    // suggestion commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGGET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGDEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SUGLEN", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read"))
     // write commands (on enterprise we do not define them, the dmc take care of them)
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
