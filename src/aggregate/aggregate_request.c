@@ -1363,7 +1363,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
           // We failed to get the key for reading, so we can't fail to get it for loading.
-          sortkey = RLookup_GetKey_Load(lk, key, NULL, RLOOKUP_F_NOFLAGS);
+          sortkey = RLookup_GetKey_Load(lk, key, key, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
