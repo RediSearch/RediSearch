@@ -749,9 +749,9 @@ def testNumericTree(env:Env):
 
     def cause_split(val):
         # Add close-but-not-equal values to the tree, until the tree is split
-        start_tree = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)
+        start_tree = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field, 'MINIMAL')
         epsilon = 0.
-        while equal_structure(start_tree, env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)):
+        while equal_structure(start_tree, env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field, 'MINIMAL')):
             add_val(val + epsilon)
             epsilon += 0.0001
 
@@ -779,7 +779,7 @@ def testNumericTree(env:Env):
     for i in range(5):
         cause_split(i)
 
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field, 'MINIMAL'))
 
     env.flush()
     env.expect(config_cmd(), 'SET', '_NUMERIC_RANGES_PARENTS', '2').ok()
@@ -790,4 +790,4 @@ def testNumericTree(env:Env):
     cause_split(2) # to the right
     cause_split(1) # to the left (of 2, right of 0)
 
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field, 'MINIMAL'))
