@@ -74,7 +74,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   int rc = 1;
   if (!*out) {
     if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, name, NULL, RLOOKUP_F_HIDDEN);
+      *out = RLookup_GetKey_Load(options->srclookup, name, name, RLOOKUP_F_HIDDEN);
       *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
     }
     // We currently allow implicit loading only for known fields from the schema.
