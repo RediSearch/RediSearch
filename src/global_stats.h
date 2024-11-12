@@ -85,7 +85,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 /**
  * Increase the number of logically deleted documents in all indices by `toAdd`.
  */
-void IndexsGlobalStats_UpdateLogicallyDeleted(int toAdd);
+void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
 
 /**
  * Add all the index-related global information to the INFO command.

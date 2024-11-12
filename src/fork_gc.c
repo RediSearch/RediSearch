@@ -1299,11 +1299,11 @@ static int periodicCb(void *privdata) {
     return 0;
   }
 
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
     StrongRef_Release(early_check);
     return 1;
   }
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   int gcrv = 1;
   pid_t cpid;
   TimeSample ts;

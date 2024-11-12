@@ -163,7 +163,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
   }
 }
 
-void IndexsGlobalStats_UpdateLogicallyDeleted(int toAdd) {
+void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
     INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
 }
 
