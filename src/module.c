@@ -61,7 +61,7 @@
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #ifdef RS_CLUSTER_ENTERPRISE
 #define PROXY_FILTERED "_proxy-filtered "
-#else
+#else // RS_CLUSTER_OSS
 #define PROXY_FILTERED ""
 #endif
 
