@@ -1022,23 +1022,16 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  if (IsCount(req)) {
+  size_t maxResults = astp->offset + astp->limit;
+  if (!maxResults) {
+    maxResults = DEFAULT_LIMIT;
+  }
+
+  maxResults = MIN(maxResults, IsSearch(req) ? RSGlobalConfig.maxSearchResults : RSGlobalConfig.maxAggregateResults);
+  if (IsCount(req) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
-  }
-
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
-  }
-
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
-  }
-
-  if (!(req->reqflags & QEXEC_F_IS_SEARCH) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
   }
 
   if (astp->sortKeys) {
@@ -1058,13 +1051,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+    rp = RPSorter_NewByScore(maxResults);
     up = pushRP(req, rp, up);
   }
 
