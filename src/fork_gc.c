@@ -1299,9 +1299,6 @@ static int periodicCb(void *privdata) {
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
-  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
 
   gc->execState = FGC_STATE_SCANNING;
 
@@ -1320,6 +1317,9 @@ static int periodicCb(void *privdata) {
     return 1;
   }
 
+  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
+  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
