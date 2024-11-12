@@ -222,6 +222,11 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName *name, RLookupMode mode, 
  *    and the field was normalized. A sortable un-normalized field counts as loaded.
  */
 RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags);
+/**
+* Searches for an existing key in the lookup table. If the key is not found, it will be created.
+* If it is found we will verify that it isn't used by the query and that the name can be used
+*/
+RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
