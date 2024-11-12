@@ -23,17 +23,17 @@ static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, uint32_t f
     lookup->tail->next = ret;
     lookup->tail = ret;
   }
-  ret->path = ret->name;
-  ret->dstidx = lookup->rowlen;
-  ret->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
-
-  // Increase the RLookup table row length. (all rows have the same length).
-  ++(lookup->rowlen);
   // Set the name of the key.
   if (flags & RLOOKUP_F_NAMEALLOC) {
     HiddenName_TakeOwnership(keyName);
   }
   ret->name = HiddenName_Retain(keyName);
+  ret->path = HiddenName_Retain(ret->name);
+  ret->dstidx = lookup->rowlen;
+  ret->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
+
+  // Increase the RLookup table row length. (all rows have the same length).
+  ++(lookup->rowlen);
   return ret;
 }
 
@@ -42,8 +42,8 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   RLookupKey *new = rm_calloc(1, sizeof(*new));
 
   /* Copy the old key to the new one */
-  new->name = old->name; // taking ownership of the name
-  new->path = new->name; // keeping the initial default of path = name. Path resolution will happen later.
+  new->name = old->name; // taking ownership of the name, no need
+  new->path = HiddenName_Retain(new->name); // keeping the initial default of path = name. Path resolution will happen later.
   new->dstidx = old->dstidx;
 
   /* Set the new flags */
@@ -87,11 +87,11 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
   // TODO: Rlookup should also use hidden string
   size_t pathLen = 0;
-  HiddenString* path = HiddenString_Retain(fs->fieldPath);
+  HiddenString_Free(key->path);
+  key->path = HiddenString_Retain(fs->fieldPath);
   if (key->flags & RLOOKUP_F_NAMEALLOC) {
-    HiddenString_TakeOwnership(path);
+    HiddenString_TakeOwnership(key->path);
   }
-  key->path = path;
   if (FieldSpec_IsSortable(fs)) {
     key->flags |= RLOOKUP_F_SVSRC;
     key->svidx = fs->sortIdx;
@@ -132,12 +132,9 @@ static RLookupKey *RLookup_FindKey(const RLookup *lookup, const HiddenName *name
   return NULL;
 }
 
-static RLookupKey *RLookup_GetKey_common(RLookup *lookup, HiddenName *name, HiddenName *field_name, RLookupMode mode, uint32_t flags) {
+static RLookupKey *RLookup_GetKey_common(RLookup *lookup, RLookupKey *key, HiddenName *name, HiddenName *field_name, RLookupMode mode, uint32_t flags) {
   // remove all flags that are not relevant to getting a key
   flags &= RLOOKUP_GET_KEY_FLAGS;
-  // First, look for the key in the lookup table for an existing key with the same name
-  RLookupKey *key = RLookup_FindKey(lookup, name);
-
   switch (mode) {
   // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
   // 2. create a new key with the name of the field, and mark it as doc-source.
@@ -180,8 +177,10 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, HiddenName *name, Hidd
       // Field not found in the schema.
       // We assume `field_name` is the path to load from in the document.
       if (!(key->flags & RLOOKUP_F_NAMEALLOC)) {
+        HiddenName_Free(key->path);
         key->path = HiddenName_Retain(field_name);
       } else if (name != field_name) {
+        HiddenName_Free(key->path);
         key->path = HiddenName_Retain(field_name);
         HiddenName_TakeOwnership(key->path);
       } // else
@@ -230,12 +229,26 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, HiddenName *name, Hidd
 }
 
 RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, field_name, RLOOKUP_M_LOAD, flags);
+  // First, look for the key in the lookup table for an existing key with the same name
+  RLookupKey *key = RLookup_FindKey(lookup, name);
+  return RLookup_GetKey_common(lookup, key, name, field_name, RLOOKUP_M_LOAD, flags);
+}
+
+RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags) {
+  // First, look for the key in the lookup table for an existing key with the same name
+  RLookupKey *key = RLookup_FindKey(lookup, name);
+  if (!key) {
+    key = RLookup_GetKey_common(lookup, key, name, field_name, RLOOKUP_M_LOAD, flags);
+  } else if (key->flags & RLOOKUP_F_QUERYSRC) {
+    key = NULL;
+  }
+  return key;
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName *name, RLookupMode mode, uint32_t flags) {
   assert(mode != RLOOKUP_M_LOAD);
-  return RLookup_GetKey_common(lookup, name, NULL, mode, flags);
+  RLookupKey *key = RLookup_FindKey(lookup, name);
+  return RLookup_GetKey_common(lookup, key, name, NULL, mode, flags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -359,10 +372,11 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
-  if (k->flags & RLOOKUP_F_NAMEALLOC) {
-    if (k->name != k->path) {
-      HiddenName_Free(k->path);
-    }
+  // in case an override was called for this key, we need to check if we have a name or a path
+  if (k->path) {
+    HiddenName_Free(k->path);
+  }
+  if (k->name) {
     HiddenName_Free(k->name);
   }
 }
@@ -630,7 +644,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, HiddenName_GetUnsafe(kk->path, NULL), &val, NULL);
 
   if (val != NULL) {
     // `val` was created by `RedisModule_HashGet` and is owned by us.
@@ -772,15 +786,10 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
   HiddenName *hiddenField = NewHiddenName(fieldCStr, fieldCStrLen, false);
-  RLookupKey *rlk = RLookup_FindKey(pd->it, hiddenField);
-  if (!rlk) {
-    // First returned document, create the key.
-    rlk = RLookup_GetKey_Load(pd->it, hiddenField, hiddenField, RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC);
-  }
+  RLookupKey *rlk = RLookup_GetKey_FirstLoad(pd->it, hiddenField, hiddenField, RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC);
   HiddenName_Free(hiddenField);
-  if ((rlk->flags & RLOOKUP_F_QUERYSRC)
-            /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
-    return; // Key name is already taken by a query key, or it's already loaded.
+  if (!rlk) {
+    return;
   }
 
   RLookupCoerceType ctype = RLOOKUP_C_STR;
@@ -822,15 +831,10 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
 
       const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
       HiddenName *hiddenField = NewHiddenName(kstr, klen, false);
-      RLookupKey *rlk = RLookup_FindKey(it, hiddenField);
-      if (!rlk) {
-        // First returned document, create the key.
-        rlk = RLookup_GetKey_Load(it, hiddenField, hiddenField, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
-      }
+      RLookupKey *rlk = RLookup_GetKey_FirstLoad(it, hiddenField, hiddenField, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_FORCE_LOAD);
       HiddenName_Free(hiddenField);
-      if ((rlk->flags & RLOOKUP_F_QUERYSRC)
-                 /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/) {
-        continue; // Key name is already taken by a query key, or it's already loaded.
+      if (!rlk) {
+          continue;
       }
       RLookupCoerceType ctype = RLOOKUP_C_STR;
       if (!options->forceString && rlk->flags & RLOOKUP_T_NUMERIC) {
@@ -951,7 +955,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
     FieldSpec *fs = spec->fields + idx;
     size_t length = 0;
     keys[i] = createNewKey(it, fs->fieldName, RLOOKUP_F_NOFLAGS);
-    keys[i]->path = fs->fieldPath;
+    keys[i]->path = HiddenName_Retain(fs->fieldPath);
   }
 
   // load
