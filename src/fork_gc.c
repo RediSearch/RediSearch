@@ -46,8 +46,11 @@ typedef enum {
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
             size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  sctx->spec->stats.invertedSize += bytesAdded - bytesCollected;
+  sctx->spec->stats.invertedSize += bytesAdded;
+  sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
+  gc->stats.totalCollected -= bytesAdded;
+}
 }
 
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
@@ -1006,7 +1009,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   rm_free(fieldName);
 
-  if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
+  if (gc->cleanNumericEmptyNodes && rt && rt->emptyLeaves >= rt->numRanges / 2) {
     StrongRef spec_ref = WeakRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) {
@@ -1014,10 +1017,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
-    if (gc->cleanNumericEmptyNodes) {
-      NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
-      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
-    }
+
+    NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+    // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
+    FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
   }
