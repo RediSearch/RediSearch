@@ -929,3 +929,72 @@ def testNumericOperatorsModifierWithEscapes():
         env.assertEqual(res, [1, 'key2'])
 
         env.flush()
+
+@skip(cluster=True)
+def testNumericTree(env:Env):
+    idx = 'idx'
+    field = 'n'
+    cardCheck = 10 # currently we check the cardinality every 10 docs
+
+    cur_id = 0
+    def add_val(val):
+        # Adds `cardCheck` docs with value `val` for field `n`, so the
+        # range-node cardinality is updated with this value
+        nonlocal cur_id
+        for i in range(cardCheck):
+            env.cmd('HSET', 'doc%d' % (i + cur_id), 'n', val)
+        cur_id += cardCheck
+
+    def equal_structure(tree1, tree2):
+        def equal_subtree_structure(st1, st2):
+            st1 = to_dict(st1)
+            st2 = to_dict(st2)
+            if 'left' not in st1 or 'right' not in st1:
+                return 'left' not in st2 or 'right' not in st2
+            return equal_subtree_structure(st1['left'], st2['left']) and equal_subtree_structure(st1['right'], st2['right'])
+        return equal_subtree_structure(to_dict(tree1)['root'], to_dict(tree2)['root'])
+
+    def cause_split(val):
+        # Add close-but-not-equal values to the tree, until the tree is split
+        start_tree = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)
+        epsilon = 0.
+        while equal_structure(start_tree, env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)):
+            add_val(val + epsilon)
+            epsilon += 0.0001
+
+    # Recursively validate the maxDepth field in the tree
+    def validate_tree(tree):
+        maxDepthRange = int(env.cmd(config_cmd(), 'GET', '_NUMERIC_RANGES_PARENTS')[0][1])
+        def validate_subtree(subtree):
+            subtree = to_dict(subtree)
+            if 'left' not in subtree or 'right' not in subtree:
+                env.assertContains('range', subtree)
+                return 0 # a leaf
+            left_max_depth = validate_subtree(subtree['left'])
+            right_max_depth = validate_subtree(subtree['right'])
+            expected_max_depth = max(left_max_depth, right_max_depth) + 1
+            env.assertEqual(subtree['maxDepth'], expected_max_depth)
+            # Some balancing rotation might cause a node with no range to get a maxDepth below the maxDepthRange,
+            # so we can't validate all nodes to be below the maxDepthRange have a range.
+            # We validate that if the maxDepth is above the maxDepthRange, there is no range
+            env.assertTrue(subtree['maxDepth'] <= maxDepthRange or 'range' not in subtree)
+            return expected_max_depth
+        validate_subtree(to_dict(tree)['root'])
+
+    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
+    # Split to the right 5 times
+    for i in range(5):
+        cause_split(i)
+
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
+
+    env.flush()
+    env.expect(config_cmd(), 'SET', '_NUMERIC_RANGES_PARENTS', '2').ok()
+    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
+
+    # Split to the right and then to the left
+    cause_split(0)
+    cause_split(2) # to the right
+    cause_split(1) # to the left (of 2, right of 0)
+
+    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))

@@ -1091,7 +1091,6 @@ def test_mod_6541(env: Env):
     ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
     ('FT.INFO', 'idx'),
     ('FT.SPELLCHECK', 'idx', 'foo'),
-    ('FT.SUGLEN', 'idx', 'foo'),
     ('FT.ALIASADD', 'alias', 'idx'),
     # Deprecated commands
     ('FT.TAGVALS', 'idx', 't'),

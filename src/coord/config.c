@@ -133,6 +133,18 @@ CONFIG_GETTER(getTopologyValidationTimeout) {
   return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
 }
 
+// ACL_USERNAME
+CONFIG_GETTER(getOSSACLUsername) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsnew(realConfig->aclUsername);
+}
+
+CONFIG_SETTER(setOSSACLUsername) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
+  RETURN_STATUS(acrc);
+}
+
 // topology-validation-timeout
 CONFIG_API_NUMERIC_SETTER(set_topology_validation_timeout) {
   SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
@@ -160,7 +172,8 @@ static RSConfigOptions clusterOptions_g = {
             {.name = "OSS_GLOBAL_PASSWORD",
              .helpText = "Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
-             .getValue = getGlobalPass},
+             .getValue = getGlobalPass,
+             .flags = RSCONFIGVAR_F_IMMUTABLE},
             {.name = "CONN_PER_SHARD",
              .helpText = "Number of connections to each shard in the cluster. Default to 0. "
                          "If 0, the number of connections is set to `WORKERS` + 1.",
@@ -181,6 +194,11 @@ static RSConfigOptions clusterOptions_g = {
                          "Default is 30000 (30 seconds). 0 means no timeout.",
              .setValue = setTopologyValidationTimeout,
              .getValue = getTopologyValidationTimeout,},
+             {.name = "OSS_ACL_USERNAME",
+             .helpText = "Set the username for the ACL user used by the coordinator to connect to the shards on OSS cluster.",
+             .setValue = setOSSACLUsername,
+             .getValue = getOSSACLUsername,
+             .flags = RSCONFIGVAR_F_IMMUTABLE},
             {.name = NULL}
             // fin
         }
