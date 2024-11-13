@@ -981,3 +981,61 @@ def testModuleLoadexBooleanParams():
         .equal(['search.partial-indexed-docs', 'yes'])
     env.stop()
     os.unlink(rdbFilePath)
+
+@skip(cluster=True)
+def testConfigFileBooleanParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/redis.conf'
+
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+            # use non-default value as config value
+            configValue = 'yes' if defaultValue == 'no' else 'no'
+            f.write(f'{configName} {configValue}\n')
+
+    # Restart the server with the conf file and check each value
+    # env.stop()
+    # env.start()
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # the expected value is the opposite of the default value
+        configValue = 'yes' if defaultValue == 'no' else 'no'
+        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, configValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, ftExpectedValue]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsBooleanParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/redis.conf'
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+            # use non-default value as config value
+            configValue = 'yes' if defaultValue == 'no' else 'no'
+            f.write(f'{configName} {configValue}\n')
+
+    moduleArgs = ''
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        ftDefaultValue = 'true' if defaultValue == 'yes' else 'false'
+        if isFlag:
+            moduleArgs += f'{argName} '
+        else:
+            moduleArgs += f'{argName} {ftDefaultValue} '
+    
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # the expected value is the opposite of the default value
+        configValue = 'yes' if defaultValue == 'no' else 'no'
+        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, configValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, ftExpectedValue]])
