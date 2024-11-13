@@ -51,26 +51,26 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 // IO and cluster traits
 
 // Reply a Field spec info.
-void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
+void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
     REPLY_KVSTR("identifier", info->identifier);
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, with_timestamp);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
 
     RedisModule_Reply_MapEnd(reply);
 }
 
-void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
+void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
     REPLY_KVSTR("identifier", info->identifier);
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, with_timestamp);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
 
     RedisModule_Reply_MapEnd(reply);
 }

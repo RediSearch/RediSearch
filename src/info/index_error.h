@@ -9,6 +9,7 @@
 #include "redismodule.h"
 #include "reply.h"
 #include <time.h>
+#include "redisearch.h"
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
@@ -39,7 +40,7 @@ size_t IndexError_ErrorCount(const IndexError *error);
 const char *IndexError_LastError(const IndexError *error);
 
 // Returns the key of the document that caused the error.
-const RedisModuleString *IndexError_LastErrorKey(const IndexError *error);
+RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate);
 
 // Returns the time of the last error.
 struct timespec IndexError_LastErrorTime(const IndexError *error);
@@ -49,7 +50,7 @@ void IndexError_Clear(IndexError error);
 
 // IO and cluster traits
 // Reply the index errors to the client.
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time);
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate);
 
 #include "coord/rmr/reply.h"
 

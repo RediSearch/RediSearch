@@ -12,11 +12,14 @@
 #define MAX_OBFUSCATED_FIELD_NAME 6/*strlen("Field@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_PATH_NAME MAX_OBFUSCATED_FIELD_NAME
 #define MAX_OBFUSCATED_DOCUMENT_NAME 9/*strlen("Document@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
+#define MAX_OBFUSCATED_KEY_NAME MAX_OBFUSCATED_DOCUMENT_NAME
 
 void Obfuscate_Index(t_uniqueId indexId, char* buffer);
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer);
 void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer);
 void Obfuscate_Document(t_uniqueId docId, char* buffer);
+// The main difference between a document key and a document is that a document was assigned a unique document id
+void Obfuscate_KeyWithTime(struct timespec spec, char* buffer);
 
 char *Obfuscate_Text(const char* text);
 char *Obfuscate_Number(size_t number);

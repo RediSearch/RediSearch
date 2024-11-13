@@ -52,10 +52,10 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 
 // IO and cluster traits
 // Reply a Field spec info.
-void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
+void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate);
 
 // Reply an AggregatedFieldSpecInfo.
-void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
+void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate);
 
 #include "coord/rmr/reply.h"
 

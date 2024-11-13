@@ -329,7 +329,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
-static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
+static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -370,12 +370,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0);
+  IndexError_Reply(&fields->indexError, reply, 0, obfuscate);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
-      AggregatedFieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0);
+      AggregatedFieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0, obfuscate);
     }
     RedisModule_Reply_ArrayEnd(reply); // >Field statistics
   }
@@ -427,7 +427,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else {
-    generateFieldsReply(&fields, reply);
+    generateFieldsReply(&fields, reply, false);
   }
 
   cleanInfoReply(&fields);

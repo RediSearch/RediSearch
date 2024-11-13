@@ -77,6 +77,7 @@ FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
 }
 
 void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
+
   IndexError_AddError(&fs->indexError, error_message, key);
   FieldsGlobalStats_UpdateIndexError(fs->types, 1);
 }
