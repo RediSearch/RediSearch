@@ -617,6 +617,86 @@ def testModuleLoadexNumericParams():
             env.stop()
             os.unlink(rdbFilePath)
 
+@skip(cluster=True)
+def testConfigFileNumericParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileNumericParams.conf'
+
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            # TODO: Implement search.max-aggregate-results and search.max-search-results,
+            # the code is commented out because the limits are not correct
+            if configName in ['search.max-aggregate-results', 'search.max-search-results']:
+                continue
+
+            # Skip cluster parameters
+            if configName in ['search.search-threads',
+                            'search.topology-validation-timeout']:
+                continue
+
+            f.write(f'{configName} {minValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        # TODO: Implement search.max-aggregate-results and search.max-search-results,
+        # the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
+            continue
+        
+        # Skip cluster parameters
+        if configName in ['search.search-threads',
+                        'search.topology-validation-timeout']:
+            if not env.isCluster():
+                continue
+
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsNumericParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsNumericParams.conf'
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            # TODO: Implement search.max-aggregate-results and search.max-search-results,
+            # the code is commented out because the limits are not correct
+            if configName in ['search.max-aggregate-results', 'search.max-search-results']:
+                continue
+
+            # Skip cluster parameters
+            if configName in ['search.search-threads',
+                            'search.topology-validation-timeout']:
+                continue
+            f.write(f'{configName} {minValue}\n')
+
+    moduleArgs = ''
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        moduleArgs += f'{argName} {minValue} '
+    
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        # TODO: Implement search.max-aggregate-results and search.max-search-results,
+        # the code is commented out because the limits are not correct
+        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
+            continue
+
+        # Skip cluster parameters
+        if configName in ['search.search-threads',
+                        'search.topology-validation-timeout']:
+            continue
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
 
 ################################################################################
 # Test CONFIG SET/GET enum parameters
@@ -661,6 +741,7 @@ def testModuleLoadexEnumParams():
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
+    # Test search.on-timeout
     configName = 'search.on-timeout'
     argName = 'ON_TIMEOUT'
     testValue = 'fail'
@@ -703,6 +784,53 @@ def testModuleLoadexEnumParams():
     env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
     env.stop()
     os.unlink(rdbFilePath)
+
+@skip(cluster=True)
+def testConfigFileEnumParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileEnumParams.conf'
+
+    # Test search.on-timeout
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write(f'{configName} {testValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, testValue])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, testValue]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsEnumParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsEnumParams.conf'
+
+    # Test search.on-timeout
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+    moduleArgs = 'ON_TIMEOUT return'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write(f'{configName} {testValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, testValue])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, testValue]])
 
 ################################################################################
 # Test CONFIG SET/GET string parameters
@@ -758,8 +886,8 @@ def testModuleLoadexStringParams():
 
     for configName, argName, ftDefault, testValue in stringConfigs:
         if configName == 'search.ext-load':
-            modpath = env.module[0]
-            testValue = os.path.abspath(os.path.join(os.path.dirname(modpath), testValue))
+            basedir = os.path.dirname(redisearch_module_path)
+            testValue = os.path.abspath(os.path.join(basedir, testValue))
 
         # Test setting the parameter using CONFIG
         env.start()
@@ -798,6 +926,96 @@ def testModuleLoadexStringParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
         os.unlink(rdbFilePath)
+
+@skip(cluster=True)
+def testConfigFileStringParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileStringParams.conf'
+    with open(redisConfigFile, 'w') as f:
+        pass  # Do nothing, just create the file
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+
+    # stop the server and remove the rdb file
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, ftDefault, testValue in stringConfigs:
+            if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
+
+    # Restart the server using the conf file and check each value
+    env.start()
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, testValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, testValue]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsStringParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
+    with open(redisConfigFile, 'w') as f:
+        pass  # Do nothing, just create the file
+    env = Env(redisConfigFile=redisConfigFile)
+
+    # stop the server and remove the rdb file
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+
+    # create redis configuration file
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, ftDefault, testValue in stringConfigs:
+            if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
+
+    # create module arguments
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.moduleArgs.append(['EXTLOAD unusedValue FRISOINI unusedValue'])
+    env.envRunner.moduleArgs.append([])
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    # Restart the server using the conf file and check each value
+    env.start()
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, testValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, testValue]])
 
 ################################################################################
 # Test CONFIG SET/GET boolean parameters
@@ -985,7 +1203,7 @@ def testModuleLoadexBooleanParams():
 @skip(cluster=True)
 def testConfigFileBooleanParams():
     # Test using only redis config file
-    redisConfigFile = '/tmp/redis.conf'
+    redisConfigFile = '/tmp/testConfigFileBooleanParams.conf'
 
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
@@ -996,9 +1214,7 @@ def testConfigFileBooleanParams():
             configValue = 'yes' if defaultValue == 'no' else 'no'
             f.write(f'{configName} {configValue}\n')
 
-    # Restart the server with the conf file and check each value
-    # env.stop()
-    # env.start()
+    # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
         # the expected value is the opposite of the default value
@@ -1012,7 +1228,7 @@ def testConfigFileBooleanParams():
 @skip(cluster=True)  
 def testConfigFileAndArgsBooleanParams():
     # Test using redis config file and module arguments
-    redisConfigFile = '/tmp/redis.conf'
+    redisConfigFile = '/tmp/testConfigFileAndArgsBooleanParams.conf'
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
