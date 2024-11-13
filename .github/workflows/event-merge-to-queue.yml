@@ -54,6 +54,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: '' # run all tests
       san: address
       env: ubuntu-latest
       container: ubuntu:jammy
