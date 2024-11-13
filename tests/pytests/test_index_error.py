@@ -280,7 +280,7 @@ def test_multiple_index_failures(env):
             ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']
         ]
 
-        env.assertEqual(info['num_docs'], 0)
+        env.assertEqual(int(info['num_docs']), 0)
         env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
         env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
 
@@ -351,6 +351,6 @@ def test_multiple_index_failures_json(env):
               ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']
           ]
 
-          env.assertEqual(info['num_docs'], 0)
+          env.assertEqual(int(info['num_docs']), 0)
           env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
           env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
