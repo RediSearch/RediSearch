@@ -303,8 +303,9 @@ def test_multiple_index_failures(env):
     env.expect('HSET', 'doc', 'n1', 'banana', 'n2', 'meow').equal(2)
 
     index_to_errors_strings = {'idx1': 'banana', 'idx2': 'meow'}
+    for _ in env.reloadingIterator():
 
-    for idx in ['idx1', 'idx2']:
+      for idx in ['idx1', 'idx2']:
         info = index_info(env, idx)
 
         expected_error_dict = {
@@ -324,8 +325,8 @@ def test_multiple_index_failures(env):
         expected_failed_field_stats = [
             'identifier', index_to_failed_field[idx], 'attribute', index_to_failed_field[idx], 'Index Errors',
             ['indexing failures', 1, 'last indexing error',
-             f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
-             'last indexing error key', 'doc']
+            f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
+            'last indexing error key', 'doc']
         ]
 
         expected_no_error_field_stats = [

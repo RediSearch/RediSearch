@@ -205,7 +205,7 @@ def test_redis_info_errors():
   expected['idx1_errors'] = 0
   validate_info_output(message='drop one index')
 
-@skip(cluster=True)
+@skip(cluster=True, no_json=True)
 def test_redis_info_errors_json():
 
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -558,7 +558,7 @@ def test_indexes_logically_deleted_docs(env):
   # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
   # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
   env.expect('MULTI').ok()
-  env.cmd(debug_cmd(), 'test_cpp_ra', 'idx1')
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx1')
   env.cmd('FT.DROPINDEX', 'idx1')
   env.expect('EXEC').equal(['OK', 'OK'])
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
