@@ -312,7 +312,6 @@ def test_vector_indexing_with_json(env):
     error_dict = to_dict(info["Index Errors"])
     env.assertEqual(error_dict, expected_error_dict)
 
-@skip(no_json=True)
 def test_multiple_index_failures_json(env):
     # Create 2 indices with a different schema order.
     env.expect('ft.create', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.n1', 'AS', 'n1', 'numeric', '$.n2', 'AS', 'n2', 'numeric').ok()
