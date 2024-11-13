@@ -608,7 +608,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocStr(lastLastBlockId)));
 }
 
-TEST_F(FGCTest, testDeleteDuringGCCleanup) {
+TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   // Setup.
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
@@ -616,10 +616,10 @@ TEST_F(FGCTest, testDeleteDuringGCCleanup) {
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
-    RS::addDocument(ctx, ism, numToDocid(++curId).c_str(), "f1", "hello");
+    RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
   // Delete one document.
-  RS::deleteDocument(ctx, ism, numToDocid(1).c_str());
+  RS::deleteDocument(ctx, ism, numToDocStr(1).c_str());
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
 
   FGC_WaitBeforeFork(fgc);
@@ -627,7 +627,7 @@ TEST_F(FGCTest, testDeleteDuringGCCleanup) {
   // Delete the second document while fGC is waiting before the fork. If we were storing the number
   // of document to delete at this point, we wouldn't have accounted for this deletion later on
   // after the GC is done.
-  RS::deleteDocument(ctx, ism, numToDocid(2).c_str());
+  RS::deleteDocument(ctx, ism, numToDocStr(2).c_str());
   ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
 
   FGC_Apply(fgc);
