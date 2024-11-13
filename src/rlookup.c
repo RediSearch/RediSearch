@@ -51,8 +51,6 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
 
   /* Make the old key inaccessible for new lookups */
   old->name = NULL;
-  // 0 is a valid length if the user provided an empty string as a name.
-  // This is safe as whenever we compare key names, we first check that the length are equal.
   old->flags |= RLOOKUP_F_HIDDEN; // Mark the old key as hidden so it won't be attempted to be returned
 
   /* Add the new key to the lookup table */
@@ -125,7 +123,8 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, HiddenName *fieldName, uint32
 static RLookupKey *RLookup_FindKey(const RLookup *lookup, const HiddenName *name) {
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name of the key
-    if (!HiddenName_Compare(kk->name, name)) {
+    // key might have been overwritten, so we need to check the name is not NULL
+    if (kk->name && !HiddenName_Compare(kk->name, name)) {
       return kk;
     }
   }
@@ -907,7 +906,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
   HiddenName *hiddenJsonRoot = NewHiddenName(JSON_ROOT, strlen(JSON_ROOT), false);
-  RLookupKey *rlk = RLookup_FindKey(it, jsonRoot);
+  RLookupKey *rlk = RLookup_FindKey(it, hiddenJsonRoot);
   if (!rlk) {
     // First returned document, create the key.
     rlk = RLookup_GetKey_Load(it, hiddenJsonRoot, hiddenJsonRoot, RLOOKUP_F_NOFLAGS);
