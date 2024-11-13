@@ -1101,7 +1101,7 @@ def test_single_entry():
                 'RETURN', '0',
                 'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
-
+@skip(noWorkers=True)
 def test_hybrid_query_adhoc_bf_mode():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
@@ -2392,7 +2392,7 @@ def test_tiered_index_gc():
     env.assertEqual(to_dict(debug_info['v2']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
     env.assertEqual(to_dict(debug_info['v3']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
 
-@skip(cluster=True)
+@skip(cluster=True, noWorkers=True)
 def test_switch_write_mode_multiple_indexes(env):
     conn = getConnectionByEnv(env)
     dim = 32
