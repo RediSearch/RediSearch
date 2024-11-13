@@ -472,13 +472,12 @@ def test_counting_queries(env: Env):
       _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
 
-@skip(noWorkers=True)
 def test_counting_queries_BG():
   env = Env(moduleArgs='WORKERS 2')
   test_counting_queries(env)
 
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def test_redis_info_modules_vecsim():
   env = Env(moduleArgs='WORKERS 2')
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
