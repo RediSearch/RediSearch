@@ -682,7 +682,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     size_t nreducers = array_len(g->reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
-      rm_free(gr->alias);
+      HiddenName_Free(gr->alias);
     }
     array_free(g->reducers);
   }
@@ -787,7 +787,8 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   HiddenName** properties = array_new(HiddenName*, groupArgs.argc);
   for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
     // Account for the leading '@', note it is verified above that the first character is @
-    HiddenName* property = NewHiddenName(groupArgs.objs[ii] + 1, strlen(groupArgs.objs[ii]), false);
+    const int atLength = 1;
+    HiddenName* property = NewHiddenName(groupArgs.objs[ii] + atLength, strlen(groupArgs.objs[ii]) - atLength, false);
     array_append(properties, property);
   }
 
@@ -817,7 +818,9 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
     ExprAST_Free(fstp->parsedExpr);
   }
   HiddenString_Free(fstp->expr, true);
-  rm_free((void *)fstp->base.alias);
+  if (fstp->base.alias) {
+    HiddenName_Free(fstp->base.alias);
+  }
   rm_free(bstp);
 }
 
@@ -1228,7 +1231,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, gstp->properties[ii], RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `@%s` specified more than once", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
       return NULL;
     }
   }
@@ -1260,7 +1263,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `@%s` specified more than once", HiddenName_GetUnsafe(pr->alias, NULL));
+      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(pr->alias, NULL));
       return NULL;
     }
   }
@@ -1310,12 +1313,12 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   for (size_t i = 0; i < array_len(requests); i++) {
     HiddenName *name = requests[i].metric_name;
     if (IndexSpec_GetField(req->sctx->spec, name)) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property", " `@%s` already exists in schema", HiddenName_GetUnsafe(name, NULL));
+      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", HiddenName_GetUnsafe(name, NULL));
       return NULL;
     }
     RLookupKey *key = RLookup_GetKey(rl, requests[i].metric_name, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `@%s` specified more than once", HiddenName_GetUnsafe(name, NULL));
+      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(name, NULL));
       return NULL;
     }
 
