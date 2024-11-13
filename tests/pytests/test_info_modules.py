@@ -201,7 +201,68 @@ def test_redis_info_errors():
   waitForIndex(env, 'idx2')
   expected['fields_numeric_count'] += 1
   expected['idx2_errors'] += 2
-  validate_info_output(message='add failing field to idx1')
+  validate_info_output(message='add failing field to idx2')
+
+  # Drop one index and expect the errors counter to decrease
+  conn.execute_command('FT.DROPINDEX', 'idx1')
+  expected['number_of_indexes'] -= 1
+  expected['fields_numeric_count'] -= 1
+  expected['idx1_errors'] = 0
+  validate_info_output(message='drop one index')
+
+@skip(cluster=True, no_json=True)
+def test_redis_info_errors_json():
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create two indices
+  env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC')
+  env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.n2', 'AS', 'n2', 'NUMERIC')
+
+  expected = {
+    'number_of_indexes': 2,
+    'fields_numeric_count': 2,
+    'idx1_errors': 0,
+    'idx2_errors': 0,
+  }
+
+  def validate_info_output(message):
+
+    # Call `INFO` and check that the index is there
+    res = conn.execute_command('INFO', 'MODULES')
+
+    env.assertEqual(res['search_number_of_indexes'], expected['number_of_indexes'], message=message + " failed in number of indexes")
+    env.assertEqual(res['search_fields_numeric']['Numeric'], expected['fields_numeric_count'], message=message + " failed in number of numeric fields")
+    expected_total_errors = expected['idx1_errors'] + expected['idx2_errors']
+
+    # field level errors count
+    env.assertEqual(res['search_fields_numeric']['IndexErrors'], expected_total_errors, message=message + " failed in number of numeric:IndexErrors")
+
+    # Index level errors count
+    env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
+    env.assertEqual(res['search_errors_indexing_failures_max'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+
+  # Add a document we will fail to index in both indices
+  json_val = r'{"n":"meow","n2":"meow"}'
+  env.expect('JSON.SET', 'doc:1', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  expected['idx2_errors'] += 1
+  validate_info_output(message='fail both indices')
+
+  # Add a document that we will fail to index in idx1, and succeed in idx2
+  json_val = r'{"n":"meow","n2":4}'
+  env.expect('JSON.SET', 'doc:2', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  validate_info_output(message='fail one index')
+
+  # Add the failing field to idx2
+  # expect that the error count will increase due to bg indexing of 2 documents with invalid numeric values.
+  conn.execute_command('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', '$.n', 'AS', 'n', 'NUMERIC')
+  waitForIndex(env, 'idx2')
+  expected['fields_numeric_count'] += 1
+  expected['idx2_errors'] += 2
+  validate_info_output(message='add failing field to idx2')
 
   # Drop one index and expect the errors counter to decrease
   conn.execute_command('FT.DROPINDEX', 'idx1')
@@ -454,3 +515,48 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(info['mark_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+@skip(cluster=True)
+def test_indexes_logically_deleted_docs(env):
+  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
+  # is > 8h (5 mintues is the hard limit for a test).
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
+  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_logically_deleted_docs']
+
+  # Init state
+  env.assertEqual(get_logically_deleted_docs(), 0)
+
+  # Create one index and one document, then delete the document (logically)
+  num_fields = 3
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  set_doc(f'doc:1').equal(num_fields)
+  env.assertEqual(get_logically_deleted_docs(), 0)
+  env.expect('DEL', 'doc:1').equal(1)
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Create another index, expect that the deleted document will not be indexed.
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Add another document that should be indexed into both indexes, then deleted it (logically) and expect
+  # it will be accounted twice.
+  set_doc(f'doc:2').equal(num_fields)
+  env.cmd('DEL', 'doc:2')
+  env.assertEqual(get_logically_deleted_docs(), 3)
+
+  # Drop first index, expect that the deleted documents in this index will not be accounted anymore when releasing the GC.
+  # We run in a transaction, to ensure that the GC will not run until the "dropindex" commmand is executed from
+  # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
+  # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
+  env.expect('MULTI').ok()
+  forceBGInvokeGC(env, idx='idx1')
+  env.cmd('FT.DROPINDEX', 'idx1')
+  env.expect('EXEC').equal(['OK', 'OK'])
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Run GC, expect that the deleted document will not be accounted anymore.
+  forceInvokeGC(env, idx='idx2')
+  env.assertEqual(get_logically_deleted_docs(), 0)
