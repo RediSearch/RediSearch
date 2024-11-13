@@ -65,11 +65,11 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     return 0;
   }
 
-  HiddenName *name = NewHiddenName(s, strlen(s), false);
   // Get the input key..
   if (*s == '@') {
     s++;
   }
+  HiddenName *name = NewHiddenName(s, strlen(s), false);
   *out = RLookup_GetKey(options->srclookup, name, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
   int rc = 1;
   if (!*out) {
