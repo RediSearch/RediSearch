@@ -201,7 +201,68 @@ def test_redis_info_errors():
   waitForIndex(env, 'idx2')
   expected['fields_numeric_count'] += 1
   expected['idx2_errors'] += 2
-  validate_info_output(message='add failing field to idx1')
+  validate_info_output(message='add failing field to idx2')
+
+  # Drop one index and expect the errors counter to decrease
+  conn.execute_command('FT.DROPINDEX', 'idx1')
+  expected['number_of_indexes'] -= 1
+  expected['fields_numeric_count'] -= 1
+  expected['idx1_errors'] = 0
+  validate_info_output(message='drop one index')
+
+@skip(cluster=True, no_json=True)
+def test_redis_info_errors_json():
+
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  # Create two indices
+  env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC')
+  env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.n2', 'AS', 'n2', 'NUMERIC')
+
+  expected = {
+    'number_of_indexes': 2,
+    'fields_numeric_count': 2,
+    'idx1_errors': 0,
+    'idx2_errors': 0,
+  }
+
+  def validate_info_output(message):
+
+    # Call `INFO` and check that the index is there
+    res = conn.execute_command('INFO', 'MODULES')
+
+    env.assertEqual(res['search_number_of_indexes'], expected['number_of_indexes'], message=message + " failed in number of indexes")
+    env.assertEqual(res['search_fields_numeric']['Numeric'], expected['fields_numeric_count'], message=message + " failed in number of numeric fields")
+    expected_total_errors = expected['idx1_errors'] + expected['idx2_errors']
+
+    # field level errors count
+    env.assertEqual(res['search_fields_numeric']['IndexErrors'], expected_total_errors, message=message + " failed in number of numeric:IndexErrors")
+
+    # Index level errors count
+    env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
+    env.assertEqual(res['search_errors_indexing_failures_max'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+
+  # Add a document we will fail to index in both indices
+  json_val = r'{"n":"meow","n2":"meow"}'
+  env.expect('JSON.SET', 'doc:1', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  expected['idx2_errors'] += 1
+  validate_info_output(message='fail both indices')
+
+  # Add a document that we will fail to index in idx1, and succeed in idx2
+  json_val = r'{"n":"meow","n2":4}'
+  env.expect('JSON.SET', 'doc:2', '$', json_val).ok()
+  expected['idx1_errors'] += 1
+  validate_info_output(message='fail one index')
+
+  # Add the failing field to idx2
+  # expect that the error count will increase due to bg indexing of 2 documents with invalid numeric values.
+  conn.execute_command('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', '$.n', 'AS', 'n', 'NUMERIC')
+  waitForIndex(env, 'idx2')
+  expected['fields_numeric_count'] += 1
+  expected['idx2_errors'] += 2
+  validate_info_output(message='add failing field to idx2')
 
   # Drop one index and expect the errors counter to decrease
   conn.execute_command('FT.DROPINDEX', 'idx1')
