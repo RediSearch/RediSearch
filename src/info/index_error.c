@@ -9,6 +9,7 @@
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
+#include "obfuscation/obfuscation_api.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -16,6 +17,7 @@ char* const NA = "N/A";
 char* const IndexError_ObjectName = "Index Errors";
 char* const IndexingFailure_String = "indexing failures";
 char* const IndexingError_String = "last indexing error";
+char* const IndexingErrorKeyId_String = "last indexing error key id";
 char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
 RedisModuleString* NA_rstr = NULL;
@@ -63,12 +65,14 @@ void IndexError_Clear(IndexError error) {
     }
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
-    REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
-    if (with_timestamp) {
+    RedisModuleString *lastError = IndexError_LastErrorKey(error, obfuscate);
+    REPLY_KVRSTR(IndexingErrorKey_String, lastError);
+    RedisModule_FreeString(RSDummyContext, lastError);
+    if (withTimestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
         REPLY_KVARRAY(IndexingErrorTime_String);
         RedisModule_Reply_LongLong(reply, ts.tv_sec);
@@ -89,8 +93,17 @@ const char *IndexError_LastError(const IndexError *error) {
 }
 
 // Returns the key of the document that caused the error.
-const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
-    return error->key;
+RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate) {
+    if (!obfuscate) {
+      return RedisModule_HoldString(RSDummyContext, error->key);
+    } else {
+      char documentName[MAX_OBFUSCATED_KEY_NAME];
+      // When a document indexing error occurs we will not assign the document with an id
+      // There is nothing for us to pass around between the shard and the coordinator
+      // We use the last error time to obfuscate the document name
+      Obfuscate_KeyWithTime(error->last_error_time, documentName);
+      return RedisModule_CreateString(RSDummyContext, documentName, strlen(documentName));
+    }
 }
 
 // Returns the last error time in the IndexError.

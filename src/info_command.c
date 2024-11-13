@@ -96,6 +96,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
+  const bool obfuscate = false;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
 
@@ -298,13 +299,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Global index error stats
   bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&sp->stats.indexError, reply, with_times);
+  IndexError_Reply(&sp->stats.indexError, reply, with_times, obfuscate);
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, false);
-    FieldSpecInfo_Reply(&info, reply, with_times);
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo_Reply(&info, reply, with_times, obfuscate);
     FieldSpecInfo_Clear(&info);
   }
   REPLY_ARRAY_END; // >Field statistics
