@@ -65,14 +65,16 @@ else
 fi
 
 if [[ $FORCE != 1 ]]; then
-	if [[ -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of CircleCI. Override with FORCE=1."
+	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
+		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
 		exit 1
 	fi
 
 	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
-		eprint "No credentials for S3 upload."
-		exit 1
+		if [[ -z $AWS_SESSION_TOKEN ]]; then
+			eprint "No credentials for S3 upload."
+			exit 1
+		fi
 	fi
 fi
 
@@ -93,15 +95,17 @@ s3_upload_file() {
 	local file="$1"
 	local s3_dir="$2"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
 	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
 }
 
 s3_ls() {
 	local s3_dir="$1"
 	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-	
+
+	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
 	$OP aws s3 ls $s3_dir
+	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 s3_upload() {
@@ -110,16 +114,18 @@ s3_upload() {
 	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
 	local file
 	if [[ $SNAPSHOT == 1 ]]; then
-		for file in `ls ${prefix}.*${PLATFORM}*.zip ${prefix}.*${PLATFORM}*.tgz 2> /dev/null`; do
+		files=$(ls ${prefix}.*${PLATFORM}*.zip)
+		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
 	else
-		for file in `ls ${prefix}.*.zip ${prefix}.*.tgz 2> /dev/null`; do
+		files=$(ls ${prefix}.*.zip)
+		for file in $files; do
 			s3_upload_file $file $upload_dir
 		done
 	fi
 	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
-	
+
 	return 0
 }
 
