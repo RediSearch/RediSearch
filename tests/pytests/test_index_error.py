@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict, waitForIndex
+from common import getConnectionByEnv, index_info, to_dict, waitForIndex, skip
 
 
 
