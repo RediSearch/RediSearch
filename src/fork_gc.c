@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
+#include "global_stats.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -1199,7 +1200,6 @@ static int periodicCb(void *privdata) {
     StrongRef_Release(early_check);
     return 1;
   }
-
   int gcrv = 1;
   pid_t cpid;
   TimeSample ts;
@@ -1240,6 +1240,9 @@ static int periodicCb(void *privdata) {
     return 1;
   }
 
+  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
+  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
@@ -1287,6 +1290,7 @@ static int periodicCb(void *privdata) {
 #endif
   }
 
+  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);
@@ -1336,6 +1340,7 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-gc->deletedDocsFromLastRun);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
@@ -1372,6 +1377,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
+  IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
 static struct timespec getIntervalCb(void *ctx) {
