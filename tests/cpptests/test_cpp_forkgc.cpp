@@ -568,7 +568,6 @@ TEST_F(FGCTest, testDeleteDuringGCCleanup) {
   // Setup.
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-  sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
