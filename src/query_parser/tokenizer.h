@@ -67,6 +67,11 @@ typedef struct {
   bool needResolve;
 } SingleVectorQueryParam;
 
+typedef struct {
+  const char *field;
+  size_t len;
+} FieldName;
+
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 
 #endif
