@@ -458,9 +458,9 @@ def test_redis_info_modules_vecsim():
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
   # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
-  # is 5 mintues (which is the hard limit for a test).
+  # is > 8h (5 mintues is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '300').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
   get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_logically_deleted_docs']
 
@@ -499,4 +499,3 @@ def test_indexes_logically_deleted_docs(env):
   # Run GC, expect that the deleted document will not be accounted anymore.
   forceInvokeGC(env, idx='idx2')
   env.assertEqual(get_logically_deleted_docs(), 0)
-  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
