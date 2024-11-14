@@ -420,8 +420,9 @@ def testSetACLUsername():
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
-LLONG_MAX = 2**63 - 1
-UINT32_MAX = 2**32 - 1
+LLONG_MAX = (1 << 63) - 1
+UINT64_MAX = (1 << 64) - 1
+UINT32_MAX = (1 << 32) - 1
 
 numericConfigs = [
     # configName, ftConfigName, defaultValue, minValue, maxValue, immutable
@@ -435,10 +436,10 @@ numericConfigs = [
     ('search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False),
     ('search.gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, False),
     ('search.index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False),
-    ('search.max-aggregate-results', 'MAXAGGREGATERESULTS', 'unlimited', 1, LLONG_MAX, False),
+    ('search.max-aggregate-results', 'MAXAGGREGATERESULTS', -1, 0, LLONG_MAX, False),
     ('search.max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True),
     ('search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False),
-    ('search.max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 1, LLONG_MAX, False),
+    ('search.max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 0, LLONG_MAX, False),
     ('search.min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False),
     ('search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False),
     ('search.min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False),
@@ -500,11 +501,6 @@ def testConfigAPIRunTimeNumericParams():
 
     # Test numeric parameters
     for configName, ftConfigName, default, min, max, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results and search.max-search-results,
-        # the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-            continue
-
         if configName in ['search.search-threads',
                           'search.topology-validation-timeout']:
             if not env.isCluster():
@@ -537,11 +533,6 @@ def testModuleLoadexNumericParams():
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results and search.max-search-results,
-        # the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-            continue
-
         if configName in ['search.search-threads',
                           'search.topology-validation-timeout']:
             if not env.isCluster():
@@ -627,11 +618,6 @@ def testConfigFileNumericParams():
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
         for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-            # TODO: Implement search.max-aggregate-results and search.max-search-results,
-            # the code is commented out because the limits are not correct
-            if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-                continue
-
             # Skip cluster parameters
             if configName in ['search.search-threads',
                             'search.topology-validation-timeout']:
@@ -641,12 +627,7 @@ def testConfigFileNumericParams():
 
     # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results and search.max-search-results,
-        # the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-            continue
-        
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:       
         # Skip cluster parameters
         if configName in ['search.search-threads',
                         'search.topology-validation-timeout']:
@@ -667,11 +648,6 @@ def testConfigFileAndArgsNumericParams():
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
         for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-            # TODO: Implement search.max-aggregate-results and search.max-search-results,
-            # the code is commented out because the limits are not correct
-            if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-                continue
-
             # Skip cluster parameters
             if configName in ['search.search-threads',
                             'search.topology-validation-timeout']:
@@ -684,15 +660,11 @@ def testConfigFileAndArgsNumericParams():
     
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        # TODO: Implement search.max-aggregate-results and search.max-search-results,
-        # the code is commented out because the limits are not correct
-        if configName in ['search.max-aggregate-results', 'search.max-search-results']:
-            continue
-
         # Skip cluster parameters
         if configName in ['search.search-threads',
                         'search.topology-validation-timeout']:
             continue
+
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, str(minValue)])
         res = env.cmd(config_cmd(), 'GET', argName)

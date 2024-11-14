@@ -1619,15 +1619,14 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "index-cursor-limit registered");
   }
 
-  // TODO: Define min/max value for this configuration
-  // if (RedisModule_RegisterNumericConfig(
-  //       ctx, "max-aggregate-results", DEFAULT_MAX_AGGREGATE_RESULTS,
-  //       REDISMODULE_CONFIG_DEFAULT, -1, LLONG_MAX, get_max_aggregate_results,
-  //       set_max_aggregate_results, NULL, NULL) == REDISMODULE_ERR) {
-  //   return REDISMODULE_ERR;
-  // } else {
-  //   RedisModule_Log(ctx, "notice", "max-aggregate-results registered");
-  // }
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "max-aggregate-results", DEFAULT_MAX_AGGREGATE_RESULTS,
+        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_aggregate_results,
+        set_max_aggregate_results, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "max-aggregate-results registered");
+  }
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
@@ -1656,15 +1655,14 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "cursor-max-idle registered");
   }
 
-  // TODO: Define max value for this configuration
-  // if (RedisModule_RegisterNumericConfig(
-  //       ctx, "max-search-results", DEFAULT_MAX_SEARCH_RESULTS,
-  //       REDISMODULE_CONFIG_DEFAULT, 1, UINT64_MAX, get_max_search_results,
-  //       set_max_search_results, NULL, NULL) == REDISMODULE_ERR) {
-  //   return REDISMODULE_ERR;
-  // } else {
-  //   RedisModule_Log(ctx, "notice", "max-search-results registered");
-  // }
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "max-search-results", DEFAULT_MAX_SEARCH_RESULTS,
+        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_search_results,
+        set_max_search_results, NULL, NULL) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  } else {
+    RedisModule_Log(ctx, "notice", "max-search-results registered");
+  }
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-operation-workers", MIN_OPERATION_WORKERS,
