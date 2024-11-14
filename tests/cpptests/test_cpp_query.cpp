@@ -108,11 +108,11 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(2, "\"$hello\"");
 
   // difference between `expr` and `text_expr` were introduced in version 2
-  assertValidQuery_v(1, "@title:@num:[0 10]");
-  assertValidQuery_v(1, "@title:(@num:[0 10])");
+  assertValidQuery_v(1, "@title:@bar:[0 10]");
+  assertValidQuery_v(1, "@title:(@bar:[0 10])");
   assertValidQuery_v(1, "@t1:@t2:@t3:hello");
-  assertInvalidQuery_v(2, "@title:@num:[0 10]");
-  assertInvalidQuery_v(2, "@title:(@num:[0 10])");
+  assertInvalidQuery_v(2, "@title:@bar:[0 10]");
+  assertInvalidQuery_v(2, "@title:(@bar:[0 10])");
   assertInvalidQuery_v(2, "@t1:@t2:@t3:hello");
 
   // minor bug in v1
@@ -192,8 +192,8 @@ TEST_F(QueryTest, testParser_v1) {
   assertInvalidQuery("@body:@title:", ctx);
   assertInvalidQuery("@body|title:@title:", ctx);
   assertInvalidQuery("@body|title", ctx);
-  assertValidQuery("@title:@num:[0 10]", ctx);
-  assertValidQuery("@title:(@num:[0 10])", ctx);
+  assertValidQuery("@title:@bar:[0 10]", ctx);
+  assertValidQuery("@title:(@bar:[0 10])", ctx);
   assertValidQuery("@t1:@t2:@t3:hello", ctx);
   assertValidQuery("@t1|t2|t3:hello", ctx);
   assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
@@ -223,15 +223,15 @@ TEST_F(QueryTest, testParser_v1) {
   assertInvalidQuery("@loc:[50 50 1 1])", ctx);
   assertInvalidQuery("@loc:[50 50 1])", ctx);
   // numeric
-  assertValidQuery("@number:[100 200]", ctx);
-  assertValidQuery("@number:[100 -200]", ctx);
-  assertValidQuery("@number:[(100 (200]", ctx);
-  assertValidQuery("@number:[100 inf]", ctx);
-  assertValidQuery("@number:[100 -inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
+  assertValidQuery("@bar:[100 200]", ctx);
+  assertValidQuery("@bar:[100 -200]", ctx);
+  assertValidQuery("@bar:[(100 (200]", ctx);
+  assertValidQuery("@bar:[100 inf]", ctx);
+  assertValidQuery("@bar:[100 -inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]|@bar:[100 200]", ctx);
 
-  assertInvalidQuery("@number:[100 foo]", ctx);
+  assertInvalidQuery("@bar:[100 foo]", ctx);
 
   // Tag queries
   assertValidQuery("@tags:{foo}", ctx);
@@ -276,12 +276,12 @@ TEST_F(QueryTest, testParser_v1) {
   assertValidQuery("@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}", ctx);
   assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
   assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
-  assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);
-  assertValidQuery("@num:[0 100] => {$weight: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$weight: -0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+  assertValidQuery("@tags:{foo | bar} => {$weight: 0.5;} ", ctx);
+  assertValidQuery("@bar:[0 100] => {$weight: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$weight: -0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great:;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
@@ -790,7 +790,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   // ASSERT_EQ(n->children[2]->fieldMask, 0x00)
 
   // test numeric ranges
-  qt = "@num:[0.4 (500]";
+  qt = "@bar:[0.4 (500]";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_NUMERIC);
