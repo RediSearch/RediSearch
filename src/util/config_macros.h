@@ -74,11 +74,10 @@ static int name(const char *name, int val, void *privdata, RedisModuleString **e
 }
 
 #define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val, flags) \
-  if(RedisModule_RegisterBoolConfig(                                          \
-        ctx, name, default_val, flags,                   \
-        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                       \
-  } else {                                                                    \
-    RedisModule_Log(ctx, "notice", STRINGIFY(name)" registered");             \
+  if(RedisModule_RegisterBoolConfig(                                           \
+        ctx, name, default_val, flags,                                         \
+        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                        \
+        return REDISMODULE_ERR;                                                \
   }
 
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)

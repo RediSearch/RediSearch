@@ -1544,25 +1544,20 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         NR_MAX_DEPTH_BALANCE, get_numeric_ranges_parents,
         set_numeric_ranges_parents, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "_numeric-ranges-parents registered");
   }
   if (RedisModule_RegisterNumericConfig(
       ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
-      REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX,
-      get_bg_index_sleep_gap, set_bg_index_sleep_gap, NULL, NULL) == REDISMODULE_ERR) {
+      REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX, get_bg_index_sleep_gap,
+      set_bg_index_sleep_gap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "default-dialect registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "default-dialect", DEFAULT_DIALECT_VERSION,
         REDISMODULE_CONFIG_DEFAULT, MIN_DIALECT_VERSION, MAX_DIALECT_VERSION,
-        get_default_dialect, set_default_dialect, NULL, NULL) == REDISMODULE_ERR) {
+        get_default_dialect, set_default_dialect, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "default-dialect registered");
   }
 
   if (RedisModule_RegisterNumericConfig (
@@ -1570,8 +1565,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_clean_threshold,
         set_fork_gc_clean_threshold, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "fork-gc-clean-threshold registered");
   }
 
   if (RedisModule_RegisterNumericConfig (
@@ -1579,8 +1572,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_retry_interval,
         set_fork_gc_retry_interval, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "fork-gc-run-interval registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1588,8 +1579,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_run_interval,
         set_fork_gc_run_interval, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "fork-gc-run-interval registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1597,8 +1586,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_fork_gc_sleep_before_exit,
         set_fork_gc_sleep_before_exit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "fork-gc-sleep-before-exit registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1606,8 +1593,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         1, LLONG_MAX, get_gc_scan_size, set_gc_scan_size, NULL,
         NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "gc-scan-size registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1615,8 +1600,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_index_cursor_limit,
         set_index_cursor_limit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "index-cursor-limit registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1624,8 +1607,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_aggregate_results,
         set_max_aggregate_results, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "max-aggregate-results registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1633,17 +1614,14 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_max_prefix_expansions,
         set_max_prefix_expansions, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "max-prefix-expansions registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "max-doctablesize", DEFAULT_DOC_TABLE_SIZE,
         REDISMODULE_CONFIG_IMMUTABLE, 1, MAX_DOC_TABLE_SIZE,
-        get_max_doctablesize, set_max_doctablesize, NULL, NULL) == REDISMODULE_ERR) {
+        get_max_doctablesize, set_max_doctablesize, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "max-doctablesize registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1651,8 +1629,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_cursor_max_idle,
         set_cursor_max_idle, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "cursor-max-idle registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1660,17 +1636,14 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_search_results,
         set_max_search_results, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "max-search-results registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
         ctx, "min-operation-workers", MIN_OPERATION_WORKERS,
-        REDISMODULE_CONFIG_DEFAULT, 1, MAX_WORKER_THREADS, get_min_operation_workers,
-        set_min_operation_workers, NULL, NULL) == REDISMODULE_ERR) {
+        REDISMODULE_CONFIG_DEFAULT, 1, MAX_WORKER_THREADS,
+        get_min_operation_workers, set_min_operation_workers, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "min-operation-workers registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1678,8 +1651,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_phonetic_term_len,
         set_min_phonetic_term_len, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "min-phonetic-term-len registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1687,8 +1658,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_prefix,
         set_min_prefix, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "min-prefix registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1696,8 +1665,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 2, UINT32_MAX, get_min_stem_len,
         set_min_stem_len, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "min-stem-len registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1705,8 +1672,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX, get_multi_text_slop,
         set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "multi-text-slop registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1714,8 +1679,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_IMMUTABLE, 0, LLONG_MAX, get_tiered_hnsw_buffer_limit,
         set_tiered_hnsw_buffer_limit, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "tiered-hnsw-buffer-limit registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1723,8 +1686,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_timeout,
         set_timeout, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "timeout registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1732,8 +1693,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_union_iterator_heap,
         set_union_iterator_heap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "union-iterator-heap registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1741,8 +1700,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, UINT32_MAX, get_vss_max_resize,
         set_vss_max_resize, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "vss-max-resize registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
@@ -1750,17 +1707,14 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         REDISMODULE_CONFIG_DEFAULT, 0, MAX_WORKER_THREADS, get_workers,
         set_workers, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "workers registered");
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "workers-priority-bias-threshold", DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
-        REDISMODULE_CONFIG_IMMUTABLE, 0, LLONG_MAX, get_workers_priority_bias_threshold,
+        ctx, "workers-priority-bias-threshold",
+        DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, REDISMODULE_CONFIG_IMMUTABLE, 0,
+        LLONG_MAX, get_workers_priority_bias_threshold,
         set_workers_priority_bias_threshold, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "workers-priority-bias-threshold registered");
   }
 
   // String parameters
@@ -1768,16 +1722,12 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         ctx, "ext-load", "", REDISMODULE_CONFIG_IMMUTABLE, get_ext_load,
         set_ext_load, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "ext-load registered");
   }
 
   if (RedisModule_RegisterStringConfig(
         ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, get_friso_ini,
         set_friso_ini, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "friso-ini registered");
   }
 
   // Enum parameters
@@ -1786,8 +1736,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
         on_timeout_vals, int_on_timeout_vals, 2,
         get_on_timeout, set_on_timeout, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "on-timeout registered");
   }
 
   // Boolean parameters
@@ -1824,8 +1772,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "error", "Invalid LoadConfigs");
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "RedisModule_LoadConfigs()");
   }
 
   return REDISMODULE_OK;
