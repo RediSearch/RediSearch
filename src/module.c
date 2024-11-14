@@ -1080,9 +1080,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // If this is the light version then the _ft.safeadd/_ft.del does not exist
   // and we will get the normal ft.safeadd/ft.del command.
   RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
-         "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
-  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
-         INDEX_DOC_CMD_ARGS, "write admin"))
+         IsEnterprise() ? "write deny-oom " PROXY_FILTERED : "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
+  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand,
+         IsEnterprise() ? "write " PROXY_FILTERED : "write", INDEX_DOC_CMD_ARGS, "write admin"))
 #endif
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
