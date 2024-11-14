@@ -9,6 +9,7 @@
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
+#include "module.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
@@ -53,7 +54,8 @@ static_assert(sizeof(coordCommands)/sizeof(DebugCommandType) == sizeof(coordComm
 
 int RegisterCoordDebugCommands(RedisModuleCommand *debugCommand) {
   for (int i = 0; coordCommands[i].name != NULL; i++) {
-    int rc = RedisModule_CreateSubcommand(debugCommand, coordCommands[i].name, coordCommands[i].callback, RS_DEBUG_FLAGS);
+    int rc = RedisModule_CreateSubcommand(debugCommand, coordCommands[i].name,
+              coordCommands[i].callback, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
   return REDISMODULE_OK;
