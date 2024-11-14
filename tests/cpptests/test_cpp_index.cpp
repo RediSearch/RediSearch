@@ -500,7 +500,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
-    // 
+    //
     // The delta will occupy 1 byte.
     // The first entry has zero delta, so it will not be written.
     //
@@ -512,7 +512,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
     //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
-    // i | bytes | bytes | per Entry | bytes    |          | size      |   
+    // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
     // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
     // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
@@ -534,7 +534,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // Simulate the buffer growth to get the expected size
     written_bytes += bytes_per_entry;
     if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
-      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);  
+      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);
     } else {
       expected_sz = 0;
     }
@@ -559,7 +559,7 @@ TEST_F(IndexTest, testNumericInverted) {
 }
 
 TEST_F(IndexTest, testNumericVaried) {
-  // For various numeric values, of different types (NUM_ENCODING_COMMON_TYPE_TINY, 
+  // For various numeric values, of different types (NUM_ENCODING_COMMON_TYPE_TINY,
   // NUM_ENCODING_COMMON_TYPE_FLOAT, etc..) check that the number of allocated
   // bytes in buffers is as expected.
 
@@ -1259,7 +1259,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
+  const FieldSpec *f = IndexSpec_GetField(s, body);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(f->name, body);
@@ -1268,7 +1268,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title, strlen(title));
+  f = IndexSpec_GetField(s, title);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
@@ -1277,7 +1277,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo, strlen(foo));
+  f = IndexSpec_GetField(s, foo);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
@@ -1286,16 +1286,16 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar, strlen(bar));
+  f = IndexSpec_GetField(s, bar);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name, strlen(name));
+  f = IndexSpec_GetField(s, name);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
@@ -1427,7 +1427,7 @@ TEST_F(IndexTest, testIndexFlags) {
   uint32_t flags = INDEX_DEFAULT_FLAGS;
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
-  // The memory occupied by a empty inverted index 
+  // The memory occupied by a empty inverted index
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
   // sizeof_InvertedIndex(index->flags)   48
