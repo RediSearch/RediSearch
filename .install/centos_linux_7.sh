@@ -15,7 +15,6 @@ set_all_baseurls() {
 
 set_all_baseurls # set the baseurls to the working mirror before installing basic packages
 $MODE yum update -y
-$MODE yum install -y https://packages.endpointdev.com/rhel/7/os/${ARCH}/endpoint-repo.${ARCH}.rpm
 $MODE yum groupinstall -y "Development Tools"
 $MODE yum -y install centos-release-scl
 
