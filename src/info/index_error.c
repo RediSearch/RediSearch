@@ -17,7 +17,6 @@ char* const NA = "N/A";
 char* const IndexError_ObjectName = "Index Errors";
 char* const IndexingFailure_String = "indexing failures";
 char* const IndexingError_String = "last indexing error";
-char* const IndexingErrorKeyId_String = "last indexing error key id";
 char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
 RedisModuleString* NA_rstr = NULL;
