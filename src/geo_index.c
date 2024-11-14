@@ -14,54 +14,7 @@
 
 static double extractUnitFactor(GeoDistance unit);
 
-/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
- * is not passed to us.
- * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
- * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
-  gf->lat = 0;
-  gf->lon = 0;
-  gf->radius = 0;
-  gf->unitType = GEO_DISTANCE_KM;
-
-  if (AC_NumRemaining(ac) < 5) {
-    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
-    return REDISMODULE_ERR;
-  }
-
-  int rv;
-  if ((rv = AC_GetString(ac, &gf->property, NULL, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<geo property>", rv);
-    return REDISMODULE_ERR;
-  } else {
-    gf->property = rm_strdup(gf->property);
-  }
-  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
-    QERR_MKBADARGS_AC(status, "<lon>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<lat>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<radius>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  const char *unitstr = AC_GetStringNC(ac, NULL);
-  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
-    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
 void GeoFilter_Free(GeoFilter *gf) {
-  if (gf->property) rm_free((char *)gf->property);
   if (gf->numericFilters) {
     for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
       if (gf->numericFilters[i])
@@ -111,7 +64,7 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config, t_fieldIndex fieldIndex) {
+IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config) {
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
@@ -126,12 +79,12 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
-      filt->fieldName = rm_strdup(gf->property);
+      filt->field = gf->field;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {

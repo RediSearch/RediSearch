@@ -1528,7 +1528,7 @@ static YYACTIONTYPE yy_reduce(
         char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
-        yylhsminor.yy75 = NewTagNode(s, slen);
+        yylhsminor.yy75 = NewTagNodeByName(ctx->sctx->spec, s, slen);
         QueryNode_AddChildren(yylhsminor.yy75, yymsp[0].minor.yy75->children, QueryNode_NumChildren(yymsp[0].minor.yy75));
 
         // Set the children count on yymsp[0].minor.yy75 to 0 so they won't get recursively free'd
@@ -1571,7 +1571,7 @@ static YYACTIONTYPE yy_reduce(
       case 49: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->nf->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yymsp[0].minor.yy62->nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62);
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
@@ -1585,7 +1585,7 @@ static YYACTIONTYPE yy_reduce(
       case 51: /* expr ::= modifier COLON geo_filter */
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yymsp[0].minor.yy62->gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;

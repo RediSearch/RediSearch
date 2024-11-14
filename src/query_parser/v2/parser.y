@@ -163,6 +163,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
+  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+
 //! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
 static const char ToksepParserMap_g[256] = {
     [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
@@ -277,6 +280,8 @@ static inline char *toksep2(char **s, size_t *tokLen) {
     rm_free((char*)((VecSimRawParam*)ptr)->name);
   });
 }
+
+%type modifier { FieldName }
 
 %type modifierlist { FieldName* }
 %destructor modifierlist {
@@ -438,11 +443,14 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON text_expr(C) . {
-  if (C == NULL) {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
+    A = NULL;
+  } else if (C == NULL) {
     A = NULL;
   } else {
     if (ctx->sctx->spec) {
-      QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+      QueryNode_SetFieldMask(C, FIELD_BIT(B.fs));
     }
     A = C;
   }
@@ -456,7 +464,7 @@ expr(A) ::= modifierlist(B) COLON text_expr(C) . {
     t_fieldMask mask = 0;
     if (ctx->sctx->spec) {
       for (int i = 0; i < array_len(B); i++) {
-        mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, B[i].field, B[i].len);
+        mask |= FIELD_BIT(B[i].fs);
       }
     }
     array_free(B);
@@ -677,35 +685,72 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 
 modifier(A) ::= MODIFIER(B) . {
   B.len = unescapen((char*)B.s, B.len);
-  A = B;
+  A.tok = B;
+  if (ctx->sctx->spec) {
+    A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+    if (!A.fs) {
+      reportSyntaxError(ctx->status, &A.tok, "Unknown field");
+    }
+  }
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
-  if (__builtin_expect(C.len > 0, 1)) {
-    A = array_new(FieldName, 2);
-    array_append(A, { .field = B.s, .len = B.len });
-    array_append(A, { .field = C.s, .len = C.len });
+  if (ctx->sctx->spec) {
+    if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
+      A = NULL;
+    } else {
+      FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+      if (!second.fs) {
+        reportSyntaxError(ctx->status, &second.tok, "Unknown field");
+        A = NULL;
+      } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+        REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
+        A = NULL;
+      } else {
+        A = array_new(FieldName, 2);
+        array_append(A, B);
+        array_append(A, second);
+      }
+    }
   } else {
-    reportSyntaxError(ctx->status, &C, "Syntax error");
-    A = NULL;
+    A = array_new(FieldName, 2);
+    array_append(A, B);
+    FieldName second = { .tok = C };
+    array_append(A, second);
   }
 }
 
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-  if (__builtin_expect(C.len > 0, 1)) {
-    array_append(B, { .field = C.s, .len = C.len });
-    A = B;
+  if (ctx->sctx->spec) {
+    FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+    if (!second.fs) {
+      reportSyntaxError(ctx->status, &second.tok, "Unknown field");
+      array_free(B);
+      A = NULL;
+    } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+      REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
+      array_free(B);
+      A = NULL;
+    } else {
+      A = B;
+      array_append(A, second);
+    }
   } else {
-    reportSyntaxError(ctx->status, &C, "Syntax error");
-    array_free(B);
-    A = NULL;
+    A = B;
+    FieldName second = { .tok = C };
+    array_append(A, second);
   }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
-  char *s = rm_strndup(B.s, B.len);
-  A = NewMissingNode(s, B.len);
+  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
+    reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires field to be defined with '" SPEC_INDEXMISSING_STR "'");
+    A = NULL;
+  } else {
+    A = NewMissingNode(B.fs);
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -713,10 +758,13 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
-  if (!C) {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
+    A = NULL;
+  } else if (!C) {
     A = NULL;
   } else {
-    A = NewTagNode(rm_strndup(B.s, B.len), B.len);
+    A = NewTagNode(B.fs);
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
     // Set the children count on C to 0 so they won't get recursively free'd
@@ -770,9 +818,12 @@ tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
-  if (C) {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else if (C) {
     // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
+    C->nf->field = B.fs;
     A = NewNumericNode(C);
   } else {
     A = NewQueryNode(QN_NULL);
@@ -824,40 +875,70 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 }
 
 expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  QueryNode* E = NewNumericNode(qp);
-  A = NewNotNode(E);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+    qp->nf->field = B.fs;
+    QueryNode* E = NewNumericNode(qp);
+    A = NewNotNode(E);
+  }
 }
 
 expr(A) ::= modifier(B) EQUALS param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
 }
 
 expr(A) ::= modifier(B) GT param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
 }
 
 expr(A) ::= modifier(B) GE param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
 }
 
 expr(A) ::= modifier(B) LT param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
 }
 
 expr(A) ::= modifier(B) LE param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -865,9 +946,12 @@ expr(A) ::= modifier(B) LE param_num(C) . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
-  if (C) {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEO)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_GEO_STR);
+    A = NULL;
+  } else if (C) {
     // we keep the capitalization as is
-    C->gf->property = rm_strndup(B.s, B.len);
+    C->gf->field = B.fs;
     A = NewGeofilterNode(C);
   } else {
     A = NewQueryNode(QN_NULL);
@@ -890,9 +974,12 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 // Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
-  if (C) {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
+    A = NULL;
+  } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->attr = rm_strndup(B.s, B.len);
+    C->gmn.geomq->fs = B.fs;
     A = C;
   } else {
     A = NewQueryNode(QN_NULL);
@@ -1037,11 +1124,14 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
+  if (ctx->sctx->spec && !FIELD_IS(C.fs, INDEXFLD_T_VECTOR)) {
+    REPORT_WRONG_FIELD_TYPE(C, SPEC_VECTOR_STR);
+    A = NULL;
+  } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->property = rm_strndup(C.s, C.len);
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+    A->vn.vq->field = C.fs;
+    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;
@@ -1076,8 +1166,13 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 
 /*** Vector range queries ***/
 expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
-  C->vn.vq->property = rm_strndup(B.s, B.len);
-  A = C;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
+    A = NULL;
+  } else {
+    C->vn.vq->field = B.fs;
+    A = C;
+  }
 }
 
 vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
@@ -1183,7 +1278,9 @@ exclusive_param_num(A) ::= LP num(B). {
 }
 
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
-  A = B; ive = 0;
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 0;
 }
 
 exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {

@@ -340,7 +340,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
+  const FieldSpec *sp = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
@@ -673,7 +673,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
     RedisSearchCtx_LockSpecRead(&sctx);
-    const FieldSpec *field_exists = IndexSpec_GetField(sp, fieldName, fieldNameSize);
+    const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);
     RedisSearchCtx_UnlockSpec(&sctx);
 
     if (field_exists) {

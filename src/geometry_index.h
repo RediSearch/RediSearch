@@ -13,7 +13,7 @@
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;
     QueryType query_type;
-    const char *attr;
+    const FieldSpec *fs;
     const char *str;
     size_t str_len;
 } GeometryQuery;

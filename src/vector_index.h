@@ -74,7 +74,7 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  char *property;                     // name of field
+  const FieldSpec *field;             // the vector field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -113,7 +113,7 @@ typedef struct VecSimLogCtx {
 VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex);
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
