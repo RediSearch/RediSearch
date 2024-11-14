@@ -531,6 +531,7 @@ def test_indexes_logically_deleted_docs(env):
   # Create one index and one document, then delete the document (logically)
   num_fields = 3
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx1').ok()  # Stop GC for this index to keep the deleted docs
   set_doc(f'doc:1').equal(num_fields)
   env.assertEqual(get_logically_deleted_docs(), 0)
   env.expect('DEL', 'doc:1').equal(1)
@@ -551,7 +552,7 @@ def test_indexes_logically_deleted_docs(env):
   # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
   # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
   env.expect('MULTI').ok()
-  forceBGInvokeGC(env, idx='idx1')
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx1')
   env.cmd('FT.DROPINDEX', 'idx1')
   env.expect('EXEC').equal(['OK', 'OK'])
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
