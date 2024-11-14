@@ -2494,7 +2494,6 @@ static YYACTIONTYPE yy_reduce(
       case 92: /* num ::= NUMBER */ yytestcase(yyruleno==92);
 {
   yylhsminor.yy149.num = yymsp[0].minor.yy0.numval;
-  yylhsminor.yy149.inclusive = 1;
 }
   yymsp[0].minor.yy149 = yylhsminor.yy149;
         break;
@@ -2564,7 +2563,6 @@ static YYACTIONTYPE yy_reduce(
 {
   yylhsminor.yy0 = yymsp[0].minor.yy0;
   yylhsminor.yy0.type = QT_PARAM_NUMERIC;
-  yylhsminor.yy0.inclusive = 1;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
@@ -2573,13 +2571,11 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
   yymsp[-1].minor.yy0.sign = -1;
   yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
-  yymsp[-1].minor.yy0.inclusive = 1;
 }
         break;
       case 105: /* param_num ::= num */
 {
   yylhsminor.yy0.numval = yymsp[0].minor.yy149.num;
-  yylhsminor.yy0.inclusive = yymsp[0].minor.yy149.inclusive;
   yylhsminor.yy0.type = QT_NUMERIC;
 }
   yymsp[0].minor.yy0 = yylhsminor.yy0;
@@ -2587,7 +2583,6 @@ static YYACTIONTYPE yy_reduce(
       case 106: /* exclusive_param_num ::= LP num */
 {
   yymsp[-1].minor.yy0.numval = yymsp[0].minor.yy149.num;
-  yymsp[-1].minor.yy0.inclusive = 0;
   yymsp[-1].minor.yy0.type = QT_NUMERIC;
 }
         break;
@@ -2595,14 +2590,12 @@ static YYACTIONTYPE yy_reduce(
 {
   yymsp[-1].minor.yy0 = yymsp[0].minor.yy0;
   yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
-  yymsp[-1].minor.yy0.inclusive = 0;
 }
         break;
       case 108: /* exclusive_param_num ::= LP MINUS ATTRIBUTE */
 {
   yymsp[-2].minor.yy0 = yymsp[0].minor.yy0;
   yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC;
-  yymsp[-2].minor.yy0.inclusive = 0;
   yymsp[-2].minor.yy0.sign = -1;
 }
         break;

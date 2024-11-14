@@ -10,12 +10,8 @@
 #include "rmutil/vector.h"
 #include "query_param.h"
 
-int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
+int parseDoubleRange(const char *s, double *target, int isMin,
                       int sign, QueryError *status) {
-  if (*s == '(') {
-    *inclusive = 0;
-    s++;
-  }
   if (isMin && (
         (sign == 1 && !strcasecmp(s, "-inf")) ||
         (sign == -1 && !strcasecmp((*s == '+' ? s + 1 : s), "inf")))) {

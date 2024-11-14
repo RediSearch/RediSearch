@@ -41,7 +41,7 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
-int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
+int parseDoubleRange(const char *s, double *target, int isMin,
                      int sign, QueryError *status);
 
 /*
