@@ -461,3 +461,49 @@ def test_redis_info_modules_vecsim():
   env.assertEqual(info['mark_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
+@skip(cluster=True)
+def test_indexes_logically_deleted_docs(env):
+  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
+  # is > 8h (5 mintues is the hard limit for a test).
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
+  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_logically_deleted_docs']
+
+  # Init state
+  env.assertEqual(get_logically_deleted_docs(), 0)
+
+  # Create one index and one document, then delete the document (logically)
+  num_fields = 3
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx1').ok()  # Stop GC for this index to keep the deleted docs
+  set_doc(f'doc:1').equal(num_fields)
+  env.assertEqual(get_logically_deleted_docs(), 0)
+  env.expect('DEL', 'doc:1').equal(1)
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Create another index, expect that the deleted document will not be indexed.
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Add another document that should be indexed into both indexes, then deleted it (logically) and expect
+  # it will be accounted twice.
+  set_doc(f'doc:2').equal(num_fields)
+  env.cmd('DEL', 'doc:2')
+  env.assertEqual(get_logically_deleted_docs(), 3)
+
+  # Drop first index, expect that the deleted documents in this index will not be accounted anymore when releasing the GC.
+  # We run in a transaction, to ensure that the GC will not run until the "dropindex" commmand is executed from
+  # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
+  # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
+  env.expect('MULTI').ok()
+  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx1')
+  env.cmd('FT.DROPINDEX', 'idx1')
+  env.expect('EXEC').equal(['OK', 'OK'])
+  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
+  env.assertEqual(get_logically_deleted_docs(), 1)
+
+  # Run GC, expect that the deleted document will not be accounted anymore.
+  forceInvokeGC(env, idx='idx2')
+  env.assertEqual(get_logically_deleted_docs(), 0)
