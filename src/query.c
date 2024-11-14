@@ -292,10 +292,6 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   return ret;
 }
 
-QueryNode *NewTagNodeByName(IndexSpec *sp, const char *field, size_t len) {
-  return NewTagNode(IndexSpec_GetFieldWithLength(sp, field, len));
-}
-
 QueryNode *NewNumericNode(QueryParam *p) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
   // Move data and params pointers

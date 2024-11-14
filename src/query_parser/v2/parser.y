@@ -746,7 +746,7 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
   if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
-    reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires field to be defined with '" SPEC_INDEXMISSING_STR "'");
+    reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
     A = NewMissingNode(B.fs);

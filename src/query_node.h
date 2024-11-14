@@ -117,7 +117,7 @@ typedef struct {
 } QueryNumericNode;
 
 typedef struct {
-  const struct GeoFilter *gf;
+  struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {

@@ -2055,7 +2055,7 @@ static YYACTIONTYPE yy_reduce(
       case 48: /* expr ::= ISMISSING LP modifier RP */
 {
   if (ctx->sctx->spec && !FieldSpec_IndexesMissing(yymsp[-1].minor.yy58.fs)) {
-    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy58.tok, "'ismissing' requires field to be defined with '" SPEC_INDEXMISSING_STR "'");
+    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy58.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     yymsp[-3].minor.yy47 = NULL;
   } else {
     yymsp[-3].minor.yy47 = NewMissingNode(yymsp[-1].minor.yy58.fs);
