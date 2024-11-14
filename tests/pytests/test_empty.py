@@ -1305,7 +1305,7 @@ def testInvalidUseOfEmptyString():
             contains('Unknown field')
 
         env.expect('FT.SEARCH', 'idx', '@""|text:(abc)').error().\
-            contains('Unknown field')
+            contains('Syntax error') # @"" is not recognized as a field modifier (see lexer's definition)
 
         env.expect('FT.SEARCH', 'idx', '@text|text|"":(abc)').error().\
             contains('Unknown field')
