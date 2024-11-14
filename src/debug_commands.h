@@ -8,11 +8,7 @@
 
 #include "redismodule.h"
 
-#ifdef RS_CLUSTER_ENTERPRISE
-#define RS_DEBUG_FLAGS "readonly _proxy-filtered", 0, 0, 0
-#else
-#define RS_DEBUG_FLAGS "readonly", 0, 0, 0
-#endif
+#define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 typedef struct DebugCommandType {
