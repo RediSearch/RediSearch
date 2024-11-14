@@ -1644,7 +1644,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
       }
       break;
-    case QN_NUMERIC:
+    case QN_NUMERIC: {
+        if (n->nn.nf->min > n->nn.nf->max) {
+          QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max): @%s:[%f %f]",
+                                 n->nn.nf->field->name, n->nn.nf->min, n->nn.nf->max);
+          res = REDISMODULE_ERR;
+        }
+      }
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:

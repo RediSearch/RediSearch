@@ -1562,18 +1562,20 @@ def testExpander(env):
 def testNumericRange(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
+    isDialect1 = env.cmd(config_cmd(), 'get', 'DEFAULT_DIALECT')[0][1] == '1'
     # Test bad filter ranges
-    env.expect('ft.search', 'idx', 'hello kitty @score:[5]').error().contains("Syntax error").contains("5")
-    # TODO: Syntax error due to min value larger than max value?
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[5, -inf]').error().contains("Bad upper range: -inf")
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[5, (-inf]').error().contains("Bad upper range: -inf")
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[inf, 5]').error().contains("Bad lower range: inf")
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[(inf, 5]').error().contains("Bad lower range: inf")
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[+inf, 5]').error().contains("Bad lower range: +inf")
-    # env.expect('ft.search', 'idx', 'hello kitty @score:[(+inf, 5]').error().contains("Bad lower range: +inf")
-    # Filter does not accept parameters
-    env.expect('ft.search', 'idx', 'hello kitty @score:[5, $n]',
-               'PARAMS', 2, 'n', '10').error().contains("Syntax error at offset 23 near n")
+    if isDialect1:
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5]').error().contains("Syntax error").contains("5")
+        # Filter does not accept parameters
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, $n]',
+                'PARAMS', 2, 'n', '10').error().contains("Syntax error at offset 23 near n")
+    else:
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, -inf]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, (-inf]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[(inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[+inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[(+inf, 5]').error().contains("Invalid numeric range (min > max)")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
