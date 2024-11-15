@@ -1775,6 +1775,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_FULLTEXT)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_TEXT_STR);
+    QueryNode_Free(yymsp[0].minor.yy47);
     yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy47 == NULL) {
     yylhsminor.yy47 = NULL;
@@ -2066,6 +2067,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-4].minor.yy58.fs, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy58, SPEC_TAG_STR);
+    QueryNode_Free(yymsp[-1].minor.yy47);
     yylhsminor.yy47 = NULL;
   } else if (!yymsp[-1].minor.yy47) {
     yylhsminor.yy47 = NULL;
@@ -2116,6 +2118,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_NUMERIC_STR);
+    QueryParam_Free(yymsp[0].minor.yy56);
     yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy56) {
     // we keep the capitalization as is
@@ -2259,6 +2262,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_GEO)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_GEO_STR);
+    QueryParam_Free(yymsp[0].minor.yy56);
     yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy56) {
     // we keep the capitalization as is
@@ -2287,6 +2291,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_GEOMETRY_STR);
+    QueryNode_Free(yymsp[0].minor.yy47);
     yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy47) {
     // we keep the capitalization as is
@@ -2468,10 +2473,11 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 89: /* expr ::= modifier COLON LSQB vector_range_command RSQB */
 {
+  yylhsminor.yy47 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-4].minor.yy58.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy58, SPEC_VECTOR_STR);
-    yylhsminor.yy47 = NULL;
-  } else {
+    QueryNode_Free(yymsp[-1].minor.yy47);
+  } else if (yymsp[-1].minor.yy47) {
     yymsp[-1].minor.yy47->vn.vq->field = yymsp[-4].minor.yy58.fs;
     yylhsminor.yy47 = yymsp[-1].minor.yy47;
   }

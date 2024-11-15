@@ -445,6 +445,7 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 expr(A) ::= modifier(B) COLON text_expr(C) . {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
+    QueryNode_Free(C);
     A = NULL;
   } else if (C == NULL) {
     A = NULL;
@@ -760,6 +761,7 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
+    QueryNode_Free(C);
     A = NULL;
   } else if (!C) {
     A = NULL;
@@ -820,6 +822,7 @@ tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
 expr(A) ::= modifier(B) COLON numeric_range(C). {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    QueryParam_Free(C);
     A = NULL;
   } else if (C) {
     // we keep the capitalization as is
@@ -948,6 +951,7 @@ expr(A) ::= modifier(B) LE param_num(C) . {
 expr(A) ::= modifier(B) COLON geo_filter(C). {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEO)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEO_STR);
+    QueryParam_Free(C);
     A = NULL;
   } else if (C) {
     // we keep the capitalization as is
@@ -976,6 +980,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
+    QueryNode_Free(C);
     A = NULL;
   } else if (C) {
     // we keep the capitalization as is
@@ -1166,10 +1171,11 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 
 /*** Vector range queries ***/
 expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
+  A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
-    A = NULL;
-  } else {
+    QueryNode_Free(C);
+  } else if (C) {
     C->vn.vq->field = B.fs;
     A = C;
   }

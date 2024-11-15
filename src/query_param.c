@@ -55,6 +55,7 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
 }
 
 void QueryParam_Free(QueryParam *p) {
+  if (!p) return;
   switch (p->type) {
     case QP_GEO_FILTER:
       GeoFilter_Free(p->gf);
