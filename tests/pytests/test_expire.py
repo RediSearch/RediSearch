@@ -40,7 +40,7 @@ def testExpireIndex(env):
         env.assertEqual(str(e), 'Unknown index name')
 
 def testExpireDocs(env):
-    env.skipOnCluster()
+    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
