@@ -1922,9 +1922,7 @@ static YYACTIONTYPE yy_reduce(
       case 33: /* termlist ::= termlist param_term */
 {
   yylhsminor.yy47 = yymsp[-1].minor.yy47;
-  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
-    QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  }
+  QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
   yymsp[-1].minor.yy47 = yylhsminor.yy47;
         break;
@@ -1944,7 +1942,7 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[0].minor.yy47) {
     yymsp[-1].minor.yy47 = NewOptionalNode(yymsp[0].minor.yy47);
   } else {
-     yymsp[-1].minor.yy47 = NULL;
+    yymsp[-1].minor.yy47 = NULL;
   }
 }
         break;
@@ -2065,13 +2063,11 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 49: /* expr ::= modifier COLON LB tag_list RB */
 {
+  yylhsminor.yy47 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-4].minor.yy58.fs, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy58, SPEC_TAG_STR);
     QueryNode_Free(yymsp[-1].minor.yy47);
-    yylhsminor.yy47 = NULL;
-  } else if (!yymsp[-1].minor.yy47) {
-    yylhsminor.yy47 = NULL;
-  } else {
+  } else if (yymsp[-1].minor.yy47) {
     yylhsminor.yy47 = NewTagNode(yymsp[-4].minor.yy58.fs);
     QueryNode_AddChildren(yylhsminor.yy47, yymsp[-1].minor.yy47->children, QueryNode_NumChildren(yymsp[-1].minor.yy47));
 
@@ -2116,16 +2112,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 58: /* expr ::= modifier COLON numeric_range */
 {
+  yylhsminor.yy47 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_NUMERIC_STR);
     QueryParam_Free(yymsp[0].minor.yy56);
-    yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy56) {
     // we keep the capitalization as is
     yymsp[0].minor.yy56->nf->field = yymsp[-2].minor.yy58.fs;
     yylhsminor.yy47 = NewNumericNode(yymsp[0].minor.yy56);
-  } else {
-    yylhsminor.yy47 = NewQueryNode(QN_NULL);
   }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
@@ -2260,16 +2254,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 70: /* expr ::= modifier COLON geo_filter */
 {
+  yylhsminor.yy47 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_GEO)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_GEO_STR);
     QueryParam_Free(yymsp[0].minor.yy56);
-    yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy56) {
     // we keep the capitalization as is
     yymsp[0].minor.yy56->gf->field = yymsp[-2].minor.yy58.fs;
     yylhsminor.yy47 = NewGeofilterNode(yymsp[0].minor.yy56);
-  } else {
-    yylhsminor.yy47 = NewQueryNode(QN_NULL);
   }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
@@ -2289,16 +2281,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 72: /* expr ::= modifier COLON geometry_query */
 {
+  yylhsminor.yy47 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy58.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy58, SPEC_GEOMETRY_STR);
     QueryNode_Free(yymsp[0].minor.yy47);
-    yylhsminor.yy47 = NULL;
   } else if (yymsp[0].minor.yy47) {
     // we keep the capitalization as is
     yymsp[0].minor.yy47->gmn.geomq->fs = yymsp[-2].minor.yy58.fs;
     yylhsminor.yy47 = yymsp[0].minor.yy47;
-  } else {
-    yylhsminor.yy47 = NewQueryNode(QN_NULL);
   }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;

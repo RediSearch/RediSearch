@@ -2868,23 +2868,40 @@ def testAggregateSortByMaxNumberOfFields(env):
     args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX']
     env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
 
-def testNumericFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
+@skip(cluster=True)
+def testFieldParseError(env:Env):
+    env.cmd(config_cmd(), 'set', 'DEFAULT_DIALECT', '2') # TODO: remove once dialect 1 is removed
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'num', 'NUMERIC').ok()
 
-def testGeoFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
+    # Test text query
+    env.expect('FT.SEARCH', 'idx', '@num:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@text|num:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@num|text:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@text|text|num:foo').error().contains('Expected a TEXT field')
+
+    # Test numeric query
+    env.expect('FT.SEARCH', 'idx', '@text:[42]').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text:[42 42]').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text == 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text != 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text < 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text <= 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text > 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text >= 42').error().contains('Expected a NUMERIC field')
+
+    # Test geo query
+    env.expect('FT.SEARCH', 'idx', '@text:[42 42 42 km]').error().contains('Expected a GEO field')
+
+    # Test tag query
+    env.expect('FT.SEARCH', 'idx', '@text:{foo}').error().contains('Expected a TAG field')
+
+    # Test vector query
+    env.expect('FT.SEARCH', 'idx', '@text:[VECTOR_RANGE 0.1 $VEC]', 'PARAMS', '2', 'VEC', '????').error().contains('Expected a VECTOR field')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @text $VEC]', 'PARAMS', '2', 'VEC', '????').error().contains('Expected a VECTOR field')
+
+    # Test geometry query
+    env.expect('FT.SEARCH', 'idx', '@text:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3).error(
+        ).contains('Expected a GEOSHAPE field')
 
 def testReducerError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')

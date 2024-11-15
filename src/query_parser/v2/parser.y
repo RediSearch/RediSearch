@@ -595,9 +595,7 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-  }
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -628,7 +626,7 @@ expr(A) ::= TILDE expr(B) . {
   if (B) {
     A = NewOptionalNode(B);
   } else {
-     A = NULL;
+    A = NULL;
   }
 }
 
@@ -636,7 +634,7 @@ text_expr(A) ::= TILDE text_expr(B) . {
   if (B) {
     A = NewOptionalNode(B);
   } else {
-     A = NULL;
+    A = NULL;
   }
 }
 
@@ -759,13 +757,11 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
+  A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
-    A = NULL;
-  } else if (!C) {
-    A = NULL;
-  } else {
+  } else if (C) {
     A = NewTagNode(B.fs);
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
@@ -820,16 +816,14 @@ tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
+  A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     QueryParam_Free(C);
-    A = NULL;
   } else if (C) {
     // we keep the capitalization as is
     C->nf->field = B.fs;
     A = NewNumericNode(C);
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
@@ -949,16 +943,14 @@ expr(A) ::= modifier(B) LE param_num(C) . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
+  A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEO)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEO_STR);
     QueryParam_Free(C);
-    A = NULL;
   } else if (C) {
     // we keep the capitalization as is
     C->gf->field = B.fs;
     A = NewGeofilterNode(C);
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
@@ -978,16 +970,14 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 // Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
+  A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
     QueryNode_Free(C);
-    A = NULL;
   } else if (C) {
     // we keep the capitalization as is
     C->gmn.geomq->fs = B.fs;
     A = C;
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
