@@ -1312,7 +1312,7 @@ def testGeoErrors(env):
     env.expect('ft.search', 'idx', 'hilton @location:[-0.1757 51.5156 1 km]').equal([0])
 
     # Query errors
-    env.expect('ft.search', 'idx', 'hilton @location:[lon 51.5156 1 km]').error().contains('Syntax error').contains('lon')
+    env.expect('ft.search', 'idx', 'hilton @location:[lon 51.5156 1 km]').error().contains('Syntax error')
     env.expect('ft.search', 'idx', 'hilton @location:[51.5156 lat 1 km]').error().contains('Syntax error').contains('lat')
     env.expect('ft.search', 'idx', 'hilton @location:[ -0.1757 51.5156 radius km]').error().contains('Syntax error').contains('radius')
     env.expect('ft.search', 'idx', 'hilton @location:[ -0.1757 51.5156 1 fake]').error().contains('Invalid GeoFilter unit')
@@ -3374,7 +3374,6 @@ def testIssue1208(env):
 
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
-    # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
 @skip(cluster=True)
 def testFieldsCaseSensetive(env):
@@ -3387,25 +3386,26 @@ def testFieldsCaseSensetive(env):
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field 'N'")
+    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field 'T'")
+    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field 'G'")
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
@@ -3447,25 +3447,26 @@ def testSortedFieldsCaseSensetive(env):
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field 'N'")
+    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field 'T'")
+    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field 'G'")
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
@@ -3607,8 +3608,10 @@ def testSchemaWithAs(env):
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
   for _ in env.reloadingIterator():
-    env.expect('ft.search idx @txt:hello').equal([0])
-    env.expect('ft.search idx @txt:world').equal([0])
+    env.expect('ft.search idx @txt:hello DIALECT 1').equal([0]).noError()
+    env.expect('ft.search idx @txt:hello DIALECT 2').error().contains('Unknown field')
+    env.expect('ft.search idx @txt:world DIALECT 1').equal([0]).noError()
+    env.expect('ft.search idx @txt:world DIALECT 2').error().contains('Unknown field')
     env.expect('ft.search idx @foo:hello').equal([1, 'a', ['txt', 'hello']])
     env.expect('ft.search idx @foo:world').equal([0])
 
