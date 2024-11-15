@@ -117,8 +117,8 @@ def testOptimizer(env):
                     ['Type', 'INTERSECT', 'Counter', 1200, 'Child iterators', [
                         ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1401, 'Size', 10000],
                         ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 1200, 'Child iterators', [
-                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 400, 'Size', 1600],
-                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 800, 'Size', 7600]]]]],
+                            ['Type', 'NUMERIC', 'Term', '0 - 10', 'Counter', 200, 'Size', 2400],
+                            ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 1000, 'Size', 8400]]]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 1200],
                     ['Type', 'Scorer', 'Counter', 1200],
@@ -162,8 +162,8 @@ def testOptimizer(env):
                     ['Type', 'INTERSECT', 'Counter', 10, 'Child iterators', [
                         ['Type', 'TAG', 'Term', 'foo', 'Counter', 14, 'Size', 10000],
                         ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 10, 'Child iterators', [
-                            ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 7, 'Size', 1600],
-                            ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 4, 'Size', 7600]]]]],
+                            ['Type', 'NUMERIC', 'Term', '0 - 10', 'Counter', 4, 'Size', 2400],
+                            ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 7, 'Size', 8400]]]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
                     ['Type', 'Pager/Limiter', 'Counter', 9]]}
@@ -184,8 +184,8 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 1200, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 800, 'Size', 1600],
-                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 400, 'Size', 7600]]],
+                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Counter', 400, 'Size', 2400],
+                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 800, 'Size', 8400]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 1200],
                     ['Type', 'Loader', 'Counter', 1200],
@@ -205,8 +205,8 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 10, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '6 - 12', 'Counter', 8, 'Size', 1600],
-                        ['Type', 'NUMERIC', 'Term', '14 - 50', 'Counter', 3, 'Size', 7600]]],
+                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Counter', 5, 'Size', 2400],
+                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 6, 'Size', 8400]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
                     ['Type', 'Pager/Limiter', 'Counter', 9]]}
@@ -227,7 +227,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Counter', 800, 'Size', 10000]],
+                        ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1400, 'Size', 10000]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 10],
                     ['Type', 'Loader', 'Counter', 10],
@@ -271,7 +271,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'TAG', 'Term', 'foo', 'Counter', 800, 'Size', 10000]],
+                        ['Type', 'TAG', 'Term', 'foo', 'Counter', 1400, 'Size', 10000]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 10],
                     ['Type', 'Loader', 'Counter', 10],
@@ -311,7 +311,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Counter', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Counter', 1400]],
+                        ['Type', 'WILDCARD', 'Counter', 2600]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 10],
                     ['Type', 'Loader', 'Counter', 10],

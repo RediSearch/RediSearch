@@ -76,7 +76,7 @@ def testSanity(env):
         conn.execute_command('hset', i, 'n', i % 100)
     env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
     env.expect(debug_cmd(), 'numidx_summary', 'idx', 'n') \
-                .equal(['numRanges', 13, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 12, 'emptyLeaves', 0, 'RootMaxDepth', 5, 'MemoryUsage', ANY])
+                .equal(['numRanges', 13, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 12, 'emptyLeaves', 0, 'RootMaxDepth', 4, 'MemoryUsage', ANY])
 
 @skip(cluster=True)
 def testCompressionConfig(env):

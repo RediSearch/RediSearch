@@ -9,11 +9,13 @@ from RLTest import Env
 ##########################################################################
 
 def check_index_info(env, idx, exp_num_records, exp_inv_idx_size):
+    msg = 'line: {}'.format(inspect.currentframe().f_back.f_lineno) # caller line number
+
     d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), exp_num_records)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg)
 
     if(exp_inv_idx_size != None):
-        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size)
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg)
 
 ##########################################################################
 
@@ -49,15 +51,15 @@ def runTestWithSeed(env, s=None):
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
 
-    # Expected inverted index size total: 606 bytes
-    # 2 * (buffer size + inverted index structure size)
-    # 2 * (207 + 96) = 606
+    # Expected inverted index size total: 527 bytes
+    # buffer size + inverted index structure size
+    # 431 + 96 = 527
 
-    # 207 is the buffer size after writing 4 bytes 50 times.
+    # 431 is the buffer size after writing 4 bytes 100 times.
     # The buffer grows according to Buffer_Grow() in buffer.c
     # 96 is the size of the inverted index structure without counting the
     # buffer capacity.
-    expected_inv_idx_size = 606 / (1024 * 1024)
+    expected_inv_idx_size = 527 / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
