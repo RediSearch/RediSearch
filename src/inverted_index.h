@@ -95,7 +95,7 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 
 // Create a new inverted index object, with the given flag.
 // If initBlock is 1, we create the first block.
-// out parameter memsize must be not NULL, the total of allocated memory 
+// out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
 
@@ -286,11 +286,6 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
 static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
-
-#ifdef _DEBUG
-void InvertedIndex_Dump(InvertedIndex *idx, int indent);
-void IndexBlock_Dump(IndexBlock *b, int indent);
-#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }
