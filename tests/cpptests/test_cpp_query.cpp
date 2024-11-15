@@ -835,6 +835,8 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   // test field modifiers
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
   ASSERT_FALSE(ast.parse(qt, ver)) << ast.getError(); // unknown field
+  qt = "@title:(hello world) @body:(world apart) @body:fofofof";
+  ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   n = ast.root;
   //printf("%s ====> ", qt);
   //ast.print();
@@ -843,11 +845,11 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(QueryNode_NumChildren(n), 3);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
   ASSERT_EQ(n->children[1]->opts.fieldMask, 0x02);
-  ASSERT_EQ(n->children[2]->opts.fieldMask, 0x00);
+  ASSERT_EQ(n->children[2]->opts.fieldMask, 0x02);
   // ASSERT_EQ(n->children[2]->fieldMask, 0x00)
 
   // test numeric ranges
-  qt = "@num:[0.4 (500]";
+  qt = "@bar:[0.4 (500]";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_NUMERIC);
