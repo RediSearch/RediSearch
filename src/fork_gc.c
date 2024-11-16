@@ -1008,18 +1008,17 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   rm_free(fieldName);
 
-  if (gc->cleanNumericEmptyNodes && rt && rt->emptyLeaves >= rt->numRanges / 2) {
+  if (status == FGC_DONE && rt && gc->cleanNumericEmptyNodes) {
     StrongRef spec_ref = WeakRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp) {
-      return FGC_SPEC_DELETED;
-    }
+    if (!sp) return FGC_SPEC_DELETED;
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
-
-    NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
-    // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
-    FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
+    if (rt->emptyLeaves >= rt->numRanges / 2) { // TODO: count `numLeaves` in the tree and use it here
+      NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+      // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
+      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
+    }
     RedisSearchCtx_UnlockSpec(&sctx);
     StrongRef_Release(spec_ref);
   }
