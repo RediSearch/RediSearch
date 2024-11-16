@@ -511,7 +511,6 @@ def testConfigAPIRunTimeNumericParams():
         else:
             _testNumericConfig(env, configName, ftConfigName, default, min, max)
 
-
 @skip(cluster=True)
 def testModuleLoadexNumericParams():
     env = Env(noDefaultModuleArgs=True)
@@ -613,7 +612,7 @@ def testConfigFileNumericParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileNumericParams.conf'
 
-    # create redis.conf file in /tmp and add all the boolean parameters
+    # create redis.conf file in /tmp
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
@@ -627,13 +626,33 @@ def testConfigFileNumericParams():
 
     # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:       
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
         # Skip cluster parameters
         if configName in ['search.search-threads',
                         'search.topology-validation-timeout']:
             if not env.isCluster():
                 continue
 
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
+
+@skip(cluster=False)
+def testClusterConfigFileNumericParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testClusterConfigFileNumericParams.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            f.write(f'{configName} {minValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, str(minValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
@@ -757,7 +776,6 @@ def testModuleLoadexEnumParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(cluster=True)
 def testConfigFileEnumParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileEnumParams.conf'
@@ -780,7 +798,6 @@ def testConfigFileEnumParams():
     res = env.cmd(config_cmd(), 'GET', argName)
     env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True)  
 def testConfigFileAndArgsEnumParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsEnumParams.conf'
@@ -899,7 +916,6 @@ def testModuleLoadexStringParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-@skip(cluster=True)
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -918,7 +934,7 @@ def testConfigFileStringParams():
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    # env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
@@ -1052,7 +1068,6 @@ def testConfigAPIRunTimeBooleanParams():
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
 
-
 @skip(cluster=True)
 def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)
@@ -1172,7 +1187,6 @@ def testModuleLoadexBooleanParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(cluster=True)
 def testConfigFileBooleanParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileBooleanParams.conf'
@@ -1197,7 +1211,6 @@ def testConfigFileBooleanParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]])
 
-@skip(cluster=True)  
 def testConfigFileAndArgsBooleanParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsBooleanParams.conf'

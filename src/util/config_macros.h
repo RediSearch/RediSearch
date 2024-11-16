@@ -50,9 +50,18 @@
   }
 
 // Define the getter and setter functions using Module Configurations API
-#define CONFIG_API_STRING_GETTER(name) RedisModuleString * name(const char *name, void *privdata) 
-#define CONFIG_API_NUMERIC_GETTER(name) long long name(const char *name, void *privdata)
 #define CONFIG_API_ENUM_GETTER(name) int name(const char *name, void *privdata)
+
+#define CONFIG_API_NUMERIC_GETTER(name)            \
+long long name(const char *name, void *privdata) { \
+  return (*(long long *)privdata);                 \
+}
+
+#define CONFIG_API_STRING_GETTER(name)                                  \
+RedisModuleString * name(const char *name, void *privdata) {            \
+  char *str = *(char **)privdata;                                       \
+  return str ? RedisModule_CreateString(NULL, str, strlen(str)) : NULL; \
+}
 
 #define CONFIG_API_BOOL_GETTER(name, var, invert)   \
 static int name(const char *name, void *privdata) { \
@@ -63,14 +72,33 @@ static int name(const char *name, void *privdata) { \
   }                                                 \
 }
 
-#define CONFIG_API_STRING_SETTER(name) int name(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err)
-#define CONFIG_API_NUMERIC_SETTER(name) int name(const char *name, long long val, void *privdata, RedisModuleString **err)
 #define CONFIG_API_ENUM_SETTER(name) int name(const char *name, int val, void *privdata, RedisModuleString **err)
 
-#define CONFIG_API_BOOL_SETTER(name, var)                                      \
-static int name(const char *name, int val, void *privdata, RedisModuleString **err) { \
-  RSGlobalConfig.var = val;                                                    \
+#define CONFIG_API_NUMERIC_SETTER(name)             \
+int name(const char *name, long long val,           \
+         void *privdata, RedisModuleString **err) { \
+  *(long long *)privdata = val;                     \
+  return REDISMODULE_OK;                            \
+}
+
+#define CONFIG_API_STRING_SETTER(name) int name(const char *name,           \
+            RedisModuleString *val, void *privdata, RedisModuleString **err) { \
+  char **ptr = (char **)privdata;                                              \
+  if (val) {                                                                   \
+    size_t len;                                                                \
+    const char *ret = RedisModule_StringPtrLen(val, &len);                     \
+    if (len > 0) {                                                             \
+      *ptr = rm_strndup(ret, len);                                             \
+    }                                                                          \
+  }                                                                            \
   return REDISMODULE_OK;                                                       \
+}
+
+#define CONFIG_API_BOOL_SETTER(name, var)                  \
+static int name(const char *name, int val, void *privdata, \
+                RedisModuleString **err) {                 \
+  RSGlobalConfig.var = val;                                \
+  return REDISMODULE_OK;                                   \
 }
 
 #define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val, flags) \

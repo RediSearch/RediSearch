@@ -110,16 +110,8 @@ CONFIG_GETTER(getSearchThreads) {
 }
 
 // search-threads
-CONFIG_API_NUMERIC_SETTER(set_search_threads) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
-  realConfig->coordinatorPoolSize = val;
-  return REDISMODULE_OK;
-}
-
-CONFIG_API_NUMERIC_GETTER(get_search_threads) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
-  return realConfig->coordinatorPoolSize;
-}
+CONFIG_API_NUMERIC_SETTER(set_search_threads);
+CONFIG_API_NUMERIC_GETTER(get_search_threads);
 
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
@@ -146,13 +138,15 @@ CONFIG_SETTER(setOSSACLUsername) {
 }
 
 // topology-validation-timeout
-CONFIG_API_NUMERIC_SETTER(set_topology_validation_timeout) {
+int set_topology_validation_timeout(const char *set_topology_validation_timeout,
+                      long long val, void *privdata, RedisModuleString **err) {
   SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   realConfig->topologyValidationTimeoutMS = val;
   return REDISMODULE_OK;
 }
 
-CONFIG_API_NUMERIC_GETTER(get_topology_validation_timeout) {
+long long get_topology_validation_timeout(
+                const char *get_topology_validation_timeout, void *privdata) {
   SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   return realConfig->topologyValidationTimeoutMS;
 }
@@ -244,7 +238,8 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
         ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
         REDISMODULE_CONFIG_IMMUTABLE, 1, LLONG_MAX, get_search_threads,
-        set_search_threads, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
+        set_search_threads, NULL,
+        (void*)&(clusterConfig.coordinatorPoolSize)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "search-threads registered");
@@ -257,14 +252,6 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "topology-validation-timeout registered");
-  }
-
-  // Apply configuration
-  if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "error", "Invalid Cluster LoadConfigs");
-    return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "RegisterClusterModuleConfig() success");
   }
 
   return REDISMODULE_OK;

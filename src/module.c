@@ -3303,11 +3303,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (isClusterEnabled) {
     // Register module configuration parameters for cluster
-    if (RegisterClusterModuleConfig(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error registering cluster module configuration");
-      return REDISMODULE_ERR;
-    }
+    RM_TRY_F(RegisterClusterModuleConfig, ctx);
   }
+
+  // Apply configuration
+  RM_TRY_F(RedisModule_LoadConfigs, ctx);
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
