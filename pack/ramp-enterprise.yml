@@ -45,6 +45,16 @@ exclude_commands:
     - FT._ALIASDELIFX
     - _FT.CONFIG
     - _FT.DEBUG
+    - _FT.PROFILE
+    - _FT.SEARCH
+    - _FT.INFO
+    - _FT.AGGREGATE
+    - _FT.MGET
+    - _FT.CURSOR
+    - _FT.SPELLCHECK
+    - _FT.TAGVALS
+    - _FT.DEL
+    - _FT.SAFEADD
     - search.CLUSTERREFRESH
     - search.CLUSTERINFO
 overide_command:
