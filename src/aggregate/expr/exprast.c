@@ -141,7 +141,7 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->pred.right);
       break;
     case RSExpr_Property:
-      rm_free((char *)e->property.key);
+      HiddenName_Free(e->property.key);
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);

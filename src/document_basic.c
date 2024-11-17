@@ -250,6 +250,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
+    if (doc->fields[oix].docFieldName) {
+      HiddenName_Free(doc->fields[oix].docFieldName);
+    }
     doc->fields[oix].docFieldName = HiddenString_Retain(field->fieldName);
 
     // on crdt the return value might be the underline value, we must copy it!!!

@@ -14,7 +14,7 @@
 #include "util/arr.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
-static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, uint32_t flags) {
+static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, HiddenName* path, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
   if (!lookup->head) {
@@ -42,14 +42,15 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
   RLookupKey *new = rm_calloc(1, sizeof(*new));
 
   /* Copy the old key to the new one */
-  new->name = old->name; // taking ownership of the name, no need
-  new->path = HiddenName_Retain(new->name); // keeping the initial default of path = name. Path resolution will happen later.
+  new->name = HiddenName_Retain(old->name); // taking ownership of the name, no need
+  new->path = HiddenName_Retain(old->path); // keeping the initial default of path = name. Path resolution will happen later.
   new->dstidx = old->dstidx;
 
   /* Set the new flags */
   new->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
 
   /* Make the old key inaccessible for new lookups */
+  HiddenName_Free(old->name);
   old->name = NULL;
   old->flags |= RLOOKUP_F_HIDDEN; // Mark the old key as hidden so it won't be attempted to be returned
 
@@ -85,8 +86,10 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
   // TODO: Rlookup should also use hidden string
   size_t pathLen = 0;
-  HiddenString_Free(key->path);
-  key->path = HiddenString_Retain(fs->fieldPath);
+  if (key->path != fs->fieldPath) {
+    HiddenString_Free(key->path);
+    key->path = HiddenString_Retain(fs->fieldPath);
+  }
   if (key->flags & RLOOKUP_F_NAMEALLOC) {
     HiddenString_TakeOwnership(key->path);
   }
@@ -115,7 +118,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, HiddenName *fieldName, uint32
     return NULL;
   }
 
-  RLookupKey *key = createNewKey(lookup, fieldName, flags);
+  RLookupKey *key = createNewKey(lookup, fieldName, fs->fieldPath, flags);
   setKeyByFieldSpec(key, fs);
   return key;
 }
@@ -144,7 +147,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, RLookupKey *key, Hidde
     // NOTICE: you should not call GetKey for loading if it's illegal to load the key at the given state.
     // The responsibility of checking this is on the caller.
     if (!key) {
-      key = createNewKey(lookup, name, flags);
+      key = createNewKey(lookup, name, name, flags);
     } else if (((key->flags & RLOOKUP_F_VAL_AVAILABLE) && !(key->flags & RLOOKUP_F_ISLOADED)) &&
                                                           !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)) ||
                 (key->flags & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
@@ -197,7 +200,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, RLookupKey *key, Hidde
   //    create a new key with the name and flags
   case RLOOKUP_M_WRITE:
     if (!key) {
-      key = createNewKey(lookup, name, flags);
+      key = createNewKey(lookup, name, name, flags);
     } else if (!(flags & RLOOKUP_F_OVERRIDE)) {
       return NULL;
     } else {
@@ -218,7 +221,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, RLookupKey *key, Hidde
 
     // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
     if (!key && (lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
-      key = createNewKey(lookup, name, flags);
+      key = createNewKey(lookup, name, name, flags);
       key->flags |= RLOOKUP_F_UNRESOLVED;
     }
     return key;
@@ -948,13 +951,12 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   for (int i = 0; i < nkeys; ++i) {
     int idx = rule->filter_fields_index[i];
     if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], RLOOKUP_F_NOFLAGS);
+      keys[i] = createNewKey(it, rule->filter_fields[i], rule->filter_fields[i], RLOOKUP_F_NOFLAGS);
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
     size_t length = 0;
-    keys[i] = createNewKey(it, fs->fieldName, RLOOKUP_F_NOFLAGS);
-    keys[i]->path = HiddenName_Retain(fs->fieldPath);
+    keys[i] = createNewKey(it, fs->fieldName, fs->fieldPath, RLOOKUP_F_NOFLAGS);
   }
 
   // load

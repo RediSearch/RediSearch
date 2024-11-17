@@ -81,8 +81,14 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
-      aCtx->fspecs[i].fieldName = NULL;
-      aCtx->fspecs[i].fieldPath = NULL;
+      if (aCtx->fspecs[i].fieldName) {
+        HiddenName_Free(aCtx->fspecs[i].fieldName);
+        aCtx->fspecs[i].fieldName = NULL;
+      }
+      if (aCtx->fspecs[i].fieldPath) {
+        HiddenName_Free(aCtx->fspecs[i].fieldPath);
+        aCtx->fspecs[i].fieldPath = NULL;
+      }
       aCtx->fspecs[i].types = 0;
       continue;
     }
@@ -180,6 +186,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->docFlags = 0;
   aCtx->sctx = NULL;
   aCtx->next = NULL;
+  if ((aCtx->specFlags & Index_Async) && aCtx->specName) {
+    HiddenName_Free(aCtx->specName);
+  }
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
@@ -657,6 +666,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
       RS_LOG_ASSERT(0, "Unsupported field type for GEO index");
   }
 
