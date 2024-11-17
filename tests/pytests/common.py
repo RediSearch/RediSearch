@@ -320,15 +320,18 @@ def config_cmd():
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
-
-def forceInvokeGC(env, idx = 'idx', timeout = None):
+def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
-        if timeout == 0:
-            env.debugPrint("forceInvokeGC: note timeout is infinite, consider using a big timeout instead.", force=True)
+        # Note: timeout==0 means infinite (no timeout)
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
+
+def forceBGInvokeGC(env, idx='idx'):
+    waitForRdbSaveToFinish(env)
+    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
+
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
