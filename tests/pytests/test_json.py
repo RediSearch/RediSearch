@@ -137,7 +137,7 @@ def testHandleUnindexedTypes(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                         '$.string', 'AS', 'string', 'TEXT',
                         '$.null', 'AS', 'nil', 'TEXT',
-                        '$.boolT', 'AS', 'boolT', 'TAG',
+                        '$.boolT', 'AS', 'boolT', 'TEXT',
                         '$.boolN', 'AS', 'boolN', 'NUMERIC',
                         '$.int', 'AS', 'int', 'NUMERIC',
                         '$.flt', 'AS', 'flt', 'NUMERIC',
