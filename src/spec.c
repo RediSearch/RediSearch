@@ -1420,9 +1420,7 @@ void Spec_AddToDict(RefManager *rm) {
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
-    if (c->fields[ii].fieldName != c->fields[ii].fieldPath) {
-      HiddenString_Free(c->fields[ii].fieldName);
-    }
+    HiddenString_Free(c->fields[ii].fieldName);
     HiddenString_Free(c->fields[ii].fieldPath);
   }
   rm_free(c->fields);
@@ -1449,13 +1447,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
     field->fieldName = HiddenString_Retain(fs->fieldName);
-    // if name & path are pointing to the same string, copy only pointer
-    if (fs->fieldName != fs->fieldPath) {
-      field->fieldPath = HiddenString_Retain(fs->fieldPath);
-    } else {
-      // use the same pointer for both name and path
-      field->fieldPath = field->fieldName;
-    }
+    field->fieldPath = HiddenString_Retain(fs->fieldPath);
   }
   return ret;
 }
@@ -1561,7 +1553,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   // Free spec name
-  HiddenString_Free(spec->specName);
+  if (spec->specName) {
+    HiddenString_Free(spec->specName);
+  }
   rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
@@ -1853,7 +1847,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->fieldName = NewHiddenString(name, strlen(name), true);
-  fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
+  fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : HiddenName_Retain(fs->fieldName);
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1944,12 +1938,12 @@ int bit(t_fieldMask id) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Need to remove the null delimiter from the length
+#define AllocateHiddenName(ptr, length) NewHiddenString(ptr, length - 1, true)
+
 // Backwards compat version of load for rdbs with version < 8
 static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-  char* name = NULL;
-  size_t len = 0;
-  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenString(name, len, true);
+  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenName, goto fail);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -2017,15 +2011,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  char* name = NULL;
-  size_t len = 0;
-  LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenString(name, len, false);
-  f->fieldPath = f->fieldName;
+  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenName, goto fail);
+  f->fieldPath = HiddenString_Retain(f->fieldName);
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
-      LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-      f->fieldPath = NewHiddenString(name, len, false);
+      HiddenString_Free(f->fieldPath);
+      LoadStringBufferAlloc_IOErrors(rdb, f->fieldPath, AllocateHiddenName, goto fail);
     }
   }
 
@@ -2647,11 +2638,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
-    char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    HiddenString* alias = NewHiddenString(s, strlen(s), false);
+    HiddenString* alias = NULL;
+    LoadStringBufferAlloc_IOErrors(rdb, alias, AllocateHiddenName, goto cleanup);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
     HiddenString_Free(alias);
-    RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }

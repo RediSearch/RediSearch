@@ -49,11 +49,11 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
   RedisModule_Reply_MapEnd(reply);
 }
 
-static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
+static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock, bool obfuscate) {
   if (rp == NULL) {
     return 0;
   }
-  double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, printProfileClock);
+  double upstreamTime = _recursiveProfilePrint(reply, rp->upstream, printProfileClock, obfuscate);
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
@@ -76,7 +76,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_PROJECTOR:
       case RP_FILTER:
-        RPEvaluator_Reply(reply, "Type", rp);
+        RPEvaluator_Reply(reply, "Type", rp, obfuscate);
         break;
 
       case RP_PROFILE:
@@ -97,8 +97,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   return totalRPTime;
 }
 
-static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
-  return _recursiveProfilePrint(reply, rp, printProfileClock);
+static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock, bool obfuscate) {
+  return _recursiveProfilePrint(reply, rp, printProfileClock, obfuscate);
 }
 
 void Profile_Print(RedisModule_Reply *reply, void *ctx) {
@@ -150,7 +150,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print profile of result processors
       ResultProcessor *rp = req->qiter.endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
-        printProfileRP(reply, rp, req->reqConfig.printProfileClock);
+        printProfileRP(reply, rp, req->reqConfig.printProfileClock, profileCtx->obfuscate);
       RedisModule_Reply_ArrayEnd(reply);
   RedisModule_Reply_MapEnd(reply);
 }

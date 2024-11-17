@@ -68,12 +68,6 @@ static void ReturnedField_Free(ReturnedField *field) {
   }
 }
 
-static ReturnedField ReturndedField_Copy(ReturnedField field) {
-  HiddenName_Retain(field.name);
-  HiddenName_Retain(field.path);
-  return field;
-}
-
 void FieldList_Free(FieldList *fields) {
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     ReturnedField_Free(fields->fields + ii);
@@ -104,7 +98,7 @@ static void FieldList_RestrictReturn(FieldList *fields) {
     if (fields->fields[ii].explicitReturn == 0) {
       ReturnedField_Free(fields->fields + ii);
     } else if (ii != oix) {
-      fields->fields[oix++] = ReturndedField_Copy(fields->fields[ii]);
+      fields->fields[oix++] = fields->fields[ii];
     } else {
       ++oix;
     }
@@ -137,7 +131,7 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
@@ -659,10 +653,8 @@ static void groupStepFree(PLN_BaseStep *base) {
     array_free(g->reducers);
   }
   if (g->propertiesOwned) {
-    for (size_t ii = 0; ii < g->nproperties; ++ii) {
-      HiddenName_Free(g->properties[ii]);
-    }
-    array_free(g->properties);
+    array_free_ex(g->properties, HiddenName_Free(*(HiddenName**)ptr));
+    g->propertiesOwned = false;
   }
 
   RLookup_Cleanup(&g->lookup);
@@ -730,7 +722,6 @@ static void genericStepFree(PLN_BaseStep *p) {
 PLN_GroupStep *PLNGroupStep_New(HiddenName **properties, size_t nproperties, bool owner) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties = properties;
-  gstp->nproperties = nproperties;
   gstp->propertiesOwned = owner;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
@@ -1110,8 +1101,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, QueryError *err) {
-  const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+  const size_t nproperties = array_len(gstp->properties);
+  const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
+  for (size_t ii = 0; ii < nproperties; ++ii) {
     srckeys[ii] = RLookup_GetKey(srclookup, gstp->properties[ii], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
@@ -1133,7 +1125,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, array_len(gstp->properties));
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -1675,6 +1667,7 @@ void AREQ_Free(AREQ *req) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
   if(req->requiredFields) {
+    array_foreach(req->requiredFields, hidden, HiddenName_Free(hidden));
     array_free(req->requiredFields);
   }
   rm_free(req->args);
