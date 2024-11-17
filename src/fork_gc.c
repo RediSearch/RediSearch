@@ -841,12 +841,6 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize += info->nbytesAdded;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
 
-  // TODO: fix for NUMERIC similar to TAG fix PR#2269
-  if (currNode->range->entries->numDocs == 0) {
-  //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
-    info->nbytesCollected += InvertedIndex_MemUsage(currNode->range->entries);
-    currNode->range->invertedIndexSize = 0;
-  }
   FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
   resetCardinality(ninfo, currNode);
