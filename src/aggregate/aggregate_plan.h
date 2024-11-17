@@ -113,8 +113,7 @@ typedef struct {
   PLN_BaseStep base;
   RLookup lookup;
 
-  HiddenName **properties;
-  size_t nproperties;
+  arrayof(HiddenName*) properties;
   bool propertiesOwned;
 
   /* Group step single reducer, a function and its args */

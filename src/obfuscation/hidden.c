@@ -10,10 +10,12 @@ typedef struct {
   uint32_t length;
   uint16_t refcount;
   bool owner;
-} UserString;
+} HiddenNameImpl;
+
+
 
 HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
-  UserString* value = rm_malloc(sizeof(*value));
+  HiddenNameImpl* value = rm_malloc(sizeof(*value));
   if (takeOwnership) {
     value->user = rm_strndup(name, length);
   } else {
@@ -26,7 +28,7 @@ HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnershi
 };
 
 void HiddenString_Free(const HiddenString* hn) {
-  UserString* value = (UserString*)hn;
+  HiddenNameImpl* value = (HiddenNameImpl*)hn;
   if (--value->refcount == 0) {
     if (value->owner) {
       rm_free((void*)value->user);
@@ -54,68 +56,68 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
 }
 
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length) {
-  const UserString* l = (const UserString*)left;
+  const HiddenNameImpl* l = (const HiddenNameImpl*)left;
   return Compare(l->user, l->length, right, right_length);
 }
 
 int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
-  UserString* r = (UserString*)right;
+  HiddenNameImpl* r = (HiddenNameImpl*)right;
   return HiddenString_CompareC(left, r->user, r->length);
 }
 
 int HiddenName_CompareEx(const HiddenName *left, const LooseHiddenName *right) {
-  const UserString* r = (const UserString*)right;
+  const HiddenNameImpl* r = (const HiddenNameImpl*)right;
   return HiddenName_CompareC(left, r->user, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
-  UserString* r = (UserString*)right;
+  HiddenNameImpl* r = (HiddenNameImpl*)right;
   return HiddenString_CaseInsensitiveCompareC(left, r->user, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length) {
-  UserString* l = (UserString*)left;
+  HiddenNameImpl* l = (HiddenNameImpl*)left;
   return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }
 
 HiddenString *HiddenString_Retain(HiddenString *value) {
   HiddenString_TakeOwnership(value);
-  UserString* text = (UserString*)value;
+  HiddenNameImpl* text = (HiddenNameImpl*)value;
   text->refcount++;
   return (HiddenString*)text;
 }
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
-  UserString* userString = (UserString*)hidden;
-  if (userString->owner) {
+  HiddenNameImpl* impl = (HiddenNameImpl*)hidden;
+  if (impl->owner) {
     return;
   }
-  userString->user = rm_strndup(userString->user, userString->length);
-  userString->owner = true;
+  impl->user = rm_strndup(impl->user, impl->length);
+  impl->owner = true;
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {
-  const UserString* text = (const UserString*)value;
-  RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
+  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  RedisModule_SaveStringBuffer(rdb, impl->user, impl->length + 1);
 }
 
 void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value) {
-  const UserString* text = (const UserString*)value;
+  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
   RedisModuleString *str =
-      RedisModule_CreateStringPrintf(redisCtx, fmt, text->user);
+      RedisModule_CreateStringPrintf(redisCtx, fmt, impl->user);
   Redis_DeleteKey(redisCtx, str);
   RedisModule_FreeString(redisCtx, str);
 }
 
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
-  const UserString* text = (const UserString*)value;
+  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
   if (length != NULL) {
-    *length = text->length;
+    *length = impl->length;
   }
-  return text->user;
+  return impl->user;
 }
 
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx) {
-  const UserString* text = (const UserString*)value;
-  return RedisModule_CreateString(ctx, text->user, text->length);
+  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  return RedisModule_CreateString(ctx, impl->user, impl->length);
 }

@@ -281,7 +281,7 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
       case PLN_T_GROUP: {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
         printf("  BY:\n");
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+        for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
           const char* property = NULL;
           if (obfuscate) {
             property = Obfuscate_Text(property);
@@ -389,8 +389,8 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
 static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
   append_string(arr, "GROUPBY");
-  append_uint(arr, gstp->nproperties);
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+  append_uint(arr, array_len(gstp->properties));
+  for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
     char *property;
     rm_asprintf(&property, "@%s", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
     array_append(*arr, property);
