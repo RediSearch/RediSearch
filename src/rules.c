@@ -199,7 +199,7 @@ void SchemaRule_Free(SchemaRule *rule) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
   array_free_ex(rule->prefixes, HiddenUnicodeString_Free(*(HiddenUnicodeString**)ptr));
-  array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
+  array_free_ex(rule->filter_fields, HiddenName_Free(*(HiddenName**)ptr));
   rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
 }
