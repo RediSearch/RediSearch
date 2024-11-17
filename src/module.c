@@ -437,14 +437,16 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 }
 
 /*
- * FT.DROP <index> [KEEPDOCS]
  * FT.DROPINDEX <index> [DD]
  * Deletes index and possibly all the keys associated with the index.
  * If no other data is on the redis instance, this is equivalent to FLUSHDB,
  * apart from the fact that the index specification is not deleted.
- *
- * FT.DROP, deletes all keys by default. If KEEPDOCS exists, we do not delete the actual docs
+ * 
  * FT.DROPINDEX, keeps all keys by default. If DD exists, we delete the actual docs
+ * 
+ * Internal argument is _FORCEKEEPDOCS, which is used to keep the documents when the index is dropped on a
+ * replica of a shard. This is regardles of the DD flag, since the deletion of the documents is replicated
+ * independently.
  */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
@@ -459,18 +461,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int delDocs;
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
+  int delDocs = 0;
+  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
     delDocs = 1;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      delDocs = 0;
-    }
-  } else {  // FT.DROPINDEX
-    delDocs = 0;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      delDocs = 1;
-    }
   }
 
   int keepDocs = 0;
@@ -486,6 +479,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // delete key notification callbacks.
     IndexSpec_RemoveFromGlobals(global_ref);
 
+
+    // Dvirdu: Dangerous! should be run in the background.
     DocTable *dt = &sp->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
 
@@ -512,15 +507,10 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  RedisModuleString *oldCommand = argv[0];
-  if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
-    argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));
-  } else {
-    argv[0] = RedisModule_CreateString(ctx, RS_DROP_INDEX_CMD, strlen(RS_DROP_INDEX_CMD));
-  }
+
   int ret = DropIndexCommand(ctx, argv, argc);
   RedisModule_FreeString(ctx, argv[0]);
-  argv[0] = oldCommand;
+
   return ret;
 }
 
@@ -1122,14 +1112,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
-
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
@@ -3378,8 +3362,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
 #endif
 
   // cluster set commands
