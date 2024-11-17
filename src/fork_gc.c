@@ -1008,7 +1008,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   rm_free(fieldName);
 
-  if (status == FGC_DONE && rt && gc->cleanNumericEmptyNodes) {
+  if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {
     StrongRef spec_ref = WeakRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) return FGC_SPEC_DELETED;
