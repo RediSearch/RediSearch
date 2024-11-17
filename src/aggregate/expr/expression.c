@@ -497,7 +497,7 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 
-void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp) {
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp, bool obfuscate) {
   if (title) {
     RedisModule_Reply_SimpleString(reply, title);
   }
@@ -516,7 +516,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:
-      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, expr->property.key);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, HiddenName_GetUnsafe(expr->property.key, NULL));
       break;
     case RSExpr_Op:
       RedisModule_Reply_SimpleStringf(reply, "%s - Operator %c", typeStr, expr->op.op);
