@@ -8,7 +8,7 @@
 
 #include "redismodule.h"
 
-#define RS_DEBUG_FLAGS "readonly", 0, 0, 0
+#define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 typedef struct DebugCommandType {
