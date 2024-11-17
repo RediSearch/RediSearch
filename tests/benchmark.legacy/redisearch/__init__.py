@@ -69,7 +69,7 @@ class Client(object):
     CREATE_CMD = 'FT.CREATE'
     SEARCH_CMD = 'FT.SEARCH'
     ADD_CMD = 'FT.ADD'
-    DROP_CMD = 'FT.DROP'
+    DROP_CMD = 'FT.DROPINDEX'
 
 
     class BatchIndexer(object):

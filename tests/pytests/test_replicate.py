@@ -133,10 +133,10 @@ def testDropReplicate():
   # Make sure there are still documents to index and drop
   load_master()
 
-  # test for FT.DROP
+  # test for FT.DROPINDEX
   master_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
   # No matter how many documents were indexed, we expect that the master and slave will be in sync
-  master_command('FT.DROP', 'idx')
+  master_command('FT.DROPINDEX', 'idx')
 
   # check that same docs were deleted by master and slave
   master_keys = sorted(master.execute_command('KEYS', '*'))
@@ -192,7 +192,7 @@ def testDropTempReplicate():
   env.assertEqual(master.execute_command('KEYS', '*'), [])
   env.assertEqual(slave.execute_command('KEYS', '*'), [])
 
-def testDropWith__FORCEKEEPDOCS():
+def testDropIndexWith__FORCEKEEPDOCS():
   env = initEnv()
   master = env.getConnection()
   slave = env.getSlaveConnection()
@@ -205,21 +205,20 @@ def testDropWith__FORCEKEEPDOCS():
   deleted and the document remains.
   '''
 
-  cmd = ['FT.DROP', 'FT.DROPINDEX']
-  for i in range(len(cmd)):
-    master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    master.execute_command('HSET', 'doc1', 't', 'hello')
-    checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
 
-    master.execute_command(cmd[i], 'idx', '_FORCEKEEPDOCS')
-    checkSlaveSynced(env, slave, ['FT._LIST'], [], time_out=5)
+  master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  master.execute_command('HSET', 'doc1', 't', 'hello')
+  checkSlaveSynced(env, slave, ('hgetall', 'doc1'), {'t': 'hello'}, time_out=5)
 
-    # check that index and doc were deleted by master and slave
-    env.assertEqual(master.execute_command('FT._LIST'), [])
-    env.assertEqual(slave.execute_command('FT._LIST'), [])
+  master.execute_command('FT.DROPINDEX', 'idx', '_FORCEKEEPDOCS')
+  checkSlaveSynced(env, slave, ['FT._LIST'], [], time_out=5)
 
-    env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
-    env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
+  # check that index and doc were deleted by master and slave
+  env.assertEqual(master.execute_command('FT._LIST'), [])
+  env.assertEqual(slave.execute_command('FT._LIST'), [])
+
+  env.assertEqual(master.execute_command('KEYS', '*'), ['doc1'])
+  env.assertEqual(slave.execute_command('KEYS', '*'), ['doc1'])
 
 def testExpireDocs():
     expireDocs(False,  # Without SORTABLE -

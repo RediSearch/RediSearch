@@ -25,4 +25,4 @@ def testDocTable():
         res = env.cmd('ft.search', 'idx', 'hello world %d' % i)
         env.assertEqual(res[0], 9)
 
-    env.expect('ft.drop', 'idx').ok()
+    env.expect('ft.dropindex', 'idx').ok()

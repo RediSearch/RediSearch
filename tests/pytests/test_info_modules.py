@@ -120,7 +120,7 @@ def testInfoModulesDrop(env):
                                           'body', 'TEXT',
                                           'id', 'NUMERIC', 'NOINDEX').ok()
 
-  env.expect('FT.DROP', idx2).ok()
+  env.expect('FT.DROPINDEX', idx2).ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
