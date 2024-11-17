@@ -68,7 +68,10 @@ typedef enum {
   QN_NULL,
 
   /* Missing query */
-  QN_MISSING
+  QN_MISSING,
+
+  /* Max value, should be last */
+  QN_MAX
 } QueryNodeType;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -178,6 +181,7 @@ typedef struct {
 typedef struct {
   QueryNodeFlags flags;
   t_fieldMask fieldMask;
+  t_fieldIndex fieldIndex;
   int maxSlop;
   int inOrder;
   double weight;

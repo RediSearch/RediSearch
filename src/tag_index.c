@@ -255,11 +255,12 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
 
-IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *value, size_t len,
-                                   double weight) {
+IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
+                                   double weight, t_fieldIndex fieldIndex) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
+  IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
   if (!r) {
     return NULL;
   }
@@ -268,14 +269,14 @@ IndexIterator *TagIndex_GetReader(IndexSpec *sp, InvertedIndex *iv, const char *
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
-                                   double weight) {
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+                                   double weight, t_fieldIndex fieldIndex) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(sp, iv, value, len, weight);
+  return TagIndex_GetReader(sctx, iv, value, len, weight, fieldIndex);
 }
 
 /* Format the key name for a tag index */
@@ -283,7 +284,8 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
-static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
+/* Open the tag index */
+TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
   if (kdv) {
     return kdv->p;
@@ -296,12 +298,6 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   kdv->dtor = TagIndex_Free;
   dictAdd(ctx->spec->keysDict, key, kdv);
   return kdv->p;
-}
-
-/* Open the tag index */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp) {
-  return openTagKeyDict(sctx, formattedKey, openWrite);
 }
 
 /* Serialize all the tags in the index to the redis client */
@@ -403,7 +399,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
+  idx = TagIndex_Open(&sctx, keyName, 0);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

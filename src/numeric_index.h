@@ -91,27 +91,21 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti);
+struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
+                                              const NumericFilter *f, int skipMulti,
+                                              const FieldFilterContext* filterCtx);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config);
+struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx, FieldType forType,
+                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
  * No deduplication is done */
 size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
 
-/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
-                          NRN_AddRv *rv);
-
 /* Create a new range node with the given capacity, minimum and maximum values */
 NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
-
-/* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
- * Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value);
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */
@@ -143,8 +137,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey);
+NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);

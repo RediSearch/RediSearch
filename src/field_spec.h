@@ -98,7 +98,8 @@ typedef struct FieldSpec {
   int16_t sortIdx;
 
   /** Unique field index. Each field has a unique index regardless of its type */
-  uint16_t index;
+  // We rely on the index starting from 0 and being sequential
+  t_fieldIndex index;
 
   union {
     struct {
@@ -154,5 +155,12 @@ const char *FieldSpec_GetTypeNames(int idx);
 RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+
+/**Adds an error message to the IndexError of the FieldSpec.
+ * This function also updates the global field's type index error counter.
+ */
+void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
 #endif /* SRC_FIELD_SPEC_H_ */

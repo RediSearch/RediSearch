@@ -8,6 +8,7 @@
 #include "query_error.h"
 #include "inverted_index.h"
 #include "rwlock.h"
+#include "global_stats.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -73,6 +74,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     ism = createIndex(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+    RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
 
@@ -124,11 +126,10 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
+static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
-  RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
+  auto tix = TagIndex_Open(sctx, fmtkey, 1);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
   sctx->spec->stats.invertedSize += sz;
@@ -171,8 +172,8 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function 
-  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in 
+  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function
+  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in
   // the block, collecting the remaining memory.
   ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
 
@@ -249,6 +250,7 @@ TEST_F(FGCTest, testModifyLastBlockWhileAddingNewBlocks) {
 
   // Now add documents until we have new blocks added.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocid(curId++).c_str(), "f1", "hello"));
@@ -287,7 +289,8 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-  
+  sctx.spec->monitorDocumentExpiration = false;
+
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Measure the memory added by the last block.
@@ -355,6 +358,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   unsigned curId = 1;
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
@@ -430,6 +434,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
@@ -471,6 +476,7 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
@@ -511,6 +517,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
@@ -561,4 +568,31 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
+}
+
+TEST_F(FGCTest, testDeleteDuringGCCleanup) {
+  // Setup.
+  unsigned curId = 0;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
+  InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
+
+  while (iv->size < 2) {
+    RS::addDocument(ctx, ism, numToDocid(++curId).c_str(), "f1", "hello");
+  }
+  // Delete one document.
+  RS::deleteDocument(ctx, ism, numToDocid(1).c_str());
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete the second document while fGC is waiting before the fork. If we were storing the number
+  // of document to delete at this point, we wouldn't have accounted for this deletion later on
+  // after the GC is done.
+  RS::deleteDocument(ctx, ism, numToDocid(2).c_str());
+  ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
+
+  FGC_Apply(fgc);
+
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }

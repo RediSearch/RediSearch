@@ -10,7 +10,7 @@
 #include "strings.h"
 #include "alloc.h"
 
-#include "sds.h"
+#include "hiredis/sds.h"
 
 #include "rmalloc.h"
 

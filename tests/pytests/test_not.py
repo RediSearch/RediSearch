@@ -1,5 +1,7 @@
 from common import *
 import faker
+from random import shuffle
+from faker.providers.person.en import Provider
 
 def test_not_optimized():
     """Tests the optimized version of the NOT iterator, which holds an optimized
@@ -13,18 +15,14 @@ def test_not_optimized():
     env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
 
     n_docs = 1005       # 5 more than the amount of entries in an index block
-    fake = faker.Faker()
-    names = set()
+    first_names = list(set(Provider.first_names))
+    last_names = list(set(Provider.last_names))
+    shuffle(first_names)
+    shuffle(last_names)
+
     for i in range(n_docs):
-        # Add a name to the list of names
-        old_len = len(names)
-        while len(names) == old_len:
-            new_name = fake.name()
-            names.add(new_name)
-
-        conn.execute_command('HSET', f'doc{i}', 't', new_name)
-
-    names = list(names)
+        name = f'{first_names[i]} {last_names[i % len(last_names)]}'
+        conn.execute_command('HSET', f'doc{i}', 't', name)
 
     res = env.cmd('FT.SEARCH', 'idx', '-t | t', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs])
@@ -32,7 +30,7 @@ def test_not_optimized():
     res = env.cmd('FT.SEARCH', 'idx', '-@t:123', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs])
 
-    res = env.cmd('FT.SEARCH', 'idx', f'-(@t:{names[0]})', 'LIMIT', '0', '0')
+    res = env.cmd('FT.SEARCH', 'idx', f'-(@t:{name})', 'LIMIT', '0', '0')
     env.assertEqual(res, [n_docs-1])
 
 def test_not_optimized_with_missing():

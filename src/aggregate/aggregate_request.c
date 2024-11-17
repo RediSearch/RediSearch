@@ -31,7 +31,7 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
@@ -50,7 +50,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_EXTENDED;
+  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
   return 1;
 }
 
@@ -985,10 +985,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
 
+  if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
+    QueryError_SetError(
+        status, QUERY_EINVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
+    return REDISMODULE_ERR;
+  }
+
   if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
         status, QUERY_EINVAL,
-        "Cannot use highlight/summarize because NOOFSETS was specified at index level");
+        "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
     return REDISMODULE_ERR;
   }
 

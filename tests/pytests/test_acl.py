@@ -10,7 +10,7 @@ def test_acl_category(env):
     res = env.cmd('ACL', 'CAT')
     env.assertTrue('search' in res)
 
-@skip(redis_less_than="7.4.1")
+@skip(redis_less_than="7.9.0")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
@@ -19,16 +19,16 @@ def test_acl_search_commands(env):
         'FT.EXPLAINCLI', '_FT.ALIASDEL', 'FT.SPELLCHECK', 'FT.SYNUPDATE',
         'FT.ALIASUPDATE', '_FT.AGGREGATE', '_FT.ALIASADD', 'FT._LIST',
         '_FT.ALIASUPDATE', 'FT.ALIASADD', 'FT.SEARCH',
-        '_FT.CURSOR', 'FT.INFO', 'FT.SUGDEL', '_FT.INFO', '_FT.SUGDEL',
+        '_FT.CURSOR', 'FT.INFO', 'FT.SUGDEL', '_FT.INFO',
         '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE', 'FT.DICTDUMP',
         'FT.EXPLAIN', '_FT.SPELLCHECK', 'FT.AGGREGATE', 'FT.SUGLEN',
-        '_FT.SUGLEN', 'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', '_FT.CREATE',
+        'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', '_FT.CREATE',
         'FT.DICTDEL', 'FT.CURSOR', 'FT.ALIASDEL', 'FT.SUGADD', '_FT.DICTADD',
         'FT.SYNDUMP', 'FT.CREATE', '_FT.PROFILE', '_FT.SEARCH', 'FT.DICTADD',
         'FT.SYNFORCEUPDATE', 'FT._ALIASDELIFX', 'FT._CREATEIFNX',
-        '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT.SUGGET',
+        '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS',
         'search.CLUSTERREFRESH', 'FT._ALIASADDIFNX', '_FT._ALTERIFNX',
-        '_FT.SUGADD', 'FT._ALTERIFNX', '_FT._ALIASDELIFX', 'search.CLUSTERSET',
+     'FT._ALTERIFNX', '_FT._ALIASDELIFX', 'search.CLUSTERSET',
         'search.CLUSTERINFO', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
         'FT._DROPINDEXIFX', '_FT.DROPINDEX', 'FT.DROPINDEX','_FT.ADD',
         '_FT.DROP', 'FT.TAGVALS', '_FT.GET', 'FT._DROPIFX', '_FT._CREATEIFNX',
@@ -90,3 +90,57 @@ def test_acl_non_default_user(env):
     # `test` should now be able to run `search` commands like `FT.CREATE`
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT').ok()
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+def test_sug_commands_acl(env):
+    """Tests that our FT.SUG* commands are properly validated for ACL key
+    permissions.
+    """
+
+    with env.getClusterConnectionIfNeeded() as conn:
+        # Create a suggestion key
+        res = conn.execute_command('FT.SUGADD', 'test_key', 'hello world', '1')
+        env.assertEqual(res, 1)
+
+        # Create an ACL user without permissions to the key we're going to use
+        res = conn.execute_command('ACL', 'SETUSER', 'test_user', 'on', '>123', '~h:*', '&*', '+@all')
+        env.assertEqual(res, 'OK')
+        res = conn.execute_command('AUTH', 'test_user', '123')
+        env.assertEqual(res, True)
+        try:
+            res = conn.execute_command('FT.SUGADD', 'test_key_2', 'hello world', '1')
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+
+        # Test that `test_user` can create a key it has permissions to access
+        res = conn.execute_command('FT.SUGADD', 'h:test_key', 'hello world', '1')
+        env.assertEqual(res, 1)
+
+        # Test other `FT.SUG*` commands. They should fail on `test_key` but
+        # succeed on `h:test_key`
+        # FT.SUGGET
+        try:
+            conn.execute_command('FT.SUGGET', 'test_key', 'hello')
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGGET', 'h:test_key', 'hello')
+        env.assertEqual(res, ['hello world'])
+
+        # FT.SUGLEN
+        try:
+            conn.execute_command('FT.SUGLEN', 'test_key')
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGLEN', 'h:test_key')
+        env.assertEqual(res, 1)
+
+        # FT.SUGDEL
+        try:
+            conn.execute_command('FT.SUGDEL', 'test_key', 'hello world')
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertEqual(str(e), "No permissions to access a key")
+        res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
+        env.assertEqual(res, 1)

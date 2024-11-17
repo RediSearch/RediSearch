@@ -1,8 +1,4 @@
 
-#ifndef RS_NO_RMAPI
-#define REDISMODULE_MAIN
-#endif
-
 #include "redismodule.h"
 
 #include "module.h"
@@ -27,15 +23,7 @@
 #include "fork_gc.h"
 #include "info_command.h"
 #include "profile.h"
-
-#ifndef RS_NO_ONLOAD
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
-                       REDISMODULE_APIVER_1) == REDISMODULE_ERR)
-    return REDISMODULE_ERR;
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
-}
-#endif
+#include "global_stats.h"
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -98,6 +86,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
+
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
@@ -114,18 +104,22 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
 
-  // Numer of indexes
-  RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
+  // Indexes related statistics
+  IndexesGlobalStats_AddToInfo(ctx, &total_info);
 
   // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
+  FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
 
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", total_info.total_mem / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info.total_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index", total_info.min_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index_human", MEMORY_HUMAN(total_info.min_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index", total_info.max_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index_human", MEMORY_HUMAN(total_info.max_mem));
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
 
   // Cursors
@@ -140,6 +134,16 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
+
+  // Query statistics
+  TotalGlobalStats_Queries_AddToInfo(ctx);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info.total_active_queries);
+
+  // Errors statistics
+  RedisModule_InfoAddSection(ctx, "errors");
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info.indexing_failures);
+  // highest number of failures out of all specs
+  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", total_info.max_indexing_failures);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);
