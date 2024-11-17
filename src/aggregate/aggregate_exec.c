@@ -1163,16 +1163,17 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc > 4) {
     // e.g. 'COUNT <chunk size>'
     // Verify that the 4'th argument is `COUNT`.
-    if (strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "count") != 0) {
-      return RedisModule_ReplyWithError(ctx, "Unknown argument at offset 4");
+    const int countArgOffset = 4;
+    if (strcasecmp(RedisModule_StringPtrLen(argv[countArgOffset], NULL), "count") != 0) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument at offset %d", countArgOffset);
     }
 
-    if (argc < 6) {
-      return RedisModule_ReplyWithError(ctx, "COUNT requires an argument");
+    if (argc < countArgOffset + 2) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "COUNT requires an argument at offset %d", countArgOffset + 1);
     }
 
-    if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
+    if (RedisModule_StringToLongLong(argv[countArgOffset + 1], &count) != REDISMODULE_OK) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT at offset %d", countArgOffset + 1);
     }
   }
 
