@@ -303,15 +303,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf)
 
 void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (!n) return;
-  if (n->range) {
-    rv->sz -= n->range->invertedIndexSize;
-    InvertedIndex_Free(n->range->entries);
-    hll_destroy(&n->range->hll);
-    rm_free(n->range);
-    n->range = NULL;
-    rv->numRanges--;
-  }
 
+  removeRange(n, rv);
   NumericRangeNode_Free(n->left, rv);
   NumericRangeNode_Free(n->right, rv);
 
