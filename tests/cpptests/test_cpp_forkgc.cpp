@@ -130,18 +130,14 @@ protected:
 };
 
 TEST_F(FGCTestNumeric, testNumeric) {
-  // const char *numeric_field_name = "n";
-  // RediSearch_CreateNumericField(this->ism, numeric_field_name);
 
-  NumericRangeNode *failed_range = NULL;
-  size_t expected_mem = 0;
+  size_t total_mem = 0;
 
   // No inverted indices were created yet
   size_t spec_inv_index_mem_stats = (get_spec(ism))->stats.invertedSize;
-  ASSERT_EQ(expected_mem, spec_inv_index_mem_stats);
+  ASSERT_EQ(total_mem, spec_inv_index_mem_stats);
 
   size_t num_docs = 1000;
-  size_t total_mem = 0;
   for (size_t i = 0 ; i < num_docs ; i++) {
     std::string val = std::to_string(i);
     total_mem += this->addDocumentWrapper(numToDocStr(i).c_str(), numeric_field_name, val.c_str());
