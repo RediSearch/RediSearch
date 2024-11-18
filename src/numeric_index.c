@@ -371,15 +371,8 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf)
 
 void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (!n) return;
-  if (n->range) {
-    rv->sz -= n->range->invertedIndexSize;
-    InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
-    rm_free(n->range);
-    n->range = NULL;
-    rv->numRanges--;
-  }
 
+  removeRange(n, rv);
   NumericRangeNode_Free(n->left, rv);
   NumericRangeNode_Free(n->right, rv);
 
@@ -446,7 +439,7 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 #define CHILD_EMPTY 1
 #define CHILD_NOT_EMPTY 0
 
-int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
+bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
@@ -458,10 +451,8 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   }
 
   // run recursively on both children
-  int rvRight = NumericRangeNode_RemoveChild(&n->right, rv);
-  int rvLeft = NumericRangeNode_RemoveChild(&n->left, rv);
-  NumericRangeNode *rightChild = n->right;
-  NumericRangeNode *leftChild = n->left;
+  bool rvRight = NumericRangeNode_RemoveChild(&n->right, rv);
+  bool rvLeft = NumericRangeNode_RemoveChild(&n->left, rv);
 
   // balance if required
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
@@ -471,38 +462,28 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     return CHILD_NOT_EMPTY;
   }
 
+  if (n->range && n->range->entries->numDocs != 0) {
+    // We are on a non-leaf node, with some data in it but some of its children are empty.
+    // Ideally we would like to trim the empty children, but today we don't fix missing ranges
+    // of inner nodes, so we better keep the node as is.
+    // TODO: remove this block when we fix the missing ranges issue.
+    return CHILD_NOT_EMPTY;
+  }
+
   rv->changed = 1;
 
-  // we can remove local and use child's instead
-  if (n->range) {
-    if (n->range->entries->numDocs != 0) {
-      return CHILD_NOT_EMPTY;
-    }
-    removeRange(n, rv);
-  }
-
-  // both children are empty, save one as parent
-  if (rvRight == CHILD_EMPTY && rvLeft == CHILD_EMPTY) {
-    rm_free(n);
-    *node = rightChild;
-    NumericRangeNode_Free(leftChild, rv);
-
-    return CHILD_EMPTY;
-  }
-
-  // one child is not empty, save copy as parent and free
+  // at least one child is empty. keep an empty child and replace the parent with the other child
   if (rvRight == CHILD_EMPTY) {
-    // right child is empty, save left as parent
-    rm_free(n);
-    *node = leftChild;
-    NumericRangeNode_Free(rightChild, rv);
+    // right child is empty, save left as parent (might be empty)
+    *node = n->left;
+    n->left = NULL; // avoid freeing it
   } else {
     // left child is empty, save right as parent
-    rm_free(n);
-    *node = rightChild;
-    NumericRangeNode_Free(leftChild, rv);
+    *node = n->right;
+    n->right = NULL; // avoid freeing it
   }
-  return CHILD_NOT_EMPTY;
+  NumericRangeNode_Free(n, rv); // free the current node and its potential subtree
+  return (rvRight == CHILD_NOT_EMPTY || rvLeft == CHILD_NOT_EMPTY) ? CHILD_NOT_EMPTY : CHILD_EMPTY;
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
