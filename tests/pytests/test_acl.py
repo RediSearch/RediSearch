@@ -8,7 +8,7 @@ def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
     load"""
     res = env.cmd('ACL', 'CAT')
-    for category in ['search', 'search_internal']:
+    for category in ['search', '_search_internal']:
         env.assertContains(category, res)
 
 @skip(redis_less_than="7.9.0")
@@ -37,7 +37,7 @@ def test_acl_search_commands(env):
     env.assertEqual(set(res), set(commands))
 
     # ---------------- internal search command category ----------------
-    res = env.cmd('ACL', 'CAT', 'search_internal')
+    res = env.cmd('ACL', 'CAT', '_search_internal')
     commands = [
         '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
         '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
@@ -108,8 +108,7 @@ def test_acl_non_default_user(env):
 
         # Add `test` search permissions
         conn.execute_command('AUTH', 'default', '')
-        # conn.execute_command('ACL', 'SETUSER', 'test', '+@search' + ' +@search_internal' if env.isCluster() else '')
-        conn.execute_command('ACL', 'SETUSER', 'test', '+@search', '+@search_internal')
+        conn.execute_command('ACL', 'SETUSER', 'test', '+@search', '+@_search_internal')
         conn.execute_command('AUTH', 'test', '123')
 
         # `test` should now be able to run `search` commands like `FT.CREATE`
