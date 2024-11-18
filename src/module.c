@@ -988,10 +988,12 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 
   int rc = REDISMODULE_OK;
   char *categories;
-  if (!strcmp(aclCategories, "")) {
-    categories = SEARCH_ACL_CATEGORY;
+
+  if (strncmp(name, "_", 1) == 0) {
+    // Internal command, register to the internal ACL category
+    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_INTERNAL_CATEGORY);
   } else {
-    rm_asprintf(&categories, "%s %s", aclCategories, SEARCH_ACL_CATEGORY);
+    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
@@ -999,9 +1001,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
     rc = REDISMODULE_ERR;
   }
 
-  if (strlen(categories) != strlen(SEARCH_ACL_CATEGORY)) {
-    rm_free(categories);
-  }
+  rm_free(categories);
 
   return rc;
 }
@@ -1066,6 +1066,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
+      return REDISMODULE_ERR;
+  }
+
+  // Create the `search_internal` ACL command category
+  if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
       return REDISMODULE_ERR;
   }
 
