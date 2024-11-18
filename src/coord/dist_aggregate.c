@@ -520,12 +520,14 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // we want to use.
   const char **tmparr = array_new(const char *, us->nserialized);
 
+  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+
   if (profileArgs == 0) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
-    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, index_name);  // Index name
   } else {
     array_append(tmparr, RS_PROFILE_CMD);
-    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
     if (profileArgs == 3) {
       array_append(tmparr, "LIMITED");
@@ -591,6 +593,10 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   MRCommand_SetPrefix(xcmd, "_FT");
+
+  // We have the index name in `index_name` --> Get the SchemaRule->prefixes
+  // from it, or just send the index name or the index itself.
+  appendIndexPrefixesToCommand(xcmd, idx);
 
   array_free(tmparr);
 }

@@ -329,6 +329,12 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
+    // Set the offset of the prefixes in the query, for further processing later
+    req->prefixesOffset = ac->offset;
+    // if (validatePrefixes(req, ac) != REDISMODULE_OK) {
+    //   QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    // }
   } else {
     return ARG_UNKNOWN;
   }
@@ -979,11 +985,29 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 }
 
+static bool IsIndexCoherent(AREQ *req) {
+  if (req->prefixesOffset == -1) {
+    // No prefixes in the query (directly from the client, not from the coordinator)
+    return true;
+  }
+
+  IndexSpec *spec = req->sctx->spec;
+  sds *args = req->args;
+  uint n_prefixes = args[req->prefixesOffset + 1];
+
+  // Validate that the prefixes in the arguments are the same as the ones in the index
+  // TBD..
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+
+  if (!IsIndexCoherent(req)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+  }
 
   if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(

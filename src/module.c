@@ -1100,7 +1100,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS, "read admin"))
 
-
   // Do not force cross slot validation since coordinator will handle it.
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read admin"))
@@ -3042,6 +3041,8 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
   if(req->specialCases) {
     sendRequiredFields(req, &cmd);
   }
+
+  MRCommandInsert(..., index_prefixes);
 
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
