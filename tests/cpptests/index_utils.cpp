@@ -5,9 +5,7 @@
 #include "src/redis_index.h"
 
 std::string numToDocStr(unsigned id) {
-  char buf[1024];
-  sprintf(buf, "doc%u", id);
-  return std::string(buf);
+  return "doc" + std::to_string(id);
 }
 
 size_t addDocumentWrapper(RedisModuleCtx *ctx, RSIndex *index, const char *docid, const char *field, const char *value) {

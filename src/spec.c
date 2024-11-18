@@ -338,7 +338,7 @@ double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
 }
 
 size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
-  // Traverse the fields and calculates the overhead of the tags
+  // Traverse the fields and calculates the overhead of the numeric tree index
   size_t overhead = 0;
   for (size_t i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -347,7 +347,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
       NumericRangeTree *rt = openNumericKeysDict(sp, keyName, OPEN_INDEX_READ);
       // Numeric index was not initialized yet
       if (!rt) {
-        return 0;
+        continue;
       }
 
       overhead += sizeof(NumericRangeTree);

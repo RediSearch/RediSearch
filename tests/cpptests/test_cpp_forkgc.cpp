@@ -145,7 +145,7 @@ TEST_F(FGCTestNumeric, testNumeric) {
 
   NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
   spec_inv_index_mem_stats = (get_spec(ism))->stats.invertedSize;
-  size_t numeric_tree_mem = rt->invertedIndexSize;
+  size_t numeric_tree_mem = rt->invertedIndexesSize;
   ASSERT_EQ(total_mem, numeric_tree_mem);
   ASSERT_EQ(total_mem, spec_inv_index_mem_stats);
 
@@ -168,7 +168,7 @@ TEST_F(FGCTestNumeric, testNumeric) {
   FGC_Apply(fgc);
 
   size_t spec_inv_index_mem_stats_after_delete = (get_spec(ism))->stats.invertedSize;
-  size_t numeric_tree_mem_after_delete = rt->invertedIndexSize;
+  size_t numeric_tree_mem_after_delete = rt->invertedIndexesSize;
   ASSERT_EQ(spec_inv_index_mem_stats_after_delete, numeric_tree_mem_after_delete);
 
   size_t collected_bytes = numeric_tree_mem - numeric_tree_mem_after_delete;

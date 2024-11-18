@@ -235,8 +235,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
   // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
-    START_POSTPONED_LEN_ARRAY(dummy_numeric);
-    END_POSTPONED_LEN_ARRAY(dummy_numeric);
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 

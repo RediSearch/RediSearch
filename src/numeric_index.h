@@ -79,7 +79,7 @@ typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
-  size_t invertedIndexSize;
+  size_t invertedIndexesSize;
 
   t_docId lastDocId;
 

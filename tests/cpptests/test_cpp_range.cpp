@@ -233,7 +233,7 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   }
 
   ASSERT_EQ(numeric_tree_mem, empty_numeric_mem_size);
-  ASSERT_EQ(numeric_tree_mem, rt->invertedIndexSize);
+  ASSERT_EQ(numeric_tree_mem, rt->invertedIndexesSize);
 
   NumericRangeTree_Free(rt);
 }
@@ -289,8 +289,8 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   // check memory
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
-  ASSERT_EQ(rt->invertedIndexSize, numeric_tree_mem);
-  ASSERT_EQ(rt->invertedIndexSize, expected_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
 
   if (failed_range) {
     print_failure();
@@ -324,11 +324,46 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
     print_failure();
     FAIL();
   }
-  ASSERT_EQ(rt->invertedIndexSize, numeric_tree_mem);
-  ASSERT_EQ(rt->invertedIndexSize, expected_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
 
 }
 
+TEST_F(RangeIndexTest, testNumericTreeOverhead) {
+
+  // Create index with multiple numeric indices
+  RediSearch_CreateNumericField(index, "n1");
+  RediSearch_CreateNumericField(index, "n2");
+
+  // expect 0 overhead
+  size_t overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, 0);
+
+  // add docs to one field to trigger its index creation.
+  ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+
+  // Delete the doc, the overhead shouldn't change
+  auto rv = RS::deleteDocument(ctx, index, numToDocStr(1).c_str());
+  ASSERT_TRUE(rv) << "Failed to delete doc1 ";
+
+  // config gc
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  // Collect deleted docs
+  GCContext *gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+
+  // Add a doc to trigger the creation of the second index
+  ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
+  ::addDocumentWrapper(ctx, index, numToDocStr(2).c_str(), "n2", "1");
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+
+  ASSERT_EQ(overhead, 2 * sizeof(NumericRangeTree));
+}
 // int benchmarkNumericRangeTree() {
 //   NumericRangeTree *t = NewNumericRangeTree();
 //   int count = 1;

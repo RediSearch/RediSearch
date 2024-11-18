@@ -53,6 +53,7 @@ static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.totalCollected -= bytesAdded;
 }
 
+// Buff shouldn't be NULL.
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
   ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
@@ -68,7 +69,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
 
 static void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
   FGC_SEND_VAR(fgc, len);
-  if (buff && len > 0) {
+  if (len > 0) {
     FGC_sendFixed(fgc, buff, len);
   }
 }
@@ -256,7 +257,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
   if (array_len(blocklist) == idx->size) {
     // no empty block, there is no need to send the blocks array. Don't send
     // any new blocks.
-    FGC_sendBuffer(gc, NULL, 0);
+    size_t len = 0;
+    FGC_SEND_VAR(gc, len);
   } else {
     FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
   }
@@ -967,6 +969,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+      initialized = true;
     }
 
     if (rt->uniqueId != rtUniqueId) {
@@ -981,8 +984,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     applyNumIdx(gc, sctx, &ninfo);
     rt->numEntries -= ninfo.info.nentriesCollected;
-    rt->invertedIndexSize -= ninfo.info.nbytesCollected;
-    rt->invertedIndexSize += ninfo.info.nbytesAdded;
+    rt->invertedIndexesSize -= ninfo.info.nbytesCollected;
+    rt->invertedIndexesSize += ninfo.info.nbytesAdded;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;
