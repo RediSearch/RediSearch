@@ -68,7 +68,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
 
 static void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
   FGC_SEND_VAR(fgc, len);
-  if (len > 0) {
+  if (buff && len > 0) {
     FGC_sendFixed(fgc, buff, len);
   }
 }
