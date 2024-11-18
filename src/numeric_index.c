@@ -451,8 +451,8 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   }
 
   // run recursively on both children
-  bool rvRight = NumericRangeNode_RemoveChild(&n->right, rv);
-  bool rvLeft = NumericRangeNode_RemoveChild(&n->left, rv);
+  const bool rvRight = NumericRangeNode_RemoveChild(&n->right, rv);
+  const bool rvLeft = NumericRangeNode_RemoveChild(&n->left, rv);
 
   // balance if required
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
