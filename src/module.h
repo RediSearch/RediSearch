@@ -21,6 +21,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define PROXY_FILTERED "_proxy-filtered"
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
