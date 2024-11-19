@@ -39,13 +39,13 @@ typedef struct {
 
 void NumericRangeIterator_OnReopen(void *privdata);
 
-/* Returns 1 if the entire numeric range is contained between min and max */
-static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
+/* Returns true if the entire numeric range is contained between min and max */
+static inline bool NumericRange_Contained(NumericRange *n, double min, double max) {
   return n->minVal >= min && n->maxVal <= max;
 }
 
-/* Returns 1 if there is any overlap between the range and min/max */
-static inline int NumericRange_Overlaps(NumericRange *n, double min, double max) {
+/* Returns true if there is any overlap between the range and min/max */
+static inline bool NumericRange_Overlaps(NumericRange *n, double min, double max) {
   return !(min > n->maxVal || max < n->minVal);
 }
 
@@ -53,10 +53,19 @@ static inline void updateCardinality(NumericRange *n, double value) {
   hll_add(&n->hll, &value, sizeof(value));
 }
 
-static inline size_t getCardinality(NumericRange *n) {
+static inline size_t getCardinality(const NumericRange *n) {
   return hll_count(&n->hll);
 }
 
+size_t NumericRange_GetCardinality(const NumericRange *n) {
+  return getCardinality(n);
+}
+
+/*
+ * Add a numeric entry to the range. Returns the additional memory used for the action.
+ * This function DOES NOT update the cardinality of the range.
+ * It is the caller's responsibility to update the cardinality if needed, by calling `updateCardinality`
+ */
 static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
 
   if (value < n->minVal) n->minVal = value;

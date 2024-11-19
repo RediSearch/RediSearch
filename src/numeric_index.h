@@ -124,6 +124,9 @@ Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);
 
+/* Return the estimated cardinality of the numeric range */
+size_t NumericRange_GetCardinality(const NumericRange *nr);
+
 extern RedisModuleType *NumericIndexType;
 
 NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName);

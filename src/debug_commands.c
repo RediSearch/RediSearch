@@ -332,7 +332,7 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
     REPLY_WITH_DOUBLE("minVal", r->minVal, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_DOUBLE("maxVal", r->maxVal, ARRAY_LEN_VAR(numericRangeInfo));
     REPLY_WITH_DOUBLE("invertedIndexSize [bytes]", r->invertedIndexSize, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_LONG_LONG("card", hll_count(&r->hll), ARRAY_LEN_VAR(numericRangeInfo));
+    REPLY_WITH_LONG_LONG("card", NumericRange_GetCardinality(r), ARRAY_LEN_VAR(numericRangeInfo));
 
     REPLY_WITH_STR("entries", ARRAY_LEN_VAR(numericRangeInfo))
     ret = InvertedIndex_DebugReply(ctx, r->entries);
@@ -344,10 +344,6 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
 }
 
 InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n, bool minimal) {
-  if (!n) {
-    RedisModule_ReplyWithEmptyArray(ctx);
-    return (InvertedIndexStats){0};
-  }
   size_t len = 0;
   RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
   InvertedIndexStats invIdxStats = {0};

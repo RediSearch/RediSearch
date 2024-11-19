@@ -16,7 +16,7 @@
 
 #include "rmalloc.h"
 
-#define INVALID_CARDINALITY SIZE_MAX
+#define INVALID_CACHE_CARDINALITY SIZE_MAX
 
 static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
   uint8_t rank = hash ? __builtin_ctz(hash) : 32; // index of first set bit
@@ -54,7 +54,7 @@ static inline void _hll_add_hash(struct HLL *hll, uint32_t hash) {
   if (rank > hll->registers[index]) {
     hll->registers[index] = rank;
     // New max rank, invalidate the cached cardinality
-    hll->cachedCard = INVALID_CARDINALITY;
+    hll->cachedCard = INVALID_CACHE_CARDINALITY;
   }
 }
 
@@ -69,7 +69,7 @@ void hll_add(struct HLL *hll, const void *buf, size_t size) {
 
 size_t hll_count(const struct HLL *hll) {
   // Return the cached cardinality if it's available
-  if (INVALID_CARDINALITY != hll->cachedCard) return hll->cachedCard;
+  if (INVALID_CACHE_CARDINALITY != hll->cachedCard) return hll->cachedCard;
 
   double alpha_mm;
   switch (hll->bits) {
@@ -121,7 +121,7 @@ static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, 
     if (hll->registers[i] < registers[i]) {
       hll->registers[i] = registers[i];
       // New max rank, invalidate the cached cardinality
-      hll->cachedCard = INVALID_CARDINALITY;
+      hll->cachedCard = INVALID_CACHE_CARDINALITY;
     }
   }
   return 0;
@@ -161,7 +161,7 @@ int hll_set_registers(struct HLL *hll, const void *registers, uint32_t size) {
   }
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
-  hll->cachedCard = INVALID_CARDINALITY; // Invalidate the cached cardinality
+  hll->cachedCard = INVALID_CACHE_CARDINALITY; // Invalidate the cached cardinality
 
   return 0;
 }
