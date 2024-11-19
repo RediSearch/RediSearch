@@ -35,17 +35,15 @@ void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 
 // Set of functions to obfuscate types of data we index
 // Currently done in a very simplified way
-// the returned pointer needs to be freed using rm_free
-char *Obfuscate_Text(const char *text);
-char *Obfuscate_Number(size_t number);
-char *Obfuscate_Vector(const char *vector, size_t dim);
-char *Obfuscate_Tag(const char *tag);
-char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
-char *Obfuscate_GeoShape();
+const char *Obfuscate_Text(const char *text);
+const char *Obfuscate_Number(size_t number);
+const char *Obfuscate_Vector(const char *vector, size_t dim);
+const char *Obfuscate_Tag(const char *tag);
+const char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
+const char *Obfuscate_GeoShape();
 
 struct RSQueryNode;
 // Obfuscate a query node based on its type
-// the returned pointer needs to be freed using rm_free
-char *Obfuscate_QueryNode(struct RSQueryNode *node);
+const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 #endif //OBFUSCATION_API_H
