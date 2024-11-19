@@ -4,22 +4,21 @@
 #include "redis_index.h"
 #include "query_node.h"
 #include "reply_macros.h"
+#include "obfuscation/obfuscation_api.h"
 
 typedef struct {
-  const char *user;
+  const char *buffer;
   uint32_t length;
   uint16_t refcount;
   bool owner;
 } HiddenNameImpl;
 
-
-
 HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
   HiddenNameImpl* value = rm_malloc(sizeof(*value));
   if (takeOwnership) {
-    value->user = rm_strndup(name, length);
+    value->buffer = rm_strndup(name, length);
   } else {
-    value->user = name;
+    value->buffer = name;
   }
   value->length = length;
   value->owner = takeOwnership;
@@ -31,7 +30,7 @@ void HiddenString_Free(const HiddenString* hn) {
   HiddenNameImpl* value = (HiddenNameImpl*)hn;
   if (--value->refcount == 0) {
     if (value->owner) {
-      rm_free((void*)value->user);
+      rm_free((void*)value->buffer);
     }
     rm_free(value);
   }
@@ -57,27 +56,27 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
 
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length) {
   const HiddenNameImpl* l = (const HiddenNameImpl*)left;
-  return Compare(l->user, l->length, right, right_length);
+  return Compare(l->buffer, l->length, right, right_length);
 }
 
 int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
   HiddenNameImpl* r = (HiddenNameImpl*)right;
-  return HiddenString_CompareC(left, r->user, r->length);
+  return HiddenString_CompareC(left, r->buffer, r->length);
 }
 
 int HiddenName_CompareEx(const HiddenName *left, const LooseHiddenName *right) {
   const HiddenNameImpl* r = (const HiddenNameImpl*)right;
-  return HiddenName_CompareC(left, r->user, r->length);
+  return HiddenName_CompareC(left, r->buffer, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
   HiddenNameImpl* r = (HiddenNameImpl*)right;
-  return HiddenString_CaseInsensitiveCompareC(left, r->user, r->length);
+  return HiddenString_CaseInsensitiveCompareC(left, r->buffer, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length) {
   HiddenNameImpl* l = (HiddenNameImpl*)left;
-  return CaseSensitiveCompare(l->user, l->length, right, right_length);
+  return CaseSensitiveCompare(l->buffer, l->length, right, right_length);
 }
 
 HiddenString *HiddenName_Retain(HiddenString *value) {
@@ -91,19 +90,19 @@ void HiddenString_TakeOwnership(HiddenString *hidden) {
   if (impl->owner) {
     return;
   }
-  impl->user = rm_strndup(impl->user, impl->length);
+  impl->buffer = rm_strndup(impl->buffer, impl->length);
   impl->owner = true;
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {
   const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
-  RedisModule_SaveStringBuffer(rdb, impl->user, impl->length + 1);
+  RedisModule_SaveStringBuffer(rdb, impl->buffer, impl->length + 1);
 }
 
 void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value) {
   const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
   RedisModuleString *str =
-      RedisModule_CreateStringPrintf(redisCtx, fmt, impl->user);
+      RedisModule_CreateStringPrintf(redisCtx, fmt, impl->buffer);
   Redis_DeleteKey(redisCtx, str);
   RedisModule_FreeString(redisCtx, str);
 }
@@ -113,10 +112,14 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
   if (length != NULL) {
     *length = impl->length;
   }
-  return impl->user;
+  return impl->buffer;
 }
 
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx) {
   const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
-  return RedisModule_CreateString(ctx, impl->user, impl->length);
+  return RedisModule_CreateString(ctx, impl->buffer, impl->length);
+}
+
+const char* FormatHiddenText(HiddenName *name, bool obfuscate) {
+  return obfuscate ? Obfuscate_Text() : HiddenName_GetUnsafe(name, NULL);
 }

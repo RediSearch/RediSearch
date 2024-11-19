@@ -6,7 +6,6 @@
 #include <string.h>
 
 struct RSQueryNode;
-const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 enum {
     IndexSize = MAX_OBFUSCATED_INDEX_NAME,
@@ -40,7 +39,7 @@ int testSimpleIndexObfuscation() {
 }
 
 int testTextObfuscation() {
-    const char *obfuscated = Obfuscate_Text("hello");
+    const char *obfuscated = Obfuscate_Text();
     return strcmp(obfuscated, "Text");
 }
 
