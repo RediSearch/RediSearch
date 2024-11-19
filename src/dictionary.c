@@ -41,7 +41,7 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
 int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
                    char **err) {
   int valuesDeleted = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
     *err = "could not open dict key";
     return -1;
@@ -51,6 +51,11 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
     size_t valLen;
     const char *val = RedisModule_StringPtrLen(values[i], &valLen);
     valuesDeleted += Trie_Delete(t, (char *)val, valLen);
+  }
+
+  // Delete the dictionary if it's empty
+  if (t->size == 0) {
+    dictDelete(spellCheckDicts, dictName);
   }
 
   return valuesDeleted;
