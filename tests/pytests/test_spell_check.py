@@ -25,7 +25,8 @@ def testDictDeleteWrongArity(env):
     env.expect('ft.dictdel', 'dict').error()
 
 def testDictDeleteOnNoneExistingKey(env):
-    env.expect('ft.dictdel', 'dict', 'term1').equal(0)
+    env.expect('ft.dictdel', 'dict', 'term1').error().\
+        contains('could not open dict key')
 
 def testDictDump(env):
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term3').equal(3)
@@ -35,7 +36,7 @@ def testDictDumpWrongArity(env):
     env.expect('ft.dictdump').error()
 
 def testDictDumpOnNoneExistingKey(env):
-    env.expect('ft.dictdump', 'dict').error()
+    env.expect('ft.dictdump', 'dict').error().contains('could not open dict')
 
 def testBasicSpellCheck(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
@@ -178,3 +179,9 @@ def testSpellCheckIssue437(env):
                'Tooni toque kerfuffle', 'TERMS',
                'EXCLUDE', 'slang', 'TERMS',
                'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
+    
+def testSpellCheckDeleteEmptyDict(env):
+    env.expect('FT.DICTADD', 'dict', 'term1').equal(1)
+    env.expect('FT.DICTDEL', 'dict', 'term1').equal(1)
+    # Check that the dictionary does not exist
+    env.expect('FT.DICTDUMP', 'dict').error().contains('could not open dict')
