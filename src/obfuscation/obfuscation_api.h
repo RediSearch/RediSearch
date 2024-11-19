@@ -22,15 +22,15 @@ void Obfuscate_Document(t_uniqueId docId, char *buffer);
 // The main difference between a document key and a document is that a document was assigned a unique document id
 void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 
-char *Obfuscate_Text(const char *text);
-char *Obfuscate_Number(size_t number);
-char *Obfuscate_Vector(const char *vector, size_t dim);
-char *Obfuscate_Tag(const char *tag);
-char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
-char *Obfuscate_GeoShape();
+const char *Obfuscate_Text();
+const char *Obfuscate_Number(size_t number);
+const char *Obfuscate_Vector(const char* vector, size_t dim);
+const char *Obfuscate_Tag(const char* tag);
+const char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
+const char *Obfuscate_GeoShape();
 
 struct RSQueryNode;
-char *Obfuscate_QueryNode(struct RSQueryNode *node);
+const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 #define OBFUSCATE_FIELD(fieldId, buffer) \
 char buffer[MAX_OBFUSCATED_FIELD_NAME]; \

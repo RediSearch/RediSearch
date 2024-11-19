@@ -247,13 +247,7 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
       case PLN_T_FILTER:
         printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
-          const char* alias = NULL;
-          if (obfuscate) {
-            alias = Obfuscate_Text(alias);
-          } else {
-            alias = HiddenName_GetUnsafe(stp->alias, NULL);
-          }
-          printf("  AS:%s\n", alias);
+          printf("  AS:%s\n", FormatHiddenText(stp->alias, obfuscate));
         }
         break;
       case PLN_T_ARRANGE: {
@@ -282,23 +276,11 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
         printf("  BY:\n");
         for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
-          const char* property = NULL;
-          if (obfuscate) {
-            property = Obfuscate_Text(property);
-          } else {
-            property = HiddenName_GetUnsafe(gstp->properties[ii], NULL);
-          }
-          printf("    %s\n", property);
+          printf("    %s\n", FormatHiddenText(gstp->properties[ii], obfuscate));
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           const PLN_Reducer *r = gstp->reducers + ii;
-          const char* alias = NULL;
-          if (obfuscate) {
-            alias = Obfuscate_Text(alias);
-          } else {
-            alias = HiddenName_GetUnsafe(r->alias, NULL);
-          }
-          printf("  REDUCE: %s AS %s\n", r->name, alias);
+          printf("  REDUCE: %s AS %s\n", r->name, FormatHiddenText(r->alias, obfuscate));
           if (r->args.argc) {
             printf("    ARGS:[");
           }
