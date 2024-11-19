@@ -9,7 +9,7 @@
 #include "expr/expression.h"
 #include <util/arr.h>
 #include <ctype.h>
-#include "obfuscation/obfuscation_api.h"
+#include "obfuscation/format.h"
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {
@@ -231,14 +231,7 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
       printf("  NEW LOOKUP: %p\n", lk);
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
         char nameBuffer[MAX_OBFUSCATED_FIELD_NAME];
-        const char* name = NULL;
-        if (obfuscate) {
-          Obfuscate_Field(kk->uniqueId, nameBuffer);
-          name = nameBuffer;
-        } else {
-          name = HiddenName_GetUnsafe(kk->name, NULL);
-        }
-        printf("    %s @%p: FLAGS=0x%x\n", name, kk, kk->flags);
+        printf("    %s @%p: FLAGS=0x%x\n", FormatHiddenField(kk->name, kk->uniqueId, nameBuffer, obfuscate), kk, kk->flags);
       }
     }
 
