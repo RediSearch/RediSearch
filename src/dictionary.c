@@ -56,6 +56,7 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   // Delete the dictionary if it's empty
   if (t->size == 0) {
     dictDelete(spellCheckDicts, dictName);
+    TrieType_Free(t);
   }
 
   return valuesDeleted;
