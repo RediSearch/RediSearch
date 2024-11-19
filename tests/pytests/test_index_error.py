@@ -303,8 +303,9 @@ def test_multiple_index_failures(env):
     env.expect('HSET', 'doc', 'n1', 'banana', 'n2', 'meow').equal(2)
 
     index_to_errors_strings = {'idx1': 'banana', 'idx2': 'meow'}
+    for _ in env.reloadingIterator():
 
-    for idx in ['idx1', 'idx2']:
+      for idx in ['idx1', 'idx2']:
         info = index_info(env, idx)
 
         expected_error_dict = {
@@ -324,8 +325,8 @@ def test_multiple_index_failures(env):
         expected_failed_field_stats = [
             'identifier', index_to_failed_field[idx], 'attribute', index_to_failed_field[idx], 'Index Errors',
             ['indexing failures', 1, 'last indexing error',
-             f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
-             'last indexing error key', 'doc']
+            f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
+            'last indexing error key', 'doc']
         ]
 
         expected_no_error_field_stats = [
@@ -353,23 +354,58 @@ def test_vector_indexing_with_json(env):
     env.assertEqual(info['num_docs'], 0)
 
     expected_error_dict = {
-                            indexing_failures_str: 0,
-                            last_indexing_error_str: 'N/A',
-                            last_indexing_error_key_str: 'N/A'
+                            indexing_failures_str: 1,
+                            last_indexing_error_str: 'Invalid vector length. Expected 2, got 3',
+                            last_indexing_error_key_str: 'doc{1}'
                           }
 
     field_spec_dict = get_field_stats_dict(info)
-    # Important:
-    # For the time being, JSON field preprocess is in different code path than the hash field preprocess.
-    # Therefore, the JSON field failure statistics are not updated.
-    # This test is to make sure that the JSON field failure statistics are updated in the future, when the code paths are merged
-    # so it'll break once the good behavior is implemented.
-    error_dict = to_dict(field_spec_dict["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    field_error_dict = to_dict(field_spec_dict["Index Errors"])
+    env.assertEqual(field_error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    expected_error_dict[indexing_failures_str] = 1
-    expected_error_dict[last_indexing_error_key_str] = 'doc{1}'
-    expected_error_dict[last_indexing_error_str] = 'Invalid vector length. Expected 2, got 3'
-
     env.assertEqual(error_dict, expected_error_dict)
+
+@skip(no_json=True)
+def test_multiple_index_failures_json(env):
+    # Create 2 indices with a different schema order.
+    env.expect('ft.create', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.n1', 'AS', 'n1', 'numeric', '$.n2', 'AS', 'n2', 'numeric').ok()
+    env.expect('ft.create', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.n2', 'AS', 'n2', 'numeric', '$.n1', 'AS', 'n1', 'numeric').ok()
+
+    # Create a document with two fields containing invalid numeric values.
+    json_val = r'{"n1":"banana","n2":"meow"}'
+    env.expect('JSON.SET', 'doc', '$', json_val).ok()
+
+    for _ in env.reloadingIterator():
+      for idx in ['idx1', 'idx2']:
+          info = index_info(env, idx)
+
+          expected_error_dict = {
+              indexing_failures_str: 1,
+              last_indexing_error_str: f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
+              last_indexing_error_key_str: 'doc'
+          }
+
+          # Both indices contain one error for the same document.
+          error_dict = to_dict(info["Index Errors"])
+          env.assertEqual(error_dict, expected_error_dict)
+
+
+          # Each index failed to index the doc due to the first failing field in the schema.
+          index_to_failed_field = {'idx1': 'n1', 'idx2': 'n2'}
+          index_to_ok_field = {'idx1': 'n2', 'idx2': 'n1'}
+          expected_failed_field_stats = [
+              'identifier', f"$.{index_to_failed_field[idx]}", 'attribute', index_to_failed_field[idx], 'Index Errors',
+              ['indexing failures', 1, 'last indexing error',
+              f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
+              'last indexing error key', 'doc']
+          ]
+
+          expected_no_error_field_stats = [
+              'identifier', f"$.{index_to_ok_field[idx]}", 'attribute', index_to_ok_field[idx], 'Index Errors',
+              ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']
+          ]
+
+          env.assertEqual(info['num_docs'], 0)
+          env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
+          env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)

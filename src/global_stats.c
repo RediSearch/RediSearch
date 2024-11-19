@@ -60,7 +60,7 @@ void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd) {
 }
 
 // Assuming that the GIL is already acquired
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFieldsStats) {
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 
   if (RSGlobalStats.fieldsStats.numTextFields > 0){
@@ -116,6 +116,8 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+    RedisModule_InfoAddFieldDouble(ctx, "used_memory", aggregatedFieldsStats->total_vector_idx_mem);
+    RedisModule_InfoAddFieldULongLong(ctx, "mark_deleted_vectors", aggregatedFieldsStats->total_mark_deleted_vectors);
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", FieldIndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)]);
     RedisModule_InfoEndDictField(ctx);
   }
@@ -159,4 +161,19 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
     // extract the d'th bit of the dialects bitfield.
     RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect));
   }
+}
+
+void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
+    INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
+}
+
+void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+    RedisModule_InfoAddSection(ctx, "index");
+    RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+    RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
+    RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
+    RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
+    RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info->total_active_writes);
+
+    RedisModule_InfoAddFieldULongLong(ctx, "total_logically_deleted_docs", READ(RSGlobalStats.totalStats.logically_deleted));
 }

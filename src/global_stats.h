@@ -39,6 +39,8 @@ typedef struct {
   size_t total_query_commands;        // Number of successful query commands, including `FT.CURSOR READ`
   clock_t total_query_execution_time; // Total time spent on queries (in clock ticks)
   uint_least8_t used_dialects;        // bitarray of dialects used by all indices
+  size_t logically_deleted;           // Number of logically deleted documents in all indices
+                                      // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
 } TotalGlobalStats;
 
 // The global stats object type
@@ -64,7 +66,7 @@ void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
 /**
  * Exposing stats on all the field's type with existing field count > 0 to INFO command.
  */
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *, TotalSpecsFieldInfo *);
 
 /**
  * Increase all relevant counters in the global stats object.
@@ -80,3 +82,13 @@ void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx);
  * Add all the dialect-related information to the INFO command.
  */
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+
+/**
+ * Increase the number of logically deleted documents in all indices by `toAdd`.
+ */
+void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
+
+/**
+ * Add all the index-related global information to the INFO command.
+ */
+void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
