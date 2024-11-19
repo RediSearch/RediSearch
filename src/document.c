@@ -95,7 +95,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
+      QERR_MK_USING_HIDDEN_NAME(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", fs->fieldName);
       return -1;
     }
 

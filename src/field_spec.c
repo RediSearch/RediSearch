@@ -67,7 +67,7 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
   return IndexError_ErrorCount(&fs->indexError);
 }
 
-static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void (*callback)(t_uniqueId, char*), bool obfuscate) {
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, const char* (*callback)(t_uniqueId, char*), bool obfuscate) {
   char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
   const char* value = obfuscated;
   if (obfuscate) {
