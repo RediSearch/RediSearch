@@ -43,10 +43,6 @@ VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int
   return kdv->p;
 }
 
-VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
-  return openVectorKeysDict(sp, keyName, 1);
-}
-
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
