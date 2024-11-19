@@ -208,19 +208,7 @@ static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
     return;
   }
   if (dictSize(spellCheckDicts)) {
-    dictIterator *iter = dictGetIterator(spellCheckDicts);
-    dictEntry *entry;
-    int dictTerms = 0;
-    while ((entry = dictNext(iter)) && dictTerms == 0) {
-      Trie *val = dictGetVal(entry);
-      dictTerms += val->size;
-    }
-    dictReleaseIterator(iter);
-
-    // if at least one dictionary has terms, save the dictionaries
-    if (dictTerms) {
-      SpellCheckDictAuxSave(rdb, when);
-    }
+    SpellCheckDictAuxSave(rdb, when);
   }
 }
 
