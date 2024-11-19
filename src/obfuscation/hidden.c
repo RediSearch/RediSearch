@@ -64,11 +64,6 @@ int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
   return HiddenString_CompareC(left, r->buffer, r->length);
 }
 
-int HiddenName_CompareEx(const HiddenName *left, const LooseHiddenName *right) {
-  const HiddenNameImpl* r = (const HiddenNameImpl*)right;
-  return HiddenName_CompareC(left, r->buffer, r->length);
-}
-
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
   HiddenNameImpl* r = (HiddenNameImpl*)right;
   return HiddenString_CaseInsensitiveCompareC(left, r->buffer, r->length);
