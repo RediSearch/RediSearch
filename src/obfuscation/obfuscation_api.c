@@ -21,7 +21,8 @@ void Obfuscate_Document(t_uniqueId docId, char* buffer) {
 }
 
 void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
-  sprintf(buffer, "Key@%zu", spec.tv_sec * 1000 + spec.tv_nsec / 1000000);
+  const size_t epoch = spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
+  sprintf(buffer, "Key@%zu", epoch);
 }
 
 char *Obfuscate_Text(const char* text) {

@@ -94,7 +94,6 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
-  // TODO: Rlookup should also use hidden string
   const char *path = HiddenName_GetUnsafe(fs->fieldPath, NULL);
   key->path = key->flags & RLOOKUP_F_NAMEALLOC ? rm_strdup(path) : path;
   if (FieldSpec_IsSortable(fs)) {

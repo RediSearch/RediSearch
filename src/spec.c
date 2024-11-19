@@ -2036,9 +2036,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  if (!len)
-    goto fail;
-
   f->fieldName = NewHiddenName(name, len, false);
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
