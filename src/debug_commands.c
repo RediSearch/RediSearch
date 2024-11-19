@@ -435,9 +435,11 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false);
+  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+
+  // Field was not initialized yet
   if (!tagIndex) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
@@ -503,9 +505,11 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+
+    // Field was not initialized yet
     if (!idx) {
-      RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+      RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
     if (!idx->suffix) {
@@ -910,9 +914,11 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+
+  // Field was not initialized yet
   if (!idx) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
