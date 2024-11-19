@@ -28,7 +28,7 @@ void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
   sprintf(buffer, "Key@%zu", epoch);
 }
 
-const char *Obfuscate_Text(const char* text) {
+const char *Obfuscate_Text() {
   return "Text";
 }
 

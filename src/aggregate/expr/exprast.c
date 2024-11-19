@@ -209,11 +209,7 @@ void RSExpr_Print(const RSExpr *e, bool obfuscate) {
       break;
     case RSExpr_Property:
       {
-        const char* key = HiddenName_GetUnsafe(e->property.key, NULL);
-        if (obfuscate) {
-          key = Obfuscate_Text(key);
-        }
-        printf("@%s", key);
+        printf("@%s", FormatHiddenText(e->property.key, obfuscate));
       }
       break;
     case RSExpr_Inverted:

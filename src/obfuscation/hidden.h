@@ -54,6 +54,8 @@ RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* valu
 // 3. Command responses
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length);
 
+const char* FormatHiddenText(HiddenName *name, bool obfuscate);
+
 #ifdef __cplusplus
 }
 #endif
