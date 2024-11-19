@@ -40,7 +40,6 @@ void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 
 // Set of functions to obfuscate types of data we index
 // Currently done in a very simplified way
-// the returned pointer needs to be freed using rm_free
 const char *Obfuscate_Text(const char *text);
 
 const char *Obfuscate_Number(size_t number);
@@ -55,7 +54,6 @@ const char *Obfuscate_GeoShape();
 
 struct RSQueryNode;
 // Obfuscate a query node based on its type
-// the returned pointer needs to be freed using rm_free
 const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 #endif //OBFUSCATION_API_H
