@@ -114,7 +114,3 @@ RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx
   HiddenNameImpl* impl = (HiddenNameImpl*)value;
   return RedisModule_CreateString(ctx, impl->buffer, impl->length);
 }
-
-const char* FormatHiddenText(HiddenName *name, bool obfuscate) {
-  return obfuscate ? Obfuscate_Text() : HiddenName_GetUnsafe(name, NULL);
-}

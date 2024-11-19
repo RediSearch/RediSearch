@@ -126,6 +126,10 @@ void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const c
 
 #define QERR_MKSYNTAXERR(status, ...) QueryError_SetError(status, QUERY_ESYNTAX, ##__VA_ARGS__)
 
+// Hidden must be first argument in fmt
+#define QERR_MK_USING_HIDDEN_NAME(status, code, fmt, name, ...) \
+  QueryError_SetErrorFmt(status, code, fmt, HiddenName_GetUnsafe(name, NULL))
+
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
  * I'm making this into a macro so I don't need to include redismodule.h
