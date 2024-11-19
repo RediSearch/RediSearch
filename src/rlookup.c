@@ -28,7 +28,7 @@ static RLookupKey *createNewKey(RLookup *lookup, HiddenName *keyName, HiddenName
     HiddenName_TakeOwnership(keyName);
   }
   ret->name = HiddenName_Retain(keyName);
-  ret->path = HiddenName_Retain(ret->name);
+  ret->path = HiddenName_Retain(path);
   ret->dstidx = lookup->rowlen;
   ret->flags = flags & ~RLOOKUP_TRANSIENT_FLAGS;
 
