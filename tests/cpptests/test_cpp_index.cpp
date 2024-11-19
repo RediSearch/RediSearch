@@ -1244,7 +1244,8 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  const char* spec_name = "idx";
+  StrongRef ref = IndexSpec_Parse(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
@@ -1258,6 +1259,14 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "hello", 5));
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
+
+  char *realName = IndexSpec_FormatName(s, false);
+  ASSERT_STREQ(realName, spec_name);
+  rm_free(realName);
+
+  char *obfuscatedName = IndexSpec_FormatName(s, true);
+  ASSERT_STREQ(obfuscatedName, "Index@0");
+  rm_free(obfuscatedName);
 
   const FieldSpec *f = IndexSpec_GetFieldC(s, body);
   ASSERT_TRUE(f != NULL);
