@@ -80,11 +80,10 @@ int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *r
   return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }
 
-HiddenString *HiddenString_Retain(HiddenString *value) {
-  HiddenString_TakeOwnership(value);
+HiddenString *HiddenName_Retain(HiddenString *value) {
   HiddenNameImpl* text = (HiddenNameImpl*)value;
   text->refcount++;
-  return (HiddenString*)text;
+  return value;
 }
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
