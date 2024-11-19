@@ -11,12 +11,14 @@ void Obfuscate_Index(const Sha1 *hash, char* buffer) {
   Sha1_FormatIntoBuffer(hash, buffer + strlen(prefix));
 }
 
-void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
+const char* Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
   sprintf(buffer, "Field@%zu", fieldId);
+  return buffer;
 }
 
-void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
+const char* Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
   sprintf(buffer, "FieldPath@%zu", fieldId);
+  return buffer;
 }
 
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {

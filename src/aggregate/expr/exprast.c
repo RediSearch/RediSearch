@@ -6,7 +6,7 @@
 
 #include "exprast.h"
 #include <ctype.h>
-#include "obfuscation/obfuscation_api.h"
+#include "obfuscation/format.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
