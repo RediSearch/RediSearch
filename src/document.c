@@ -23,6 +23,7 @@
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "redis_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -747,7 +748,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_BULK_INDEXER(tagIndexer) {
   RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx, kname, 1);
+  TagIndex *tidx = TagIndex_Open(ctx, kname, OPEN_INDEX_WRITE);
   if (!tidx) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     return -1;
