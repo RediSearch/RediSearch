@@ -113,6 +113,8 @@ typedef struct VecSimLogCtx {
 VecSimIndex *OpenVectorIndex(IndexSpec *sp,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
+VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write);
+
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);

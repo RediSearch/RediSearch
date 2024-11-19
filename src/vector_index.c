@@ -12,7 +12,7 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
+VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;

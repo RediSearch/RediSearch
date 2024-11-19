@@ -1002,7 +1002,10 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = OpenVectorIndex(sp, vecsim_name);
+      VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
+      if (!vecsim) {
+        continue;
+      }
       VecSimIndexInfo info = VecSimIndex_Info(vecsim);
       stats.memory += info.commonInfo.memory;
       if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
