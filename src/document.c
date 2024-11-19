@@ -630,14 +630,14 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *rt = OpenVectorIndex(sp, keyName);
-  if (!rt) {
+  VecSimIndex *vecsim = openVectorKeysDict(sp, keyName, 1);
+  if (!vecsim) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
     return -1;
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
