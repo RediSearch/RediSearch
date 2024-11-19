@@ -14,7 +14,6 @@ extern "C" {
 #endif
 
 typedef struct HiddenString HiddenString;
-typedef struct LooseHiddenName LooseHiddenName;
 
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
@@ -29,7 +28,6 @@ void HiddenString_Free(const HiddenString *value);
 // CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
 // Eventually the hope is to remove them alltogether.
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
-int HiddenString_CompareEx(const HiddenString *left, const LooseHiddenName *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length);
