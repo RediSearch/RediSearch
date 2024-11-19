@@ -1217,13 +1217,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property", " `@%s`", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
+        QERR_MK_USING_HIDDEN_NAME(err, QUERY_ENOPROPKEY, "No such property", " `@%s`", gstp->properties[ii]);
         return NULL;
       }
     }
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, gstp->properties[ii], RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
+      QERR_MK_USING_HIDDEN_NAME(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", gstp->properties[ii]);
       return NULL;
     }
   }
@@ -1255,7 +1255,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(pr->alias, NULL));
+      QERR_MK_USING_HIDDEN_NAME(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
       return NULL;
     }
   }
@@ -1305,12 +1305,12 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   for (size_t i = 0; i < array_len(requests); i++) {
     HiddenName *name = requests[i].metric_name;
     if (IndexSpec_GetField(req->sctx->spec, name)) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", HiddenName_GetUnsafe(name, NULL));
+      QERR_MK_USING_HIDDEN_NAME(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
     RLookupKey *key = RLookup_GetKey(rl, requests[i].metric_name, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenName_GetUnsafe(name, NULL));
+      QERR_MK_USING_HIDDEN_NAME(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
     }
 
@@ -1533,10 +1533,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", HiddenName_GetUnsafe(ff->name, NULL));
+        QERR_MK_USING_HIDDEN_NAME(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", HiddenName_GetUnsafe(ff->name, NULL));
+        QERR_MK_USING_HIDDEN_NAME(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;

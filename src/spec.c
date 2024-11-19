@@ -973,8 +973,7 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QERR_MK_USING_HIDDEN_NAME(status, QUERY_EPARSEARGS, "Field", " `%s` does not have a type", fs->fieldName);
     return 0;
   }
 
@@ -1005,7 +1004,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       fs->options |= FieldSpec_IndexMissing;
     }
   } else {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QERR_MK_USING_HIDDEN_NAME(status, QUERY_EPARSEARGS, "Invalid field type for field", " `%s`", fs->fieldName);
     goto error;
   }
 
@@ -1028,14 +1027,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QERR_MK_USING_HIDDEN_NAME(status, QUERY_EPARSEARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", fs->fieldName);
     goto error;
   }
   return 1;
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QERR_MK_USING_HIDDEN_NAME(status, QUERY_EPARSEARGS, "Could not parse schema for field", " `%s`", fs->fieldName);
   }
   return 0;
 }

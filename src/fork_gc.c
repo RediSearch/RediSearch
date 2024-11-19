@@ -339,7 +339,7 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
 
 typedef struct {
   int type;
-  const char *field;
+  HiddenName *field;
   const void *curPtr;
   char *tagValue;
   size_t tagLen;
@@ -351,7 +351,8 @@ static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
   tagNumHeader *info = arg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
-    FGC_sendBuffer(fgc, info->field, strlen(info->field));
+    const char* field = HiddenName_GetUnsafe(info->field, NULL);
+    FGC_sendBuffer(fgc, field, strlen(field));
     FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
   }
   FGC_SEND_VAR(fgc, info->curPtr);
@@ -395,7 +396,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL),
+                           .field = numericFields[i]->fieldName,
                            .uniqueId = rt->uniqueId};
 
     numCbCtx nctx;
@@ -456,7 +457,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
+                             .field = tagFields[i]->fieldName,
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
