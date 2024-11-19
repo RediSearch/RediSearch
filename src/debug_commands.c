@@ -1093,10 +1093,13 @@ DEBUG_COMMAND(VecsimInfo) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
-  // This call can't fail, since we already checked that the key exists
-  // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, 0);
 
+  // The index was not initalized yet.
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    RedisModule_ReplyWithEmptyArray(ctx);
+  }
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
@@ -1159,9 +1162,14 @@ DEBUG_COMMAND(dumpHNSWData) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
 	  goto cleanup;
   }
-  // This call can't fail, since we already checked that the key exists
-  // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, 0);
+
+  // The index was not initalized yet.
+  if (!vecsimIndex) {
+    RedisModule_ReplyWithEmptyArray(ctx);
+    goto cleanup;
+  }
+
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
 	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
