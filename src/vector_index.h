@@ -109,10 +109,6 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-// TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(IndexSpec *sp,
-  RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
-
 VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
