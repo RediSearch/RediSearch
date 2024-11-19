@@ -64,6 +64,7 @@ TEST_F(UtilsTest, testHLL) {
   ASSERT_EQ(hll_init(&hll, 21), -1) << "Expected error for bits > 20";
   ASSERT_EQ(hll_load(&hll, NULL, 1), -1) << "Expected error for bits < 4";
   ASSERT_EQ(hll_load(&hll, NULL, 42), -1) << "Expected error for registers length not a power of 2";
+  ASSERT_EQ(hll_set_registers(&hll, NULL, 42), -1) << "Expected error for registers length not a power of 2";
 
   // Test init
   ASSERT_EQ(hll_init(&hll1, 4), 0);
