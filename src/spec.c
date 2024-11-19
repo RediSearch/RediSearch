@@ -3078,13 +3078,16 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  LooseHiddenName* name = NewHiddenName(UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), false);
-  RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, underscore, RLOOKUP_F_NOFLAGS);
+  HiddenName* underscore = NewHiddenName(UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), false);
+  RLookupKey *k = RLookup_GetKey_Load(&r->lk, underscore, RLOOKUP_F_NOFLAGS);
+  HiddenName_Free(underscore)
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKeyEx(&r->lk, f, strlen(f), RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+  HiddenName* name = NewHiddenName(f, strlen(f), false);
+  k = RLookup_GetKey(&r->lk, name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+  HiddenName_Free(name);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);
