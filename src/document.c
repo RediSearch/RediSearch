@@ -552,7 +552,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs);
+  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs, CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
     return -1;
@@ -631,7 +631,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorKeysDict(sp, keyName, 1);
+  VecSimIndex *vecsim = openVectorKeysDict(sp, keyName, CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
     return -1;
@@ -748,7 +748,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_BULK_INDEXER(tagIndexer) {
   RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx, kname, OPEN_INDEX_WRITE);
+  TagIndex *tidx = TagIndex_Open(ctx, kname, CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     return -1;

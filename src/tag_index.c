@@ -285,12 +285,12 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
 }
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
+TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool create_if_index) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
   if (kdv) {
     return kdv->p;
   }
-  if (!openWrite) {
+  if (!create_if_index) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
@@ -399,7 +399,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, OPEN_INDEX_READ);
+  idx = TagIndex_Open(&sctx, keyName, DONT_CREATE_INDEX);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

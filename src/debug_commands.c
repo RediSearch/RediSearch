@@ -271,7 +271,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs);
+  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
@@ -435,7 +435,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -505,7 +505,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -914,7 +914,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, OPEN_INDEX_READ);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -1099,13 +1099,10 @@ DEBUG_COMMAND(VecsimInfo) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
-  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, 0);
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, CREATE_INDEX);
 
-  // The index was not initalized yet.
-  if (!vecsimIndex) {
-    SearchCtx_Free(sctx);
-    RedisModule_ReplyWithEmptyArray(ctx);
-  }
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
@@ -1168,14 +1165,9 @@ DEBUG_COMMAND(dumpHNSWData) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
 	  goto cleanup;
   }
-  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, 0);
-
-  // The index was not initalized yet.
-  if (!vecsimIndex) {
-    RedisModule_ReplyWithEmptyArray(ctx);
-    goto cleanup;
-  }
-
+  // This call can't fail, since we already checked that the key exists
+  // (or should exist, and this call will create it).
+  VecSimIndex *vecsimIndex = openVectorKeysDict(sctx->spec, keyName, CREATE_INDEX);
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
 	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");

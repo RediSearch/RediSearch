@@ -934,7 +934,11 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs);
+
+  // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
+  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
+  // we return results as if the index was empty, instead of raising an error.
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
   if (!index) {
     return NULL;
   }
@@ -1350,7 +1354,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, OPEN_INDEX_READ);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, DONT_CREATE_INDEX);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
