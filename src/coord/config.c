@@ -50,13 +50,48 @@ CONFIG_GETTER(getClusterTimeout) {
   return sdsfromlonglong(realConfig->timeoutMS);
 }
 
+const char* getGlobalPasswordConfig(RedisModuleCtx *ctx) {
+  RedisModuleCallReply *rep = 
+                RedisModule_Call(ctx, "CONFIG", "cc", "GET", "oss-global-password");
+  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+  // global-password config does not exist
+  if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
+    return NULL;
+  }
+  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
+  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
+  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+
+  char* res = rm_calloc(1, len + 1);
+  memcpy(res, valueRepCStr, len);
+
+  RedisModule_FreeCallReply(rep);
+
+  return res;
+}
+
 CONFIG_SETTER(setGlobalPass) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  RETURN_STATUS(acrc);
+  const char *globalPasswordConfig = getGlobalPasswordConfig(RSDummyContext);
+  if (globalPasswordConfig) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET global-password <password>` instead");
+    return AC_OK;
+  } else {
+    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+    int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
+    RETURN_STATUS(acrc);
+  }
 }
 
 CONFIG_GETTER(getGlobalPass) {
+  const char *globalPasswordConfig = getGlobalPasswordConfig(RSDummyContext);
+  if (globalPasswordConfig) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET global-password` instead");
+  }
   return sdsnew("Password: *******");
 }
 

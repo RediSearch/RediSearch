@@ -54,3 +54,7 @@ MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
+
+// If the global-password is registered as a redis server CONFIG parameter, 
+// return it. Otherwise, return NULL.
+const char* getGlobalPasswordConfig(RedisModuleCtx *ctx);

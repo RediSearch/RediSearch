@@ -11,6 +11,11 @@
 #include "module.h"
 #include "util/strconv.h"
 
+static const char* getGlobalPassword(RedisModuleCtx *ctx) {
+  const char *globalPass = getGlobalPasswordConfig(ctx);
+  return globalPass ? globalPass : clusterConfig.globalPass;
+}
+
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
   const char *myId = NULL;
@@ -90,10 +95,14 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       int port = 0;
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
+      const char *globalPass = getGlobalPassword(ctx);
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
-                  .host = rm_strndup(host, hostlen), .port = port, .password = (clusterConfig.globalPass ? rm_strdup(clusterConfig.globalPass) : NULL) , .unixSock = NULL},
+                  .host = rm_strndup(host, hostlen),
+                  .port = port,
+                  .password = (globalPass ? rm_strdup(globalPass) : NULL),
+                  .unixSock = NULL},
           .id = id_str,
           .flags = 0,
       };
