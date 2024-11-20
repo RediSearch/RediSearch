@@ -46,13 +46,13 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      REPLY_SIMPLE_SAFE(rule->prefixes[i]);
+      REPLY_SIMPLE_SAFE(HiddenString_GetUnsafe(rule->prefixes[i], NULL));
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR_SAFE("filter", rule->filter_exp_str);
+    REPLY_KVSTR_SAFE("filter", HiddenString_GetUnsafe(rule->filter_exp_str, NULL));
   }
 
   if (rule->lang_default) {

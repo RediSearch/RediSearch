@@ -70,15 +70,15 @@ void SortingTable_Free(RSSortingTable *t);
 int RSSortingTable_AddC(RSSortingTable **tbl, const char *name, RSValueType t);
 
 /** Adds a field and returns the ID of the newly-inserted field */
-static inline int RSSortingTable_Add(RSSortingTable **tbl, const HiddenName* name, RSValueType t) {
-  return RSSortingTable_AddC(tbl, HiddenName_GetUnsafe(name, NULL), t);
+static inline int RSSortingTable_Add(RSSortingTable **tbl, const HiddenString* name, RSValueType t) {
+  return RSSortingTable_AddC(tbl, HiddenString_GetUnsafe(name, NULL), t);
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdxC(RSSortingTable *tbl, const char *field);
 
-static inline int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const HiddenName *field) {
-  return RSSortingTable_GetFieldIdxC(tbl, HiddenName_GetUnsafe(field, NULL));
+static inline int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const HiddenString *field) {
+  return RSSortingTable_GetFieldIdxC(tbl, HiddenString_GetUnsafe(field, NULL));
 }
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */

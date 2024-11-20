@@ -267,7 +267,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  HiddenName *specName;           // Index name
+  HiddenString *specName;           // Index name
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
@@ -289,7 +289,7 @@ typedef struct IndexSpec {
   GCContext *gc;                  // Garbage collection
 
   SynonymMap *smap;               // List of synonym
-  HiddenName **aliases;                 // Aliases to self-remove when the index is deleted
+  HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
   struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
@@ -421,7 +421,7 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenName *name);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
 const FieldSpec *IndexSpec_GetFieldC(const IndexSpec *spec, const char* name, size_t len);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
@@ -613,7 +613,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
-IndexSpec *NewIndexSpec(HiddenName *name);
+IndexSpec *NewIndexSpec(HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);

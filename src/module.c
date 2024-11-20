@@ -430,9 +430,9 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
-  HiddenName *specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
+  HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
   const bool found = dictFetchValue(specDict_g, specName);
-  HiddenName_Free(specName, false);
+  HiddenString_Free(specName, false);
   if (found) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -727,13 +727,13 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
-  HiddenName *alias = NewHiddenName(rawAlias, length, false);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
   StrongRef alias_ref = IndexAlias_Get(alias);
   int rc = REDISMODULE_OK;
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
     rc = IndexAlias_Add(alias, ref, 0, error);
   }
-  HiddenName_Free(alias, false);
+  HiddenString_Free(alias, false);
   return rc;
 }
 
@@ -774,10 +774,10 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
-  HiddenName *alias = NewHiddenName(rawAlias, length, false);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
   QueryError status = {0};
   const int rc = IndexAlias_Del(alias, ref, 0, &status);
-  HiddenName_Free(alias, false);
+  HiddenString_Free(alias, false);
   if (rc != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
@@ -811,9 +811,9 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   size_t length = 0;
   const char* rawAlias = RedisModule_StringPtrLen(argv[1], &length);
-  HiddenName *alias = NewHiddenName(rawAlias, length, false);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (spOrig && IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
-    HiddenName_Free(alias, false);
+    HiddenString_Free(alias, false);
     return QueryError_ReplyAndClear(ctx, &status);
   }
   int rc = 0;
@@ -829,7 +829,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplicateVerbatim(ctx);
     rc = RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  HiddenName_Free(alias, false);
+  HiddenString_Free(alias, false);
   return rc;
 }
 
@@ -1029,7 +1029,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
-  legacySpecRules = dictCreate(&dictTypeHeapHiddenNames, NULL);
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, NULL);
 
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);

@@ -248,7 +248,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
-  dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenNames, NULL);
+  dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
 
   // collect missing fields in schema
   for (t_fieldIndex i = 0; i < spec->numFields; i++) {
@@ -276,7 +276,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
     }
-    dictAdd(df_fields_dict, (void *)fs->fieldName, fs);
+    dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
   }
 
   // go over all the potentially missing fields and index the document in the matching inverted index
@@ -376,7 +376,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 }
 
-int Indexer_Add(RSAddDocumentCtx *aCtx) {
+int IndexDocument(RSAddDocumentCtx *aCtx) {
   Indexer_Process(aCtx);
   AddDocumentCtx_Finish(aCtx);
   return 0;

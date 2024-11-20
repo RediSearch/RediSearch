@@ -99,7 +99,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
 const FieldSpec *IndexSpec_GetFieldC(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
-    if (!HiddenName_CompareC(fs->fieldName, name, len)) {
+    if (!HiddenString_CompareC(fs->fieldName, name, len)) {
       return fs;
     }
   }
@@ -116,10 +116,10 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name) {
   return NULL;
 }
 
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenName *name) {
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
-    if (!HiddenName_Compare(fs->fieldName, name)) {
+    if (!HiddenString_Compare(fs->fieldName, name)) {
       return fs;
     }
   }
@@ -162,8 +162,7 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = spec->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        char fieldName[MAX_OBFUSCATED_FIELD_NAME];
-        Obfuscate_Field(fs->index, fieldName);
+        OBFUSCATE_FIELD(fs->index, fieldName);
         QueryError_SetErrorFmt(status, QUERY_EBADORDEROPTION,
           "slop/inorder are not supported for field `%s` since it has undefined ordering", fieldName);
         return 0;
@@ -188,7 +187,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
       FieldSpec_IsIndexable(&sp->fields[i])) {
-      return HiddenName_GetUnsafe(sp->fields[i].fieldName, NULL);
+      return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
     }
   }
   return NULL;
@@ -285,8 +284,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     // the spec was already deleted, nothing to do here
     return;
   }
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(sp->uniqueId, name);
+  OBFUSCATE_INDEX(sp->uniqueId, name);
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", name);
 
   sp->isTimerSet = false;
@@ -295,7 +293,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenName_GetUnsafe(sp->specName, NULL), "DD");
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -427,16 +425,16 @@ char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
     if (obfuscate) {
         Obfuscate_Index(sp->uniqueId, nameBuffer);
     } else {
-        name = HiddenName_GetUnsafe(sp->specName, NULL);
+        name = HiddenString_GetUnsafe(sp->specName, NULL);
     }
     return rm_strdup(name);
 }
 
 static bool checkIfSpecExists(const char *rawSpecName) {
   bool found = false;
-  HiddenName* specName = NewHiddenName(rawSpecName, strlen(rawSpecName), false);
+  HiddenString* specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
   found = dictFetchValue(specDict_g, specName);
-  HiddenName_Free(specName, false);
+  HiddenString_Free(specName, false);
   return found;
 }
 
@@ -914,7 +912,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-  logCtx->index_field_name = HiddenName_GetUnsafe(fs->fieldName, NULL);
+  logCtx->index_field_name = HiddenString_GetUnsafe(fs->fieldName, NULL);
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
@@ -976,8 +974,7 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
-  char fieldName[MAX_OBFUSCATED_FIELD_NAME];
-  Obfuscate_Field(fs->index, fieldName);
+  OBFUSCATE_FIELD(fs->index, fieldName);
   if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fieldName);
     return 0;
@@ -1298,8 +1295,8 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  HiddenName* hiddenName = NewHiddenName(name, strlen(name), true);
-  IndexSpec *spec = NewIndexSpec(hiddenName);
+  HiddenString* HiddenString = NewHiddenString(name, strlen(name), true);
+  IndexSpec *spec = NewIndexSpec(HiddenString);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
@@ -1426,9 +1423,9 @@ void Spec_AddToDict(RefManager *rm) {
 static void IndexSpecCache_Free(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     if (c->fields[ii].fieldName != c->fields[ii].fieldPath) {
-      HiddenName_Free(c->fields[ii].fieldName, true);
+      HiddenString_Free(c->fields[ii].fieldName, true);
     }
-    HiddenName_Free(c->fields[ii].fieldPath, true);
+    HiddenString_Free(c->fields[ii].fieldPath, true);
   }
   rm_free(c->fields);
   rm_free(c);
@@ -1453,10 +1450,10 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
-    field->fieldName = HiddenName_Duplicate(fs->fieldName);
+    field->fieldName = HiddenString_Duplicate(fs->fieldName);
     // if name & path are pointing to the same string, copy only pointer
     if (fs->fieldName != fs->fieldPath) {
-      field->fieldPath = HiddenName_Duplicate(fs->fieldPath);
+      field->fieldPath = HiddenString_Duplicate(fs->fieldPath);
     } else {
       // use the same pointer for both name and path
       field->fieldPath = field->fieldName;
@@ -1566,7 +1563,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   // Free spec name
-  HiddenName_Free(spec->specName, true);
+  HiddenString_Free(spec->specName, true);
   // Free sortable list
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
@@ -1727,14 +1724,14 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
     ixname = options->nameC;
   }
 
-  HiddenName *specNameOrAlias = NewHiddenName(ixname, strlen(ixname), false);
+  HiddenString *specNameOrAlias = NewHiddenString(ixname, strlen(ixname), false);
   StrongRef spec_ref = {dictFetchValue(specDict_g, specNameOrAlias)};
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp && !(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
     spec_ref = IndexAlias_Get(specNameOrAlias);
     sp = StrongRef_Get(spec_ref);
   }
-  HiddenName_Free(specNameOrAlias, false);
+  HiddenString_Free(specNameOrAlias, false);
   if (!sp) {
     return spec_ref;
   }
@@ -1775,7 +1772,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex_FormatName(&sctx, fs->fieldName);
         break;
       case INDEXFLD_T_VECTOR:
-        ret = HiddenName_CreateString(fs->fieldName, sctx.redisCtx);
+        ret = HiddenString_CreateString(fs->fieldName, sctx.redisCtx);
         break;
       case INDEXFLD_T_GEOMETRY:
         ret = fmtRedisGeometryIndexKey(&sctx, fs->fieldName);
@@ -1812,7 +1809,7 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *NewIndexSpec(HiddenName *name) {
+IndexSpec *NewIndexSpec(HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
@@ -1867,8 +1864,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
-  fs->fieldName = NewHiddenName(name, strlen(name), true);
-  fs->fieldPath = (path) ? NewHiddenName(path, strlen(path), true) : fs->fieldName;
+  fs->fieldName = NewHiddenString(name, strlen(name), true);
+  fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1941,8 +1938,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
 
-    char name[MAX_OBFUSCATED_INDEX_NAME];
-    Obfuscate_Index(sp->uniqueId, name);
+    OBFUSCATE_INDEX(sp->uniqueId, name);
     RedisModule_Log(ctx, "verbose", "Starting GC for %s", name);
     RedisModule_Log(ctx, "debug", "Starting GC %p for %s", sp->gc, name);
   }
@@ -1965,7 +1961,7 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenName(name, len, true);
+  f->fieldName = NewHiddenString(name, len, true);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -1989,10 +1985,10 @@ fail:
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
-  HiddenName_SaveToRdb(f->fieldName, rdb);
-  if (HiddenName_Compare(f->fieldPath, f->fieldName) != 0) {
+  HiddenString_SaveToRdb(f->fieldName, rdb);
+  if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
-    HiddenName_SaveToRdb(f->fieldPath, rdb);
+    HiddenString_SaveToRdb(f->fieldPath, rdb);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -2036,12 +2032,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenName(name, len, false);
+  f->fieldName = NewHiddenString(name, len, false);
   f->fieldPath = f->fieldName;
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
       LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-      f->fieldPath = NewHiddenName(name, len, false);
+      f->fieldPath = NewHiddenString(name, len, false);
     }
   }
 
@@ -2075,7 +2071,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
     if (encver >= INDEX_VECSIM_TIERED_VERSION) {
-      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenName_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
+      if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
     } else {
@@ -2090,7 +2086,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
       // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
       VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-      logCtx->index_field_name = HiddenName_GetUnsafe(f->fieldName, NULL);
+      logCtx->index_field_name = HiddenString_GetUnsafe(f->fieldName, NULL);
       f->vectorOpts.vecSimParams.logCtx = logCtx;
       if (f->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
         VecSimParams hnswParams = f->vectorOpts.vecSimParams;
@@ -2177,8 +2173,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   // scan already in progress?
   if (spec->scanner) {
     // cancel ongoing scan, keep on_progress indicator on
-    char name[MAX_OBFUSCATED_INDEX_NAME];
-    Obfuscate_Index(spec->uniqueId, name);
+    OBFUSCATE_INDEX(spec->uniqueId, name);
     IndexesScanner_Cancel(spec->scanner);
     RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
   }
@@ -2276,8 +2271,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
-    char name[MAX_OBFUSCATED_INDEX_NAME];
-    Obfuscate_Index(scanner->spec_id, name);
+    OBFUSCATE_INDEX(scanner->spec_id, name);
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", name);
   }
 
@@ -2308,8 +2302,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
                     scanner->scannedKeys);
   } else {
-    char name[MAX_OBFUSCATED_INDEX_NAME];
-    Obfuscate_Index(scanner->spec_id, name);
+    OBFUSCATE_INDEX(scanner->spec_id, name);
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
                     name, scanner->scannedKeys);
   }
@@ -2333,9 +2326,8 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
 #ifdef _DEBUG
-  char name[MAX_OBFUSCATED_INDEX_NAME];
   IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
-  Obfuscate_Index(spec->uniqueId, name);
+  OBFUSCATE_INDEX(spec->uniqueId, name);
   RedisModule_Log(RSDummyContext, "notice", "Register index %s for async scan", name);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(spec_ref);
@@ -2532,7 +2524,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
     }
   }
-  HiddenName_DropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
+  HiddenString_DropFromKeySpace(ctx.redisCtx, INDEX_SPEC_KEY_FMT, sp->specName);
 }
 
 void Indexes_UpgradeLegacyIndexes() {
@@ -2588,7 +2580,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   size_t len = strlen(rawName);
-  sp->specName = NewHiddenName(rawName, len, true);
+  sp->specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2663,9 +2655,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    HiddenName* alias = NewHiddenName(s, strlen(s), false);
+    HiddenString* alias = NewHiddenString(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
-    HiddenName_Free(alias, false);
+    HiddenString_Free(alias, false);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
@@ -2720,7 +2712,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
-  sp->specName = NewHiddenName(legacyName, strlen(legacyName), true);
+  sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2775,9 +2767,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       QueryError status;
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-      HiddenName* alias = NewHiddenName(s, strlen(s), false);
+      HiddenString* alias = NewHiddenString(s, strlen(s), false);
       int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
-      HiddenName_Free(alias, false);
+      HiddenString_Free(alias, false);
       RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
@@ -2853,7 +2845,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
       continue;
     }
     // we save the name plus the null terminator
-    HiddenName_SaveToRdb(sp->specName, rdb);
+    HiddenString_SaveToRdb(sp->specName, rdb);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {
@@ -2876,7 +2868,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     if (sp->aliases) {
       RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
       for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-        HiddenName_SaveToRdb(sp->aliases[ii], rdb);
+        HiddenString_SaveToRdb(sp->aliases[ii], rdb);
       }
     } else {
       RedisModule_SaveUnsigned(rdb, 0);
@@ -2921,7 +2913,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     if (legacySpecDict) {
       dictEmpty(legacySpecDict, NULL);
     } else {
-      legacySpecDict = dictCreate(&dictTypeHeapHiddenNames, NULL);
+      legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
     workersThreadPool_OnEventStart();
@@ -3099,7 +3091,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
-  specDict_g = dictCreate(&dictTypeHeapHiddenNames, NULL);
+  specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
 }
@@ -3111,7 +3103,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     keyToReadData = key;
   }
   SpecOpIndexingCtx *res = rm_malloc(sizeof(*res));
-  res->specs = dictCreate(&dictTypeHeapHiddenNames, NULL);
+  res->specs = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   res->specsOps = array_new(SpecOpCtx, 10);
   if (dictSize(specDict_g) == 0) {
     return res;
@@ -3196,7 +3188,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
     size_t length = 0;
     const char *field = RedisModule_StringPtrLen(hashFields[i], &length);
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (!HiddenName_CompareC(spec->fields[j].fieldName, field, length)) {
+      if (!HiddenString_CompareC(spec->fields[j].fieldName, field, length)) {
         return true;
       }
     }

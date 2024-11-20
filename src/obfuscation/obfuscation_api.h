@@ -31,4 +31,20 @@ char *Obfuscate_GeoShape();
 struct RSQueryNode;
 char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
+#define OBFUSCATE_INDEX(indexId, buffer) \
+char buffer[MAX_OBFUSCATED_INDEX_NAME]; \
+Obfuscate_Index(indexId, buffer)
+
+#define OBFUSCATE_FIELD(fieldId, buffer) \
+char buffer[MAX_OBFUSCATED_FIELD_NAME]; \
+Obfuscate_Field(fieldId, buffer)
+
+#define OBFUSCATE_FIELD_PATH(fieldId, buffer) \
+char buffer[MAX_OBFUSCATED_PATH_NAME]; \
+Obfuscate_FieldPath(fieldId, buffer)
+
+#define OBFUSCATE_DOCUMENT(docId, buffer) \
+char buffer[MAX_OBFUSCATED_DOCUMENT_NAME]; \
+Obfuscate_Document(docId, buffer)
+
 #endif //OBFUSCATION_API_H

@@ -689,8 +689,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(sp->uniqueId, name);
+  OBFUSCATE_INDEX(sp->uniqueId, name);
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, name);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }

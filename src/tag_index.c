@@ -281,8 +281,8 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenName* field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, HiddenName_GetUnsafe(sctx->spec->specName, NULL), HiddenName_GetUnsafe(field, NULL));
+RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const HiddenString* field) {
+  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, HiddenString_GetUnsafe(sctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 /* Open the tag index */
