@@ -109,17 +109,18 @@ size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNod
     size_t total_tree_mem = 0;
 
     while ((currNode = NumericRangeTreeIterator_Next(Iterator))) {
-    if (!currNode->range) {
-        continue;
-    }
-    size_t curr_node_memory = NumericRangeGetMemory(currNode);
+        if (!currNode->range) {
+            continue;
+        }
+        size_t curr_node_memory = NumericRangeGetMemory(currNode);
 
-    // Ensure stats are correct
-    if (curr_node_memory != currNode->range->invertedIndexSize) {
-        *failed_range = currNode;
-    }
+        // Ensure stats are correct
+        if (curr_node_memory != currNode->range->invertedIndexSize) {
+            *failed_range = currNode;
+            break;
+        }
 
-    total_tree_mem += curr_node_memory;
+        total_tree_mem += curr_node_memory;
     }
 
     NumericRangeTreeIterator_Free(Iterator);
