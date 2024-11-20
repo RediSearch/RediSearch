@@ -713,7 +713,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   IndexLoadOptions loadOpts = {
       .nameR = argv[2],
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
@@ -757,7 +757,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
@@ -778,7 +778,7 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
   if (!StrongRef_Get(ref)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -793,7 +793,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = {0};
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
     if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
@@ -1528,7 +1528,6 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   }
   return REDISMODULE_OK;
 }
-
 
 void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   if(!req->specialCases) {
@@ -2999,7 +2998,8 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+      RedisModuleString **argv, int argc, WeakRef spec_ref) {
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 
@@ -3042,7 +3042,33 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     sendRequiredFields(req, &cmd);
   }
 
-  MRCommandInsert(..., index_prefixes);
+  // Append the prefixes of the index to the command
+  StrongRef strong_ref = WeakRef_Promote(spec_ref);
+  IndexSpec *sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    MRCommand_Free(&cmd);
+
+    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+    QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped before the query could be executed");
+    QueryError_ReplyAndClear(clientCtx, &status);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, NULL);
+    RedisModule_FreeThreadSafeContext(clientCtx);
+    return REDISMODULE_OK;
+  }
+  MRCommand_Append(&cmd, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
+  arrayof(sds) prefixes = sp->rule->prefixes;
+  char *n_prefixes;
+  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  MRCommand_Append(&cmd, n_prefixes, sizeof(n_prefixes) - 1);
+
+  for (uint i = 0; i < array_len(prefixes); i++) {
+    MRCommand_Append(&cmd, (char *)prefixes[i], sdslen(prefixes[i]));
+  }
+
+  // Return spec references, no longer needed
+  StrongRef_Release(strong_ref);
+  WeakRef_Release(spec_ref);
 
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
@@ -3057,11 +3083,12 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
+  WeakRef spec_ref;
 }SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -3100,8 +3127,21 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
+
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+
+  // Prepare spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  StrongRef spec_ref = IndexSpec_LoadUnsafe(NULL, idx);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    rm_free(sCmdCtx);
+    // Reply with error
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
+
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
@@ -3111,6 +3151,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
+
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;

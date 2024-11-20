@@ -576,6 +576,7 @@ typedef struct {
  * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
  * If an owned reference is needed, use StrongRef API to create one.
  */
+// TODO: Remove the context from this function!
 StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
 
 /**
@@ -583,7 +584,7 @@ StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
  * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
-StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if

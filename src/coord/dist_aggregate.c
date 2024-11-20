@@ -596,7 +596,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   // We have the index name in `index_name` --> Get the SchemaRule->prefixes
   // from it, or just send the index name or the index itself.
-  appendIndexPrefixesToCommand(xcmd, idx);
+  // TBD: appendIndexPrefixesToCommand(xcmd, idx);
 
   array_free(tmparr);
 }

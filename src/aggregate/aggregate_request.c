@@ -332,9 +332,13 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
     // Set the offset of the prefixes in the query, for further processing later
     req->prefixesOffset = ac->offset;
-    // if (validatePrefixes(req, ac) != REDISMODULE_OK) {
-    //   QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
-    // }
+
+    // Advance by 1 to get to the number of prefixes
+    // Advance by the number of prefixes
+    long advance_by = strtol((const char *)AC_CURRENT(ac), NULL, 10);
+
+    // 1 extra for the n_prefixes argument
+    AC_AdvanceBy(ac, advance_by + 1);
   } else {
     return ARG_UNKNOWN;
   }
@@ -986,17 +990,27 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
 }
 
 static bool IsIndexCoherent(AREQ *req) {
-  if (req->prefixesOffset == -1) {
-    // No prefixes in the query (directly from the client, not from the coordinator)
+  if (req->prefixesOffset == 0) {
+    // No prefixes in the query --> No validation needed.
     return true;
   }
 
   IndexSpec *spec = req->sctx->spec;
   sds *args = req->args;
-  uint n_prefixes = args[req->prefixesOffset + 1];
+  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
   // Validate that the prefixes in the arguments are the same as the ones in the index
-  // TBD..
+  // The first argument is at req->prefixesOffset + 2
+  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  uint base_idx = req->prefixesOffset + 2;
+  for (uint i = 0; i < n_prefixes; i++) {
+    if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
 }
 
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
