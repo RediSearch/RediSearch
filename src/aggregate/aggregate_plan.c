@@ -320,7 +320,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
-    const char* alias = HiddenName_GetUnsafe(stp->alias, NULL);
+    const char* alias = HiddenString_GetUnsafe(stp->alias, NULL);
     append_string(arr, alias);
   }
 }
@@ -367,7 +367,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   append_uint(arr, array_len(gstp->properties));
   for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
     char *property;
-    rm_asprintf(&property, "@%s", HiddenName_GetUnsafe(gstp->properties[ii], NULL));
+    rm_asprintf(&property, "@%s", HiddenString_GetUnsafe(gstp->properties[ii], NULL));
     array_append(*arr, property);
   }
   size_t nreducers = array_len(gstp->reducers);
@@ -379,7 +379,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_ac(arr, &r->args);
     if (r->alias) {
       append_string(arr, "AS");
-      append_string(arr, HiddenName_GetUnsafe(r->alias, NULL));
+      append_string(arr, HiddenString_GetUnsafe(r->alias, NULL));
     }
   }
 }

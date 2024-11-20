@@ -45,7 +45,7 @@ typedef struct {
  *
  * Returns true if the fragmentation succeeded, false otherwise.
  */
-static int fragmentizeOffsets(const RLookup *lookup, const HiddenName *fieldName, const char *fieldText,
+static int fragmentizeOffsets(const RLookup *lookup, const HiddenString *fieldName, const char *fieldText,
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
@@ -167,7 +167,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const HiddenName *fieldName, const RSValue *returnedField,
+                               const HiddenString *fieldName, const RSValue *returnedField,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;
