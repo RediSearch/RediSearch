@@ -23,6 +23,7 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+from typing import List
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -697,6 +698,6 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg=""):
 
 
 # expected info for index that was initialized and *emptied*
-def check_index_info_empty(env, idx, fields: list[str], msg="after delete all and gc"):
+def check_index_info_empty(env, idx, fields: List[str], msg="after delete all and gc"):
     expected_size = getInvertedIndexInitialSize_MB(fields)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg)
