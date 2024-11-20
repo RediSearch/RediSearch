@@ -331,7 +331,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
     // Set the offset of the prefixes in the query, for further processing later
-    req->prefixesOffset = ac->offset;
+    req->prefixesOffset = ac->offset - 1;
 
     // Advance by 1 to get to the number of prefixes
     // Advance by the number of prefixes
@@ -999,9 +999,13 @@ static bool IsIndexCoherent(AREQ *req) {
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
+  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
   // Validate that the prefixes in the arguments are the same as the ones in the index
   // The first argument is at req->prefixesOffset + 2
-  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
     if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
@@ -1021,6 +1025,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    return REDISMODULE_ERR;
   }
 
   if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {

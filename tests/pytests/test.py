@@ -4349,9 +4349,9 @@ def test_notIterTimeout(env):
         # Connect to a shard, and create an index with a different schema, but
         # the same name
         shard_conn = env.getShardConnection(0)
-        res = shard_conn.execute_command('FT.DROPINDEX', index_name)
+        res = shard_conn.execute_command('_FT.DROPINDEX', index_name)
         env.assertEqual(res, 1)
-        res = shard_conn.execute_command('FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
+        res = shard_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
         env.assertEqual(res, 'OK')
 
         # Query via the cluster connection, such that we will get the mismatch
