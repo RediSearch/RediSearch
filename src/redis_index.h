@@ -39,8 +39,8 @@ const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
 #define INVERTED_INDEX_ENCVER 1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
 
-#define OPEN_INDEX_READ 0
-#define OPEN_INDEX_WRITE 1
+#define OPEN_INDEX_READ false
+#define OPEN_INDEX_WRITE true
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 

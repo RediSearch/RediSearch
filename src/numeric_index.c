@@ -597,12 +597,12 @@ RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char
 }
 
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
-                                             int write) {
+                                             bool initialize) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!initialize) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
