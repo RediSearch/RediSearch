@@ -45,7 +45,7 @@ typedef struct {
   VecSimQueryReply_Iterator *iter;
   t_docId lastDocId;
   RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
-  HiddenName *scoreField;          // To use by the sorter, for distinguishing between different vector fields.
+  HiddenString *scoreField;          // To use by the sorter, for distinguishing between different vector fields.
   mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;
   bool ignoreScores;               // Ignore the document scores, only vector score matters.

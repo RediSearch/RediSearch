@@ -73,8 +73,8 @@ typedef struct RLookupKey {
 
   /** Path and name of this field
    *  path AS name */
-  HiddenName *path;
-  HiddenName *name;
+  HiddenString *path;
+  HiddenString *name;
   t_uniqueId uniqueId;
 
   /** Pointer to next field in the list */
@@ -214,19 +214,19 @@ typedef enum {
  *
  * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenName *name, RLookupMode mode, uint32_t flags);
+RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenString *name, RLookupMode mode, uint32_t flags);
 
  /**
  * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
  *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
  *    and the field was normalized. A sortable un-normalized field counts as loaded.
  */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenString *name, HiddenString *field_name, uint32_t flags);
 /**
 * Searches for an existing key in the lookup table. If the key is not found, it will be created.
 * If it is found we will verify that it isn't used by the query and that the name can be used
 */
-RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenName *name, HiddenName *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenString *name, HiddenString *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -401,7 +401,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenName* name);
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenString* name);
 
 #ifdef __cplusplus
 }

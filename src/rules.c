@@ -162,7 +162,7 @@ error:
  * expensive comparisons.
  */
 void SchemaRule_FilterFields(IndexSpec *spec) {
-  HiddenName **properties = array_new(HiddenName *, 8);
+  HiddenString **properties = array_new(HiddenString *, 8);
   SchemaRule *rule = spec->rule;
   RSExpr_GetProperties(rule->filter_exp, &properties);
   int propLen = array_len(properties);
@@ -175,7 +175,7 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
         FieldSpec *fs = spec->fields + j;
         const HiddenString* property = properties[i];
         if (!HiddenString_Compare(fs->fieldName, property)
-            || !HiddenString_CompareC(fs->fieldPath, property)) {
+            || !HiddenString_Compare(fs->fieldPath, property)) {
           rule->filter_fields_index[i] = j;
           break;
         }
@@ -193,13 +193,13 @@ void SchemaRule_Free(SchemaRule *rule) {
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
   if (rule->filter_exp_str) {
-    HiddenString_Free(rule->filter_exp_str, true);
+    HiddenString_Free(rule->filter_exp_str);
   }
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
   array_free_ex(rule->prefixes, HiddenUnicodeString_Free(*(HiddenUnicodeString**)ptr));
-  array_free_ex(rule->filter_fields, HiddenName_Free(*(HiddenName**)ptr));
+  array_free_ex(rule->filter_fields, HiddenString_Free(*(HiddenString**)ptr));
   rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
 }

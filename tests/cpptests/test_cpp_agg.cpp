@@ -132,8 +132,8 @@ TEST_F(AggTest, testGroupBy) {
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
-  auto score = RS::MakeHiddenName("score");
-  auto value = RS::MakeHiddenName("value");
+  auto score = RS::MakeHiddenString("score");
+  auto value = RS::MakeHiddenString("value");
   ctx.rkscore = RLookup_GetKey(&rk_in, score.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   ctx.rkvalue = RLookup_GetKey(&rk_in, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   ctx.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
@@ -155,8 +155,8 @@ TEST_F(AggTest, testGroupBy) {
 
   RLookup rk_out = {0};
   RLookupKey *v_out = RLookup_GetKey(&rk_out, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto scoreInCaps = RS::MakeHiddenName("SCORE");
-  auto countInCaps = RS::MakeHiddenName("COUNT");
+  auto scoreInCaps = RS::MakeHiddenString("SCORE");
+  auto countInCaps = RS::MakeHiddenString("COUNT");
   RLookupKey *score_out = RLookup_GetKey(&rk_out, scoreInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey(&rk_out, countInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
 
@@ -202,8 +202,8 @@ TEST_F(AggTest, testGroupSplit) {
   ArrayGenerator gen;
   RLookup lk_in = {0};
   RLookup lk_out = {0};
-  auto value = RS::MakeHiddenName("value");
-  auto countInCaps = RS::MakeHiddenName("COUNT");
+  auto value = RS::MakeHiddenString("value");
+  auto countInCaps = RS::MakeHiddenString("COUNT");
   gen.kvalue = RLookup_GetKey(&lk_in, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey(&lk_out, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey(&lk_out, countInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
