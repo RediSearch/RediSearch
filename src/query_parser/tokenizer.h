@@ -60,6 +60,4 @@ typedef struct {
   const FieldSpec *fs;
 } FieldName;
 
-#define QUERY_STOPWORDS DEFAULT_STOPWORDS;
-
 #endif
