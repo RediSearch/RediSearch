@@ -222,6 +222,9 @@ TEST_F(RangeTest, testRangeIteratorMulti) {
   testRangeIteratorHelper(true);
 }
 
+/** Currently, a new tree always initialized with a single range node (root).
+ * A range node contains an inverted index struct and at least one block with initial block capacity.
+ */
 TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
@@ -254,6 +257,9 @@ protected:
   }
 };
 
+/** This test purpose is to verify the invertedIndexesSize member of the tree struct properly captures the sum of
+ * all the inverted indexes in the tree.
+ */
 TEST_F(RangeIndexTest, testNumericTreeMemory) {
   size_t num_docs = 1000;
 
@@ -329,6 +335,9 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
 }
 
+/**
+ * Test the overhead of the numeric tree struct (not including the inverted indices memory)
+ */
 TEST_F(RangeIndexTest, testNumericTreeOverhead) {
 
   // Create index with multiple numeric indices

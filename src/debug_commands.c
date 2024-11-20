@@ -195,7 +195,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   NumericRangeTree rt_info = {0};
   int root_max_depth = 0;
 
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   // Else, we copy the data to a local variable.
   if (rt) {
@@ -232,7 +232,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   // It's a debug command... lets not waste time on string comparison.
   int with_headers = argc == 5 ? true : false;
 
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
@@ -426,7 +426,7 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     goto end;
   }
   NumericRangeTree dummy_rt = {0};
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet,
   // reply as if the tree is empty.
   if (!rt) {
@@ -704,7 +704,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   if (!rt) {
     goto end;
   }

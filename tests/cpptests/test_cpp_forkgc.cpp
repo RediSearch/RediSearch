@@ -129,6 +129,12 @@ protected:
   }
 };
 
+
+/**
+ * This test purpose is to validate inverted indexes size statistics are updated correctly by the gc.
+ * Since The numeric tree inverted index size directly affect the spec statistics updates,
+ * this test ensure they are aligned.
+ */
 TEST_F(FGCTestNumeric, testNumeric) {
 
   size_t total_mem = 0;

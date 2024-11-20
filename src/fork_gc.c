@@ -296,7 +296,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
-    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), OPEN_INDEX_READ, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
@@ -426,7 +426,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     // No entries were added to the numeric field, hence the tree was not initialized
     if (!rt) {
@@ -968,7 +968,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (!initialized) {
       fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
-      rt = openNumericKeysDict(sctx->spec, keyName, OPEN_INDEX_READ);
+      rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
       initialized = true;
     }
 
@@ -1006,6 +1006,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   rm_free(fieldName);
 
   if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {
+    // We need to have a valid strong reference to the spec in order to dereference rt
     StrongRef spec_ref = WeakRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) return FGC_SPEC_DELETED;

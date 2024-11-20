@@ -79,7 +79,7 @@ void freeSpec(RefManager *ism) {
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(spec, field, INDEXFLD_T_NUMERIC);
 
-  return openNumericKeysDict(spec, fmtkey, OPEN_INDEX_READ);
+  return openNumericKeysDict(spec, fmtkey, DONT_CREATE_INDEX);
 }
 
 size_t NumericRangeGetMemory(const NumericRangeNode *Node) {

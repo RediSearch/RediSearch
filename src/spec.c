@@ -344,7 +344,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
     FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, fs->types);
-      NumericRangeTree *rt = openNumericKeysDict(sp, keyName, OPEN_INDEX_READ);
+      NumericRangeTree *rt = openNumericKeysDict(sp, keyName, DONT_CREATE_INDEX);
       // Numeric index was not initialized yet
       if (!rt) {
         continue;
