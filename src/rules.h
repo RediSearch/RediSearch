@@ -50,7 +50,7 @@ typedef struct SchemaRule {
   arrayof(HiddenString*) prefixes;
   HiddenString *filter_exp_str;
   struct RSExpr *filter_exp;
-  HiddenName **filter_fields;
+  HiddenString **filter_fields;
   int *filter_fields_index;
   char *lang_field;
   char *score_field;

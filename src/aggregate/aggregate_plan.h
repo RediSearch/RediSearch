@@ -50,7 +50,7 @@ typedef struct PLN_BaseStep {
   PLN_StepType type : 32;
   uint32_t flags;  // PLN_F_XXX
 
-  HiddenName *alias;
+  HiddenString *alias;
   // Called to destroy step-specific data
   void (*dtor)(struct PLN_BaseStep *);
 
@@ -113,13 +113,13 @@ typedef struct {
   PLN_BaseStep base;
   RLookup lookup;
 
-  arrayof(HiddenName*) properties;
+  arrayof(HiddenString*) properties;
   bool propertiesOwned;
 
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
     const char *name;  // Name of function
-    HiddenName *alias; // Output key
+    HiddenString *alias; // Output key
     bool hideReducer;  // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
@@ -129,7 +129,7 @@ typedef struct {
 /**
  * Returns a new group step with the appropriate constructor
  */
-PLN_GroupStep *PLNGroupStep_New(HiddenName **props, size_t nprops, bool owner);
+PLN_GroupStep *PLNGroupStep_New(HiddenString **props, size_t nprops, bool owner);
 
 /**
  * Adds a reducer (with its arguments) to the group step

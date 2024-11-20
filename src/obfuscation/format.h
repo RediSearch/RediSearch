@@ -14,9 +14,9 @@
 extern "C" {
 #endif
 
-const char* FormatHiddenText(HiddenName *name, bool obfuscate);
+const char* FormatHiddenText(HiddenString *name, bool obfuscate);
 // returned char* must be freed by the caller
-const char* FormatHiddenField(HiddenName *name, t_uniqueId fieldId, char buffer[MAX_OBFUSCATED_FIELD_NAME], bool obfuscate);
+const char* FormatHiddenField(HiddenString *name, t_uniqueId fieldId, char buffer[MAX_OBFUSCATED_FIELD_NAME], bool obfuscate);
 
 #ifdef __cplusplus
 }

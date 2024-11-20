@@ -97,7 +97,7 @@ typedef struct {
 } RSFunctionExpr;
 
 typedef struct {
-  HiddenName *key;
+  HiddenString *key;
   const RLookupKey *lookupObj;
 } RSLookupExpr;
 
