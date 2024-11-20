@@ -82,11 +82,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
       if (aCtx->fspecs[i].fieldName) {
-        HiddenName_Free(aCtx->fspecs[i].fieldName);
+        HiddenString_Free(aCtx->fspecs[i].fieldName);
         aCtx->fspecs[i].fieldName = NULL;
       }
       if (aCtx->fspecs[i].fieldPath) {
-        HiddenName_Free(aCtx->fspecs[i].fieldPath);
+        HiddenString_Free(aCtx->fspecs[i].fieldPath);
         aCtx->fspecs[i].fieldPath = NULL;
       }
       aCtx->fspecs[i].types = 0;
@@ -187,7 +187,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   if ((aCtx->specFlags & Index_Async) && aCtx->specName) {
-    HiddenName_Free(aCtx->specName);
+    HiddenString_Free(aCtx->specName);
   }
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;

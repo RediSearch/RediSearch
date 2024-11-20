@@ -104,7 +104,7 @@ RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = NewHiddenName(str, len, true);
+  e->property.key = NewHiddenString(str, len, true);
   e->property.lookupObj = NULL;
   return e;
 }
@@ -141,7 +141,7 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->pred.right);
       break;
     case RSExpr_Property:
-      HiddenName_Free(e->property.key);
+      HiddenString_Free(e->property.key);
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);
@@ -150,11 +150,11 @@ void RSExpr_Free(RSExpr *e) {
 }
 
 // Extract all field names from an RSExpr tree recursively
-void RSExpr_GetProperties(RSExpr *e, HiddenName ***props) {
+void RSExpr_GetProperties(RSExpr *e, HiddenString ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      array_append(*props, HiddenName_Retain(e->property.key));
+      array_append(*props, HiddenString_Retain(e->property.key));
       break;
     case RSExpr_Literal:
       break;

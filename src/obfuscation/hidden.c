@@ -11,10 +11,10 @@ typedef struct {
   uint32_t length;
   uint16_t refcount;
   bool owner;
-} HiddenNameImpl;
+} HiddenStringImpl;
 
 HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
-  HiddenNameImpl* value = rm_malloc(sizeof(*value));
+  HiddenStringImpl* value = rm_malloc(sizeof(*value));
   if (takeOwnership) {
     value->buffer = rm_strndup(name, length);
   } else {
@@ -27,7 +27,7 @@ HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnershi
 };
 
 void HiddenString_Free(const HiddenString* hn) {
-  HiddenNameImpl* value = (HiddenNameImpl*)hn;
+  HiddenStringImpl* value = (HiddenStringImpl*)hn;
   if (--value->refcount == 0) {
     if (value->owner) {
       rm_free((void*)value->buffer);
@@ -55,33 +55,33 @@ static inline int CaseSensitiveCompare(const char *left, size_t left_length, con
 }
 
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length) {
-  const HiddenNameImpl* l = (const HiddenNameImpl*)left;
+  const HiddenStringImpl* l = (const HiddenStringImpl*)left;
   return Compare(l->buffer, l->length, right, right_length);
 }
 
 int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
-  HiddenNameImpl* r = (HiddenNameImpl*)right;
+  HiddenStringImpl* r = (HiddenStringImpl*)right;
   return HiddenString_CompareC(left, r->buffer, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
-  HiddenNameImpl* r = (HiddenNameImpl*)right;
+  HiddenStringImpl* r = (HiddenStringImpl*)right;
   return HiddenString_CaseInsensitiveCompareC(left, r->buffer, r->length);
 }
 
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length) {
-  HiddenNameImpl* l = (HiddenNameImpl*)left;
+  HiddenStringImpl* l = (HiddenStringImpl*)left;
   return CaseSensitiveCompare(l->buffer, l->length, right, right_length);
 }
 
-HiddenString *HiddenName_Retain(HiddenString *value) {
-  HiddenNameImpl* text = (HiddenNameImpl*)value;
+HiddenString *HiddenString_Retain(HiddenString *value) {
+  HiddenStringImpl* text = (HiddenStringImpl*)value;
   text->refcount++;
   return value;
 }
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
-  HiddenNameImpl* impl = (HiddenNameImpl*)hidden;
+  HiddenStringImpl* impl = (HiddenStringImpl*)hidden;
   if (impl->owner) {
     return;
   }
@@ -90,12 +90,12 @@ void HiddenString_TakeOwnership(HiddenString *hidden) {
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {
-  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  const HiddenStringImpl* impl = (const HiddenStringImpl*)value;
   RedisModule_SaveStringBuffer(rdb, impl->buffer, impl->length + 1);
 }
 
 void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value) {
-  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  const HiddenStringImpl* impl = (const HiddenStringImpl*)value;
   RedisModuleString *str =
       RedisModule_CreateStringPrintf(redisCtx, fmt, impl->buffer);
   Redis_DeleteKey(redisCtx, str);
@@ -103,7 +103,7 @@ void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, co
 }
 
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
-  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  const HiddenStringImpl* impl = (const HiddenStringImpl*)value;
   if (length != NULL) {
     *length = impl->length;
   }
@@ -111,7 +111,7 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
 }
 
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx) {
-  const HiddenNameImpl* impl = (const HiddenNameImpl*)value;
+  const HiddenStringImpl* impl = (const HiddenStringImpl*)value;
   return RedisModule_CreateString(ctx, impl->buffer, impl->length);
 }
 

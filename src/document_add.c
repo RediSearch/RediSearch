@@ -173,7 +173,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     int res = 0;
     HiddenString* expr = NewHiddenString(opts->evalExpr, strlen(opts->evalExpr), false);
     const int rc = Document_EvalExpression(sctx, name, expr, &res, status);
-    HiddenString_Free(expr, false);
+    HiddenString_Free(expr);
     if (rc == REDISMODULE_OK) {
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);

@@ -177,7 +177,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     if (doc->fields[oix].docFieldName) {
       HiddenString_Free(doc->fields[oix].docFieldName);
     }
-    doc->fields[oix].docFieldName = HiddenName_Retain(field->fieldName);
+    doc->fields[oix].docFieldName = HiddenString_Retain(field->fieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -251,7 +251,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
     size_t oix = doc->numFields++;
     if (doc->fields[oix].docFieldName) {
-      HiddenName_Free(doc->fields[oix].docFieldName);
+      HiddenString_Free(doc->fields[oix].docFieldName);
     }
     doc->fields[oix].docFieldName = HiddenString_Retain(field->fieldName);
 
