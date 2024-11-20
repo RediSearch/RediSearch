@@ -48,7 +48,7 @@ typedef struct FieldIndexerData {
  * Add a document to the indexing queue. If successful, the indexer now takes
  * ownership of the document context (until it DocumentAddCtx_Finish).
  */
-int Indexer_Add(RSAddDocumentCtx *aCtx);
+int IndexDocument(RSAddDocumentCtx *aCtx);
 
 /**
  * Function to preprocess field data. This should do as much stateless processing

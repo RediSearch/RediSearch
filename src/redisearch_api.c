@@ -41,7 +41,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   if (!options) {
     options = &opts_s;
   }
-  IndexSpec* spec = NewIndexSpec(NewHiddenName(name, strlen(name), true));
+  IndexSpec* spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
   StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
@@ -803,8 +803,8 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 }
 
-const char *RediSearch_HiddenNameGet(HiddenName* value) {
-  return HiddenName_GetUnsafe(value, NULL);
+const char *RediSearch_HiddenStringGet(HiddenString* value) {
+  return HiddenString_GetUnsafe(value, NULL);
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
@@ -813,8 +813,8 @@ int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len
 }
 
 void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
-  HiddenName_Clone(specField->fieldName, &infoField->name);
-  HiddenName_Clone(specField->fieldPath, &infoField->path);
+  HiddenString_Clone(specField->fieldName, &infoField->name);
+  HiddenString_Clone(specField->fieldPath, &infoField->path);
   if (specField->types & INDEXFLD_T_FULLTEXT) {
     infoField->types |= RSFLDTYPE_FULLTEXT;
     infoField->textWeight = specField->ftWeight;
@@ -971,8 +971,8 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
   for (int i = 0; i < info->numFields; ++i) {
-    HiddenName_Free(info->fields[i].name, true);
-    HiddenName_Free(info->fields[i].path, true);
+    HiddenString_Free(info->fields[i].name, true);
+    HiddenString_Free(info->fields[i].path, true);
   }
   rm_free((void *)info->fields);
 }

@@ -45,7 +45,7 @@ static void freeDocumentContext(void *p) {
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
   if (aCtx->specName) {
-    HiddenName_Free(aCtx->specName, true);
+    HiddenString_Free(aCtx->specName, true);
   }
   rm_free(aCtx);
 }
@@ -89,8 +89,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      char fieldName[MAX_OBFUSCATED_FIELD_NAME];
-      Obfuscate_Field(fs->index, fieldName);
+      OBFUSCATE_FIELD(fs->index, fieldName);
       QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice", fieldName);
       return -1;
     }
@@ -186,7 +185,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    HiddenName_Clone(sp->specName, &aCtx->specName);
+    HiddenString_Clone(sp->specName, &aCtx->specName);
     aCtx->specId = sp->uniqueId;
   }
 
@@ -819,7 +818,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
   }
 
-  if (Indexer_Add(aCtx) != 0) {
+  if (IndexDocument(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -845,7 +844,7 @@ cleanup:
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, HiddenString *expr,
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
@@ -859,7 +858,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   // Try to parser the expression first, fail if we can't
-  if (!(e = ExprAST_Parse(expr, strlen(expr), status)) || QueryError_HasError(status)) {
+  if (!(e = ExprAST_Parse(expr, status)) || QueryError_HasError(status)) {
     goto done;
   }
 
@@ -982,7 +981,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!HiddenName_CaseInsensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
+    if (!HiddenString_CaseInsensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }

@@ -55,8 +55,7 @@ typedef enum {
 } FieldVarType;
 
 typedef struct DocumentField {
-  HiddenName *docFieldName;
-  // const HiddenString *path;
+  HiddenString *docFieldName;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -258,7 +257,7 @@ typedef struct RSAddDocumentCtx {
   RedisSearchCtx *sctx;
 
   IndexSpec *spec;
-  HiddenName *specName;
+  HiddenString *specName;
   size_t specNameLen;
   uint64_t specId;
 
@@ -346,7 +345,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, HiddenString *expr,
                             int *result, QueryError *err);
 
 // Don't create document if it does not exist. Replace only

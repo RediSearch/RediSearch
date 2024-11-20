@@ -50,7 +50,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status);
 
-JSONPath pathParse(const HiddenName* path, RedisModuleString **err_msg);
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg);
 void pathFree(JSONPath jsonpath);
 int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
@@ -59,7 +59,7 @@ int pathHasDefinedOrder(JSONPath jsonpath);
     do {                                                                                                  \
       QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                    \
                              "Invalid JSONPath '%s' in attribute '%s' in index '%s'",                     \
-                             HiddenName_GetUnsafe(path, NULL), HiddenName_GetUnsafe(fieldName, NULL), HiddenName_GetUnsafe(indexName, NULL)); \
+                             HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL)); \
       RedisModule_FreeString(RSDummyContext, err_msg);                                                    \
     } while (0)
 

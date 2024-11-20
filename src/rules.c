@@ -86,7 +86,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     goto error;
   }
 
-  rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
+  rule->filter_exp_str = args->filter_exp_str ? NewHiddenString(args->filter_exp_str, strlen(args->filter_exp_str), true) : NULL;
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
@@ -115,14 +115,14 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(sds, args->nprefixes);
+  rule->prefixes = array_new(HiddenString*, args->nprefixes);
   for (int i = 0; i < args->nprefixes; ++i) {
-    sds p = sdsnew(args->prefixes[i]);
+    HiddenString* p = NewHiddenString(args->prefixes[i], strlen(args->prefixes[i]), true);
     array_append(rule->prefixes, p);
   }
 
   if (rule->filter_exp_str) {
-    rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
+    rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, status);
     if (!rule->filter_exp) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
       goto error;
@@ -142,7 +142,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
-    SchemaPrefixes_Add(rule->prefixes[i], sdslen(rule->prefixes[i]), ref);
+    SchemaPrefixes_Add(rule->prefixes[i], ref);
   }
 
   return rule;
@@ -175,8 +175,8 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
         FieldSpec *fs = spec->fields + j;
         const char* property = properties[i];
         size_t length = strlen(property);
-        if (!HiddenName_CompareC(fs->fieldName, property, length)
-            || !HiddenName_CompareC(fs->fieldPath, property, length)) {
+        if (!HiddenString_CompareC(fs->fieldName, property, length)
+            || !HiddenString_CompareC(fs->fieldPath, property, length)) {
           rule->filter_fields_index[i] = j;
           break;
         }
@@ -193,11 +193,13 @@ void SchemaRule_Free(SchemaRule *rule) {
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
-  rm_free((void *)rule->filter_exp_str);
+  if (rule->filter_exp_str) {
+    HiddenString_Free(rule->filter_exp_str, true);
+  }
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *)rule->filter_exp);
   }
-  array_free_ex(rule->prefixes, sdsfree(*(sds *)ptr));
+  array_free_ex(rule->prefixes, HiddenString_Free(*(HiddenString**)ptr, true));
   array_free_ex(rule->filter_fields, rm_free(*(char **)ptr));
   rm_free(rule->filter_fields_index);
   rm_free((void *)rule);
@@ -457,11 +459,11 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
-    RedisModule_SaveStringBuffer(rdb, rule->prefixes[i], sdslen(rule->prefixes[i]) + 1);
+    HiddenString_SaveToRdb(rule->prefixes[i], rdb);
   }
   if (rule->filter_exp_str) {
     RedisModule_SaveUnsigned(rdb, 1);
-    RedisModule_SaveStringBuffer(rdb, rule->filter_exp_str, strlen(rule->filter_exp_str) + 1);
+    HiddenString_SaveToRdb(rule->filter_exp_str, rdb);
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
@@ -498,10 +500,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
   // check prefixes (always found for an index with no prefixes)
   bool match = false;
-  sds *prefixes = sp->rule->prefixes;
+  HiddenString **prefixes = sp->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // Using `strncmp` to compare the prefix, since the key might be longer than the prefix
-    if (!strncmp(keyCstr, prefixes[i], sdslen(prefixes[i]))) {
+    size_t length = 0;
+    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &length);
+    if (!strncmp(keyCstr, prefix, length)) {
       match = true;
       break;
     }
@@ -546,11 +550,13 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef ref) {
-  void *p = TrieMap_Find(SchemaPrefixes_g, prefix, len);
+void SchemaPrefixes_Add(HiddenString *prefix, StrongRef ref) {
+  size_t len = 0;
+  const char *prefix_cstr = HiddenString_GetUnsafe(prefix, &len);
+  void *p = TrieMap_Find(SchemaPrefixes_g, prefix_cstr, len);
   if (p == TRIEMAP_NOTFOUND) {
-    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, ref);
-    TrieMap_Add(SchemaPrefixes_g, prefix, len, node, NULL);
+    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix_cstr, ref);
+    TrieMap_Add(SchemaPrefixes_g, prefix_cstr, len, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *)p;
     array_append(node->index_specs, ref);
@@ -561,10 +567,12 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   IndexSpec *spec = StrongRef_Get(ref);
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
-  sds *prefixes = spec->rule->prefixes;
+  HiddenString **prefixes = spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
-    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]));
+    size_t len = 0;
+    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &len);
+    SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefix, len);
     if (node == TRIEMAP_NOTFOUND) {
       continue;
     }
@@ -574,7 +582,7 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
         array_del_fast(node->index_specs, j);
         if (array_len(node->index_specs) == 0) {
           // if all specs were deleted, remove the node
-          TrieMap_Delete(SchemaPrefixes_g, prefixes[i], sdslen(prefixes[i]), (freeCB)SchemaPrefixNode_Free);
+          TrieMap_Delete(SchemaPrefixes_g, prefix, len, (freeCB)SchemaPrefixNode_Free);
         }
         break;
       }

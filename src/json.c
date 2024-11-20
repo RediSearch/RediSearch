@@ -53,9 +53,9 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-JSONPath pathParse(const HiddenName* path, RedisModuleString **err_msg) {
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
   if (japi_ver >= 2) {
-    return japi->pathParse(HiddenName_GetUnsafe(path, NULL), RSDummyContext, err_msg);
+    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
   } else {
     *err_msg = NULL;
     return NULL;

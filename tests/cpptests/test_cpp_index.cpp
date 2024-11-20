@@ -1271,7 +1271,7 @@ TEST_F(IndexTest, testIndexSpec) {
   const FieldSpec *f = IndexSpec_GetFieldC(s, body);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), body);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
@@ -1280,7 +1280,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldC(s, title);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), title);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
@@ -1289,7 +1289,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldC(s, foo);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), foo);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
   const int fooIdx = RSSortingTable_GetFieldIdx(s->sortables, f->fieldName);
   ASSERT_EQ(fooIdx, 0);
   ASSERT_TRUE(f->ftWeight == 1);
@@ -1301,7 +1301,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), bar);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetFieldC(s, "fooz", 4) == NULL);
@@ -1309,7 +1309,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldC(s, name);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), name);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);

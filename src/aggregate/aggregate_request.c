@@ -758,18 +758,16 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  if (fstp->shouldFreeRaw) {
-    rm_free((char *)fstp->rawExpr);
-  }
+  HiddenString_Free(fstp->expr, true);
   rm_free((void *)fstp->base.alias);
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->rawExpr = expr;
+  stp->expr = HiddenString_Duplicate(expr);
   return stp;
 }
 
@@ -783,7 +781,9 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString* expression = NewHiddenString(expr, exprLen, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString_Free(expression, false);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -1466,7 +1466,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
+        mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
         }

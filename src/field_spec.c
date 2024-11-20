@@ -33,11 +33,11 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
-    HiddenName_Free(fs->fieldPath, true);
+    HiddenString_Free(fs->fieldPath, true);
   }
   fs->fieldPath = NULL;
   if (fs->fieldName) {
-    HiddenName_Free(fs->fieldName, true);
+    HiddenString_Free(fs->fieldName, true);
     fs->fieldName = NULL;
   }
 
@@ -86,13 +86,13 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
   return IndexError_ErrorCount(&fs->indexError);
 }
 
-static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenName* name, void (*callback)(t_uniqueId, char*), bool obfuscate, bool escapeIfNeeded) {
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void (*callback)(t_uniqueId, char*), bool obfuscate, bool escapeIfNeeded) {
   char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
   const char* value = obfuscated;
   if (obfuscate) {
     callback(fieldId, obfuscated);
   } else {
-    value = HiddenName_GetUnsafe(name, NULL);
+    value = HiddenString_GetUnsafe(name, NULL);
   }
   if (escapeIfNeeded && isUnsafeForSimpleString(value)) {
     return escapeSimpleString(value);

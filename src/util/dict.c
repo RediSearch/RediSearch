@@ -71,9 +71,9 @@ uint64_t redisStringsHashFunction(const void *key){
 }
 
 uint64_t hiddenNameHashFunction(const void *key) {
-  const HiddenName* keyStr = key;
+  const HiddenString* keyStr = key;
   size_t len;
-  const char *value = HiddenName_GetUnsafe(keyStr, &len);
+  const char *value = HiddenString_GetUnsafe(keyStr, &len);
   return dictGenHashFunction(value, len);
 }
 
@@ -85,9 +85,9 @@ int stringsKeyCompare(void *privdata, const void *key1, const void *key2){
 }
 
 int hiddenNameKeyCompare(void *privdata, const void *key1, const void *key2){
-  const HiddenName* strKey1 = key1;
-  const HiddenName* strKey2 = key2;
-  return HiddenName_Compare(strKey1, strKey2) == 0;
+  const HiddenString* strKey1 = key1;
+  const HiddenString* strKey2 = key2;
+  return HiddenString_Compare(strKey1, strKey2) == 0;
 }
 
 int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2){
@@ -102,8 +102,8 @@ void stringsKeyDestructor(void *privdata, void *key){
 }
 
 void hiddenNameKeyDestructor(void *privdata, void *key){
-  HiddenName* keyStr = key;
-  HiddenName_Free(keyStr, true);
+  HiddenString* keyStr = key;
+  HiddenString_Free(keyStr, true);
 }
 
 void redisStringsKeyDestructor(void *privdata, void *key){
@@ -116,8 +116,8 @@ void* stringsKeyDup(void *privdata, const void *key){
 }
 
 void* hiddenNameKeyDup(void *privdata, const void *key){
-  const HiddenName* keyStr = key;
-  return HiddenName_Duplicate(keyStr);
+  const HiddenString* keyStr = key;
+  return HiddenString_Duplicate(keyStr);
 }
 
 void* redisStringsKeyDup(void *privdata, const void *key){
@@ -127,15 +127,15 @@ void* redisStringsKeyDup(void *privdata, const void *key){
 }
 
 dictType dictTypeHeapStrings = {
-        .hashFunction = stringsHashFunction,
-        .keyDup = stringsKeyDup,
-        .valDup = NULL,
-        .keyCompare = stringsKeyCompare,
-        .keyDestructor = stringsKeyDestructor,
-        .valDestructor = NULL,
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = NULL,
 };
 
-dictType dictTypeHeapHiddenNames = {
+dictType dictTypeHeapHiddenStrings = {
   .hashFunction = hiddenNameHashFunction,
   .keyDup = hiddenNameKeyDup,
   .valDup = NULL,
@@ -145,12 +145,12 @@ dictType dictTypeHeapHiddenNames = {
 };
 
 dictType dictTypeHeapRedisStrings = {
-    .hashFunction = redisStringsHashFunction,
-    .keyDup = redisStringsKeyDup,
-    .valDup = NULL,
-    .keyCompare = redisStringsKeyCompare,
-    .keyDestructor = redisStringsKeyDestructor,
-    .valDestructor = NULL,
+  .hashFunction = redisStringsHashFunction,
+  .keyDup = redisStringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = redisStringsKeyCompare,
+  .keyDestructor = redisStringsKeyDestructor,
+  .valDestructor = NULL,
 };
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to

@@ -90,8 +90,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  HiddenName *fieldName;
-  HiddenName *fieldPath;
+  HiddenString *fieldName;
+  HiddenString *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
