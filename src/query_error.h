@@ -65,11 +65,12 @@ extern "C" {
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
   X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index")            \
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                  \
+  X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")       \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 
-typedef enum {      
-  QUERY_OK = 0,     
+typedef enum {
+  QUERY_OK = 0,
 
 #define X(N, msg) N,
   QUERY_XERRS(X)

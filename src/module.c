@@ -2871,8 +2871,20 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
+  // Prepare the spec ref for the background thread
+  // Prepare spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  StrongRef spec_ref = IndexSpec_LoadUnsafe(NULL, idx);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // Reply with error
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               RSExecDistAggregate, ctx, argv, argc);
+                                               RSExecDistAggregate, ctx, argv, argc,
+                                               StrongRef_Demote(spec_ref));
 }
 
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
@@ -2893,7 +2905,8 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               CursorCommandInternal, ctx, argv, argc,
+                                               (WeakRef){0});
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3061,6 +3074,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   MRCommand_Append(&cmd, n_prefixes, sizeof(n_prefixes) - 1);
+  rm_free(n_prefixes);
 
   for (uint i = 0; i < array_len(prefixes); i++) {
     MRCommand_Append(&cmd, (char *)prefixes[i], sdslen(prefixes[i]));
@@ -3084,7 +3098,7 @@ typedef struct SearchCmdCtx {
   RedisModuleBlockedClient* bc;
   int protocol;
   WeakRef spec_ref;
-}SearchCmdCtx;
+} SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;

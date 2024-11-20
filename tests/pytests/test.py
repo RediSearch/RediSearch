@@ -4334,38 +4334,40 @@ def test_notIterTimeout(env):
         'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
-    @skip(cluster=False, min_shards=2)
-    def test_incompatibleIndex(env):
-        """Tests that we get an error if we try to query an index with a different
-        schema than the one used in the query"""
+@skip(cluster=False, min_shards=2)
+def test_incompatibleIndex(env):
+    """Tests that we get an error if we try to query an index with a different
+    schema than the one used in the query"""
 
-        conn = env.getClusterConnection()
+    conn = env.getClusterConnectionIfNeeded()
 
-        # Create an index
-        index_name = 'idx'
-        res = conn.execute_command('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC')
-        env.assertEqual(res, 'OK')
+    # Create an index
+    index_name = 'idx'
+    res = conn.execute_command('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC')
+    env.assertEqual(res, 'OK')
 
-        # Connect to a shard, and create an index with a different schema, but
-        # the same name
-        shard_conn = env.getShardConnection(0)
-        res = shard_conn.execute_command('_FT.DROPINDEX', index_name)
-        env.assertEqual(res, 1)
-        res = shard_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
-        env.assertEqual(res, 'OK')
+    # Connect to a shard, and create an index with a different schema, but
+    # the same name
+    shard_conn = env.getConnection(0)
+    res = shard_conn.execute_command('_FT.DROPINDEX', index_name)
+    env.assertEqual(res, 'OK')
+    res = shard_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
+    env.assertEqual(res, 'OK')
 
-        # Query via the cluster connection, such that we will get the mismatch
-        # error
-        commands = [
-            ['FT.SEARCH', index_name, '*'],
-            ['FT.AGGREGATE', index_name, '*', 'LOAD', '*'],
-            # ['FT.SYNUPDATE', '...'],
-            # ['FT.SYNADD', '...'],
-            # ['FT.SYNDUMP', '...'],
-            # ['FT.SPELLCHECK', '...'],
-        ]
-        for command in commands:
-            try:
-                conn.execute_command(*command)
-            except Exception as e:
-                env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
+    # Query via the cluster connection, such that we will get the mismatch error
+    commands = [
+        ['FT.SEARCH', index_name, '*'],
+        ['FT.AGGREGATE', index_name, '*', 'LOAD', '*'],
+        # ['FT.PROFILE', index_name, 'SEARCH', 'QUERY', '*'],
+        # ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*'],
+        # ['FT.SYNUPDATE', '...'],
+        # ['FT.SYNADD', '...'],
+        # ['FT.SYNDUMP', '...'],
+        # ['FT.SPELLCHECK', '...'],
+    ]
+    for command in commands:
+        try:
+            conn.execute_command(*command)
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
