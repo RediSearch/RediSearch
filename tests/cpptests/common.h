@@ -72,15 +72,15 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
 std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
 
-struct HiddenNameDeleter {
-  void operator()(HiddenName *value) {
-    HiddenName_Free(value);
+struct HiddenStringDeleter {
+  void operator()(HiddenString *value) {
+    HiddenString_Free(value);
   }
 };
 
 template <size_t n>
-static std::unique_ptr<HiddenName, HiddenNameDeleter> MakeHiddenName(const char (&name)[n]) {
-  return std::unique_ptr<HiddenName, HiddenNameDeleter>(NewHiddenName(name, n - 1, false));
+static std::unique_ptr<HiddenString, HiddenStringDeleter> MakeHiddenString(const char (&name)[n]) {
+  return std::unique_ptr<HiddenString, HiddenStringDeleter>(NewHiddenString(name, n - 1, false));
 }
 
 }  // namespace RS
