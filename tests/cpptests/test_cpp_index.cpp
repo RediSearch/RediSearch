@@ -1290,6 +1290,8 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenNameGet(f->fieldName), foo);
+  const int fooIdx = RSSortingTable_GetFieldIdx(s->sortables, f->fieldName);
+  ASSERT_EQ(fooIdx, 0);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
@@ -1316,6 +1318,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
   int rc = RSSortingTable_GetFieldIdxC(s->sortables, foo);
+  ASSERT_EQ(0, rc);
   ASSERT_EQ(0, rc);
   rc = RSSortingTable_GetFieldIdxC(s->sortables, bar);
   ASSERT_EQ(1, rc);
