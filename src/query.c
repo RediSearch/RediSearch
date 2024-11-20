@@ -136,7 +136,7 @@ void RangeNumber_Free(RangeNumber *r) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, HiddenName *metric_name, RLookupKey **key_addr) {
+static int addMetricRequest(QueryEvalCtx *q, HiddenString *metric_name, RLookupKey **key_addr) {
   MetricRequest mr = {metric_name, key_addr};
   *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
@@ -984,7 +984,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t idx = -1;
   if (qn->vn.vq->scoreField) {
     const char* scoreField = qn->vn.vq->scoreField;
-    idx = addMetricRequest(q, NewHiddenName(scoreField, strlen(scoreField), true), NULL);
+    idx = addMetricRequest(q, NewHiddenString(scoreField, strlen(scoreField), true), NULL);
   }
 
   IndexIterator *child_it = NULL;
@@ -1528,7 +1528,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
-  array_foreach(q->metricRequests, request, HiddenName_Free(request.metric_name));
+  array_foreach(q->metricRequests, request, HiddenString_Free(request.metric_name));
   array_free(q->metricRequests);
   q->metricRequests = NULL;
   q->numTokens = 0;

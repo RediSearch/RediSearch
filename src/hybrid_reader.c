@@ -433,7 +433,7 @@ void HybridIterator_Free(struct indexIterator *self) {
     array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
   if (it->scoreField) {
-    HiddenName_Free(it->scoreField);
+    HiddenString_Free(it->scoreField);
   }
   IndexResult_Free(it->base.current);
   VecSimQueryReply_Free(it->reply);
@@ -500,7 +500,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
         hi->searchMode = VECSIM_HYBRID_BATCHES;
       }
     }
-    hi->scoreField = NewHiddenName(hParams.vectorScoreField, strlen(hParams.vectorScoreField), false);
+    hi->scoreField = NewHiddenString(hParams.vectorScoreField, strlen(hParams.vectorScoreField), false);
     hi->topResults = mmh_init_with_size(hParams.query.k, cmpVecSimResByScore, NULL, (mmh_free_func)IndexResult_Free);
     hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
   }
