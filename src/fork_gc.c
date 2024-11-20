@@ -329,7 +329,7 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
 
 typedef struct {
   int type;
-  HiddenName *field;
+  HiddenString *field;
   const void *curPtr;
   char *tagValue;
   size_t tagLen;
@@ -341,7 +341,7 @@ static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
   tagNumHeader *info = arg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
-    const char* field = HiddenName_GetUnsafe(info->field, NULL);
+    const char* field = HiddenString_GetUnsafe(info->field, NULL);
     FGC_sendBuffer(fgc, field, strlen(field));
     FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
   }

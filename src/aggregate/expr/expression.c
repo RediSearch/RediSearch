@@ -515,7 +515,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:
-      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, HiddenName_GetUnsafe(expr->property.key, NULL));
+      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, HiddenString_GetUnsafe(expr->property.key, NULL));
       break;
     case RSExpr_Op:
       RedisModule_Reply_SimpleStringf(reply, "%s - Operator %c", typeStr, expr->op.op);

@@ -1846,7 +1846,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->fieldName = NewHiddenString(name, strlen(name), true);
-  fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : HiddenName_Retain(fs->fieldName);
+  fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : HiddenString_Retain(fs->fieldName);
   fs->ftId = RS_INVALID_FIELD_ID;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1938,11 +1938,11 @@ int bit(t_fieldMask id) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Need to remove the null delimiter from the length
-#define AllocateHiddenName(ptr, length) NewHiddenString(ptr, length - 1, true)
+#define AllocateHiddenString(ptr, length) NewHiddenString(ptr, length - 1, true)
 
 // Backwards compat version of load for rdbs with version < 8
 static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenName, goto fail);
+  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenString, goto fail);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -2010,12 +2010,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenName, goto fail);
+  LoadStringBufferAlloc_IOErrors(rdb, f->fieldName, AllocateHiddenString, goto fail);
   f->fieldPath = HiddenString_Retain(f->fieldName);
   if (encver >= INDEX_JSON_VERSION) {
     if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
       HiddenString_Free(f->fieldPath);
-      LoadStringBufferAlloc_IOErrors(rdb, f->fieldPath, AllocateHiddenName, goto fail);
+      LoadStringBufferAlloc_IOErrors(rdb, f->fieldPath, AllocateHiddenString, goto fail);
     }
   }
 
@@ -2638,7 +2638,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     HiddenString* alias = NULL;
-    LoadStringBufferAlloc_IOErrors(rdb, alias, AllocateHiddenName, goto cleanup);
+    LoadStringBufferAlloc_IOErrors(rdb, alias, AllocateHiddenString, goto cleanup);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
     HiddenString_Free(alias);
     if (rc != REDISMODULE_OK) {
@@ -3077,16 +3077,16 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  HiddenName* underscore = NewHiddenName(UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), false);
+  HiddenString* underscore = NewHiddenString(UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), false);
   RLookupKey *k = RLookup_GetKey_Load(&r->lk, underscore, RLOOKUP_F_NOFLAGS);
-  HiddenName_Free(underscore)
+  HiddenString_Free(underscore)
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  HiddenName* name = NewHiddenName(f, strlen(f), false);
+  HiddenString* name = NewHiddenString(f, strlen(f), false);
   k = RLookup_GetKey(&r->lk, name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
-  HiddenName_Free(name);
+  HiddenString_Free(name);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);

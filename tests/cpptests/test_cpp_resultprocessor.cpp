@@ -49,7 +49,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   p->counter = 0;
   p->Next = p1_Next;
   p->Free = resultProcessor_GenericFree;
-  auto foo = RS::MakeHiddenName("foo");
+  auto foo = RS::MakeHiddenString("foo");
   p->kout = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   QITR_PushRP(&qitr, p);
 
