@@ -519,7 +519,7 @@ typedef struct {
 
   IndexBlock *newBlocklist;
   size_t newBlocklistSize;
-  int lastBlockIgnored;
+  bool lastBlockIgnored;
 } InvIdxBuffers;
 
 static int __attribute__((warn_unused_result))
@@ -629,7 +629,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
   info->ndocsCollected -= info->lastblkDocsRemoved;
   info->nbytesCollected -= info->lastblkBytesCollected;
   info->nentriesCollected -= info->lastblkEntriesRemoved;
-  idxData->lastBlockIgnored = 1;
+  idxData->lastBlockIgnored = true;
   gc->stats.gcBlocksDenied++;
 }
 
@@ -755,18 +755,24 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode) {
+static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode, size_t blocksSinceFork) {
   NumericRange *r = currNode->range;
   hll_set_registers(&r->hll, info->registers, NR_REG_SIZE);
   if (!info->idxbufs.lastBlockIgnored) {
     // Merge the computed last block's HLL into the current HLL
     hll_merge_registers(&r->hll, info->registersLastBlock, NR_REG_SIZE);
-    return;
+    if (blocksSinceFork == 0) {
+      return; // No blocks were added since the fork. We're done
+    }
+  } else {
+    blocksSinceFork++; // Count the ignored block as well
   }
-  // Add the last block's document count to the HLL
+  // Add the entries that were added since the fork to the HLL
   IndexReader *ir = NewMinimalNumericReader(r->entries, false);
   RSIndexResult *cur;
-  int rc = IR_SkipTo(ir, r->entries->blocks[r->entries->size - 1].firstId, &cur);
+  size_t startIdx = r->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
+  t_docId startId = r->entries->blocks[startIdx].firstId;
+  int rc = IR_SkipTo(ir, startId, &cur);
   if (INDEXREAD_OK == rc) {
     do {
       hll_add(&r->hll, &cur->num.value, sizeof(cur->num.value));
@@ -779,6 +785,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
+  size_t blocksSinceFork = currNode->range->entries->size - info->nblocksOrig; // record before applying changes
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   currNode->range->entries->numEntries -= info->nentriesCollected;
   currNode->range->invertedIndexSize += info->nbytesAdded;
@@ -786,7 +793,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
 
   FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
-  resetCardinality(ninfo, currNode);
+  resetCardinality(ninfo, currNode, blocksSinceFork);
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
