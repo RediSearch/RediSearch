@@ -2,7 +2,9 @@ packaging >= 20.8
 gevent
 deepdiff
 redis >= 5.1.0
-RLTest >= 0.7.11
+# RLTest >= 0.7.11
+# Use the branch under development until the next release is out
+git+https://github.com/RedisLabsModules/RLTest.git@nafraf_redis-config-file#egg=RLTest
 numpy >= 1.21.6
 scipy >= 1.7.3
 faker

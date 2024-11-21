@@ -34,6 +34,7 @@ extern SearchClusterConfig clusterConfig;
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define DEFAULT_ACL_USERNAME "default"
+#define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \
   (SearchClusterConfig) {                                                      \
@@ -43,7 +44,7 @@ extern SearchClusterConfig clusterConfig;
     .globalPass = NULL,                                                        \
     .cursorReplyThreshold = 1,                                                 \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
-    .topologyValidationTimeoutMS = 30000,                                      \
+    .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
     .aclUsername = DEFAULT_ACL_USERNAME,                                       \
   }
 
@@ -58,3 +59,4 @@ void ClusterConfig_RegisterTriggers(void);
 // If the global-password is registered as a redis server CONFIG parameter, 
 // return it. Otherwise, return NULL.
 const char* getGlobalPasswordConfig(RedisModuleCtx *ctx);
+int RegisterClusterModuleConfig(RedisModuleCtx *ctx);

@@ -416,3 +416,827 @@ def testSetACLUsername():
             env.assertTrue(False)
     except Exception as e:
         env.assertEqual(str(e), 'Timeout: operation timeout exceeded')
+
+################################################################################
+# Test CONFIG SET/GET numeric parameters
+################################################################################
+LLONG_MAX = (1 << 63) - 1
+UINT64_MAX = (1 << 64) - 1
+UINT32_MAX = (1 << 32) - 1
+
+numericConfigs = [
+    # configName, ftConfigName, defaultValue, minValue, maxValue, immutable
+    ('search._numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False),
+    ('search.bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True),
+    ('search.cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False),
+    ('search.default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False),
+    ('search.fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, LLONG_MAX, False),
+    ('search.fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False),
+    ('search.fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False),
+    ('search.fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False),
+    ('search.gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, False),
+    ('search.index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False),
+    ('search.max-aggregate-results', 'MAXAGGREGATERESULTS', -1, 0, LLONG_MAX, False),
+    ('search.max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True),
+    ('search.max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False),
+    ('search.max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 0, LLONG_MAX, False),
+    ('search.min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False),
+    ('search.min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False),
+    ('search.min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False),
+    ('search.min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False),
+    ('search.multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True),
+    ('search.tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True),
+    ('search.timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False),
+    ('search.union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False),
+    ('search.vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False),
+    ('search.workers', 'WORKERS', 0, 0, 16, False),
+    ('search.workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True),
+    # Cluster parameters
+    ('search.search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True),
+    ('search.topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False),
+]
+
+def testConfigAPIRunTimeNumericParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    def _testNumericConfig(env, configName, ftConfigName, default, min, max):
+        # Check default value
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
+
+        # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+        env.expect('CONFIG', 'SET', configName, max).equal('OK')
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+        env.expect(config_cmd(), 'GET', ftConfigName)\
+            .equal([[ftConfigName, str(max)]])
+
+        # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+        env.expect(config_cmd(), 'SET', ftConfigName, min).ok()
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(min)])
+        env.expect(config_cmd(), 'GET', ftConfigName)\
+            .equal([[ftConfigName, str(min)]])
+
+        # test invalid values
+        env.expect('CONFIG', 'SET', configName, 'invalid_numeric').error()\
+            .contains('CONFIG SET failed')
+        env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
+            .contains('CONFIG SET failed')
+        env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
+            .contains('CONFIG SET failed')
+
+        # test valid range limits
+        env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(min)])
+        env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+
+    def _testImmutableNumericConfig(env, configName, ftConfigName, default):
+        # Check default value
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
+        env.expect(config_cmd(), 'GET', ftConfigName).\
+            equal([[ftConfigName, str(default)]])
+
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', configName, str(default)).error()\
+            .contains('CONFIG SET failed')
+
+    # Test numeric parameters
+    for configName, ftConfigName, default, min, max, immutable in numericConfigs:
+        if configName in ['search.search-threads',
+                          'search.topology-validation-timeout']:
+            if not env.isCluster():
+                continue
+
+        if immutable:
+            _testImmutableNumericConfig(env, configName, ftConfigName, default)
+        else:
+            _testNumericConfig(env, configName, ftConfigName, default, min, max)
+
+@skip(cluster=True)
+def testModuleLoadexNumericParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        if configName in ['search.search-threads',
+                          'search.topology-validation-timeout']:
+            if not env.isCluster():
+                continue
+
+        if (minValue != default):
+            configValue = str(minValue)
+            argValue = str(minValue + 1)
+        else:
+            configValue = str(minValue + 1)
+            argValue = str(minValue + 2)
+        
+        env.assertNotEqual(configValue, str(default))
+
+        # Load module using module arguments
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'ARGS', argName, argValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'CONFIG', configName, configValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG and module arguments
+        # the CONFIG values should take precedence
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                      'CONFIG', configName, configValue,
+                      'ARGS', argName, argValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # For immutable parameters, we need to test that the limits are enforced
+        # using MODULE LOADEX
+        if immutable:
+            env.start()
+            res = env.cmd('MODULE', 'LIST')
+            env.assertEqual(res, [])
+            env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(minValue - 1)).error()\
+                        .contains('Error loading the extension')
+            env.assertTrue(env.isUp())
+            env.stop()
+            os.unlink(rdbFilePath)
+
+            env.start()
+            res = env.cmd('MODULE', 'LIST')
+            env.assertEqual(res, [])
+            env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(maxValue + 1)).error()\
+                        .contains('Error loading the extension')
+            env.assertTrue(env.isUp())
+            env.stop()
+            os.unlink(rdbFilePath)
+
+@skip(cluster=True)
+def testConfigFileNumericParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileNumericParams.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            # Skip cluster parameters
+            if configName in ['search.search-threads',
+                            'search.topology-validation-timeout']:
+                continue
+
+            f.write(f'{configName} {minValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        # Skip cluster parameters
+        if configName in ['search.search-threads',
+                        'search.topology-validation-timeout']:
+            if not env.isCluster():
+                continue
+
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
+
+@skip(cluster=False)
+def testClusterConfigFileNumericParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testClusterConfigFileNumericParams.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            f.write(f'{configName} {minValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsNumericParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsNumericParams.conf'
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+            # Skip cluster parameters
+            if configName in ['search.search-threads',
+                            'search.topology-validation-timeout']:
+                continue
+            f.write(f'{configName} {minValue}\n')
+
+    moduleArgs = ''
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        moduleArgs += f'{argName} {minValue} '
+    
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        # Skip cluster parameters
+        if configName in ['search.search-threads',
+                        'search.topology-validation-timeout']:
+            continue
+
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, str(minValue)])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, str(minValue)]])
+
+################################################################################
+# Test CONFIG SET/GET enum parameters
+################################################################################
+def testConfigAPIRunTimeEnumParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    # Test default value
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'return'])
+
+    # Test search.on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'fail'])
+
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'return').equal('OK')
+    env.expect('CONFIG', 'GET', 'search.on-timeout')\
+        .equal(['search.on-timeout', 'return'])
+
+    # Test search.on-timeout - invalid values
+    env.expect('CONFIG', 'SET', 'search.on-timeout', 'invalid_value').error()\
+            .contains('CONFIG SET failed')
+
+@skip(cluster=True)
+def testModuleLoadexEnumParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    # Test search.on-timeout
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+    defaultValue = 'return'
+
+    # Test setting the parameter using CONFIG
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Test setting the parameter using ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'ARGS', argName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG and module arguments, the CONFIG values should
+    # take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue,
+                'ARGS', argName, defaultValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+def testConfigFileEnumParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileEnumParams.conf'
+
+    # Test search.on-timeout
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write(f'{configName} {testValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, testValue])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, testValue]])
+
+def testConfigFileAndArgsEnumParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsEnumParams.conf'
+
+    # Test search.on-timeout
+    configName = 'search.on-timeout'
+    argName = 'ON_TIMEOUT'
+    testValue = 'fail'
+    moduleArgs = 'ON_TIMEOUT return'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write(f'{configName} {testValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, testValue])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, testValue]])
+
+################################################################################
+# Test CONFIG SET/GET string parameters
+################################################################################
+stringConfigs = [
+    # configName, ftConfigName, ftDefault, testValue
+    ('search.ext-load', 'EXTLOAD', None,
+     'example_extension/libexample_extension.so'),
+    ('search.friso-ini', 'FRISOINI', None, 'deps/cndict/friso.ini'),
+]
+
+def testConfigAPIRunTimeStringParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    def _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
+                                   testValue):
+        # Check default value
+        if ftDefault == None:
+            default = ''
+        env.expect('CONFIG', 'GET', configName).\
+            equal([configName, default])
+        env.expect(config_cmd(), 'GET', ftConfigName).\
+            equal([[ftConfigName, ftDefault]])
+
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', configName, testValue).error()\
+            .contains('CONFIG SET failed')
+
+    # String parameters
+    for configName, ftConfigName, ftDefault, testValue in stringConfigs:
+        _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
+                                   testValue)
+
+@skip(cluster=True)
+def testModuleLoadexStringParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+            basedir = os.path.dirname(redisearch_module_path)
+            testValue = os.path.abspath(os.path.join(basedir, testValue))
+
+        # Test setting the parameter using CONFIG
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, testValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Test setting the parameter using ARGS
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'ARGS', argName, testValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG and module arguments, the CONFIG values should
+        # take precedence
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, testValue,
+                    'ARGS', argName, 'invalid_value'
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+def testConfigFileStringParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileStringParams.conf'
+    with open(redisConfigFile, 'w') as f:
+        pass  # Do nothing, just create the file
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+
+    # stop the server and remove the rdb file
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    # env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, ftDefault, testValue in stringConfigs:
+            if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
+
+    # Restart the server using the conf file and check each value
+    env.start()
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, testValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, testValue]])
+
+@skip(cluster=True)  
+def testConfigFileAndArgsStringParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
+    with open(redisConfigFile, 'w') as f:
+        pass  # Do nothing, just create the file
+    env = Env(redisConfigFile=redisConfigFile)
+
+    # stop the server and remove the rdb file
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+
+    # create redis configuration file
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, ftDefault, testValue in stringConfigs:
+            if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
+
+    # create module arguments
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.moduleArgs.append(['EXTLOAD unusedValue FRISOINI unusedValue'])
+    env.envRunner.moduleArgs.append([])
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    # Restart the server using the conf file and check each value
+    env.start()
+    for configName, argName, ftDefault, testValue in stringConfigs:
+        if configName == 'search.ext-load':
+                basedir = os.path.dirname(redisearch_module_path)
+                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, testValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, testValue]])
+
+################################################################################
+# Test CONFIG SET/GET boolean parameters
+################################################################################
+booleanConfigs = [
+    # configName, ftConfigName, defaultValue, immutable, isFlag
+    ('search._free-resource-on-thread', '_FREE_RESOURCE_ON_THREAD', 'yes', False, False),
+    ('search._numeric-compress', '_NUMERIC_COMPRESS', 'no', False, False),
+    ('search._print-profile-clock', '_PRINT_PROFILE_CLOCK', 'yes', False, False),
+    ('search.no-gc', 'NOGC', 'no', True, True),
+    ('search.no-mem-pools', 'NO_MEM_POOLS', 'no', True, True),
+    ('search.partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
+    ('search._prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
+    ('search.raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
+    # # TODO: Confirm if we need to test search._fork-gc-clean-numeric-empty-nodes, 
+    # # because it will be deprecated in  8.0
+    # ('search._fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
+]
+
+def testConfigAPIRunTimeBooleanParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    def _testBooleanConfig(env, configName, ftConfigName, default):
+        # Check default value
+        env.expect('CONFIG', 'GET', configName).equal([configName, default])
+
+        for val in ['yes', 'no']:
+            old_val = 'true' if val == 'yes' else 'false'
+
+            # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect('CONFIG', 'SET', configName, val).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, val])
+            env.expect(config_cmd(), 'GET', ftConfigName)\
+                .equal([[ftConfigName, old_val]])
+
+            # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
+            env.expect(config_cmd(), 'SET', ftConfigName, old_val).ok()
+            env.expect('CONFIG', 'GET', configName).equal([configName, val])
+            env.expect(config_cmd(), 'GET', ftConfigName)\
+                .equal([[ftConfigName, old_val]])
+
+        # Test invalid values
+        env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
+            .contains('CONFIG SET failed')
+
+    def _testImmutableBooleanConfig(env, configName, ftConfigName, default):
+        # Check default value
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
+
+        old_val = 'true' if default == 'yes' else 'false'
+        env.expect(config_cmd(), 'GET', ftConfigName).\
+            equal([[ftConfigName, str(old_val)]])
+
+        # Check that the value is immutable
+        env.expect('CONFIG', 'SET', configName, str(default)).error()\
+            .contains('CONFIG SET failed')
+
+    # Test boolean parameters
+    for configName, ftConfigName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            _testImmutableBooleanConfig(env, configName, ftConfigName, defaultValue)
+        else:
+            _testBooleanConfig(env, configName, ftConfigName, defaultValue)
+
+@skip(cluster=True)
+def testModuleLoadexBooleanParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    env.stop()
+    os.unlink(rdbFilePath)
+    
+    # Remove modules and args
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # Load module using CONFIG
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        # use non-default value as config value
+        configValue = 'yes' if defaultValue == 'no' else 'yes'
+        expected = 'true' if configValue == 'yes' else 'false'
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, configValue
+        )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, expected]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # `search.partial-indexed-docs` is tested later because 
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search.partial-indexed-docs':
+            continue
+
+        # Load module using module arguments
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        # use non-default value as argument value
+        argValue = 'true' if defaultValue == 'no' else 'false'
+        expected = 'yes' if argValue == 'true' else 'no'
+
+        if not isFlag:
+            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                        'ARGS', argName, argValue
+            )
+        else:
+            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                        'ARGS', argName
+            )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+        # Load module using CONFIG and module arguments
+        # the CONFIG values should take precedence
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        # use non-default value as config value
+        configValue = 'yes' if defaultValue == 'no' else 'yes'
+        # use default value as argument value
+        argValue = 'true' if defaultValue == 'yes' else 'false'
+        # expected value should be equivalent to the config value
+        expected = 'true' if configValue == 'yes' else 'false'
+        if not isFlag:
+            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                        'CONFIG', configName, configValue,
+                        'ARGS', argName, argValue
+            )
+        else:
+            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                        'CONFIG', configName, configValue,
+                        'ARGS', argName
+            )
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, expected]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+        env.stop()
+        os.unlink(rdbFilePath)
+
+    # test `search.partial-indexed-docs`
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    # use non-default value as argument value
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'ARGS', 'PARTIAL_INDEXED_DOCS', '1'
+    )
+    env.expect(config_cmd(), 'GET', 'PARTIAL_INDEXED_DOCS')\
+        .equal([['PARTIAL_INDEXED_DOCS', 'true']])
+    env.expect('CONFIG', 'GET', 'search.partial-indexed-docs')\
+        .equal(['search.partial-indexed-docs', 'yes'])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG and module arguments, the CONFIG values should
+    # take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', 'search.partial-indexed-docs', 'yes',
+                'ARGS', 'PARTIAL_INDEXED_DOCS', '0'
+    )
+    env.expect(config_cmd(), 'GET', 'PARTIAL_INDEXED_DOCS')\
+        .equal([['PARTIAL_INDEXED_DOCS', 'true']])
+    env.expect('CONFIG', 'GET', 'search.partial-indexed-docs')\
+        .equal(['search.partial-indexed-docs', 'yes'])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+def testConfigFileBooleanParams():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testConfigFileBooleanParams.conf'
+
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+            # use non-default value as config value
+            configValue = 'yes' if defaultValue == 'no' else 'no'
+            f.write(f'{configName} {configValue}\n')
+
+    # Start the server using the conf file and check each value
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # the expected value is the opposite of the default value
+        configValue = 'yes' if defaultValue == 'no' else 'no'
+        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, configValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, ftExpectedValue]])
+
+def testConfigFileAndArgsBooleanParams():
+    # Test using redis config file and module arguments
+    redisConfigFile = '/tmp/testConfigFileAndArgsBooleanParams.conf'
+    # create redis.conf file in /tmp and add all the boolean parameters
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+            # use non-default value as config value
+            configValue = 'yes' if defaultValue == 'no' else 'no'
+            f.write(f'{configName} {configValue}\n')
+
+    moduleArgs = ''
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        ftDefaultValue = 'true' if defaultValue == 'yes' else 'false'
+        if isFlag:
+            moduleArgs += f'{argName} '
+        else:
+            moduleArgs += f'{argName} {ftDefaultValue} '
+    
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # the expected value is the opposite of the default value
+        configValue = 'yes' if defaultValue == 'no' else 'no'
+        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        res = env.cmd('CONFIG', 'GET', configName)
+        env.assertEqual(res, [configName, configValue])
+        res = env.cmd(config_cmd(), 'GET', argName)
+        env.assertEqual(res, [[argName, ftExpectedValue]])
