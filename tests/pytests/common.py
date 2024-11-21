@@ -711,7 +711,7 @@ def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _asse
                 env.assertTrue(False, message=msg + f" key {key} exists in {d1_name} but doesn't exist in {d2_name}")
             else:
                 raise KeyError
-        return True
+    return True
 
 def compare_index_info_dict(env, idx, expected_info_dict, msg=""):
     d = index_info(env, idx)
