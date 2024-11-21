@@ -76,6 +76,8 @@ typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
+  size_t invertedIndexesSize;
+
   t_docId lastDocId;
 
   uint32_t revisionId;
@@ -129,7 +131,7 @@ size_t NumericRange_GetCardinality(const NumericRange *nr);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName);
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
