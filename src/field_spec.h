@@ -98,7 +98,8 @@ typedef struct FieldSpec {
   int16_t sortIdx;
 
   /** Unique field index. Each field has a unique index regardless of its type */
-  uint16_t index;
+  // We rely on the index starting from 0 and being sequential
+  t_fieldIndex index;
 
   union {
     struct {

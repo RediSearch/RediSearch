@@ -226,10 +226,10 @@ def testExpireDocs():
               # Without sortby -
               # Documents are sorted according to dicId
               # both docs exist but we failed to load doc1 since it was found to be expired during the query
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],
+               [2, 'doc2', ['t', 'foo'], 'doc1', None],
               # With sortby -
               # Loading the value of the expired document failed, so it gets lower priority.
-              [2, 'doc2', ['t', 'foo'], 'doc1', None])
+               [2, 'doc2', ['t', 'foo'], 'doc1', None])
 
 def testExpireDocsSortable():
     '''
@@ -240,8 +240,8 @@ def testExpireDocsSortable():
                # the documents are ordered according to the sortkey values.
                # However, the loader fails to load doc1 and the result is marked as expired so
                # the value does not appear in the result.
-              [2, 'doc1', None, 'doc2', ['t', 'foo']],  # Without sortby - ordered by docid
-              [2, 'doc1', None, 'doc2', ['t', 'foo']])  # With sortby - ordered by the original value, bar > foo
+             [2, 'doc2', ['t', 'foo'], 'doc1', None],  # Without sortby - ordered by docid, notice doc1 was expired so the notification pushed it to the back of the line
+               [2, 'doc1', None, 'doc2', ['t', 'foo']])  # With sortby - ordered by the original value, bar > foo
 
 def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_sortby):
     '''
@@ -280,6 +280,8 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         res = slave.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         env.assertEqual(res, [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'foo']])
 
+        master.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
+        slave.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
         master.execute_command('PEXPIRE', 'doc1', 1)
         # ensure expiration before search
         time.sleep(0.05)
