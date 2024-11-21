@@ -39,8 +39,6 @@ size_t hll_count(const struct HLL *hll);
 /* Load the registers from a buffer. The buffer must be of size 2^bits
    This function is similar to `hll_load`, but assumes the HLL is already initialized */
 int hll_set_registers(struct HLL *hll, const void *registers, uint32_t size);
-/* Merge the registers from a buffer into the HLL. The buffer must match the size of the HLL */
-int hll_merge_registers(struct HLL *hll, const void *registers, uint32_t size);
 /* Clear the HLL registers, reset the cardinality to 0 */
 void hll_clear(struct HLL *hll);
 

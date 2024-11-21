@@ -89,7 +89,6 @@ TEST_F(UtilsTest, testHLL) {
 
   // Test 2 HLLs intersection
   ASSERT_EQ(hll_merge(&hll1, &hll2), -1) << "Expected error for different sizes";
-  ASSERT_EQ(hll_merge_registers(&hll1, hll2.registers, hll2.size), -1) << "Expected error for different sizes";
 
   ASSERT_EQ(hll_set_registers(&hll1, hll2.registers, hll2.size), 0) << "Expected success for different sizes";
   ASSERT_EQ(hll1.bits, 5)         << "Expected bits to be 5 as of hll2";

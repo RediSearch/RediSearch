@@ -406,8 +406,14 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
-        FGC_sendFixed(gc, nctx.majority_card.registers, NR_REG_SIZE);
+        // Instead of sending the majority cardinality and the last block's cardinality, we now
+        // merge the majority cardinality into the last block's cardinality, and send its registers
+        // as the cardinality WITH the last block's cardinality, and then send the majority registers
+        // as the cardinality WITHOUT the last block's cardinality. This way, the main process can
+        // choose which registers to use without having to merge them itself.
+        hll_merge(&nctx.last_block_card, &nctx.majority_card);
         FGC_sendFixed(gc, nctx.last_block_card.registers, NR_REG_SIZE);
+        FGC_sendFixed(gc, nctx.majority_card.registers, NR_REG_SIZE);
       }
     }
     hll_destroy(&nctx.majority_card);
@@ -723,15 +729,15 @@ typedef struct {
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
 
-  void *registers;
-  void *registersLastBlock; // Collect separately, in case the last block was modified
+  void *registersWithLastBlock;
+  void *registersWithoutLastBlock; // In case the last block was modified
 } NumGcInfo;
 
 static int recvRegisters(ForkGC *fgc, NumGcInfo *ninfo) {
-  if (FGC_recvFixed(fgc, ninfo->registers, NR_REG_SIZE) != REDISMODULE_OK) {
+  if (FGC_recvFixed(fgc, ninfo->registersWithLastBlock, NR_REG_SIZE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  return FGC_recvFixed(fgc, ninfo->registersLastBlock, NR_REG_SIZE);
+  return FGC_recvFixed(fgc, ninfo->registersWithoutLastBlock, NR_REG_SIZE);
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
@@ -757,14 +763,13 @@ error:
 
 static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode, size_t blocksSinceFork) {
   NumericRange *r = currNode->range;
-  hll_set_registers(&r->hll, info->registers, NR_REG_SIZE);
   if (!info->idxbufs.lastBlockIgnored) {
-    // Merge the computed last block's HLL into the current HLL
-    hll_merge_registers(&r->hll, info->registersLastBlock, NR_REG_SIZE);
+    hll_set_registers(&r->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
     }
   } else {
+    hll_set_registers(&r->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
     blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
@@ -890,8 +895,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   }
 
   NumGcInfo ninfo = {
-    .registers = rm_malloc(NR_REG_SIZE),
-    .registersLastBlock = rm_malloc(NR_REG_SIZE),
+    .registersWithLastBlock = rm_malloc(NR_REG_SIZE),
+    .registersWithoutLastBlock = rm_malloc(NR_REG_SIZE),
   };
   while (status == FGC_COLLECTED) {
     // Read from GC process
@@ -950,8 +955,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
   }
 
-  rm_free(ninfo.registers);
-  rm_free(ninfo.registersLastBlock);
+  rm_free(ninfo.registersWithLastBlock);
+  rm_free(ninfo.registersWithoutLastBlock);
   rm_free(fieldName);
 
   if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {

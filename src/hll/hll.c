@@ -111,28 +111,20 @@ size_t hll_count(const struct HLL *hll) {
   return estimate;
 }
 
-static inline int hll_merge_internal(struct HLL *hll, const uint8_t *registers, uint32_t size) {
-  if (hll->size != size) {
+int hll_merge(struct HLL *dst, const struct HLL *src) {
+  if (dst->size != src->size) {
     errno = EINVAL;
     return -1;
   }
 
-  for (uint32_t i = 0; i < size; i++) {
-    if (hll->registers[i] < registers[i]) {
-      hll->registers[i] = registers[i];
+  for (uint32_t i = 0; i < src->size; i++) {
+    if (dst->registers[i] < src->registers[i]) {
+      dst->registers[i] = src->registers[i];
       // New max rank, invalidate the cached cardinality
-      hll->cachedCard = INVALID_CACHE_CARDINALITY;
+      dst->cachedCard = INVALID_CACHE_CARDINALITY;
     }
   }
   return 0;
-}
-
-int hll_merge(struct HLL *dst, const struct HLL *src) {
-  return hll_merge_internal(dst, src->registers, src->size);
-}
-
-int hll_merge_registers(struct HLL *hll, const void *registers, uint32_t size) {
-  return hll_merge_internal(hll, registers, size);
 }
 
 int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
