@@ -104,6 +104,7 @@ def test_acl_non_default_user(env):
         for cmd in WRITE_SEARCH_COMMANDS:
             try:
                 res = conn.execute_command(cmd)
+                # Should still fail due to incomplete command, not permissions-related
                 env.assertTrue(False)
             except Exception as e:
                 env.assertNotContains("User test has no permissions", str(e))
