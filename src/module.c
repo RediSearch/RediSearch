@@ -59,6 +59,7 @@
 #include "global_stats.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
+#define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
 
 extern RSConfig RSGlobalConfig;
 
@@ -989,7 +990,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
   int rc = REDISMODULE_OK;
   char *categories;
 
-  if (strncmp(name, "_", 1) == 0) {
+  if (IS_INTERNAL_COMMAND(name)) {
     // Internal command, register to the internal ACL category
     rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_INTERNAL_CATEGORY);
   } else {
