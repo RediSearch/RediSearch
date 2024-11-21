@@ -347,6 +347,25 @@ double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
   }
 }
 
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
+  // Traverse the fields and calculates the overhead of the numeric tree index
+  size_t overhead = 0;
+  for (size_t i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, fs->types);
+      NumericRangeTree *rt = openNumericKeysDict(sp, keyName, DONT_CREATE_INDEX);
+      // Numeric index was not initialized yet
+      if (!rt) {
+        continue;
+      }
+
+      overhead += sizeof(NumericRangeTree);
+    }
+  }
+  return overhead;
+}
+
 size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the tags
   size_t overhead = 0;
@@ -379,6 +398,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
+  res += IndexSpec_collect_numeric_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;

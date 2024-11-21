@@ -652,6 +652,12 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
 size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
 
 /**
+ * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
+ * numeric tree structs.
+ */
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
+
+/**
  * @return all memory used by the index `sp`.
  * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
  */
