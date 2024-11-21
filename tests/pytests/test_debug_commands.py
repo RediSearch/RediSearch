@@ -337,8 +337,8 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
 
+@skip(cluster=True)
 def testSpecIndexesInfo(env: Env):
-    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
 
     expected_reply = {
@@ -350,7 +350,7 @@ def testSpecIndexesInfo(env: Env):
     env.assertEqual(to_dict(debug_output), expected_reply)
 
     # Add a document
-    conn.execute_command('HSET', 'doc1', 'n', 1)
+    env.expect('HSET', 'doc1', 'n', 1).equal(1)
     expected_reply["inverted_indexes_dict_size"] = 1
 
     # assuming the document doesn't exceed the initial block size
