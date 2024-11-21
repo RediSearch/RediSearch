@@ -638,3 +638,35 @@ def get_TLS_args():
     passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
+
+# fields should be in capital letters
+def getInvertedIndexInitialSize_MB(fields) -> float:
+    total_size = 0
+    for field in fields:
+        if field in ['GEO', 'NUMERIC']:
+            block_size = 48
+            initial_block_cap = 6
+            inverted_index_meta_data = 48
+            total_size += (block_size + initial_block_cap + inverted_index_meta_data) / float(1024 * 1024)
+        elif field not in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR']:
+            raise ValueError(f'Field {field} is not supported')
+
+    return total_size
+
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg=""):
+    d = index_info(env, idx)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg)
+
+    if(exp_inv_idx_size != None):
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg)
+
+def compare_index_info_dict(env, idx, expected_info_dict, msg=""):
+    d = index_info(env, idx)
+    for key, value in expected_info_dict.items():
+        env.assertEqual(float(d[key]), value, message=msg + " failed for info key: " + key)
+
+
+# expected info for index that was initialized and *emptied*
+def check_index_info_empty(env, idx, fields, msg="after delete all and gc"):
+    expected_size = getInvertedIndexInitialSize_MB(fields)
+    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg)
