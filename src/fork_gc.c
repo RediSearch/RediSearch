@@ -1143,7 +1143,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   }
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
   if (idx->numDocs == 0) {
     // inverted index was cleaned entirely lets free it
@@ -1152,6 +1151,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
       dictDelete(sctx->spec->missingFieldDict, fieldName);
     }
   }
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
 
 cleanup:
 
