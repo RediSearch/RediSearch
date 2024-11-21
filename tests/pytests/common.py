@@ -670,7 +670,7 @@ def cmd_assert(env, cmd, res, message=None):
     env.assertEqual(db_res, res, message=message)
 
 # fields should be in capital letters
-def getInvertedIndexInitialSize_MB(fields: list[str]) -> float:
+def getInvertedIndexInitialSize_MB(fields) -> float:
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
