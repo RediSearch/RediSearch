@@ -3,6 +3,15 @@ from common import *
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
+INTERNAL_SEARCH_COMMANDS = [
+        '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
+        '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
+        '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
+        '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
+        '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
+        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
+        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
+    ]
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
@@ -38,15 +47,7 @@ def test_acl_search_commands(env):
 
     # ---------------- internal search command category ----------------
     res = env.cmd('ACL', 'CAT', '_search_internal')
-    commands = [
-        '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
-        '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
-        '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
-        '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
-        '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
-        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
-    ]
+    commands = INTERNAL_SEARCH_COMMANDS
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
@@ -78,10 +79,11 @@ def test_acl_non_default_user(env):
         conn.execute_command('AUTH', 'test', '123')
 
         # `test` should now be able to run `read` commands like `FT.SEARCH', but not
-        # `search` commands like `FT.CREATE`
+        # `search` (only) commands like `FT.CREATE`
         for cmd in READ_SEARCH_COMMANDS:
             try:
                 conn.execute_command(cmd)
+                env.assertTrue(False) # Fail due to incomplete command, not permissions-related
             except Exception as e:
                 env.assertNotContains("User test has no permissions to run", str(e))
 
@@ -170,3 +172,34 @@ def test_sug_commands_acl(env):
             env.assertEqual(str(e), "No permissions to access a key")
         res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
         env.assertEqual(res, 1)
+
+def test_internal_commands(env):
+    """Tests the internal commands' category"""
+
+    # Create a user with all command permissions (full keyspace and pubsub access)
+    env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~*', '&*', '+@all').ok()
+    env.expect('AUTH', 'test', '123').true()
+
+    # `test` user should be able to execute internal commands
+    env.expect('_FT.SEARCH', 'idx', '*').error().contains("idx: no such index")
+
+    # Remove the `_search_internal` permissions from the `test` user
+    env.expect('ACL', 'SETUSER', 'test', '-@_search_internal').ok()
+
+    # `test` user should still be able to run non-internal commands
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+    # Now `test` should not be able to execute RediSearch internal commands
+    # `_FT.DEBUG` requires more arguments, but so we check it separately.
+    internal_commands = INTERNAL_SEARCH_COMMANDS[::]
+    internal_commands.remove('_FT.DEBUG')
+    for command in internal_commands:
+        env.expect(command).error().contains("User test has no permissions to run")
+
+    # Check `_FT.DEBUG`
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains("User test has no permissions to run")
+
+    # Authenticate as `default`, and run the internal debug command
+    env.expect('AUTH', 'default', 'nopass').true()
+    print(env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx'))

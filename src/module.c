@@ -989,10 +989,12 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 
   int rc = REDISMODULE_OK;
   char *categories;
+  bool is_internal = false;
 
   if (IS_INTERNAL_COMMAND(name)) {
-    // Internal command, register to the internal ACL category
-    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_INTERNAL_CATEGORY);
+    // Internal command, register to the internal ACL category ONLY
+    categories = SEARCH_ACL_INTERNAL_CATEGORY;
+    is_internal = true;
   } else {
     rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
   }
@@ -1002,7 +1004,9 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
     rc = REDISMODULE_ERR;
   }
 
-  rm_free(categories);
+  if (!is_internal) {
+    rm_free(categories);
+  }
 
   return rc;
 }
@@ -1175,7 +1179,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, "admin dangerous slow"))
+         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, ""))
   RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
@@ -2738,12 +2742,18 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
   /*
    * v - argv input array of RedisModuleString
    * E - return errors as RedisModuleCallReply object (instead of NULL)
-   * C - same client
    * M - respect OOM
    * 0 - same RESP protocol
    * ! - replicate the command if needed (allows for replication)
+   * NOTICE: We don't add the `C` flag, such that the user that runs the internal
+   * command is the unrestricted user. Such that it can execute internal commands
+   * even if the dispatching user does not have such permissions (we reach here
+   * only on OSS with 1 shard due to the mechanism of this function).
+   * This is OK because the user already passed the ACL command validation (keys - TBD)
+   * before reaching the non-underscored command command-handler.
    */
-  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vECM0!", argv + 1, argc - 1);
+
+  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vEM0!", argv + 1, argc - 1);
   RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
   rm_free(localCmd);
   RedisModule_FreeCallReply(r);
