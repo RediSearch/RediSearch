@@ -192,19 +192,24 @@ DEBUG_COMMAND(NumericIndexSummary) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
-  if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
+  NumericRangeTree rt_info = {0};
+  int root_max_depth = 0;
+
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet.
+  // Else, we copy the data to a local variable.
+  if (rt) {
+    rt_info = *rt;
+    root_max_depth = rt->root->maxDepth;
   }
 
   START_POSTPONED_LEN_ARRAY(numIdxSum);
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("emptyLeaves", rt->emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("RootMaxDepth", rt->root->maxDepth, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("numRanges", rt_info.numRanges, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("numEntries", rt_info.numEntries, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("lastDocId", rt_info.lastDocId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("revisionId", rt_info.revisionId, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("emptyLeaves", rt_info.emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
+  REPLY_WITH_LONG_LONG("RootMaxDepth", root_max_depth, ARRAY_LEN_VAR(numIdxSum));
   END_POSTPONED_LEN_ARRAY(numIdxSum);
 
 end:
@@ -227,11 +232,13 @@ DEBUG_COMMAND(DumpNumericIndex) {
   // It's a debug command... lets not waste time on string comparison.
   int with_headers = argc == 5 ? true : false;
 
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
+
   NumericRangeNode *currNode;
   NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
   size_t InvertedIndexNumber = 0;
@@ -345,6 +352,9 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
   return ret;
 }
 
+/**
+ * It is safe to use @param n equals to NULL.
+ */
 InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n) {
 
   size_t len = 0;
@@ -375,6 +385,9 @@ InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRange
   return invIdxStats;
 }
 
+/**
+ * It is safe to use @param rt with all fields initialized to 0, including a NULL root.
+ */
 void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt) {
 
   size_t len = 0;
@@ -412,10 +425,12 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree dummy_rt = {0};
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+  // If we failed to open the numeric index, it was not initialized yet,
+  // reply as if the tree is empty.
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
-    goto end;
+    rt = &dummy_rt;
   }
 
   NumericRangeTree_DebugReply(sctx->redisCtx, rt);
@@ -681,6 +696,7 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   return REDISMODULE_OK;
 }
 
+// GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(GCCleanNumeric) {
 
   if (argc != 4) {
@@ -692,9 +708,8 @@ DEBUG_COMMAND(GCCleanNumeric) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
   if (!rt) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
   }
 

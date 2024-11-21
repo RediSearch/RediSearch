@@ -579,7 +579,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(ctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
     return -1;
