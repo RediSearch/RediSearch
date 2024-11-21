@@ -623,7 +623,7 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@g:[120.53232 12.112233 30.5 ft]'],
                     "GEO g:{120.532320,12.112233 --> 30.500000 ft}\n")
-    
+
     # test numeric ranges
     _testExplain(env, 'idx', ['@bar:[10 100]'],
                  "NUMERIC {10.000000 <= @bar <= 100.000000}\n")
@@ -642,10 +642,10 @@ def testExplain(env):
 
     _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
                     "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
-    
+
     _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
                     "NUMERIC {-22.000000 < @bar < 50.000000}\n")
 
@@ -3237,8 +3237,8 @@ def testIssue1184(env):
         env.expect('FT.CREATE idx ON HASH SCHEMA field ' + ft).ok()
 
         d = index_info(env, 'idx')
-        env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '0')
+        env.assertEqual(d['inverted_sz_mb'], '0', message=f"failed at field type {ft}")
+        env.assertEqual(d['num_records'], '0', message=f"failed at field type {ft}")
 
         if ft == 'NUMERIC':
             value = '3.14'
@@ -3251,11 +3251,11 @@ def testIssue1184(env):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
 
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
-        env.assertEqual(res[0], num_docs)
+        env.assertEqual(res[0], num_docs, message=f"failed at field type {ft}")
 
         d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(int(d['num_records']), num_docs)
+        env.assertEqual(int(d['num_records']), num_docs, message=f"failed at field type {ft}")
 
         for i in range(num_docs):
             env.expect('FT.DEL idx doc%d' % i).equal(1)
@@ -3263,9 +3263,10 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        env.assertEqual(float(d['inverted_sz_mb']), 0)
-        env.assertEqual(int(d['num_records']), 0)
-        env.assertEqual(int(d['num_docs']), 0)
+        expected = getInvertedIndexInitialSize_MB([ft])
+        env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
 
         env.cmd('FT.DROP idx')
 
