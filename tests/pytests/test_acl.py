@@ -192,15 +192,15 @@ def test_internal_commands(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
 
     # Now `test` should not be able to execute RediSearch internal commands
-    # `_FT.DEBUG` requires more arguments, but so we check it separately.
+    # `_FT.DEBUG` has only subcommands, so we check it separately.
     internal_commands = INTERNAL_SEARCH_COMMANDS[::]
     internal_commands.remove('_FT.DEBUG')
     for command in internal_commands:
         env.expect(command).error().contains("User test has no permissions to run")
 
     # Check `_FT.DEBUG`
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains("User test has no permissions to run")
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').error().contains("User test has no permissions to run")
 
     # Authenticate as `default`, and run the internal debug command
     env.expect('AUTH', 'default', 'nopass').true()
-    print(env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx'))
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
