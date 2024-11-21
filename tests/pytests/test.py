@@ -3358,8 +3358,8 @@ def testIssue1184(env):
         env.expect('FT.CREATE idx ON HASH SCHEMA field ' + ft).ok()
 
         d = index_info(env, 'idx')
-        env.assertEqual(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], 0)
+        env.assertEqual(d['inverted_sz_mb'], '0', message=f"failed at field type {ft}")
+        env.assertEqual(d['num_records'], 0, message=f"failed at field type {ft}")
 
         if ft == 'NUMERIC':
             value = '3.14'
@@ -3372,11 +3372,11 @@ def testIssue1184(env):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
 
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
-        env.assertEqual(res[0], num_docs)
+        env.assertEqual(res[0], num_docs, message=f"failed at field type {ft}")
 
         d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], num_docs)
+        env.assertEqual(d['num_records'], num_docs, message=f"failed at field type {ft}")
 
         for i in range(num_docs):
             env.expect('FT.DEL idx doc%d' % i).equal(1)
@@ -3384,9 +3384,10 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        env.assertEqual(float(d['inverted_sz_mb']), 0)
-        env.assertEqual(int(d['num_records']), 0)
-        env.assertEqual(int(d['num_docs']), 0)
+        expected = getInvertedIndexInitialSize_MB([ft])
+        env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
+        env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
 
         env.cmd('FT.DROP idx')
 
