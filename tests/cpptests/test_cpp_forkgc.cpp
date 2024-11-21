@@ -58,7 +58,7 @@ void *cbWrapper(void *args) {
 
   while (true) {
     // sync thread
-    while (fgc->pauseState != FGC_PAUSED_CHILD && fgcArgs->runGc) {
+    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
       usleep(500);
     }
     if (!fgcArgs->runGc) {
