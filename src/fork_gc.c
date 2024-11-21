@@ -878,7 +878,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
-//TODO: test we can hande the case where the term is seleted during the fork
+
   InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
 
   if (idx == NULL) {

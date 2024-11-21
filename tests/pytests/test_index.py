@@ -12,7 +12,6 @@ def test_lazy_index_creation(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     # create index with all fields types
-
     env.expect(
         "FT.CREATE","idx","SCHEMA",
         "t", "TEXT",
@@ -58,7 +57,6 @@ def test_lazy_index_creation_debug_commands(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     # create index with all fields types
-
     env.expect(
         "FT.CREATE","idx","SCHEMA",
         "t", "TEXT",
