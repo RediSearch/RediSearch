@@ -735,8 +735,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Construct the command string
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
-  // TODO: Move to somewhere else?
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
@@ -771,6 +769,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   StrongRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
@@ -779,6 +778,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  StrongRef_Release(strong_ref);
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);
