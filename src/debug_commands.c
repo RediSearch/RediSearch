@@ -354,9 +354,13 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
  * It is safe to use @param n equals to NULL.
  */
 InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n, bool minimal) {
+  InvertedIndexStats invIdxStats = {0};
+  if (!n) {
+    RedisModule_ReplyWithMap(ctx, 0);
+    return invIdxStats;
+  }
   size_t len = 0;
   RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
-  InvertedIndexStats invIdxStats = {0};
 
   if (n->range) {
     RedisModule_ReplyWithLiteral(ctx, "range");

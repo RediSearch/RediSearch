@@ -683,20 +683,20 @@ def getInvertedIndexInitialSize_MB(fields) -> float:
 
     return total_size
 
-def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg=""):
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg="", depth=0):
     d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), exp_num_records, message=msg)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg, depth=depth+1)
 
     if(exp_inv_idx_size != None):
-        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg)
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg, depth=depth+1)
 
-def compare_index_info_dict(env, idx, expected_info_dict, msg=""):
+def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
     d = index_info(env, idx)
     for key, value in expected_info_dict.items():
-        env.assertEqual(float(d[key]), value, message=msg + " failed for info key: " + key)
+        env.assertEqual(float(d[key]), value, message=msg + " failed for info key: " + key, depth=depth+1)
 
 
 # expected info for index that was initialized and *emptied*
-def check_index_info_empty(env, idx, fields, msg="after delete all and gc"):
+def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(fields)
-    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg)
+    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)

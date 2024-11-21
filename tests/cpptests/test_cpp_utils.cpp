@@ -37,15 +37,15 @@ TEST_F(UtilsTest, testDoublesHeap) {
   for (size_t ii = 0; ii < n / 10; ++ii) {
     double_heap_push(heap, (ii * prime) % n);
   }
-  ASSERT_EQ(heap->size, 10);
+  ASSERT_EQ(heap->size, n / 10);
   for (size_t ii = n / 10; ii < n; ++ii) {
     double cur = (ii * prime) % n;
     if (cur < double_heap_peek(heap)) {
       double_heap_replace(heap, cur);
     }
-    ASSERT_EQ(heap->size, 10) << "Expected constant size. size is " << heap->size;
+    ASSERT_EQ(heap->size, n / 10) << "Expected constant size. size is " << heap->size;
   }
-  for (size_t ii = 10; ii > 0; --ii) {
+  for (size_t ii = heap->size; ii > 0; --ii) {
     // Expect the bottom 10 elements in reverse order [9, 8, ..., 0]
     ASSERT_DOUBLE_EQ(double_heap_peek(heap), ii - 1);
     double_heap_pop(heap);
