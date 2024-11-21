@@ -46,7 +46,7 @@ static timespec getTimespecCb(void *) {
 typedef struct {
   void *fgc;
   RefManager *ism;
-  volatile bool *runGc;
+  volatile bool runGc;
 } args_t;
 
 static pthread_t thread;
@@ -58,10 +58,10 @@ void *cbWrapper(void *args) {
 
   while (true) {
     // sync thread
-    while (fgc->pauseState != FGC_PAUSED_CHILD && *fgcArgs->runGc) {
+    while (fgc->pauseState != FGC_PAUSED_CHILD && fgcArgs->runGc) {
       usleep(500);
     }
-    if (!*fgcArgs->runGc) {
+    if (!fgcArgs->runGc) {
       break;
     }
 
@@ -78,7 +78,7 @@ class FGCTest : public ::testing::Test {
   RMCK::Context ctx;
   RefManager *ism;
   ForkGC *fgc;
-  volatile bool runGc;
+  volatile bool *runGc;
 
   void SetUp() override {
     ism = createSpec(ctx);
@@ -88,17 +88,17 @@ class FGCTest : public ::testing::Test {
   }
 
   void runGcThread() {
-    runGc = true;
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
     thread = {0};
     args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-    *args = {.fgc = fgc, .ism = ism, .runGc = &runGc};
+    *args = {.fgc = fgc, .ism = ism, .runGc = true};
+    runGc = &args->runGc;
 
     pthread_create(&thread, NULL, cbWrapper, args);
   }
 
   void TearDown() override {
-    runGc = false;
+    *runGc = false;
     freeSpec(ism);
     // Detach from the gc to make sure we are not stuck on waiting
     // for the pauseState to be changed.
