@@ -278,6 +278,8 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
+
+  // TODO: use DONT_CREATE_INDEX and imitate the reply struct of an empty index.
   const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
@@ -436,6 +438,21 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
   NumericRangeTree_DebugReply(sctx->redisCtx, rt);
 
   end:
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+// FT.DEBUG SPEC_INVIDXES_INFO INDEX_NAME
+DEBUG_COMMAND(SpecInvertedIndexesInfo) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+  START_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+	REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
+	REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
+  END_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1273,6 +1290,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary}, // Print info about an inverted index and each of its blocks.
                                {"NUMIDX_SUMMARY", NumericIndexSummary}, // Quick summary of the numeric index
+                               {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
