@@ -491,12 +491,12 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
   // Atomically set the timedOut field of the ctx
-  __atomic_store_n(&ctx->timedOut, 1, __ATOMIC_RELAXED);
+  __atomic_store_n(&ctx->timedOut, true, __ATOMIC_RELAXED);
 }
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
-  // Set the `timedOut` field to 0
-  __atomic_store_n(&ctx->timedOut, 0, __ATOMIC_RELAXED);
+  // Set the `timedOut` field to false
+  __atomic_store_n(&ctx->timedOut, false, __ATOMIC_RELAXED);
 }
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
