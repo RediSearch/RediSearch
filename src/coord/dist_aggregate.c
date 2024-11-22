@@ -250,7 +250,7 @@ static int getNextReply(RPNet *nc) {
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
-  if (root == MRITERATOR_DONE) {
+  if (root == NULL) {
     // No more replies
     nc->current.root = NULL;
     nc->current.rows = NULL;
@@ -481,11 +481,8 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
-  // the iterator might not be done - some producers might still be sending data, let's wait for
-  // them...
   if (nc->it) {
-    MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
-    MRIterator_Free(nc->it);
+    MRIterator_Release(nc->it);
   }
 
   if (nc->shardsProfile) {
