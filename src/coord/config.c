@@ -50,16 +50,16 @@ CONFIG_GETTER(getClusterTimeout) {
   return sdsfromlonglong(realConfig->timeoutMS);
 }
 
-bool OssGlobalPasswordConfigExists(RedisModuleCtx *ctx) {
+bool ConfigExists(RedisModuleCtx *ctx, const char* confName) {
   RedisModuleCallReply *rep =
-            RedisModule_Call(ctx, "CONFIG", "cc", "GET", "global-password");
+            RedisModule_Call(ctx, "CONFIG", "cc", "GET", confName);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
   if (RedisModule_CallReplyLength(rep) == 2) {
     RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 0);
     if (RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING) {
       size_t len;
       const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-      if (strcmp(valueRepCStr, "global-password") == 0) {
+      if (strcmp(valueRepCStr, confName) == 0) {
         RedisModule_FreeCallReply(rep);
         return true;
       }
@@ -167,6 +167,10 @@ CONFIG_SETTER(setOSSACLUsername) {
   int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
   RETURN_STATUS(acrc);
 }
+
+// acl-username
+CONFIG_API_STRING_SETTER(set_oss_acl_username);
+CONFIG_API_STRING_GETTER(get_oss_acl_username);
 
 // topology-validation-timeout
 int set_topology_validation_timeout(const char *set_topology_validation_timeout,
@@ -289,12 +293,22 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   // between RediSearch and RedisTimeSeries
   // TODO: We need to use REDISMODULE_CONFIG_UNPREFIXED flag here,
   // but it is not available in Redis 7.x
-  if (clusterConfig.type == ClusterType_RedisOSS && !OssGlobalPasswordConfigExists(ctx)) {
+  if (clusterConfig.type == ClusterType_RedisOSS && !ConfigExists(ctx, "global-password")) {
     if (RedisModule_RegisterStringConfig (
           ctx, "global-password", "",
           REDISMODULE_CONFIG_IMMUTABLE, get_oss_global_password,
           set_oss_global_password, NULL,
           (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (clusterConfig.type == ClusterType_RedisOSS && !ConfigExists(ctx, "acl-username")) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "acl-username", DEFAULT_ACL_USERNAME,
+          REDISMODULE_CONFIG_IMMUTABLE, get_oss_acl_username,
+          set_oss_acl_username, NULL,
+          (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
   }
