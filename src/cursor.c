@@ -356,18 +356,3 @@ void CursorList_Empty(CursorList *cl) {
   CursorList_Destroy(cl);
   CursorList_Init(cl, is_coord);
 }
-
-void CursorList_Expire(CursorList *cl) {
-  CursorList_Lock(cl);
-  // Not calling `CursorList_IncrCounter` as we don't want to trigger GC
-
-  uint64_t now = curTimeNs(); // Taking `now` as a signature
-  Cursor *cursor;
-  kh_foreach_value(cl->lookup, cursor, cursor->nextTimeoutNs = MIN(cursor->nextTimeoutNs, now));
-
-  if (now < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
-    cl->nextIdleTimeoutNs = now;
-  }
-
-  CursorList_Unlock(cl);
-}
