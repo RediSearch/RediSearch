@@ -52,11 +52,6 @@
 // Define the getter and setter functions using Module Configurations API
 #define CONFIG_API_ENUM_GETTER(name) int name(const char *name, void *privdata)
 
-#define CONFIG_API_NUMERIC_GETTER(name)            \
-long long name(const char *name, void *privdata) { \
-  return (*(long long *)privdata);                 \
-}
-
 #define CONFIG_API_STRING_GETTER(name)                                  \
 RedisModuleString * name(const char *name, void *privdata) {            \
   char *str = *(char **)privdata;                                       \
@@ -73,13 +68,6 @@ static int name(const char *name, void *privdata) { \
 }
 
 #define CONFIG_API_ENUM_SETTER(name) int name(const char *name, int val, void *privdata, RedisModuleString **err)
-
-#define CONFIG_API_NUMERIC_SETTER(name)             \
-int name(const char *name, long long val,           \
-         void *privdata, RedisModuleString **err) { \
-  *(long long *)privdata = val;                     \
-  return REDISMODULE_OK;                            \
-}
 
 #define CONFIG_API_STRING_SETTER(name) int name(const char *name,           \
             RedisModuleString *val, void *privdata, RedisModuleString **err) { \
