@@ -520,7 +520,7 @@ def testModuleLoadexNumericParams():
     rdbFilePath = os.path.join(dbDir, dbFileName)
     env.stop()
     os.unlink(rdbFilePath)
-    
+
     # Remove modules and args
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
@@ -543,7 +543,7 @@ def testModuleLoadexNumericParams():
         else:
             configValue = str(minValue + 1)
             argValue = str(minValue + 2)
-        
+
         env.assertNotEqual(configValue, str(default))
 
         # Load module using module arguments
@@ -658,7 +658,7 @@ def testClusterConfigFileNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True)  
+@skip(cluster=True)
 def testConfigFileAndArgsNumericParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsNumericParams.conf'
@@ -676,7 +676,7 @@ def testConfigFileAndArgsNumericParams():
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
         moduleArgs += f'{argName} {minValue} '
-    
+
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
         # Skip cluster parameters
@@ -721,7 +721,7 @@ def testModuleLoadexEnumParams():
     rdbFilePath = os.path.join(dbDir, dbFileName)
     env.stop()
     os.unlink(rdbFilePath)
-    
+
     # Remove modules and args
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
@@ -853,6 +853,38 @@ def testConfigAPIRunTimeStringParams():
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
 
+
+@skip(cluster=False)
+def testConfigAPIRunTimeOssGlobalPassword():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search.oss-global-password')\
+        .equal(['search.oss-global-password', 'Password: *******'])
+
+    env.expect('CONFIG', 'SET', 'search.oss-global-password', '123')\
+        .error().contains('CONFIG SET failed')
+
+@skip(cluster=False)
+def testClusterConfigFileOssGlobalPassword():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testClusterConfigFileOssGlobalPassword.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write('search.oss-global-password mySecretPassword\n')
+
+    # Start the server using the conf file
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search.oss-global-password')\
+        .equal(['search.oss-global-password', 'Password: *******'])
+
 @skip(cluster=True)
 def testModuleLoadexStringParams():
     env = Env(noDefaultModuleArgs=True)
@@ -862,7 +894,7 @@ def testModuleLoadexStringParams():
     rdbFilePath = os.path.join(dbDir, dbFileName)
     env.stop()
     os.unlink(rdbFilePath)
-    
+
     # Remove modules and args
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
@@ -957,7 +989,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True)  
+@skip(cluster=True)
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1018,7 +1050,7 @@ booleanConfigs = [
     ('search.partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search._prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search.raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    # # TODO: Confirm if we need to test search._fork-gc-clean-numeric-empty-nodes, 
+    # # TODO: Confirm if we need to test search._fork-gc-clean-numeric-empty-nodes,
     # # because it will be deprecated in  8.0
     # ('search._fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
 ]
@@ -1077,7 +1109,7 @@ def testModuleLoadexBooleanParams():
     rdbFilePath = os.path.join(dbDir, dbFileName)
     env.stop()
     os.unlink(rdbFilePath)
-    
+
     # Remove modules and args
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
@@ -1104,7 +1136,7 @@ def testModuleLoadexBooleanParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-        # `search.partial-indexed-docs` is tested later because 
+        # `search.partial-indexed-docs` is tested later because
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search.partial-indexed-docs':
             continue
@@ -1230,7 +1262,7 @@ def testConfigFileAndArgsBooleanParams():
             moduleArgs += f'{argName} '
         else:
             moduleArgs += f'{argName} {ftDefaultValue} '
-    
+
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
         # the expected value is the opposite of the default value

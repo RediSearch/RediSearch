@@ -50,49 +50,45 @@ CONFIG_GETTER(getClusterTimeout) {
   return sdsfromlonglong(realConfig->timeoutMS);
 }
 
-const char* getGlobalPasswordConfig(RedisModuleCtx *ctx) {
-  RedisModuleCallReply *rep = 
-                RedisModule_Call(ctx, "CONFIG", "cc", "GET", "oss-global-password");
+bool OssGlobalPasswordConfigExists(RedisModuleCtx *ctx) {
+  RedisModuleCallReply *rep =
+            RedisModule_Call(ctx, "CONFIG", "cc", "GET", "oss-global-password");
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  // global-password config does not exist
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
+  if (RedisModule_CallReplyLength(rep) == 2) {
+    RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 0);
+    if (RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING) {
+      size_t len;
+      const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+      if (strcmp(valueRepCStr, "oss-global-password") == 0) {
+        RedisModule_FreeCallReply(rep);
+        return true;
+      }
+    }
   }
-  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
   RedisModule_FreeCallReply(rep);
-
-  return res;
+  return false;
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  const char *globalPasswordConfig = getGlobalPasswordConfig(RSDummyContext);
-  if (globalPasswordConfig) {
-    RedisModule_Log(RSDummyContext, "warning",
-      "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET global-password <password>` instead");
-    return AC_OK;
-  } else {
-    SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-    int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-    RETURN_STATUS(acrc);
-  }
+  RedisModule_Log(RSDummyContext, "warning",
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET oss-global-password <password>` instead");
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGlobalPass) {
-  const char *globalPasswordConfig = getGlobalPasswordConfig(RSDummyContext);
-  if (globalPasswordConfig) {
-    RedisModule_Log(RSDummyContext, "warning",
-      "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET global-password` instead");
-  }
+  RedisModule_Log(RSDummyContext, "warning",
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET oss-global-password` instead");
   return sdsnew("Password: *******");
+}
+
+// oss-global-password
+CONFIG_API_STRING_SETTER(set_oss_global_password);
+
+RedisModuleString * get_oss_global_password(const char *get_oss_global_password,
+                                            void *privdata) {
+  return RedisModule_CreateString(NULL, "Password: *******", 17);
 }
 
 // CONN_PER_SHARD
@@ -287,6 +283,23 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "topology-validation-timeout registered");
+  }
+
+  // Check if oss-global-password is already registered, because it is shared
+  // between RediSearch and RedisTimeSeries
+  // TODO: We need to use REDISMODULE_CONFIG_UNPREFIXED flag here,
+  // but it is not available in Redis 7.x
+  if (clusterConfig.type == ClusterType_RedisOSS && !OssGlobalPasswordConfigExists(ctx)) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "oss-global-password", "",
+          REDISMODULE_CONFIG_IMMUTABLE, get_oss_global_password,
+          set_oss_global_password, NULL,
+          (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "notice", "oss-global-password NOT registered");
+      return REDISMODULE_ERR;
+    } else {
+      RedisModule_Log(ctx, "notice", "oss-global-password registered");
+    }
   }
 
   return REDISMODULE_OK;
