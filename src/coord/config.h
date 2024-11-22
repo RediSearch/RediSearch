@@ -56,6 +56,6 @@ MRClusterType DetectClusterType();
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
 
-// Returns true if `oss-global-password` is registered as configuration parameter
+// Returns true if `global-password` is registered as configuration parameter
 bool OssGlobalPasswordConfigExists(RedisModuleCtx *ctx);
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx);

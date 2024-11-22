@@ -860,10 +860,10 @@ def testConfigAPIRunTimeOssGlobalPassword():
     if env.env != 'oss-cluster':
         env.skip()
 
-    env.expect('CONFIG', 'GET', 'search.oss-global-password')\
-        .equal(['search.oss-global-password', 'Password: *******'])
+    env.expect('CONFIG', 'GET', 'search.global-password')\
+        .equal(['search.global-password', 'Password: *******'])
 
-    env.expect('CONFIG', 'SET', 'search.oss-global-password', '123')\
+    env.expect('CONFIG', 'SET', 'search.global-password', '123')\
         .error().contains('CONFIG SET failed')
 
 @skip(cluster=False)
@@ -875,15 +875,15 @@ def testClusterConfigFileOssGlobalPassword():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        f.write('search.oss-global-password mySecretPassword\n')
+        f.write('search.global-password mySecretPassword\n')
 
     # Start the server using the conf file
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     if env.env != 'oss-cluster':
         env.skip()
 
-    env.expect('CONFIG', 'GET', 'search.oss-global-password')\
-        .equal(['search.oss-global-password', 'Password: *******'])
+    env.expect('CONFIG', 'GET', 'search.global-password')\
+        .equal(['search.global-password', 'Password: *******'])
 
 @skip(cluster=True)
 def testModuleLoadexStringParams():
