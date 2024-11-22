@@ -52,7 +52,18 @@ CONFIG_GETTER(getExtLoad) {
 
 // ext-load
 CONFIG_API_STRING_SETTER(set_ext_load);
-CONFIG_API_STRING_GETTER(get_ext_load);
+
+RedisModuleString* get_ext_load(const char *get_ext_load, void *privdata) {
+  char *str = *(char **)privdata;
+  if (str) {
+    if (config_ext_load) {
+      RedisModule_FreeString(NULL, config_ext_load);
+    }
+    config_ext_load = RedisModule_CreateString(NULL, str, strlen(str));
+    return config_ext_load;
+  }
+  return NULL;
+}
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
@@ -414,7 +425,18 @@ CONFIG_GETTER(getFrisoINI) {
 
 // friso-ini
 CONFIG_API_STRING_SETTER(set_friso_ini);
-CONFIG_API_STRING_GETTER(get_friso_ini);
+
+RedisModuleString * get_friso_ini(const char *get_ext_load, void *privdata) {
+  char *str = *(char **)privdata;
+  if (str) {
+    if (config_friso_ini) {
+      RedisModule_FreeString(NULL, config_friso_ini);
+    }
+    config_friso_ini = RedisModule_CreateString(NULL, str, strlen(str));
+    return config_friso_ini;
+  }
+  return NULL;
+}
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {

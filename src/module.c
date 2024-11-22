@@ -69,6 +69,10 @@ static int DIST_AGG_THREADPOOL = -1;
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
+// Strings returned by CONFIG GET functions
+RedisModuleString *config_ext_load = NULL;
+RedisModuleString *config_friso_ini = NULL;
+
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
@@ -3392,4 +3396,17 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
 
   return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
+    if (config_ext_load) {
+        RedisModule_FreeString(ctx, config_ext_load);
+        config_ext_load = NULL;
+    }
+    if (config_friso_ini) {
+        RedisModule_FreeString(ctx, config_friso_ini);
+        config_friso_ini = NULL;
+    }
+    return REDISMODULE_OK;
 }
