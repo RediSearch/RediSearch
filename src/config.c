@@ -859,6 +859,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
         const char *value = AC_GetStringNC(&ac, NULL);
       }
     }
+    sdsfree(currValue);
+    sdsfree(currValueDefault);
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
   }
