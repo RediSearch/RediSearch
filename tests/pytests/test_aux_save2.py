@@ -124,7 +124,7 @@ def testLoadRdbWithSpellcheckDictAuxDataUsingModules(env: Env):
     res = env.cmd('FT.DICTDUMP', 'dict2')
     env.assertEqual(res, ['foo'])
     env.expect('FT.DICTDEL', 'dict2', 'foo').equal(1)
-    env.expect('FT.DICTDUMP', 'dict2').error().contains('could not open dict')
+    env.expect('FT.DICTDUMP', 'dict2').equal([])
     # Save state to RDB
     env.stop()
     # Restart with modules
@@ -134,5 +134,5 @@ def testLoadRdbWithSpellcheckDictAuxDataUsingModules(env: Env):
     # dict1 should exist
     res = env.cmd('FT.DICTDUMP', 'dict1')
     env.assertEqual(res, ['bar', 'baz', 'hakuna matata'])
-    # dict2 should not exist
-    env.expect('FT.DICTDUMP', 'dict2').error().contains('could not open dict')
+    # dict2 does not exist, but FT.DICTDUMP returns an empty list
+    env.expect('FT.DICTDUMP', 'dict2').equal([])
