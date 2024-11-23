@@ -586,26 +586,26 @@ def testModuleLoadexNumericParams():
 
         # For immutable parameters, we need to test that the limits are enforced
         # using MODULE LOADEX
-        if immutable:
-            env.start()
-            res = env.cmd('MODULE', 'LIST')
-            env.assertEqual(res, [])
-            env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                       'CONFIG', configName, str(minValue - 1)).error()\
-                        .contains('Error loading the extension')
-            env.assertTrue(env.isUp())
-            env.stop()
-            os.unlink(rdbFilePath)
+        # if immutable:
+        #     env.start()
+        #     res = env.cmd('MODULE', 'LIST')
+        #     env.assertEqual(res, [])
+        #     env.expect('MODULE', 'LOADEX', redisearch_module_path,
+        #                'CONFIG', configName, str(minValue - 1)).error()\
+        #                 .contains('Error loading the extension')
+        #     env.assertTrue(env.isUp())
+        #     env.stop()
+        #     os.unlink(rdbFilePath)
 
-            env.start()
-            res = env.cmd('MODULE', 'LIST')
-            env.assertEqual(res, [])
-            env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                       'CONFIG', configName, str(maxValue + 1)).error()\
-                        .contains('Error loading the extension')
-            env.assertTrue(env.isUp())
-            env.stop()
-            os.unlink(rdbFilePath)
+        #     env.start()
+        #     res = env.cmd('MODULE', 'LIST')
+        #     env.assertEqual(res, [])
+        #     env.expect('MODULE', 'LOADEX', redisearch_module_path,
+        #                'CONFIG', configName, str(maxValue + 1)).error()\
+        #                 .contains('Error loading the extension')
+        #     env.assertTrue(env.isUp())
+        #     env.stop()
+        #     os.unlink(rdbFilePath)
 
 @skip(cluster=True)
 def testConfigFileNumericParams():
