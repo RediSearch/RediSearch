@@ -7,8 +7,6 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <stdio.h>
-#include <assert.h>
 
 typedef struct chanItem {
   void *ptr;
@@ -97,7 +95,6 @@ void *MRChannel_Pop(MRChannel *chan) {
   }
 
   chanItem *item = chan->head;
-  assert(item);
   chan->head = item->next;
   // empty queue...
   if (!chan->head) chan->tail = NULL;
