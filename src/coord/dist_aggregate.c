@@ -74,9 +74,6 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
-    if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-      RedisModule_Log(RSDummyContext, "warning", "Error returned for CURSOR.DEL command from shard");
-    }
     // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
