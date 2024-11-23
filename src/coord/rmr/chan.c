@@ -93,8 +93,7 @@ void *MRChannel_Pop(MRChannel *chan) {
       pthread_mutex_unlock(&chan->lock);
       return NULL;
     }
-    int rc = pthread_cond_wait(&chan->cond, &chan->lock);
-    assert(rc == 0 && "cond_wait failed");
+    pthread_cond_wait(&chan->cond, &chan->lock);
   }
 
   chanItem *item = chan->head;
