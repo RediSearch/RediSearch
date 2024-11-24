@@ -51,7 +51,7 @@ def test_lazy_index_creation(env):
     expected_reply = validate_spec_invidx_info(env, expected_reply, "query tag")
 
     vec = np.random.rand(2).astype(np.float32).tobytes()
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @v $vec_param]',
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @vec $vec_param]',
             'PARAMS', 2, 'vec_param', vec).equal([0])
     expected_reply = validate_spec_invidx_info(env, expected_reply, "query vector")
 
