@@ -23,6 +23,7 @@
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "redis_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -75,7 +76,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->name);
     if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
@@ -578,7 +579,7 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 FIELD_BULK_INDEXER(numericIndexer) {
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(ctx, keyName);
+  NumericRangeTree *rt = openNumericKeysDict(ctx->spec, keyName, CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
     return -1;
@@ -943,7 +944,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }

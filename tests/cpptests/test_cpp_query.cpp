@@ -108,11 +108,11 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(2, "\"$hello\"");
 
   // difference between `expr` and `text_expr` were introduced in version 2
-  assertValidQuery_v(1, "@title:@num:[0 10]");
-  assertValidQuery_v(1, "@title:(@num:[0 10])");
+  assertValidQuery_v(1, "@title:@bar:[0 10]");
+  assertValidQuery_v(1, "@title:(@bar:[0 10])");
   assertValidQuery_v(1, "@t1:@t2:@t3:hello");
-  assertInvalidQuery_v(2, "@title:@num:[0 10]");
-  assertInvalidQuery_v(2, "@title:(@num:[0 10])");
+  assertInvalidQuery_v(2, "@title:@bar:[0 10]");
+  assertInvalidQuery_v(2, "@title:(@bar:[0 10])");
   assertInvalidQuery_v(2, "@t1:@t2:@t3:hello");
 
   // minor bug in v1
@@ -129,15 +129,15 @@ TEST_F(QueryTest, testParser_delta) {
   assertInvalidQuery_v(1, "*=>[KNN $K @vec_field $BLOB foo bar x 5]");
 
   // NEGATION used between the colon and the term
-  assertValidQuery_v(1, "@foo:-as");
-  assertValidQuery_v(2, "@foo:-as");
-  assertValidQuery_v(1, "-@foo:as");
-  assertValidQuery_v(2, "-@foo:as");
+  assertValidQuery_v(1, "@body:-as");
+  assertValidQuery_v(2, "@body:-as");
+  assertValidQuery_v(1, "-@body:as");
+  assertValidQuery_v(2, "-@body:as");
 
   assertValidQuery_v(1,"hello world&good");
   assertValidQuery_v(2,"hello world&good");
 
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testParser_v1) {
@@ -192,8 +192,8 @@ TEST_F(QueryTest, testParser_v1) {
   assertInvalidQuery("@body:@title:", ctx);
   assertInvalidQuery("@body|title:@title:", ctx);
   assertInvalidQuery("@body|title", ctx);
-  assertValidQuery("@title:@num:[0 10]", ctx);
-  assertValidQuery("@title:(@num:[0 10])", ctx);
+  assertValidQuery("@title:@bar:[0 10]", ctx);
+  assertValidQuery("@title:(@bar:[0 10])", ctx);
   assertValidQuery("@t1:@t2:@t3:hello", ctx);
   assertValidQuery("@t1|t2|t3:hello", ctx);
   assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
@@ -223,15 +223,15 @@ TEST_F(QueryTest, testParser_v1) {
   assertInvalidQuery("@loc:[50 50 1 1])", ctx);
   assertInvalidQuery("@loc:[50 50 1])", ctx);
   // numeric
-  assertValidQuery("@number:[100 200]", ctx);
-  assertValidQuery("@number:[100 -200]", ctx);
-  assertValidQuery("@number:[(100 (200]", ctx);
-  assertValidQuery("@number:[100 inf]", ctx);
-  assertValidQuery("@number:[100 -inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
+  assertValidQuery("@bar:[100 200]", ctx);
+  assertValidQuery("@bar:[100 -200]", ctx);
+  assertValidQuery("@bar:[(100 (200]", ctx);
+  assertValidQuery("@bar:[100 inf]", ctx);
+  assertValidQuery("@bar:[100 -inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]|@bar:[100 200]", ctx);
 
-  assertInvalidQuery("@number:[100 foo]", ctx);
+  assertInvalidQuery("@bar:[100 foo]", ctx);
 
   // Tag queries
   assertValidQuery("@tags:{foo}", ctx);
@@ -276,12 +276,12 @@ TEST_F(QueryTest, testParser_v1) {
   assertValidQuery("@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}", ctx);
   assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
   assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
-  assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);
-  assertValidQuery("@num:[0 100] => {$weight: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$weight: -0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+  assertValidQuery("@tags:{foo | bar} => {$weight: 0.5;} ", ctx);
+  assertValidQuery("@bar:[0 100] => {$weight: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$weight: -0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great:;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
 
   assertValidQuery("@title:((hello world)|((hello world)|(hallo world|werld) | hello world werld))", ctx);
@@ -329,14 +329,19 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testParser_v2) {
   RedisSearchCtx ctx;
   static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
                                "body",    "text",  "weight", "2.0",    "bar",
-                               "numeric", "loc",   "geo",    "tags",   "tag"};
+                               "numeric", "loc",   "geo",    "tags",   "tag",
+                               "שלום",     "text",  "Business:- Name",  "text",
+                               "vec_field", "vector", "HNSW", "6", "type", "float32", "dim", "4", "distance_metric", "cosine",
+                               "v", "vector", "FLAT", "6", "type", "float64", "dim", "42", "distance_metric", "L2",
+                               "v2", "vector", "HNSW", "6", "type", "float16", "dim", "46", "distance_metric", "cosine",
+                               "KNN", "vector", "FLAT", "6", "type", "bfloat16", "dim", "46", "distance_metric", "cosine",};
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
@@ -368,14 +373,16 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("hello|hallo|yellow world", ctx);
   assertValidQuery("(hello|world|foo) bar baz 123", ctx);
   assertValidQuery("(hello|world|foo) (bar baz)", ctx);
-  assertValidQuery("@a:foo (@b:bar (@c:baz @d:gaz))", ctx);
+  assertInvalidQuery("@a:foo (@b:bar (@c:baz @d:gaz))", ctx);             // Unknown fields
+  assertValidQuery("@title:foo (@body:bar (@body:baz @title:gaz))", ctx); // Same query with known fields
   assertValidQuery("(hello world|foo \"bar baz\") \"bar baz\" bbbb", ctx);
   assertValidQuery("@title:(barack obama)  @body:us|president", ctx);
-  assertValidQuery("@ti_tle:barack obama  @body:us", ctx);
+  assertInvalidQuery("@ti_tle:barack obama  @body:us", ctx);  // Unknown field
+  assertValidQuery("@title:barack obama  @body:us", ctx);     // Known fields
   assertValidQuery("@title:barack @body:obama", ctx);
-  assertValidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx);
+  assertInvalidQuery("@tit_le|bo_dy:barack @body|title|url|something_else:obama", ctx); // Unknown fields
   assertValidQuery("hello world&good+bye foo.bar", ctx);
-  assertValidQuery("@BusinessName:\"Wells Fargo Bank, National Association\"", ctx);
+  assertValidQuery("@title:\"Wells Fargo Bank, National Association\"", ctx);
 
   // escaping and unicode in field names
   assertValidQuery("@Business\\:\\-\\ Name:Wells Fargo", ctx);
@@ -390,7 +397,7 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("@title:@num:[0 10]", ctx);
   assertInvalidQuery("@title:(@num:[0 10])", ctx);
   assertInvalidQuery("@t1:@t2:@t3:hello", ctx);
-  assertValidQuery("@t1|t2|t3:hello", ctx);
+  assertValidQuery("@title|body|שלום:hello", ctx);
   assertValidQuery("@title:(hello=>{$phonetic: true} world)", ctx);
   assertValidQuery("hello ~world ~war", ctx);
   assertValidQuery("hello ~(world war)", ctx);
@@ -418,15 +425,15 @@ TEST_F(QueryTest, testParser_v2) {
   assertInvalidQuery("@loc:[50 50 1 1])", ctx);
   assertInvalidQuery("@loc:[50 50 1])", ctx);
   // numeric
-  assertValidQuery("@number:[100 200]", ctx);
-  assertValidQuery("@number:[100 -200]", ctx);
-  assertValidQuery("@number:[(100 (200]", ctx);
-  assertValidQuery("@number:[100 inf]", ctx);
-  assertValidQuery("@number:[100 -inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]", ctx);
-  assertValidQuery("@number:[-inf +inf]|@number:[100 200]", ctx);
+  assertValidQuery("@bar:[100 200]", ctx);
+  assertValidQuery("@bar:[100 -200]", ctx);
+  assertValidQuery("@bar:[(100 (200]", ctx);
+  assertValidQuery("@bar:[100 inf]", ctx);
+  assertValidQuery("@bar:[100 -inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]", ctx);
+  assertValidQuery("@bar:[-inf +inf]|@bar:[100 200]", ctx);
 
-  assertInvalidQuery("@number:[100 foo]", ctx);
+  assertInvalidQuery("@bar:[100 foo]", ctx);
 
   // Tag queries
   assertValidQuery("@tags:{foo}", ctx);
@@ -456,7 +463,7 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("no-as", ctx);
   assertValidQuery("~no~as", ctx);
   assertValidQuery("(no -as) =>{$weight: 0.5}", ctx);
-  assertValidQuery("@foo:-as", ctx);
+  assertValidQuery("@title:-as", ctx);
 
   // test utf-8 query
   assertValidQuery("שלום עולם", ctx);
@@ -472,12 +479,12 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}", ctx);
   assertValidQuery("(foo => {$weight: 0.5;}) | ((bar) => {$weight: 0.5})", ctx);
   assertValidQuery("(foo => {$weight: 0.5;})  ((bar) => {}) => {}", ctx);
-  assertValidQuery("@tag:{foo | bar} => {$weight: 0.5;} ", ctx);
-  assertValidQuery("@num:[0 100] => {$weight: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$weight: -0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great: 0.5;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$great:;} ", ctx);
-  assertInvalidQuery("@tag:{foo | bar} => {$:1;} ", ctx);
+  assertValidQuery("@tags:{foo | bar} => {$weight: 0.5;} ", ctx);
+  assertValidQuery("@bar:[0 100] => {$weight: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$weight: -0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great: 0.5;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$great:;} ", ctx);
+  assertInvalidQuery("@tags:{foo | bar} => {$:1;} ", ctx);
   assertInvalidQuery(" => {$weight: 0.5;} ", ctx);
   // Vector attributes are invalid for non-vector queries.
   assertInvalidQuery("@title:(foo bar) => {$ef_runtime: 100;}", ctx);
@@ -530,8 +537,8 @@ TEST_F(QueryTest, testParser_v2) {
 
   assertValidQuery("hello=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(hello|world)=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("@hello:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
-  assertValidQuery("(@tit_le|bo_dy:barack @body|title|url|something_else:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("@bar:[0 10]=>[KNN 10 @vec_field $BLOB]", ctx);
+  assertValidQuery("(@title|body:barack @body|title:obama)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(-hello ~world ~war)=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("@tags:{bar* | foo}=>[KNN 10 @vec_field $BLOB]", ctx);
   assertValidQuery("(no -as) => {$weight: 0.5} => [KNN 10 @vec_field $BLOB]", ctx);
@@ -558,10 +565,10 @@ TEST_F(QueryTest, testParser_v2) {
   assertValidQuery("@v:[VECTOR_RANGE $r $BLOB]=>{$epsilon: 0.01; $yield_distance_as: V_SCORE;}", ctx);
 
   // Complex queries with range
-  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo OR bar", ctx);
-  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo) => { $weight: 2.0 }", ctx);
-  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
-  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @text:foo) => [KNN 5 @v $BLOB2]", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar", ctx);
+  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => { $weight: 2.0 }", ctx);
+  assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
+  assertValidQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => [KNN 5 @v $BLOB2]", ctx);
   assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
   assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
   assertValidQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
@@ -629,7 +636,7 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testVectorHybridQuery) {
@@ -667,7 +674,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -686,7 +693,7 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_EQ(n->type, QN_NOT);
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testGeoQuery_v1) {
@@ -705,12 +712,12 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->property, "loc");
+  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testGeoQuery_v2) {
@@ -731,12 +738,12 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->property, "loc");
+  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testFieldSpec_v1) {
@@ -783,7 +790,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   // ASSERT_EQ(n->children[2]->fieldMask, 0x00)
 
   // test numeric ranges
-  qt = "@num:[0.4 (500]";
+  qt = "@bar:[0.4 (500]";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_NUMERIC);
@@ -791,7 +798,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testFieldSpec_v2) {
@@ -827,6 +834,8 @@ TEST_F(QueryTest, testFieldSpec_v2) {
 
   // test field modifiers
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
+  ASSERT_FALSE(ast.parse(qt, ver)) << ast.getError(); // unknown field
+  qt = "@title:(hello world) @body:(world apart) @body:fofofof";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   n = ast.root;
   //printf("%s ====> ", qt);
@@ -836,11 +845,11 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(QueryNode_NumChildren(n), 3);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
   ASSERT_EQ(n->children[1]->opts.fieldMask, 0x02);
-  ASSERT_EQ(n->children[2]->opts.fieldMask, 0x00);
+  ASSERT_EQ(n->children[2]->opts.fieldMask, 0x02);
   // ASSERT_EQ(n->children[2]->fieldMask, 0x00)
 
   // test numeric ranges
-  qt = "@num:[0.4 (500]";
+  qt = "@bar:[0.4 (500]";
   ASSERT_TRUE(ast.parse(qt, ver)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_NUMERIC);
@@ -848,7 +857,7 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testAttributes) {
@@ -871,7 +880,7 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(QueryNode_NumChildren(n), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testTags) {
@@ -899,7 +908,7 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 TEST_F(QueryTest, testWildcard) {
@@ -923,5 +932,5 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_EQ(5, n->verb.tok.len);
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }

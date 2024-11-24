@@ -424,7 +424,8 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
@@ -650,6 +651,12 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
  * sp->terms and sp->suffix Tries.
  */
 size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+
+/**
+ * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
+ * numeric tree structs.
+ */
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
