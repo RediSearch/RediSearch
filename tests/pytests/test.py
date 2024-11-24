@@ -4339,35 +4339,37 @@ def test_incompatibleIndex(env):
     """Tests that we get an error if we try to query an index with a different
     schema than the one used in the query"""
 
-    conn = env.getClusterConnectionIfNeeded()
+    # Connect to two shards
+    first_conn = env.getConnection(0)
+    second_conn = env.getConnection()
 
     # Create an index
     index_name = 'idx'
-    res = conn.execute_command('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC')
-    env.assertEqual(res, 'OK')
+    env.expect('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC').ok()
 
     # Connect to a shard, and create an index with a different schema, but
     # the same name
-    shard_conn = env.getConnection(0)
-    res = shard_conn.execute_command('_FT.DROPINDEX', index_name)
+    res = first_conn.execute_command('_FT.DROPINDEX', index_name)
     env.assertEqual(res, 'OK')
-    res = shard_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
+    res = first_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
     env.assertEqual(res, 'OK')
 
     # Query via the cluster connection, such that we will get the mismatch error
     commands = [
         ['FT.SEARCH', index_name, '*'],
         ['FT.AGGREGATE', index_name, '*', 'LOAD', '*'],
-        # ['FT.PROFILE', index_name, 'SEARCH', 'QUERY', '*'],
-        # ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*'],
+        ['FT.PROFILE', index_name, 'SEARCH', 'QUERY', '*'],
+        ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*'],
         # ['FT.SYNUPDATE', '...'],
         # ['FT.SYNADD', '...'],
         # ['FT.SYNDUMP', '...'],
         # ['FT.SPELLCHECK', '...'],
     ]
+
+    # Run commands on second shard (different index prefixes -> error)
     for command in commands:
         try:
-            conn.execute_command(*command)
+            second_conn.execute_command(*command)
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
