@@ -231,8 +231,9 @@ RSExpr *ExprAST_Parse(HiddenString* expr, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!QueryError_HasError(status), "Query has error")
 
-  const char* raw = HiddenString_GetUnsafe(expr, NULL);
-  RSExpr *ret = RSExpr_Parse(raw, strlen(raw), &errtmp);
+  size_t length = 0;
+  const char* raw = HiddenString_GetUnsafe(expr, &length);
+  RSExpr *ret = RSExpr_Parse(raw, length, &errtmp);
   if (!ret) {
     QueryError_SetError(status, QUERY_EEXPR, errtmp);
   }
