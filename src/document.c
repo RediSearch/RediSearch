@@ -631,7 +631,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorKeysDict(sp, keyName, CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(sp, keyName, CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
     return -1;

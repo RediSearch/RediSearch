@@ -354,6 +354,6 @@ def testSpecIndexesInfo(env: Env):
     expected_reply["inverted_indexes_dict_size"] = 1
 
     # assuming the document doesn't exceed the initial block size
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(['NUMERIC'])
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)

@@ -109,7 +109,7 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex);
 

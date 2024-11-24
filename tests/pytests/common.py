@@ -670,7 +670,7 @@ def cmd_assert(env, cmd, res, message=None):
     env.assertEqual(db_res, res, message=message)
 
 # fields should be in capital letters
-def getInvertedIndexInitialSize(fields):
+def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
@@ -678,31 +678,31 @@ def getInvertedIndexInitialSize(fields):
             initial_block_cap = 6
             inverted_index_meta_data = 48
             total_size += (block_size + initial_block_cap + inverted_index_meta_data)
-        elif field not in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR']:
-            raise ValueError(f'Field {field} is not supported')
+            continue
+        env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
 
     return total_size
 
 # fields should be in capital letters
-def getInvertedIndexInitialSize_MB(fields) -> float:
-    return getInvertedIndexInitialSize(fields) / float(1024 * 1024)
+def getInvertedIndexInitialSize_MB(env, fields, depth=0) -> float:
+    return getInvertedIndexInitialSize(env, fields, depth=depth+1) / float(1024 * 1024)
 
-def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg=""):
+def check_index_info(env, idx, exp_num_records, exp_inv_idx_size, msg="", depth=0):
     d = index_info(env, idx)
-    env.assertEqual(float(d['num_records']), exp_num_records, message=msg)
+    env.assertEqual(float(d['num_records']), exp_num_records, message=msg + ", num_records", depth=depth+1)
 
     if(exp_inv_idx_size != None):
-        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg)
+        env.assertEqual(float(d['inverted_sz_mb']), exp_inv_idx_size, message=msg + ", inverted_sz_mb", depth=depth+1)
 
 # Iterates items in d1 and compare their keys[value] with d2
 # asserts when a key is missing in d2
 # For simplicity, all values are compared as floats
-def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _assert=True):
+def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _assert=True, depth=0):
     for key, value in d1.items():
         try:
             res = float(d2[key]) == float(value)
             if _assert:
-                env.assertTrue(res, message=msg + " value is different in key: " + key)
+                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
             else:
                 if res == False:
                     return False
@@ -713,11 +713,11 @@ def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _asse
                 raise KeyError
     return True
 
-def compare_index_info_dict(env, idx, expected_info_dict, msg=""):
+def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
     d = index_info(env, idx)
-    compare_numeric_dicts(env, expected_info_dict, d, "expected_info_dict", "index_info", msg)
+    compare_numeric_dicts(env, expected_info_dict, d, "expected_info_dict", "index_info", msg, depth=depth+1)
 
 # expected info for index that was initialized and *emptied*
-def check_index_info_empty(env, idx, fields, msg="after delete all and gc"):
-    expected_size = getInvertedIndexInitialSize_MB(fields)
-    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg)
+def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
+    expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
+    check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
