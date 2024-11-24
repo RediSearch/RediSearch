@@ -10,7 +10,7 @@ activate_venv() {
 		echo "source venv/bin/activate" >> ~/.zshrc
 	else
 		echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
-		echo "source $PWD/venv/bin/activate" >>  /etc/profile
+		echo "source $PWD/venv/bin/activate" >>  ~/.profile
 	fi
 }
 
