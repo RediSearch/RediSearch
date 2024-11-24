@@ -3,7 +3,8 @@ import time
 from itertools import chain
 
 from common import *
-
+def testOmer(env):
+    env.cmd('ping')
 @skip(cluster=True)
 def testExpireIndex(env):
     # temporary indexes
