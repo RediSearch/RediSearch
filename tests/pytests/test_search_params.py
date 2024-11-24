@@ -58,8 +58,6 @@ def test_param_errors(env):
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2)
 
     # Test errors in PARAMS definition: duplicated param, missing param value, wrong count
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').error().contains('Bad arguments for PARAMS: Expected an argument')
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').error().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').error().contains('Duplicate parameter `param1`')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '3').error()
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS').error()

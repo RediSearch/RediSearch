@@ -2879,7 +2879,7 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
@@ -3151,7 +3151,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     rm_free(sCmdCtx);
     // Reply with error
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
   }
   sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
 

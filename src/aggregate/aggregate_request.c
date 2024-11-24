@@ -333,11 +333,8 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     // Set the offset of the prefixes in the query, for further processing later
     req->prefixesOffset = ac->offset - 1;
 
-    // Advance by 1 to get to the number of prefixes
-    // Advance by the number of prefixes
+    // Advance by the number of prefixes + 1 (for the n_prefixes argument)
     long advance_by = strtol((const char *)AC_CURRENT(ac), NULL, 10);
-
-    // 1 extra for the n_prefixes argument
     AC_AdvanceBy(ac, advance_by + 1);
   } else {
     return ARG_UNKNOWN;

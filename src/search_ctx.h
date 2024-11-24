@@ -39,7 +39,6 @@ typedef struct {
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
-  // TODO: Remove key_
   RedisModuleKey *key_;
   IndexSpec *spec;
   uint64_t specId;  // Unique id of the spec; used when refreshing

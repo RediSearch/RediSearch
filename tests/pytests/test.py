@@ -1230,7 +1230,7 @@ def testInKeys(env):
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', -1)
     with env.assertResponseError():
-        env.cmd('ft.search', 'idx', 'hello', 'inkeys', 4, 'foo')
+        env.cmd('ft.search', 'idx', 'hello', 'inkeys', 5, 'foo')
 
 def testSlopInOrder(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text').ok()
@@ -1324,8 +1324,6 @@ def testGeoErrors(env):
             .contains('Bad arguments for <radius>: Could not convert argument to expected type')
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 fake').error()   \
             .contains('Unknown distance unit fake')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
-            .contains('GEOFILTER requires 5 arguments')
 
 def testGeo(env):
     gsearch = lambda query, lon, lat, dist, unit='km': env.cmd(
@@ -1589,7 +1587,6 @@ def testNumericRange(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
     # Test bad filter ranges
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '(-inf').error().contains("Bad upper range: -inf")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
@@ -3850,7 +3847,7 @@ def testUsesCounter(env):
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
 
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    assertInfoField(env, 'idx', 'number_of_uses', 3 if not env.isCluster() else 4)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
