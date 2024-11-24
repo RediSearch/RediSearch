@@ -132,30 +132,3 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
 
   return REDISMODULE_OK;
 }
-
-/*
-int isWithinRadius(double center, double point, double radius, double *distance) {
-  double xyCenter[2], xyPoint[2];
-  decodeGeo(center, xyCenter);
-  decodeGeo(point, xyPoint);
-  return isWithinRadiusLonLat(xyCenter[0], xyCenter[1], xyPoint[0], xyPoint[1],
-                                    radius, distance);
-}
-
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
-  GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
-  calcRanges(gf, ranges);
-
-  int iterCount = 0;
-  IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
-  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
-    if (ranges[ii].min != ranges[ii].max) {
-      NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
-      iters[iterCount++] = NewNumericFilterIterator(NULL, filt, NULL);
-    }
-  }
-  iters = rm_realloc(iters, iterCount * sizeof(*iters));
-  IndexIterator *it = NewUnionIterator(iters, iterCount, 1, 1);
-  return it;
-}*/
-

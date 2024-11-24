@@ -25,7 +25,7 @@ void RSQuery_Parse_v2(void *yyp, int yymajor, QueryToken yyminor, QueryParseCtx 
 void *RSQuery_ParseAlloc_v2(void *(*mallocProc)(size_t));
 void RSQuery_ParseFree_v2(void *p, void (*freeProc)(void *));
 
-int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok, 
+int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       QueryParseCtx *q, const char *ts, const char *te, char c1,
       unsigned int opLen) {
     tok.len = te - (ts + 1);
@@ -73,7 +73,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     tok.s = start2;
     int is_attr = (*(tok.s) == '$') ? 1 : 0;
     tok.len = (te - start2) + 1 - is_attr;
-    
+
     if(is_attr) {
       tok.s++;
       // Remove trailing spaces from attribute
@@ -142,7 +142,7 @@ ismissing = 'ismissing'i $1;
 
 main := |*
 
-  size => { 
+  size => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -153,7 +153,7 @@ main := |*
       fbreak;
     }
   };
-  number => { 
+  number => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
@@ -237,7 +237,7 @@ main := |*
       fbreak;
     }
   };
-  inf => { 
+  inf => {
     tok.pos = ts-q->raw;
     tok.s = ts;
     tok.len = te-ts;
@@ -260,19 +260,19 @@ main := |*
 
   quote => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, QUOTE, tok, q);  
+    RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  or => { 
+  or => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, OR, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  lp => { 
+  lp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, LP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -280,7 +280,7 @@ main := |*
     }
   };
 
-  rp => { 
+  rp => {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, RP, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -301,14 +301,14 @@ main := |*
       fbreak;
     }
   };
-   colon => { 
+   colon => {
      tok.pos = ts-q->raw;
      RSQuery_Parse_v2(pParser, COLON, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
    };
-    semicolon => { 
+    semicolon => {
      tok.pos = ts-q->raw;
      RSQuery_Parse_v2(pParser, SEMICOLON, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -316,16 +316,16 @@ main := |*
     }
    };
 
-  minus =>  { 
+  minus =>  {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, MINUS, tok, q);  
+    RSQuery_Parse_v2(pParser, MINUS, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
   };
-  tilde => { 
+  tilde => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, TILDE, tok, q);  
+    RSQuery_Parse_v2(pParser, TILDE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -344,24 +344,24 @@ main := |*
       fbreak;
     }
   };
-  lsqb => { 
+  lsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, LSQB, tok, q);  
+    RSQuery_Parse_v2(pParser, LSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    }  
+    }
   };
-  rsqb => { 
+  rsqb => {
     tok.pos = ts-q->raw;
-    RSQuery_Parse_v2(pParser, RSQB, tok, q);   
+    RSQuery_Parse_v2(pParser, RSQB, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
-    } 
+    }
   };
   space;
   punct;
   cntrl;
-  
+
   ismissing => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -402,7 +402,7 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, PREFIX, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -416,7 +416,7 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, PREFIX, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -431,7 +431,7 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -445,7 +445,7 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, SUFFIX, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -460,7 +460,7 @@ main := |*
     tok.pos = ts-q->raw;
 
     RSQuery_Parse_v2(pParser, CONTAINS, tok, q);
-    
+
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
@@ -505,7 +505,7 @@ main := |*
       fbreak;
     }
   };
-  
+
 *|;
 }%%
 
@@ -514,20 +514,20 @@ main := |*
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   void *pParser = RSQuery_ParseAlloc_v2(rm_malloc);
 
-  
+
   int cs, act;
   const char* ts = q->raw;          // query start
   const char* te = q->raw + q->len; // query end
   %% write init;
   QueryToken tok = {.len = 0, .pos = 0, .s = 0, .sign = 1};
-  
+
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;
   const char* pe = q->raw + q->len;
   const char* eof = pe;
-  
+
   %% write exec;
-  
+
   if (QPCTX_ISOK(q)) {
     RSQuery_Parse_v2(pParser, 0, tok, q);
   }
@@ -538,4 +538,3 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   }
   return q->root;
 }
-

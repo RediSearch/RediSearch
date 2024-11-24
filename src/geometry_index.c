@@ -13,7 +13,6 @@
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
     rm_free((void *)geomq->str);
-    rm_free((void *)geomq->attr);
   }
   rm_free(geomq);
 }
@@ -49,9 +48,6 @@ static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleStr
 
 GeometryIndex *OpenGeometryIndex(IndexSpec *spec, const FieldSpec *fs, bool create_if_missing) {
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_GEOMETRY);
-  if (!keyName) {
-    return NULL;
-  }
   return openGeometryKeysDict(spec, keyName, create_if_missing, fs);
 }
 
