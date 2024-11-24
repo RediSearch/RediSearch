@@ -657,13 +657,8 @@ def get_TLS_args():
 # Use FT.* command to make sure that the module is loaded and initialized
 def verify_shard_init(shard):
     with TimeLimit(5, 'Failed to verify shard initialization'):
-        while True:
-            try:
-                shard.execute_command('FT.SEARCH', 'non-existing', '*')
-                raise Exception('Expected FT.SEARCH to fail')
-            except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
-                    break
+        shard.execute_command('FT.CREATE', 'idx' ,'SCHEMA', 't', 'TEXT')
+        shard.execute_command('FT.DROPINDEX', 'idx')
 
 def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)

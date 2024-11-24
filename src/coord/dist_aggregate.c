@@ -540,6 +540,17 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
 
+  // Add the index prefixes to the command, for validation in the shard
+  array_append(tmparr, "_INDEX_PREFIXES");
+  arrayof(sds) prefixes = sp->rule->prefixes;
+  char *n_prefixes;
+  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  array_append(tmparr, n_prefixes);
+  for (uint i = 0; i < array_len(prefixes); i++) {
+    // MRCommand_Append(xcmd, prefixes[i], sdslen(prefixes[i]));
+    array_append(tmparr, (const char *)prefixes[i]);
+  }
+
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     array_append(tmparr, "DIALECT");
@@ -592,20 +603,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     MRCommand_AppendRstr(xcmd, argv[timeout_index + 4 + profileArgs]);
   }
 
-  // Add the index prefixes to the command, for validation in the shard
-  MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
-  arrayof(sds) prefixes = sp->rule->prefixes;
-  char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
-  rm_free(n_prefixes);
-
-  for (uint i = 0; i < array_len(prefixes); i++) {
-    MRCommand_Append(xcmd, prefixes[i], sdslen(prefixes[i]));
-  }
-
   MRCommand_SetPrefix(xcmd, "_FT");
 
+  rm_free(n_prefixes);
   array_free(tmparr);
 }
 

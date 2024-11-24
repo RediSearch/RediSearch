@@ -4319,12 +4319,16 @@ def test_incompatibleIndex(env):
     index_name = 'idx'
     env.expect('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC').ok()
 
-    # Connect to a shard, and create an index with a different schema, but
-    # the same name
-    res = first_conn.execute_command('_FT.DROPINDEX', index_name)
-    env.assertEqual(res, 'OK')
-    res = first_conn.execute_command('_FT.CREATE', index_name, 'PREFIX', '1', 'k:', 'SCHEMA', 'n', 'NUMERIC')
-    env.assertEqual(res, 'OK')
+
+    def modify_index(conn, index_name, prefixes):
+        # Connect to a shard, and create an index with a different schema, but
+        # the same name
+        res = conn.execute_command('_FT.DROPINDEX', index_name)
+        env.assertEqual(res, 'OK')
+        res = conn.execute_command('_FT.CREATE', index_name, 'PREFIX', len(prefixes), *prefixes, 'SCHEMA', 'n', 'NUMERIC')
+        env.assertEqual(res, 'OK')
+
+    modify_index(first_conn, index_name, ['k:'])
 
     # Query via the cluster connection, such that we will get the mismatch error
     commands = [
@@ -4338,6 +4342,16 @@ def test_incompatibleIndex(env):
         # ['FT.SPELLCHECK', '...'],
     ]
 
+    # Run commands on second shard (different index prefixes -> error)
+    for command in commands:
+        try:
+            second_conn.execute_command(*command)
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
+
+    # Also for an index with a different amount of prefixes
+    modify_index(first_conn, index_name, ['h:', 'k:'])
     # Run commands on second shard (different index prefixes -> error)
     for command in commands:
         try:
