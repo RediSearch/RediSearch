@@ -26,6 +26,6 @@ echo "pip path: $(which pip)"
 pip install pipenv
 
 pipenv install -r tests/pytests/requirements.txt
-
+pipenv install --dev
 # List installed packages
 pip list
