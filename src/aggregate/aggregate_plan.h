@@ -118,9 +118,9 @@ typedef struct {
 
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
-    const char *name;  // Name of function
+    const char *name;    // Name of function
     HiddenString *alias; // Output key
-    bool hideReducer;  // If the output key is hidden. Used by the coordinator
+    bool hideReducer;    // If the output key is hidden. Used by the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
