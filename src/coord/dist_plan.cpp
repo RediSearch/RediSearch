@@ -21,6 +21,14 @@ static const char *stripAtPrefix(const char *s) {
   return s;
 }
 
+static const char* makeCString(const char* s) {
+  return s;
+}
+
+static const char* makeCString(HiddenString* hs) {
+  return HiddenString_GetUnsafe(hs, NULL);
+}
+
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -48,7 +56,7 @@ struct ReducerDistCtx {
     return args;
   }
 
-  bool add(PLN_GroupStep *gstp, const char *name, HiddenString **alias, QueryError *status, ArgsCursor *cargs) {
+  bool basicAdd(PLN_GroupStep *gstp, const char *name, HiddenString **alias, QueryError *status, ArgsCursor *cargs) {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
@@ -61,15 +69,16 @@ struct ReducerDistCtx {
   template <typename... T>
   bool add(PLN_GroupStep *gstp, const char *name, HiddenString **alias, QueryError *status,
            T... uargs) {
-    ArgsCursorCXX args(uargs...);
+    ArgsCursorCXX args(makeCString(uargs)...);
     ArgsCursor *cargs = copyArgs(&args);
-    return add(gstp, name, alias, status, cargs);
+    return basicAdd(gstp, name, alias, status, cargs);
   }
 
   template <typename... T>
-  bool addLocal(const char *name, QueryError *status, T... uargs) {
-    return add(localGroup, name, NULL, status, uargs...);
+  bool addLocal(const char *name, QueryError *status, const char* first, T... uargs) {
+    return add(localGroup, name, NULL, status, first, uargs...);
   }
+
   template <typename... T>
   bool addRemote(const char *name, HiddenString **alias, QueryError *status, T... uargs) {
     ArgsCursorCXX args(uargs...);
@@ -83,7 +92,7 @@ struct ReducerDistCtx {
       return true;
     } else {
       ArgsCursor *cargs = copyArgs(&args);
-      return add(remoteGroup, name, alias, status, cargs);
+      return basicAdd(remoteGroup, name, alias, status, cargs);
     }
   }
 
@@ -318,9 +327,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   std::stringstream stream;
   stream << "(@" << HiddenString_GetUnsafe(localSumSumAlias, NULL) << "/@" << HiddenString_GetUnsafe(localCountSumAlias, NULL) << ")";
   std::string ss = stream.str();
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr);
+  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(NewHiddenString(ss.c_str(), ss.length(), false), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
   applyStep->base.alias = HiddenString_Retain(src->alias);
