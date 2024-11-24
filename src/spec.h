@@ -634,10 +634,10 @@ typedef struct IndexesScanner {
   bool cancelled;
   WeakRef spec_ref;
   char *spec_name;
-  size_t scannedKeys, totalKeys;
+  size_t scannedKeys;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
