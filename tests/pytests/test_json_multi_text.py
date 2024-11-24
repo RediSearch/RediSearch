@@ -141,10 +141,10 @@ def searchMultiTextAuthor(env):
     env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("has undefined ordering")
 
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
     env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")

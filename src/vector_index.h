@@ -74,7 +74,7 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  char *property;                     // name of field
+  const FieldSpec *field;             // the vector field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
