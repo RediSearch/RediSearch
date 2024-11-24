@@ -32,11 +32,11 @@ def TestEmptyNonIndexed():
                 'FT.SEARCH', 'idx', query
             ).error().contains('Use `INDEXEMPTY` in field creation in order to index and query for empty strings')
 
-        # Bad syntax for empty tag should return empty result (compatibility..)
+        # Bad syntax for empty tag should return syntax error
         for query in ['@tag:""', "@tag:''", '@tag:("")', "@tag:('')"]:
             env.expect(
                 'FT.SEARCH', 'idx', query
-            ).equal(EMPTY_RESULT)
+            ).error().equal('Expected a TEXT field at offset 0 near tag')
 
     env.flush()
 
@@ -169,7 +169,7 @@ def testEmptyTag():
 
         # Make sure the document is NOT returned when searching for a non-empty
         # value
-        res = conn.execute_command('FT.SEARCH', idx, '@t:foo')
+        res = conn.execute_command('FT.SEARCH', idx, '@t:{foo}')
         expected = EMPTY_RESULT
         env.assertEqual(res, expected)
 
@@ -224,18 +224,18 @@ def testEmptyTag():
         # adding another document with an non-empty value
         conn.execute_command('HSET', 'h2', 't', 'bar')
         res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}', 
+            'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}',
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
         env.assertEqual(res, expected)
 
         res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}', 
+            'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}',
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
         env.assertEqual(res, expected)
 
         res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}', 
+            'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}',
             'SORTBY', 't', 'ASC', 'WITHCOUNT')
         env.assertEqual(res, expected)
 
@@ -302,7 +302,7 @@ def testEmptyTag():
             # ------------------------------- APPLY --------------------------------
             # Populate with some data that we will be able to see the `APPLY`
             res = conn.execute_command(
-                'FT.AGGREGATE', idx, '*', 'LOAD', 1, '@t', 
+                'FT.AGGREGATE', idx, '*', 'LOAD', 1, '@t',
                 'APPLY', 'upper(@t)', 'as', 'upper_t',
                 'SORTBY', 4, '@t', 'ASC', '@upper_t', 'ASC')
             expected = [
@@ -404,8 +404,8 @@ def testEmptyTag():
         res = env.cmd('FT.SEARCH', 'idx', '-@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
         env.assertEqual(int(res[0]), 500)
         env.flush()
-    
-@skip(no_json=True)   
+
+@skip(no_json=True)
 def testEmptyTagJSON():
     env = DialectEnv()
     conn = getConnectionByEnv(env)
@@ -477,7 +477,7 @@ def testEmptyTagJSON():
         env.assertEqual(info['hash_indexing_failures'], 1)
 
         env.flush()
-        
+
 def testEmptyText():
     """Tests the indexing and querying of empty TEXT (field type) values"""
 
@@ -719,7 +719,7 @@ def testEmptyText():
         testEmptyTextHash(env, 'idx_phonetic', dialect)
         env.flush()
 
-      
+
 @skip(no_json=True)
 def testEmptyTextJSON():
     env = DialectEnv()
@@ -738,7 +738,7 @@ def testEmptyTextJSON():
         env.expect('FT.CREATE', 'jidx_suffix', 'ON', 'JSON', 'SCHEMA', '$t', 'AS', 't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
         EmptyTextJSONTest(env, 'jidx_suffix', dialect)
         env.flush()
-    
+
 
 def testEmptyInfo():
     """Tests that the `FT.INFO` command returns the correct information
@@ -1219,18 +1219,18 @@ def testInvalidUseOfEmptyString():
         res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%""%%%)')
         env.assertEqual(res, EMPTY_RESULT)
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%$p%)', 
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%$p%)',
                                    'PARAMS', 2, 'p', '""')
         env.assertEqual(res, EMPTY_RESULT)
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%$p%%)', 
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%$p%%)',
                                    'PARAMS', 2, 'p', '""')
         env.assertEqual(res, EMPTY_RESULT)
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%$p%%%)', 
+        res = conn.execute_command('FT.SEARCH', 'idx', '@text:(%%%$p%%%)',
                                    'PARAMS', 2, 'p', '""')
         env.assertEqual(res, EMPTY_RESULT)
-        
+
         # Invalid use of empty string in geo filter
         expected_error = 'Invalid GeoFilter unit'
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 ""]').error().\
@@ -1238,7 +1238,7 @@ def testInvalidUseOfEmptyString():
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 $p]',
                    'PARAMS', 2, 'p', '').error().\
             contains(expected_error)
-        
+
         expected_error = 'Syntax error'
         env.expect('FT.SEARCH', 'idx', '@location:['' 4.56 10 km]').error().\
             contains(expected_error)
@@ -1246,7 +1246,7 @@ def testInvalidUseOfEmptyString():
             contains(expected_error)
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 '' km]').error().\
             contains(expected_error)
-        
+
         # Fix this tests after implementing MOD-7244
         # empty string is evaluated as 0
         res = env.execute_command(
@@ -1274,7 +1274,7 @@ def testInvalidUseOfEmptyString():
             contains(expected_error)
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$inorder:$p}',
                    'PARAMS', 2, 'p', '').error().contains(expected_error)
-        
+
         # Invalid use of empty string as $slop value
         expected_error = 'Invalid value () for `slop`'
         env.expect('FT.SEARCH', 'idx', '@t:{abc}=>{$slop:""}').error().\
@@ -1284,9 +1284,9 @@ def testInvalidUseOfEmptyString():
 
         # Invalid use of empty string as $phonetic value
         expected_error = 'Invalid value () for `phonetic`'
-        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic:""} world)')\
+        env.expect('FT.SEARCH', 'idx', '@text:(hello=>{$phonetic:""} world)')\
             .error().contains(expected_error)
-        env.expect('FT.SEARCH', 'idx', '@x:(hello=>{$phonetic:$p} world)',
+        env.expect('FT.SEARCH', 'idx', '@text:(hello=>{$phonetic:$p} world)',
                    'PARAMS', 2, 'p', '').error().contains(expected_error)
 
         # Invalid use of empty string as $yield_distance_as value
@@ -1302,23 +1302,14 @@ def testInvalidUseOfEmptyString():
 
         # Invalid use of empty string as part of modifier list
         env.expect('FT.SEARCH', 'idx', '@text|"":(abc)').error().\
-            contains('Syntax error')
-        
-        env.expect('FT.SEARCH', 'idx', '@""|text:(abc)').error().\
-            contains('Syntax error')
-        
-        env.expect('FT.SEARCH', 'idx', '@text|text|"":(abc)').error().\
-            contains('Syntax error')
+            contains('Unknown field')
 
-        env.expect('FT.SEARCH', 'idx', '@t|"":{abc}').error().\
-            contains('Syntax error')
-        
-        env.expect('FT.SEARCH', 'idx', '@""|t:{abc}').error().\
-            contains('Syntax error')
-        
-        env.expect('FT.SEARCH', 'idx', '@t|t|"":{abc}').error().\
-            contains('Syntax error')
-        
+        env.expect('FT.SEARCH', 'idx', '@""|text:(abc)').error().\
+            contains('Syntax error') # @"" is not recognized as a field modifier (see lexer's definition)
+
+        env.expect('FT.SEARCH', 'idx', '@text|text|"":(abc)').error().\
+            contains('Unknown field')
+
         # Invalid use of an empty string in a vector query
         env.expect('FT.SEARCH', 'idx', '*=>["" 4 @v $blob AS dist]').error().\
             contains('Expecting Vector Similarity command')

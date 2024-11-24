@@ -90,14 +90,13 @@ def testTagFieldCase(env):
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
-        env.assertEqual([0], env.cmd(
-            'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
         env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{HELLO WORLD}', 'NOCONTENT'))
         env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
-        env.assertEqual([0], env.cmd(
-            'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
+
+        env.expect('FT.SEARCH', 'idx', '@tags:{HELLO WORLD}').error().contains('Unknown field')
+        env.expect('FT.SEARCH', 'idx', '@TAGS:{foo bar}').error().contains('Unknown field')
 
 def testInvalidSyntax(env):
     # invalid syntax
@@ -530,7 +529,7 @@ def testDialect2TagExact():
     env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
     res = env.cmd('FT.SEARCH', 'idx',
-                  '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
+                  '(@tag:{"xyz:2"}  @tag:{"abc:1"}) => { $weight:0.2 }',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:3'])
 
@@ -620,14 +619,14 @@ def testDialect2TagExact():
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'$param'}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{hello world}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx',
-                  "@tag1:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
+                  "@tag:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
@@ -760,7 +759,7 @@ def testDialect2InvalidSyntax():
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 't1', 'TEXT', 'id',
                'NUMERIC', 'SORTABLE').ok()
 
     with env.assertResponseError(contained='Syntax error'):

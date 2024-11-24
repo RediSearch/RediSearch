@@ -575,8 +575,8 @@ def testExplain(env: Env):
     # test FUZZY
     _testExplain(env, 'idx', ['%%hello%%'], "FUZZY{hello}\n")
 
-    _testExplain(env, 'idx', ['%%hello%% @t:{bye}'],
-                 "INTERSECT {\n  FUZZY{hello}\n  TAG:@t {\n    bye\n  }\n}\n")
+    _testExplain(env, 'idx', ['%%hello%% @tag:{bye}'],
+                 "INTERSECT {\n  FUZZY{hello}\n  TAG:@tag {\n    bye\n  }\n}\n")
 
     # test wildcard with TAG field
     _testExplain(env, 'idx', ["*"], "<WILDCARD>\n")
@@ -779,19 +779,19 @@ def testExplain(env: Env):
     expected = (
         "UNION {\n"
         "  NOT{\n"
-        "    ISMISSING{t}\n"
+        "    ISMISSING{tag}\n"
         "  }\n"
         "  INTERSECT {\n"
         "    NOT{\n"
-        "      TAG:@t {\n"
+        "      TAG:@tag {\n"
         "        bar\n"
         "      }\n"
         "    }\n"
-        "    ISMISSING{t}\n"
+        "    ISMISSING{tag}\n"
         "  }\n"
         "}\n"
     )
-    _testExplain(env, 'idx_im', ['-ismissing(@t) | -@t:{bar} ismissing(@t)'],
+    _testExplain(env, 'idx_im', ['-ismissing(@tag) | -@tag:{bar} ismissing(@tag)'],
                  expected)
 
 
@@ -1309,29 +1309,17 @@ def testGeoErrors(env):
     env.expect('flushall')
     env.expect('ft.create idx ON HASH schema name text location geo').equal('OK')
     env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0])
-
-    # Insert error - works fine with out of keyspace implementation
-    # env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
-    #        .contains('Could not index geo value')
+    env.expect('ft.search', 'idx', 'hilton @location:[-0.1757 51.5156 1 km]').equal([0])
 
     # Query errors
-    env.expect('ft.search idx hilton geofilter location lon 51.5156 1 km').error()   \
-            .contains('Bad arguments for <lon>: Could not convert argument to expected type')
-    env.expect('ft.search idx hilton geofilter location 51.5156 lat 1 km').error()   \
-            .contains('Bad arguments for <lat>: Could not convert argument to expected type')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 radius km').error()   \
-            .contains('Bad arguments for <radius>: Could not convert argument to expected type')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 fake').error()   \
-            .contains('Unknown distance unit fake')
-    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
-            .contains('GEOFILTER requires 5 arguments')
+    env.expect('ft.search', 'idx', 'hilton @location:[lon 51.5156 1 km]').error().contains('Syntax error')
+    env.expect('ft.search', 'idx', 'hilton @location:[51.5156 lat 1 km]').error().contains('Syntax error').contains('lat')
+    env.expect('ft.search', 'idx', 'hilton @location:[ -0.1757 51.5156 radius km]').error().contains('Syntax error').contains('radius')
+    env.expect('ft.search', 'idx', 'hilton @location:[ -0.1757 51.5156 1 fake]').error().contains('Invalid GeoFilter unit')
+    env.expect('ft.search', 'idx', 'hilton @location:[ -0.1757 51.5156 1]').error().contains('Syntax error').contains('near 1')
 
 def testGeo(env):
     gsearch = lambda query, lon, lat, dist, unit='km': env.cmd(
-        'ft.search', 'idx', query, 'geofilter', 'location', lon, lat, dist, unit, 'LIMIT', 0, 20)
-
-    gsearch_inline = lambda query, lon, lat, dist, unit='km': env.cmd(
         'ft.search', 'idx', '{} @location:[{} {} {} {}]'.format(query,  lon, lat, dist, unit), 'LIMIT', 0, 20)
 
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'name', 'text', 'location', 'geo').ok()
@@ -1350,38 +1338,24 @@ def testGeo(env):
         env.assertContains('hotel2', res)
         env.assertContains('hotel21', res)
         env.assertContains('hotel79', res)
-        res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
-        env.assertEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('hilton', "-0.1757", "51.5156", '10')
         env.assertEqual(14, res[0])
 
         res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
         env.assertEqual(py2sorted(res), py2sorted(res2))
-        res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '10')
-        env.assertEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'm')
         env.assertEqual(1, res[0])
         env.assertEqual('hotel94', res[1])
-        res2 = gsearch_inline(
-            'heathrow', -0.44155, 51.45865, '10', 'm')
-        env.assertEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'km')
         env.assertEqual(5, res[0])
         env.assertContains('hotel94', res)
-        res2 = gsearch_inline(
-            'heathrow', -0.44155, 51.45865, '10', 'km')
-        env.assertEqual(5, res2[0])
-        env.assertEqual(py2sorted(res), py2sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertEqual(3, res[0])
         env.assertContains('hotel94', res)
-        res2 = gsearch_inline(
-            'heathrow', -0.44155, 51.45865, '5', 'km')
-        env.assertEqual(py2sorted(res), py2sorted(res2))
 
 def testTagErrors(env):
     env.expect("ft.create", "test", 'ON', 'HASH',
@@ -1588,17 +1562,20 @@ def testExpander(env):
 def testNumericRange(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric').ok()
 
+    isDialect1 = env.cmd(config_cmd(), 'get', 'DEFAULT_DIALECT')[0][1] == '1'
     # Test bad filter ranges
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '-inf').error().contains("Bad upper range: -inf")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '(-inf').error().contains("Bad upper range: -inf")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(inf', 5).error().contains("Bad lower range: inf")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '+inf', 5).error().contains("Bad lower range: +inf")
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', '(+inf', 5).error().contains("Bad lower range: +inf")
-    # Filter does not accept parameters
-    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, '$n',
-               'PARAMS', 2, 'n', '10').error().contains("Bad upper range: $n")
+    if isDialect1:
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5]').error().contains("Syntax error").contains("5")
+        # Filter does not accept parameters
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, $n]',
+                'PARAMS', 2, 'n', '10').error().contains("Syntax error at offset 23 near n")
+    else:
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, -inf]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[5, (-inf]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[(inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[+inf, 5]').error().contains("Invalid numeric range (min > max)")
+        env.expect('ft.search', 'idx', 'hello kitty @score:[(+inf, 5]').error().contains("Invalid numeric range (min > max)")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
@@ -1606,39 +1583,30 @@ def testNumericRange(env):
 
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
-        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
-                                "filter", "score", 0, 100)
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[0 100]', "nocontent")
 
         env.assertEqual(11, len(res))
         env.assertEqual(100, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
-                                "filter", "score", 0, 50)
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[0 50]', "nocontent")
         env.assertEqual(51, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty', 'verbatim', "nocontent", "limit", 0, 100,
-                                "filter", "score", "(0", "(50")
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[(0 (50]', 'verbatim', "nocontent", "limit", 0, 100)
         env.assertEqual(49, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
-                                "filter", "score", "-inf", "+inf")
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
-                                "filter", "score", "-inf", "inf")
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[-inf inf]', "nocontent")
         env.assertEqual(100, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty', "nocontent",
-                                "filter", "score", "-INF", "Inf")
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[-INF Inf]', "nocontent", "dialect", 2) # case insensitivity supported in dialect 2
         env.assertEqual(100, res[0])
 
         # test multi filters
         scrange = (19, 90)
         prrange = (290, 385)
-        res = env.cmd('ft.search', 'idx', 'hello kitty',
-                                "filter", "score", scrange[
-                                    0], scrange[1],
-                                "filter", "price", prrange[0], prrange[1])
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[%d %d] @price:[%d %d]' % (scrange[0], scrange[1], prrange[0], prrange[1]))
 
         # print res
         for doc in res[2::2]:
@@ -1652,9 +1620,7 @@ def testNumericRange(env):
 
         env.assertEqual(10, res[0])
 
-        res = env.cmd('ft.search', 'idx', 'hello kitty',
-                                "filter", "score", "19", "90",
-                                "filter", "price", "90", "185")
+        res = env.cmd('ft.search', 'idx', 'hello kitty @score:[19 90] @price:[90 185]')
 
         env.assertEqual(0, res[0])
 
@@ -2314,13 +2280,6 @@ def testIssue366_2(env):
     for _ in env.reloadingIterator():
         pass  #
 
-def testIssue654(env):
-    # Crashes during FILTER
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric')
-    env.cmd('ft.add', 'idx', 1, 1, 'fields', 'id', 1)
-    env.cmd('ft.add', 'idx', 2, 1, 'fields', 'id', 2)
-    res = env.cmd('ft.search', 'idx', '*', 'filter', '@version', 0, 2)
-
 def testReplaceReload(env):
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH',
             'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
@@ -2909,23 +2868,40 @@ def testAggregateSortByMaxNumberOfFields(env):
     args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX']
     env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
 
-def testNumericFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad').error()
-    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
+@skip(cluster=True)
+def testFieldParseError(env:Env):
+    env.cmd(config_cmd(), 'set', 'DEFAULT_DIALECT', '2') # TODO: remove once dialect 1 is removed
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'num', 'NUMERIC').ok()
 
-def testGeoFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km').error()
-    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
+    # Test text query
+    env.expect('FT.SEARCH', 'idx', '@num:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@text|num:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@num|text:foo').error().contains('Expected a TEXT field')
+    env.expect('FT.SEARCH', 'idx', '@text|text|num:foo').error().contains('Expected a TEXT field')
+
+    # Test numeric query
+    env.expect('FT.SEARCH', 'idx', '@text:[42]').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text:[42 42]').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text == 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text != 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text < 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text <= 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text > 42').error().contains('Expected a NUMERIC field')
+    env.expect('FT.SEARCH', 'idx', '@text >= 42').error().contains('Expected a NUMERIC field')
+
+    # Test geo query
+    env.expect('FT.SEARCH', 'idx', '@text:[42 42 42 km]').error().contains('Expected a GEO field')
+
+    # Test tag query
+    env.expect('FT.SEARCH', 'idx', '@text:{foo}').error().contains('Expected a TAG field')
+
+    # Test vector query
+    env.expect('FT.SEARCH', 'idx', '@text:[VECTOR_RANGE 0.1 $VEC]', 'PARAMS', '2', 'VEC', '????').error().contains('Expected a VECTOR field')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 10 @text $VEC]', 'PARAMS', '2', 'VEC', '????').error().contains('Expected a VECTOR field')
+
+    # Test geometry query
+    env.expect('FT.SEARCH', 'idx', '@text:[contains $poly]', 'PARAMS', 2, 'poly', 'POLYGON((34.9005 29.7005, 34.9005 29.7150, 34.9150 29.7150, 34.9150 29.7005, 34.9005 29.7005))', 'DIALECT', 3).error(
+        ).contains('Expected a GEOSHAPE field')
 
 def testReducerError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
@@ -3416,7 +3392,6 @@ def testIssue1208(env):
 
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
-    # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
 @skip(cluster=True)
 def testFieldsCaseSensetive(env):
@@ -3429,29 +3404,26 @@ def testFieldsCaseSensetive(env):
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
+    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
+    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
-
-    # make sure search filter are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
@@ -3493,29 +3465,26 @@ def testSortedFieldsCaseSensetive(env):
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
+    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
+    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
+    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
-
-    # make sure search filter are case sensitive
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
@@ -3657,8 +3626,10 @@ def testSchemaWithAs(env):
   conn.execute_command('HSET', 'b', 'foo', 'world')
 
   for _ in env.reloadingIterator():
-    env.expect('ft.search idx @txt:hello').equal([0])
-    env.expect('ft.search idx @txt:world').equal([0])
+    env.expect('ft.search idx @txt:hello DIALECT 1').equal([0]).noError()
+    env.expect('ft.search idx @txt:hello DIALECT 2').error().contains('Unknown field')
+    env.expect('ft.search idx @txt:world DIALECT 1').equal([0]).noError()
+    env.expect('ft.search idx @txt:world DIALECT 2').error().contains('Unknown field')
     env.expect('ft.search idx @foo:hello').equal([1, 'a', ['txt', 'hello']])
     env.expect('ft.search idx @foo:world').equal([0])
 
