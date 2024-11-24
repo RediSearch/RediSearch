@@ -819,7 +819,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->expr = HiddenString_Retain(expr);
+  stp->expr = expr;
   return stp;
 }
 
@@ -833,9 +833,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  HiddenString* expression = NewHiddenString(expr, exprLen, false);
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  HiddenString_Free(expression);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(NewHiddenString(expr, exprLen, false), isApply ? PLN_T_APPLY : PLN_T_FILTER);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -1612,7 +1610,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
-            QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
+            QERR_MK_USING_HIDDEN_NAME(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
