@@ -181,16 +181,16 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
-    const char *logLevel = "verbose";
     if (q->head == q->pendingInfo.head) {
-      // If we hit the same head multiple times, we may have a problem. Increase log level.
-      if (++q->pendingInfo.hitCount > 100) logLevel = "notice";
+      // If we hit the same head multiple times, we may have a problem. Log it once.
+      if (++q->pendingInfo.hitCount == (1 << 13))
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Work queue reached max pending %zu times with the same head. Size: %zu",
+                        q->pendingInfo.hitCount, q->sz);
     } else {
       q->pendingInfo.head = q->head;
       q->pendingInfo.hitCount = 1;
     }
-    RedisModule_Log(RSDummyContext, logLevel, "MRWorkQueue: Max pending requests reached");
-    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
 
     return NULL;
   } else {
