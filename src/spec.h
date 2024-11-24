@@ -578,7 +578,7 @@ typedef struct {
  * If an owned reference is needed, use StrongRef API to create one.
  */
 // TODO: Remove the context from this function!
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
+StrongRef IndexSpec_LoadUnsafe(const char *name);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter

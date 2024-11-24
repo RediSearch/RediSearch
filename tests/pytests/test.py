@@ -4335,11 +4335,7 @@ def test_incompatibleIndex(env):
         ['FT.SEARCH', index_name, '*'],
         ['FT.AGGREGATE', index_name, '*', 'LOAD', '*'],
         ['FT.PROFILE', index_name, 'SEARCH', 'QUERY', '*'],
-        ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*'],
-        # ['FT.SYNUPDATE', '...'],
-        # ['FT.SYNADD', '...'],
-        # ['FT.SYNDUMP', '...'],
-        # ['FT.SPELLCHECK', '...'],
+        ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*']
     ]
 
     # Run commands on second shard (different index prefixes -> error)

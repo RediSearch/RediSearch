@@ -1677,7 +1677,7 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name) {
+StrongRef IndexSpec_LoadUnsafe(const char *name) {
   IndexLoadOptions lopts = {.nameC = name};
   return IndexSpec_LoadUnsafeEx(&lopts);
 }

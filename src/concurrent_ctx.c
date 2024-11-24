@@ -91,10 +91,9 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
                                           WeakRef spec_ref) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
-  cmdCtx->spec_ref = spec_ref;
-
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
+  cmdCtx->spec_ref = spec_ref;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
