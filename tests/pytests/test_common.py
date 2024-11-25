@@ -56,4 +56,4 @@ def test_compare_numeric_dicts(env):
         compare_numeric_dicts(env, d1, d3, _assert=False)
         env.assertTrue(False, message="Comparing dicts with different keys")
     except KeyError:
-        env.assertTrue(True)
+        pass
