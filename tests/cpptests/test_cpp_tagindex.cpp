@@ -27,7 +27,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
 
-  // expectedTotalSZ should include the memory occupied by the inverted index 
+  // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
 
   // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
