@@ -14,54 +14,7 @@
 
 static double extractUnitFactor(GeoDistance unit);
 
-/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
- * is not passed to us.
- * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
- * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
-  gf->lat = 0;
-  gf->lon = 0;
-  gf->radius = 0;
-  gf->unitType = GEO_DISTANCE_KM;
-
-  if (AC_NumRemaining(ac) < 5) {
-    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
-    return REDISMODULE_ERR;
-  }
-
-  int rv;
-  if ((rv = AC_GetString(ac, &gf->property, NULL, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<geo property>", rv);
-    return REDISMODULE_ERR;
-  } else {
-    gf->property = rm_strdup(gf->property);
-  }
-  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
-    QERR_MKBADARGS_AC(status, "<lon>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<lat>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<radius>", rv);
-    return REDISMODULE_ERR;
-  }
-
-  const char *unitstr = AC_GetStringNC(ac, NULL);
-  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
-    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
 void GeoFilter_Free(GeoFilter *gf) {
-  if (gf->property) rm_free((char *)gf->property);
   if (gf->numericFilters) {
     for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
       if (gf->numericFilters[i])
@@ -130,7 +83,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf, Con
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
-      filt->fieldName = rm_strdup(gf->property);
+      filt->field = gf->field;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config);
       if (numIter != NULL) {

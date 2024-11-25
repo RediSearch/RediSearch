@@ -23,7 +23,7 @@ typedef struct {
   IndexIterator *it;
   uint32_t lastRevId;
   IndexSpec *sp;
-  const char *fieldName;
+  const FieldSpec *field;
 } NumericUnionCtx;
 
 void NumericRangeIterator_OnReopen(void *privdata);
@@ -594,7 +594,7 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config) {
-  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
+  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, flt->field, forType);
   if (!s) {
     return NULL;
   }
@@ -625,7 +625,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     uc->lastRevId = t->revisionId;
     uc->it = it;
     uc->sp = ctx->spec;
-    uc->fieldName = flt->fieldName;
+    uc->field = flt->field;
     ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
@@ -815,7 +815,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexSpec *sp = nu->sp;
   IndexIterator *it = nu->it;
 
-  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(sp, nu->field, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
 
   if (!rt || rt->revisionId != nu->lastRevId) {

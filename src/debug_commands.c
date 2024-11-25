@@ -66,8 +66,9 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
-  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  size_t len;
+  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
   if (!fieldSpec) {
     return NULL;
   }
@@ -271,8 +272,9 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  size_t len;
+  const char *fieldName = RedisModule_StringPtrLen(argv[3], &len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, len);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
