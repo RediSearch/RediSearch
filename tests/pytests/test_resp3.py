@@ -69,7 +69,7 @@ def test_search():
       del exp['results'][0]['sortkey']
       del exp['results'][1]['sortkey']
 
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "FORMAT", "STRING").equal(exp)
 
     # test with sortby
@@ -92,7 +92,7 @@ def test_search():
         }
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
