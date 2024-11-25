@@ -505,8 +505,8 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   if (pending <= 0) {
     RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
-    // Close the channel before calling `ProcessDone`, as it may trigger the freeing of the iterator
-    MRChannel_Close(ctx->it->ctx.chan);
+    // Unblock the channel before calling `ProcessDone`, as it may trigger the freeing of the iterator
+    MRChannel_Unblock(ctx->it->ctx.chan);
   }
   MRIteratorCallback_ProcessDone(ctx);
 }

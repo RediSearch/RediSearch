@@ -17,7 +17,7 @@ struct MRChannel {
   chanItem *head;
   chanItem *tail;
   size_t size;
-  volatile bool open;
+  volatile bool wait;
   pthread_mutex_t lock;
   pthread_cond_t cond;
 };
@@ -31,7 +31,7 @@ MRChannel *MR_NewChannel() {
       .head = NULL,
       .tail = NULL,
       .size = 0,
-      .open = true,
+      .wait = true,
   };
   pthread_cond_init(&chan->cond, NULL);
   pthread_mutex_init(&chan->lock, NULL);
@@ -87,7 +87,7 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan) {
 void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
-    if (!chan->open) {
+    if (!chan->wait) {
       pthread_mutex_unlock(&chan->lock);
       return NULL;
     }
@@ -106,10 +106,10 @@ void *MRChannel_Pop(MRChannel *chan) {
   return ret;
 }
 
-void MRChannel_Close(MRChannel *chan) {
+void MRChannel_Unblock(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
-  chan->open = false;
-  // notify any waiting readers
+  chan->wait = false;
+  // unblock any waiting readers
   pthread_cond_broadcast(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
