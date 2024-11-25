@@ -116,8 +116,6 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *a
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
     if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
-    RedisModule_InfoAddFieldDouble(ctx, "used_memory", aggregatedFieldsStats->total_vector_idx_mem);
-    RedisModule_InfoAddFieldULongLong(ctx, "mark_deleted_vectors", aggregatedFieldsStats->total_mark_deleted_vectors);
     RedisModule_InfoAddFieldLongLong(ctx, "IndexErrors", FieldIndexErrorCounter[INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)]);
     RedisModule_InfoEndDictField(ctx);
   }
