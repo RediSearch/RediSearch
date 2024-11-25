@@ -138,7 +138,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
+            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, CREATE_INDEX);
             VecSimIndex_DeleteVector(vecsim, dmd->id);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
