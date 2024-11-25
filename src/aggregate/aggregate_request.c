@@ -334,8 +334,13 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->prefixesOffset = ac->offset - 1;
 
     // Advance by the number of prefixes + 1 (for the n_prefixes argument)
-    long advance_by = strtol((const char *)AC_CURRENT(ac), NULL, 10);
-    AC_AdvanceBy(ac, advance_by + 1);
+    uint32_t advance_by;
+    if (AC_GetUnsigned(ac, &advance_by, AC_F_GE1) != AC_OK) {
+      RS_LOG_ASSERT(false, "Bad value for _INDEX_PREFIXES (coordinator)");
+      return ARG_ERROR;
+    }
+
+    AC_AdvanceBy(ac, advance_by);
   } else {
     return ARG_UNKNOWN;
   }
@@ -963,7 +968,8 @@ static bool IsIndexCoherent(AREQ *req) {
     return false;
   }
 
-  // Validate that the prefixes in the arguments are the same as the ones in the index
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
   // The first argument is at req->prefixesOffset + 2
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {

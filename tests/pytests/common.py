@@ -654,7 +654,7 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Use FT.* command to make sure that the module is loaded and initialized
+# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
 def verify_shard_init(shard):
     with TimeLimit(5, 'Failed to verify shard initialization'):
         shard.execute_command('FT.CREATE', 'idx' ,'SCHEMA', 't', 'TEXT')

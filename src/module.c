@@ -3078,7 +3078,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
     MRCommand_Free(&cmd);
 
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    QueryError_SetError(&status, QUERY_EDROPPEDBACKGROUND, NULL);
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
     QueryError_ReplyAndClear(clientCtx, &status);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);

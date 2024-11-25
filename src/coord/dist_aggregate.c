@@ -547,7 +547,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
   for (uint i = 0; i < array_len(prefixes); i++) {
-    // MRCommand_Append(xcmd, prefixes[i], sdslen(prefixes[i]));
     array_append(tmparr, (const char *)prefixes[i]);
   }
 
@@ -779,7 +778,9 @@ err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  StrongRef_Release(strong_ref);
+  if (sp) {
+    StrongRef_Release(strong_ref);
+  }
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);
