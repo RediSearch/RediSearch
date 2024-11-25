@@ -507,9 +507,11 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-
+  RedisModuleString *oldCommand = argv[0];
+  argv[0] = RedisModule_CreateString(ctx, RS_DROP_INDEX_CMD, strlen(RS_DROP_INDEX_CMD));
   int ret = DropIndexCommand(ctx, argv, argc);
   RedisModule_FreeString(ctx, argv[0]);
+  argv[0] = oldCommand;
 
   return ret;
 }
