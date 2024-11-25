@@ -397,9 +397,10 @@ QueryNode* RediSearch_CreateTagTokenNode(RefManager* rm, const char* token) {
 QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
+  const size_t len = strlen(field);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
-  ret->nn.nf->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
+  ret->nn.nf->field = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
 
@@ -413,7 +414,7 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
+  flt->field = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
@@ -485,7 +486,7 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetFieldC(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -504,7 +505,7 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetFieldC(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -512,8 +513,9 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
 
 QueryNode* RediSearch_CreateTagNode(RefManager* rm, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
-  ret->tag.fs = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
+  size_t len = strlen(field);
+  ret->tag.fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
 
