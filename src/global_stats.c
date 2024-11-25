@@ -167,6 +167,10 @@ void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
     INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
 }
 
+size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
+  return READ(RSGlobalStats.totalStats.logically_deleted);
+}
+
 void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
     RedisModule_InfoAddSection(ctx, "index");
     RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
@@ -175,5 +179,4 @@ void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total
     RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
     RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info->total_active_writes);
 
-    RedisModule_InfoAddFieldULongLong(ctx, "total_logically_deleted_docs", READ(RSGlobalStats.totalStats.logically_deleted));
 }

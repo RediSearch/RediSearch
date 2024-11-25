@@ -134,6 +134,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_docs_not_collected_by_gc", IndexesGlobalStats_GetLogicallyDeletedDocs());
 
   // Query statistics
   TotalGlobalStats_Queries_AddToInfo(ctx);
