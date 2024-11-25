@@ -486,19 +486,18 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     t_fieldMask expandable_fm = qn->opts.fieldMask;
     if (orig_fm != RS_FIELDMASK_ALL) {
       t_fieldMask fm = qn->opts.fieldMask;
-      int i = 0;
+      t_fieldMask bit_mask = 1;
       while (fm) {
-        t_fieldMask bit = (fm & 1) << i;
-        if (bit) {
-            const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit);
+        if (fm & bit_mask) {
+            const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit_mask);
             if (fs) {
               if(FieldSpec_IsNoStem(fs)) {
-                expandable_fm &= ~bit;
+                expandable_fm &= ~bit_mask;
               }
             }
         }
-        fm = fm >> 1;
-        i++;
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
       }
     }
 

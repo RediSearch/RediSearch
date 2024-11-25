@@ -442,20 +442,20 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     const IndexSpec *spec = expCtx->handle->spec;
     t_fieldMask fm = qn->opts.fieldMask;
     if ( fm != RS_FIELDMASK_ALL) {
-      int i = 0, expand = 0;
+      int expand = 0;
+      t_fieldMask bit_mask = 1;
       while (fm) {
-        t_fieldMask bit = (fm & 1) << i;
-        if (bit) {
-            const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit);
-            if (fs) {
-              if(!FieldSpec_IsNoStem(fs)) {
-                expand = 1;
-                break;
-              }
+        if (fm & bit_mask) {
+          const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit_mask);
+          if (fs) {
+            if(!FieldSpec_IsNoStem(fs)) {
+              expand = 1;
+              break;
             }
+          }
         }
-        fm = fm >> 1;
-        i++;
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
       }
       if (!expand) {
         return;
