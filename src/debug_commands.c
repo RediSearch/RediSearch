@@ -71,7 +71,7 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
                                           FieldType t) {
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
-  const FieldSpec *fieldSpec = IndexSpec_GetFieldC(spec, fieldName, len);
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
   if (!fieldSpec) {
     return NULL;
   }
@@ -278,7 +278,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   GET_SEARCH_CTX(argv[2])
   size_t len;
   const char *fieldName = RedisModule_StringPtrLen(argv[3], &len);
-  const FieldSpec *fs = IndexSpec_GetFieldC(sctx->spec, fieldName, len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, len);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;

@@ -1268,7 +1268,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_STREQ(obfuscatedName, "Index@0");
   rm_free(obfuscatedName);
 
-  const FieldSpec *f = IndexSpec_GetFieldC(s, body);
+  const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
@@ -1277,7 +1277,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetFieldC(s, title);
+  f = IndexSpec_GetFieldWithLength(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
@@ -1286,7 +1286,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetFieldC(s, foo);
+  f = IndexSpec_GetFieldWithLength(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
@@ -1297,16 +1297,16 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetFieldC(s, bar);
+  f = IndexSpec_GetFieldWithLength(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetFieldC(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetFieldC(s, name);
+  f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
