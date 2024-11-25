@@ -366,9 +366,14 @@ def test_MOD1544(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  res = [1, '1', ['name', '<b>John</b> Smith']]
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
-  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+  # res = [1, '1', ['name', '<b>John</b> Smith']]
+
+  # Highlight/summarize is not supported with JSON indexes
+  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT').error().contains(error_msg)
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
@@ -377,7 +382,7 @@ def test_MOD_1808(env):
   conn.execute_command('hset', 'doc1', 't', 'world1')
   conn.execute_command('hset', 'doc2', 't', 'world2')
   conn.execute_command('hset', 'doc3', 't', 'world3')
-  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
+  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@t:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList([4, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', "<span style='background-color:yellow'>world1</span>... "], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']]))
 
 def test_2370(env):
@@ -1086,7 +1091,6 @@ def test_mod_6541(env: Env):
     ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'),
     ('FT.INFO', 'idx'),
     ('FT.SPELLCHECK', 'idx', 'foo'),
-    ('FT.SUGLEN', 'idx', 'foo'),
     ('FT.ALIASADD', 'alias', 'idx'),
     # Deprecated commands
     ('FT.TAGVALS', 'idx', 't'),
@@ -1142,7 +1146,7 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  env.expect('FT._LIST').equal([escape(unsafe_index)])
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])

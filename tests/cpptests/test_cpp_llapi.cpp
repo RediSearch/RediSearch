@@ -2,6 +2,7 @@
 #include "src/redisearch_api.h"
 #include "gtest/gtest.h"
 #include "common.h"
+#include "src/redis_index.h"
 
 #include <set>
 #include <string>
@@ -566,20 +567,20 @@ TEST_F(LLApiTest, testRangesOnTags) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 1, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'n', 'x', 11);
 
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 0, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateTagLexRangeNode(index, NULL, NULL, 1, 1);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'a', 'z', 26);
@@ -597,7 +598,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "C", RSLECRANGE_INF, 0, 1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "C", RSLECRANGE_INF, 0, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   RSResultsIterator* iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -610,7 +611,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
   RediSearch_ResultsIteratorFree(iter);
 
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateTagLexRangeNode(index, RSLECRANGE_INF, "C", 1, 0);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, RSLECRANGE_INF, "C", 1, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   iter = RediSearch_GetResultsIterator(tagQn, index);
@@ -767,20 +768,20 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
 
   auto qn = RediSearch_CreateTagNode(index, "f2");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "f2", "world", "world", 1, 1));
   std::vector<std::string> results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateTagLexRangeNode(index, "world", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "f1", "world", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(0, results.size());
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateTagLexRangeNode(index, "World", "world", 1, 1));
+                               RediSearch_CreateTagLexRangeNode(index, "f1", "World", "world", 1, 1));
   results = search(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
@@ -1067,7 +1068,7 @@ TEST_F(LLApiTest, testIndexWithDefaultLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ENGLISH), RediSearch_IndexGetLanguage(index));
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
-  // create a doc without specifying the language, 
+  // create a doc without specifying the language,
   // it should use the language per index: English
   RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "cherry", RSFLDTYPE_DEFAULT);
@@ -1084,7 +1085,7 @@ TEST_F(LLApiTest, testIndexWithDefaultLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
   RediSearch_SpecAddDocument(index, d);
 
-  // The search should use language per index, and stemming should work, 
+  // The search should use language per index, and stemming should work,
   // returning 2 documents
   RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherries");
   std::vector<std::string> res = search(index, qn);
@@ -1105,7 +1106,7 @@ TEST_F(LLApiTest, testIndexWithCustomLanguage) {
   ASSERT_STREQ(RSLanguage_ToString(RS_LANG_ITALIAN), RediSearch_IndexGetLanguage(index));
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
-  // create a doc without specifying the language, 
+  // create a doc without specifying the language,
   // it should use the language per index: Italian
   RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "arance", RSFLDTYPE_DEFAULT);
@@ -1136,7 +1137,7 @@ TEST_F(LLApiTest, testIndexWithCustomLanguage) {
   res = search(index, qn);
   ASSERT_EQ(2, res.size());
 
-  // The search for cherry/cherries should return 1 document, because the word is 
+  // The search for cherry/cherries should return 1 document, because the word is
   // not stemmed correctly in Italian
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "cherry");
   res = search(index, qn);
@@ -1290,30 +1291,97 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 429);
+  // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
+  // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
+  // additional memory so from now on it will be easier to track the expected memory.
+  size_t additional_overhead = sizeof(NumericRangeTree);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 343 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 698);
+  ASSERT_EQ(RediSearch_MemUsage(index), 612 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 570);
+  ASSERT_EQ(RediSearch_MemUsage(index), 484 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 421);
+  ASSERT_EQ(RediSearch_MemUsage(index), 340 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 322);
+  ASSERT_EQ(RediSearch_MemUsage(index), 241 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 2);
+  // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
+  // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
+  additional_overhead += sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  ASSERT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
+  // we have 2 left over b/c of the offset vector size which we cannot clean
+  // since the data is not maintained.
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  char config_index_all[] = "ENABLE";
+  SchemaRuleArgs args = {.type = "HASH", .index_all = config_index_all};
+  RediSearch_IndexExisting(index, &args);
+
+  GCContext *gc;
+
+  // adding field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
+  // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
+  // additional memory so from now on it will be easier to track the expected memory.
+  size_t additional_overhead = sizeof(NumericRangeTree);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 429 + additional_overhead);
+
+  d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_EQ(RediSearch_MemUsage(index), 698 + additional_overhead);
+
+  // test MemUsage after deleting docs
+  int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 570 + additional_overhead);
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 421 + additional_overhead);
+
+  ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
+  ASSERT_EQ(REDISMODULE_OK, ret);
+  ASSERT_EQ(RediSearch_MemUsage(index), 322 + additional_overhead);
+  gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+  // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
+  // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
+  additional_overhead += sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  ASSERT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
 

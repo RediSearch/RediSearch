@@ -132,13 +132,13 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
-                                   double weight);
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+                                   double weight, t_fieldIndex fieldIndex);
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
+
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp);
+TagIndex *TagIndex_Open(const RedisSearchCtx *sctx, RedisModuleString *formattedKey, bool create_if_missing);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
@@ -146,7 +146,7 @@ TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, i
  * otherwise *sz is set to 0
 */
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create, size_t *sz);
+                                          size_t len, int create_if_missing, size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);

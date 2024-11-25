@@ -1,3 +1,7 @@
+extern "C" {
+#include "hiredis/sds.h"
+}
+
 #include "src/buffer.h"
 #include "src/index.h"
 #include "src/inverted_index.h"
@@ -230,7 +234,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+    IndexReader *ir = NewTermIndexReader(idx);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -271,9 +275,9 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 }
 
 TEST_F(IndexTest, testReadIterator) {
-  InvertedIndex *idx = createIndex(10, 1);
+  InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = NewTermIndexReader(idx);  //
 
   RSIndexResult *h = NULL;
 
@@ -299,10 +303,10 @@ TEST_F(IndexTest, testReadIterator) {
 TEST_F(IndexTest, testUnion) {
   int oldConfig = RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap;
   for (int cfg = 0; cfg < 2; ++cfg) {
-    InvertedIndex *w = createIndex(10, 2);
-    InvertedIndex *w2 = createIndex(10, 3);
-    IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-    IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+    InvertedIndex *w = createPopulateTermsInvIndex(10, 2);
+    InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
+    IndexReader *r1 = NewTermIndexReader(w);   //
+    IndexReader *r2 = NewTermIndexReader(w2);  //
 
     // printf("Reading!\n");
     IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -356,10 +360,11 @@ TEST_F(IndexTest, testUnion) {
 }
 
 TEST_F(IndexTest, testWeight) {
-  InvertedIndex *w = createIndex(10, 1);
-  InvertedIndex *w2 = createIndex(10, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  InvertedIndex *w = createPopulateTermsInvIndex(10, 1);
+  InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
+  IndexReader *r1 = NewTermIndexReaderEx(w, NULL, fieldMaskOrIndex, NULL, 0.5);  //
+  IndexReader *r2 = NewTermIndexReader(w2);   //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -394,11 +399,11 @@ TEST_F(IndexTest, testWeight) {
 }
 
 TEST_F(IndexTest, testNot) {
-  InvertedIndex *w = createIndex(16, 1);
+  InvertedIndex *w = createPopulateTermsInvIndex(16, 1);
   // not all numbers that divide by 3
-  InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -422,9 +427,9 @@ TEST_F(IndexTest, testNot) {
 }
 
 TEST_F(IndexTest, testPureNot) {
-  InvertedIndex *w = createIndex(10, 3);
+  InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
 
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = NewTermIndexReader(w);  //
   printf("last id: %llu\n", (unsigned long long)w->lastId);
 
   IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1, {0}, NULL);
@@ -444,11 +449,11 @@ TEST_F(IndexTest, testPureNot) {
 
 // Note -- in test_index.c, this test was never actually run!
 TEST_F(IndexTest, DISABLED_testOptional) {
-  InvertedIndex *w = createIndex(16, 1);
+  InvertedIndex *w = createPopulateTermsInvIndex(16, 1);
   // not all numbers that divide by 3
-  InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -495,7 +500,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
-    // 
+    //
     // The delta will occupy 1 byte.
     // The first entry has zero delta, so it will not be written.
     //
@@ -507,7 +512,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
     //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
-    // i | bytes | bytes | per Entry | bytes    |          | size      |   
+    // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
     // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
     // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
@@ -529,7 +534,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // Simulate the buffer growth to get the expected size
     written_bytes += bytes_per_entry;
     if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
-      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);  
+      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);
     } else {
       expected_sz = 0;
     }
@@ -539,7 +544,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
   t_docId i = 1;
@@ -554,7 +559,7 @@ TEST_F(IndexTest, testNumericInverted) {
 }
 
 TEST_F(IndexTest, testNumericVaried) {
-  // For various numeric values, of different types (NUM_ENCODING_COMMON_TYPE_TINY, 
+  // For various numeric values, of different types (NUM_ENCODING_COMMON_TYPE_TINY,
   // NUM_ENCODING_COMMON_TYPE_FLOAT, etc..) check that the number of allocated
   // bytes in buffers is as expected.
 
@@ -589,7 +594,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0, false);
+  IndexReader *ir = NewMinimalNumericReader(idx, false);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
@@ -673,7 +678,7 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0, isMulti);
+  IndexReader *ir = NewMinimalNumericReader(idx, isMulti);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
@@ -704,8 +709,8 @@ TEST_F(IndexTest, testNumericEncodingMulti) {
 
 TEST_F(IndexTest, testAbort) {
 
-  InvertedIndex *w = createIndex(1000, 1);
-  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  InvertedIndex *w = createPopulateTermsInvIndex(1000, 1);
+  IndexReader *r = NewTermIndexReader(w);  //
 
   IndexIterator *it = NewReadIterator(r);
   int n = 0;
@@ -723,10 +728,10 @@ TEST_F(IndexTest, testAbort) {
 
 TEST_F(IndexTest, testIntersection) {
 
-  InvertedIndex *w = createIndex(100000, 4);
-  InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  InvertedIndex *w = createPopulateTermsInvIndex(100000, 4);
+  InvertedIndex *w2 = createPopulateTermsInvIndex(100000, 2);
+  IndexReader *r1 = NewTermIndexReader(w);   //
+  IndexReader *r2 = NewTermIndexReader(w2);  //
 
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -792,8 +797,8 @@ TEST_F(IndexTest, testHybridVector) {
   size_t k = 10;
   VecSimMetric met = VecSimMetric_L2;
   VecSimType t = VecSimType_FLOAT32;
-  InvertedIndex *w = createIndex(n, step);
-  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  InvertedIndex *w = createPopulateTermsInvIndex(n, step);
+  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
@@ -817,9 +822,11 @@ TEST_F(IndexTest, testHybridVector) {
   KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
-
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Run simple top k query.
-  HybridIteratorParams hParams = {.index = index,
+  HybridIteratorParams hParams = {.sctx=NULL,
+                                  .index = index,
                                   .dim = d,
                                   .elementType = t,
                                   .spaceMetric = met,
@@ -827,7 +834,8 @@ TEST_F(IndexTest, testHybridVector) {
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
-                                  .childIt = NULL
+                                  .childIt = NULL,
+                                  .filterCtx = &filterCtx
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
@@ -904,7 +912,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  r = NewTermIndexReader(w);
   ir = NewReadIterator(r);
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
@@ -950,8 +958,8 @@ TEST_F(IndexTest, testInvalidHybridVector) {
 
   size_t n = 1;
   size_t d = 4;
-  InvertedIndex *w = createIndex(n, 1);
-  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  InvertedIndex *w = createPopulateTermsInvIndex(n, 1);
+  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index with a single vector.
   VecSimParams params{
@@ -975,13 +983,17 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   // child isn't the first child (since inOrder=true will trigger sorting).
   IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
 
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Create hybrid iterator - should return NULL.
-  HybridIteratorParams hParams = {.index = index,
+  HybridIteratorParams hParams = {.sctx = NULL,
+                                  .index = index,
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
-                                  .childIt = ii};
+                                  .childIt = ii,
+                                  .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
@@ -1247,7 +1259,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
+  const FieldSpec *f = IndexSpec_GetField(s, body);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_STREQ(f->name, body);
@@ -1256,7 +1268,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title, strlen(title));
+  f = IndexSpec_GetField(s, title);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
@@ -1265,7 +1277,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo, strlen(foo));
+  f = IndexSpec_GetField(s, foo);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
@@ -1274,16 +1286,16 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar, strlen(bar));
+  f = IndexSpec_GetField(s, bar);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name, strlen(name));
+  f = IndexSpec_GetField(s, name);
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
@@ -1301,7 +1313,7 @@ TEST_F(IndexTest, testIndexSpec) {
   rc = RSSortingTable_GetFieldIdx(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
@@ -1315,7 +1327,7 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
@@ -1325,7 +1337,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1373,7 +1385,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  StrongRef_Release(ref);
+  IndexSpec_RemoveFromGlobals(ref);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1415,7 +1427,7 @@ TEST_F(IndexTest, testIndexFlags) {
   uint32_t flags = INDEX_DEFAULT_FLAGS;
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
-  // The memory occupied by a empty inverted index 
+  // The memory occupied by a empty inverted index
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
   // sizeof_InvertedIndex(index->flags)   48
@@ -1673,7 +1685,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 2);
 
-  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexReader *ir = NewTermIndexReader(idx);
   RSIndexResult *h = NULL;
   ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
   ASSERT_EQ(1, h->docId);

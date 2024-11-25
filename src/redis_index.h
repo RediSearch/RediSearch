@@ -17,21 +17,19 @@
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
-IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
                               t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight);
 
-InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew, RedisModuleKey **keyp);
-#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew) \
-  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
+InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
+                                         int write, bool *outIsNew);
 void Redis_CloseReader(IndexReader *r);
 
 /*
  * Select a random term from the index that matches the index prefix and inveted key format.
  * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
  */
-const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
+const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
 
 #define TERM_KEY_FORMAT "ft:%s/%.*s"
 #define TERM_KEY_PREFIX "ft:"
@@ -40,6 +38,9 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 
 #define INVERTED_INDEX_ENCVER 1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
+
+#define DONT_CREATE_INDEX false
+#define CREATE_INDEX true
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
@@ -61,9 +62,9 @@ int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opa
  * Format redis key for a term.
  * TODO: Add index name to it
  */
-RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
+RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
+RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field);
 
 extern RedisModuleType *InvertedIndexType;
 

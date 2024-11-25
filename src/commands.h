@@ -4,19 +4,15 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_COMMANDS_H_
-#define RS_COMMANDS_H_
+#pragma once
 
 /** RS_CMD_PREFIX can be defined with -D from the Makefile */
 #ifdef RS_CLUSTER_ENTERPRISE
 #define RS_CMD_WRITE_PREFIX "FT"
 #define RS_CMD_READ_PREFIX "_FT"
-#elif defined(RS_CLUSTER_OSS)
+#else  // OSS Cluster
 #define RS_CMD_WRITE_PREFIX "_FT"
 #define RS_CMD_READ_PREFIX "_FT"
-#else
-#define RS_CMD_WRITE_PREFIX "FT"
-#define RS_CMD_READ_PREFIX "FT"
 #endif
 
 // write commands
@@ -43,14 +39,11 @@
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"  // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
 
-// Suggestion commands are key-bounded, but gets redirection for OSS cluster.
-// So on standalone and enterprise, we need only the local `FT.` variations,
-// but on OSS cluster we need both the local and the remote variations, and
-// have the local variations with `_FT.` prefix.
-#define RS_SUGADD_CMD RS_CMD_WRITE_PREFIX ".SUGADD"
-#define RS_SUGGET_CMD RS_CMD_WRITE_PREFIX ".SUGGET"
-#define RS_SUGDEL_CMD RS_CMD_WRITE_PREFIX ".SUGDEL"
-#define RS_SUGLEN_CMD RS_CMD_WRITE_PREFIX ".SUGLEN"
+// Suggestion commands are key-bounded, so they are already directed to the correct shard
+#define RS_SUGADD_CMD "FT.SUGADD"
+#define RS_SUGGET_CMD "FT.SUGGET"
+#define RS_SUGDEL_CMD "FT.SUGDEL"
+#define RS_SUGLEN_CMD "FT.SUGLEN"
 
 // read commands that are always performed locally
 #define RS_EXPLAIN_CMD "FT.EXPLAIN"
@@ -72,5 +65,3 @@
 #define RS_DEBUG RS_CMD_READ_PREFIX ".DEBUG"
 #define RS_SPELL_CHECK RS_CMD_READ_PREFIX ".SPELLCHECK"
 #define RS_CONFIG RS_CMD_READ_PREFIX ".CONFIG"
-
-#endif

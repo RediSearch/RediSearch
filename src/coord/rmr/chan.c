@@ -73,12 +73,12 @@ size_t MRChannel_Size(MRChannel *chan) {
   return ret;
 }
 
-int MRChannel_Push(MRChannel *chan, void *ptr) {
+PushErrorMask MRChannel_Push(MRChannel *chan, void *ptr) {
 
   pthread_mutex_lock(&chan->lock);
-  int rc = 1;
+  int rc = 0;
   if (!chan->open) {
-    rc = 0;
+    rc = CHANNEL_CLOSED;
     goto end;
   }
 
@@ -95,7 +95,7 @@ int MRChannel_Push(MRChannel *chan, void *ptr) {
   }
   chan->size++;
 end:
-  if (pthread_cond_broadcast(&chan->cond)) rc = 0;
+  if (pthread_cond_broadcast(&chan->cond)) rc |= BROADCAST_FAILURE;
   pthread_mutex_unlock(&chan->lock);
   return rc;
 }

@@ -123,11 +123,12 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 
   // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
-  int numTypes = 0;
+  RS_LOG_ASSERT_FMT(fs, "Failed to create field %s", name);
 
+  int numTypes = 0;
   if (types & RSFLDTYPE_FULLTEXT) {
     numTypes++;
-    int txtId = IndexSpec_CreateTextId(sp);
+    int txtId = IndexSpec_CreateTextId(sp, fs->index);
     if (txtId < 0) {
       RWLOCK_RELEASE();
       return RSFIELD_INVALID;
@@ -189,6 +190,16 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 
   RWLOCK_RELEASE();
   return fs->index;
+}
+
+void RediSearch_IndexExisting(RefManager* rm, SchemaRuleArgs* args) {
+  RWLOCK_ACQUIRE_WRITE();
+  IndexSpec *sp = __RefManager_Get_Object(rm);
+  if (!sp->rule) {
+    sp->rule = SchemaRule_Create(args, IndexSpec_GetStrongRefUnsafe(sp), NULL);
+  }
+  sp->rule->index_all = true;
+  RWLOCK_RELEASE();
 }
 
 void RediSearch_TextFieldSetWeight(RefManager* rm, RSFieldID id, double w) {
@@ -390,7 +401,7 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
-  ret->nn.nf->fieldName = rm_strdup(field);
+  ret->nn.nf->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
@@ -405,7 +416,7 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->property = rm_strdup(field);
+  flt->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
@@ -477,11 +488,13 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
 }
 
-QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
+QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
@@ -492,13 +505,17 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* begin,
     ret->lxrng.end = end ? rm_strdup(end) : NULL;
     ret->lxrng.includeEnd = includeEnd;
   }
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
+  }
   return ret;
 }
 
 QueryNode* RediSearch_CreateTagNode(RefManager* rm, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
-  ret->tag.fieldName = rm_strdup(field);
-  ret->tag.len = strlen(field);
+  ret->tag.fs = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
@@ -543,6 +560,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 
 typedef struct RS_ApiIter {
   IndexIterator* internal;
+  RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
   ScoringFunctionArgs scargs;
@@ -575,7 +593,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
@@ -584,9 +601,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
+  it->sctx = SEARCH_CTX_STATIC(NULL, sp);
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
+    if (QAST_Parse(&it->qast, &it->sctx, &options, input->u.s.qs, input->u.s.n, input->u.s.dialect, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -597,11 +615,11 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // set queryAST configuration parameters
   iteratorsConfig_init(&it->qast.config);
 
-  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  if (QAST_Expand(&it->qast, NULL, &options, &it->sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, 0, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, NULL, 0, &status);
   if (!it->internal) {
     goto end;
   }
@@ -865,9 +883,9 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = sp->stats.invertedCap;
-  info->skipIndexesSize = sp->stats.skipIndexesSize;
-  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->invertedCap = 0;
+  info->skipIndexesSize = 0;
+  info->scoreIndexesSize = 0;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
@@ -891,25 +909,14 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  size_t res = 0;
-  res += sp->docs.memsize;
-  res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
-  res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
-  res += sp->stats.offsetVecsSize;
-  res += sp->stats.termsSize;
-  return res;
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
 }
 
-// Collect mem-usage, indexing time and gc statistics of all the currently
-// existing indexes
+// Collect statistics of all the currently existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
-  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  info.min_mem = -1; // Initialize to max value
+  // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
@@ -920,8 +927,16 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     }
     // Lock for read
     pthread_rwlock_rdlock(&sp->rwlock);
-    info.total_mem += RediSearch_MemUsage((RSIndex *)ref.rm);
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
+
+    // Vector index stats
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    info.fields_stats.total_vector_idx_mem += vec_info.memory;
+    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
@@ -929,9 +944,27 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
       info.gc_stats.totalCycles += gcStats.numCycles;
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
+
+    // Index
+    size_t activeQueries = IndexSpec_GetActiveQueries(sp);
+    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+    if (activeQueries) info.num_active_indexes_querying++;
+    if (activeWrites) info.num_active_indexes_indexing++;
+    if (activeQueries || activeWrites) info.num_active_indexes++;
+    info.total_active_queries += activeQueries;
+    info.total_active_writes += activeWrites;
+
+    // Index errors metrics
+    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
+    }
+
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
   return info;
 }
 

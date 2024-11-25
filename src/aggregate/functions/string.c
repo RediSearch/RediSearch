@@ -11,7 +11,7 @@
 #include "util/arr.h"
 #include "function.h"
 
-#include "rmutil/sds.h"
+#include "hiredis/sds.h"
 
 #include <ctype.h>
 #include <err.h>

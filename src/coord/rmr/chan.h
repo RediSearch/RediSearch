@@ -15,8 +15,14 @@ typedef struct MRChannel MRChannel;
 
 extern void *MRCHANNEL_CLOSED;
 
+typedef enum {
+  CHANNEL_CLOSED = 0x1,
+  BROADCAST_FAILURE = 0x2
+} PushErrorMask;
+
+
 MRChannel *MR_NewChannel();
-int MRChannel_Push(MRChannel *chan, void *ptr);
+PushErrorMask MRChannel_Push(MRChannel *chan, void *ptr);
 /* Pop an item, wait indefinitely or until the channel is closed for an item.
  * Return MRCHANNEL_CLOSED if the channel is closed*/
 void *MRChannel_Pop(MRChannel *chan);
