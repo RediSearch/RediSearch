@@ -256,10 +256,11 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
   dictReleaseIterator(iter);
 }
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
-      return scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
+      size_t totalKeys = RedisModule_DbSize(ctx);
+      return totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
     } else {
       return 0;
     }
@@ -1800,7 +1801,6 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
   scanner->spec = spec;
   scanner->scannedKeys = 0;
   scanner->cancelled = false;
-  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   if (spec) {
     // scan already in progress?
@@ -1923,17 +1923,17 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     if (scanner->cancelled) {
       RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
-                  scanner->totalKeys);
+                      scanner->scannedKeys);
       goto end;
     }
   }
 
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
-                  scanner->totalKeys);
+                      scanner->scannedKeys);
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                  scanner->spec->name, scanner->totalKeys);
+                  scanner->spec->name, scanner->scannedKeys);
   }
 
 end:
@@ -2092,7 +2092,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
   RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
   RedisModule_InfoEndDictField(ctx);
 
