@@ -10,6 +10,7 @@
 #include "numeric_index.h"
 #include "rwlock.h"
 #include "global_stats.h"
+#include "redis_index.h"
 #include "index_utils.h"
 extern "C" {
 #include "util/dict.h"
@@ -102,9 +103,9 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(sctx, fmtkey, 1);
+  auto tix = TagIndex_Open(sctx, fmtkey, CREATE_INDEX);
   size_t sz;
-  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
+  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
   sctx->spec->stats.invertedSize += sz;
   return iv;
 }
