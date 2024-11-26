@@ -175,6 +175,22 @@ cleanup:
   return REDISMODULE_ERR;
 }
 
+static int NonEmptySpellCheckDictExists(void) {
+  int ret = 0;
+  dictEntry *entry;
+  dictIterator *iter = dictGetIterator(spellCheckDicts);
+  
+  while ((entry = dictNext(iter))) {
+    Trie *val = dictGetVal(entry);
+    if (val->size) {
+      ret = 1;
+      break;
+    }
+  }
+  dictReleaseIterator(iter);
+  return ret;
+}
+
 static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
     return;
@@ -184,19 +200,22 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
-    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     Trie *val = dictGetVal(entry);
+    if (val->size == 0) {
+      continue;
+    }
+    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false);
   }
   dictReleaseIterator(iter);
 }
 
 static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
-  if (when == REDISMODULE_AUX_BEFORE_RDB) {
-    return;
-  }
   if (dictSize(spellCheckDicts)) {
-    SpellCheckDictAuxSave(rdb, when);
+    // if at least one dictionary has terms, save the dictionaries
+    if (NonEmptySpellCheckDictExists()) {
+      SpellCheckDictAuxSave(rdb, when);
+    }
   }
 }
 
