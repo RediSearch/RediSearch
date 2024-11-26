@@ -9,8 +9,8 @@ INTERNAL_SEARCH_COMMANDS = [
         '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
         '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
         '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
-        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
+        '_FT.DROPINDEX', '_FT.ADD', '_FT.GET', '_FT._CREATEIFNX',
+        '_FT.MGET', '_FT.DEL', '_FT.SAFEADD'
     ]
 
 def test_acl_category(env):
