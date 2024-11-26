@@ -102,9 +102,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_Map(reply); // top
 
-  char* specName = IndexSpec_FormatName(sp, false);
+  const char* specName = IndexSpec_FormatName(sp, false);
   REPLY_KVSTR_SAFE("index_name", specName);
-  rm_free(specName);
 
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp);

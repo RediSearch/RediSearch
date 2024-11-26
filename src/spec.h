@@ -267,8 +267,8 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  HiddenString *specName;           // Index name
-  uint64_t uniqueId;              // Id of index
+  HiddenString *specName;         // Index private name
+  char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int numFields;                  // Number of fields
 
@@ -632,7 +632,7 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   WeakRef spec_ref;
-  t_uniqueId spec_id;
+  const char *spec_name_for_logs;
   size_t scannedKeys;
 } IndexesScanner;
 
@@ -669,7 +669,8 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 * meaning we don't want to have access to the user data
 * @return the formatted name of the index
 */
-char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+char *IndexSpec_FormatObfuscatedName(const IndexSpec *sp);
 
 //---------------------------------------------------------------------------------------------
 

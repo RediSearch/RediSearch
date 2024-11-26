@@ -1,11 +1,14 @@
 #include "obfuscation_api.h"
 #include "rmalloc.h"
+
 #include "query_node.h"
 
 #include <string.h>
 
-void Obfuscate_Index(t_uniqueId indexId, char* buffer) {
-  sprintf(buffer, "Index@%zu", indexId);
+void Obfuscate_Index(const Sha1 *hash, char* buffer) {
+  const char prefix[] = "Index@";
+  strcpy(buffer, prefix);
+  Sha1_FormatIntoBuffer(hash, buffer + strlen(prefix));
 }
 
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {

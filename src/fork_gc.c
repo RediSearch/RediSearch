@@ -551,7 +551,7 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-  OBFUSCATE_INDEX(sctx.spec->uniqueId, indexName);
+  const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
   FGC_childCollectTerms(gc, &sctx);
   FGC_childCollectNumeric(gc, &sctx);
@@ -908,7 +908,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
 
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      OBFUSCATE_INDEX(sctx->spec->uniqueId, name);
+      const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
                       " trie in index '%s' failed", Obfuscate_Text(term), name);
     }

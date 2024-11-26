@@ -186,7 +186,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
-    aCtx->specId = sp->uniqueId;
   }
 
   // Assign the document:

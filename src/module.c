@@ -888,9 +888,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      char *specName = IndexSpec_FormatName(sp, obfuscate);
+      const char *specName = IndexSpec_FormatName(sp, obfuscate);
       REPLY_SIMPLE_SAFE(specName);
-      rm_free(specName);
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
