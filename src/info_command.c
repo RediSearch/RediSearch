@@ -13,6 +13,7 @@
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "reply_macros.h"
+#include "redis_index.h"
 
 #define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
 
