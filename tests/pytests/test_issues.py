@@ -390,13 +390,13 @@ def test_2370(env):
   # Test limit offset great than number of results
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
-  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
-  conn.execute_command('HSET', 'doc2', 't1', 'baz')
+  conn.execute_command('HSET', 'doc1', 't1', 'baz')
+  conn.execute_command('HSET', 'doc2', 't1', 'foo', 't2', 'bar')
 
   # number of results is lower than LIMIT
   env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '10', '10').equal([2])
   # missing fields
-  env.expect('FT.SEARCH', 'idx', '*').equal([2, 'doc2', ['t1', 'baz'], 'doc1', ['t1', 'foo', 't2', 'bar']])
+  env.expect('FT.SEARCH', 'idx', '*').equal([2, 'doc1', ['t1', 'baz'], 'doc2', ['t1', 'foo', 't2', 'bar']])
 
 def test_MOD1907(env):
   # Test FT.CREATE w/o fields parameters

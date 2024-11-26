@@ -2224,7 +2224,7 @@ def test_query_with_knn_substr():
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
     env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
 
-    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim, 'SORTBY', 'dist',
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
     env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
 
@@ -2237,7 +2237,8 @@ def test_query_with_knn_substr():
     env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
 
     res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
-                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent',
+                               'LOAD', '1', '@__key', 'SORTBY', '__key')
     env.assertEqual(res[1:], expected_res)
 
 

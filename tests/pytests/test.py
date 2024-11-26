@@ -74,7 +74,7 @@ def testAttributes(env):
     env.assertEqual([2, 'doc1', 'doc2'], res)
 
     res = env.cmd(
-        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent')
+        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent', 'scorer', 'TFIDF')
     env.assertEqual([2, 'doc2', 'doc1'], res)
     res = env.cmd(
         'ft.search', 'idx', '(t5 t3) => {$slop: 0}', 'nocontent')
@@ -1113,8 +1113,8 @@ def testSortByWithTie(env):
         conn.execute_command('hset', i, 't', 'hello')
 
     # Assert that the order of results is the same in both configurations (by ascending id).
-    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
-    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF')
+    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF', 'sortby', 't')
     env.assertEqual(res1, res2)
 
 
