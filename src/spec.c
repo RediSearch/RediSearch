@@ -95,7 +95,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
     if (STR_EQ(name, len, fs->name)) {
@@ -105,9 +105,19 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, siz
   return NULL;
 }
 
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name) {
+  for (size_t i = 0; i < spec->numFields; i++) {
+    const FieldSpec *fs = spec->fields + i;
+    if (!strcmp(name, fs->name)) {
+      return fs;
+    }
+  }
+  return NULL;
+}
+
 // Assuming the spec is properly locked before calling this function.
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
 
   return FIELD_BIT(fs);
@@ -325,16 +335,36 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
 
 //---------------------------------------------------------------------------------------------
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp) {
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
-      return scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
+      size_t totalKeys = RedisModule_DbSize(ctx);
+      return totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
     } else {
       return 0;
     }
   } else {
     return 1.0;
   }
+}
+
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
+  // Traverse the fields and calculates the overhead of the numeric tree index
+  size_t overhead = 0;
+  for (size_t i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, fs->types);
+      NumericRangeTree *rt = openNumericKeysDict(sp, keyName, DONT_CREATE_INDEX);
+      // Numeric index was not initialized yet
+      if (!rt) {
+        continue;
+      }
+
+      overhead += sizeof(NumericRangeTree);
+    }
+  }
+  return overhead;
 }
 
 size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
@@ -369,6 +399,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
+  res += IndexSpec_collect_numeric_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
@@ -989,7 +1020,10 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = OpenVectorIndex(sp, vecsim_name);
+      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+      if (!vecsim) {
+        continue;
+      }
       total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
     }
   }
@@ -1002,7 +1036,10 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = OpenVectorIndex(sp, vecsim_name);
+      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+      if (!vecsim) {
+        continue;
+      }
       VecSimIndexInfo info = VecSimIndex_Info(vecsim);
       stats.memory += info.commonInfo.memory;
       if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
@@ -1067,7 +1104,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fieldPath = NULL;
     }
 
-    if (IndexSpec_GetField(sp, fieldName, namelen)) {
+    if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
       goto reset;
     }
@@ -1727,7 +1764,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
 // Assuming the spec is properly locked before calling this function.
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
                                                    FieldType forType) {
-  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
+  const FieldSpec *fs = IndexSpec_GetField(sp, s);
   if (!fs) {
     return NULL;
   }
@@ -2081,7 +2118,6 @@ static IndexesScanner *IndexesScanner_NewGlobal() {
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
   scanner->global = true;
   scanner->scannedKeys = 0;
-  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   global_spec_scanner = scanner;
   RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
@@ -2092,7 +2128,6 @@ static IndexesScanner *IndexesScanner_NewGlobal() {
 static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->totalKeys = RedisModule_DbSize(RSDummyContext);
 
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
@@ -2390,7 +2425,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
   RedisModule_InfoAddFieldDouble(ctx, "percent_indexed", percent_indexed);
   RedisModule_InfoEndDictField(ctx);
 

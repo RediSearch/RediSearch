@@ -59,6 +59,7 @@
 #include "global_stats.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
+#define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
 
 extern RSConfig RSGlobalConfig;
 
@@ -344,7 +345,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
+  const FieldSpec *sp = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
@@ -355,7 +356,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -677,7 +678,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
     RedisSearchCtx_LockSpecRead(&sctx);
-    const FieldSpec *field_exists = IndexSpec_GetField(sp, fieldName, fieldNameSize);
+    const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);
     RedisSearchCtx_UnlockSpec(&sctx);
 
     if (field_exists) {
@@ -994,10 +995,14 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 
   int rc = REDISMODULE_OK;
   char *categories;
-  if (!strcmp(aclCategories, "")) {
-    categories = SEARCH_ACL_CATEGORY;
+  bool is_internal = false;
+
+  if (IS_INTERNAL_COMMAND(name)) {
+    // Internal command, register to the internal ACL category ONLY
+    categories = SEARCH_ACL_INTERNAL_CATEGORY;
+    is_internal = true;
   } else {
-    rm_asprintf(&categories, "%s %s", aclCategories, SEARCH_ACL_CATEGORY);
+    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
@@ -1005,7 +1010,7 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
     rc = REDISMODULE_ERR;
   }
 
-  if (strlen(categories) != strlen(SEARCH_ACL_CATEGORY)) {
+  if (!is_internal) {
     rm_free(categories);
   }
 
@@ -1073,6 +1078,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
+      return REDISMODULE_ERR;
+  }
+
+  // Create the ACL command category for our internal commands
+  if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
       return REDISMODULE_ERR;
   }
 
@@ -1175,7 +1186,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, "admin dangerous slow"))
+         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, ""))
   RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
@@ -2738,12 +2749,18 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
   /*
    * v - argv input array of RedisModuleString
    * E - return errors as RedisModuleCallReply object (instead of NULL)
-   * C - same client
    * M - respect OOM
    * 0 - same RESP protocol
    * ! - replicate the command if needed (allows for replication)
+   * NOTICE: We don't add the `C` flag, such that the user that runs the internal
+   * command is the unrestricted user. Such that it can execute internal commands
+   * even if the dispatching user does not have such permissions (we reach here
+   * only on OSS with 1 shard due to the mechanism of this function).
+   * This is OK because the user already passed the ACL command validation (keys - TBD)
+   * before reaching the non-underscored command command-handler.
    */
-  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vECM0!", argv + 1, argc - 1);
+
+  RedisModuleCallReply *r = RedisModule_Call(ctx, localCmd, "vEM0!", argv + 1, argc - 1);
   RedisModule_ReplyWithCallReply(ctx, r); // Pass the reply to the client
   rm_free(localCmd);
   RedisModule_FreeCallReply(r);
