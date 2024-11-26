@@ -33,6 +33,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/workers.h"
 #include "global_stats.h"
+#include "hash/hash.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -43,7 +44,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
-static uint64_t spec_unique_ids = 1;
 
 dict *specDict_g;
 IndexesScanner *global_spec_scanner = NULL;
@@ -152,9 +152,8 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = spec->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        OBFUSCATE_FIELD(fs->index, fieldName);
         QueryError_SetErrorFmt(status, QUERY_EBADORDEROPTION,
-          "slop/inorder are not supported for field `%s` since it has undefined ordering", fieldName);
+          "slop/inorder are not supported for field `%s` since it has undefined ordering", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return 0;
       }
     }
@@ -274,7 +273,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
     // the spec was already deleted, nothing to do here
     return;
   }
-  OBFUSCATE_INDEX(sp->uniqueId, name);
+  const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", name);
 
   sp->isTimerSet = false;
@@ -409,15 +408,18 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
-char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
-    char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
-    const char* name = nameBuffer;
-    if (obfuscate) {
-        Obfuscate_Index(sp->uniqueId, nameBuffer);
-    } else {
-        name = HiddenString_GetUnsafe(sp->specName, NULL);
-    }
-    return rm_strdup(name);
+const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
+    return obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
+}
+
+char *IndexSpec_FormatObfuscatedName(const IndexSpec *sp) {
+  Sha1 sha1;
+  size_t len;
+  const char* value = HiddenString_GetUnsafe(sp->specName, &len);
+  Sha1_Compute(&sha1, value, len);
+  char buffer[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(&sha1, buffer);
+  return rm_strdup(buffer);
 }
 
 static bool checkIfSpecExists(const char *rawSpecName) {
@@ -450,7 +452,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Add the spec to the global spec dictionary
   dictAdd(specDict_g, sp->specName, spec_ref.rm);
 
-  sp->uniqueId = spec_unique_ids++;
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
 
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
@@ -964,9 +966,9 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
-  OBFUSCATE_FIELD(fs->index, fieldName);
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fieldName);
+
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
     return 0;
   }
 
@@ -997,7 +999,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       fs->options |= FieldSpec_IndexMissing;
     }
   } else {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fieldName);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
@@ -1020,14 +1022,14 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field `%s` cannot be defined with both `NOINDEX` and `INDEXMISSING`'", fieldName);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field `%s` cannot be defined with both `NOINDEX` and `INDEXMISSING`'", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
   return 1;
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`", fieldName);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
   }
   return 0;
 }
@@ -1285,8 +1287,7 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  HiddenString* HiddenString = NewHiddenString(name, strlen(name), true);
-  IndexSpec *spec = NewIndexSpec(HiddenString);
+  IndexSpec *spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
@@ -1554,6 +1555,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec name
   HiddenString_Free(spec->specName, true);
+  if (spec->obfuscatedName) {
+    rm_free(spec->obfuscatedName);
+  }
   // Free sortable list
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
@@ -1626,7 +1630,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   dictDelete(specDict_g, (void*)spec->specName);
 
   // Remove spec from global aliases list
-  if (spec->uniqueId) {
+  if (spec->obfuscatedName) {
     // If uniqueid is 0, it means the index was not initialized
     // and is being freed now during an error.
     IndexSpec_ClearAliases(spec_ref);
@@ -1928,7 +1932,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef global, IndexSpec *sp) {
     sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
     GCContext_Start(sp->gc);
 
-    OBFUSCATE_INDEX(sp->uniqueId, name);
+    const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(ctx, "verbose", "Starting GC for %s", name);
     RedisModule_Log(ctx, "debug", "Starting GC %p for %s", sp->gc, name);
   }
@@ -2158,12 +2162,12 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
-  scanner->spec_id = spec->uniqueId;
+  scanner->spec_name_for_logs = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
 
   // scan already in progress?
   if (spec->scanner) {
     // cancel ongoing scan, keep on_progress indicator on
-    OBFUSCATE_INDEX(spec->uniqueId, name);
+    const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
     IndexesScanner_Cancel(spec->scanner);
     RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
   }
@@ -2261,8 +2265,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
-    OBFUSCATE_INDEX(scanner->spec_id, name);
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background", name);
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
 
   size_t counter = 0;
@@ -2292,9 +2295,8 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)",
                     scanner->scannedKeys);
   } else {
-    OBFUSCATE_INDEX(scanner->spec_id, name);
     RedisModule_Log(ctx, "notice", "Scanning index %s in background: done (scanned=%ld)",
-                    name, scanner->scannedKeys);
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
   }
 
 end:
@@ -2317,8 +2319,8 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   }
 #ifdef _DEBUG
   IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
-  OBFUSCATE_INDEX(spec->uniqueId, name);
-  RedisModule_Log(RSDummyContext, "notice", "Register index %s for async scan", name);
+  const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
+  RedisModule_Log(RSDummyContext, "notice", "Register index %s for async scan", indexName);
 #endif
   IndexesScanner *scanner = IndexesScanner_New(spec_ref);
   redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
@@ -2628,7 +2630,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->uniqueId = spec_unique_ids++;
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
 
   IndexSpec_StartGC(ctx, spec_ref, sp);
   Cursors_initSpec(sp);
@@ -2662,7 +2664,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
     // setting unique id to zero will make sure index will not be removed from global
     // cursor map and aliases.
-    sp->uniqueId = 0;
+    sp->obfuscatedName = NULL;
     // Remove the new spec from the global prefixes dictionary.
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
@@ -2739,7 +2741,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->uniqueId = spec_unique_ids++;
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
 
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
@@ -2765,8 +2767,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
 
-  char name[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(sp->uniqueId, name);
+  const char *name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
   SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->specName);
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
@@ -2963,9 +2964,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
-    char name[MAX_OBFUSCATED_INDEX_NAME];
-    Obfuscate_Index(spec->uniqueId, name);
-    RedisModule_Log(ctx, "warning", "Index spec '%s': no rule found", name);
+    RedisModule_Log(ctx, "warning", "Index spec '%s': no rule found", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
     return REDISMODULE_ERR;
   }
 

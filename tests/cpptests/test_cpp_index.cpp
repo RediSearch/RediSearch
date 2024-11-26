@@ -1260,13 +1260,11 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  char *realName = IndexSpec_FormatName(s, false);
+  const char *realName = IndexSpec_FormatName(s, false);
   ASSERT_STREQ(realName, spec_name);
-  rm_free(realName);
 
-  char *obfuscatedName = IndexSpec_FormatName(s, true);
+  const char *obfuscatedName = IndexSpec_FormatName(s, true);
   ASSERT_STREQ(obfuscatedName, "Index@0");
-  rm_free(obfuscatedName);
 
   const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);

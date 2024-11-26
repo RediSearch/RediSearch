@@ -333,6 +333,40 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   RediSearch_CleanupModule();
 }
 
+#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+
+bool getHideUserDataFromLogs() {
+  RedisModuleCallReply *reply =
+      RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", HIDE_USER_DATA_FROM_LOGS);
+  assert(reply);
+  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_BOOL);
+  return RedisModule_CallReplyBool(reply);
+}
+
+void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
+  RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
+  if (RSGlobalConfig.hideUserDataFromLog) {
+    RedisModule_Log(ctx, "info", "Hide user data from search logs is now enabled, search entity names(such as indexes and fields) in the logs will now be obfuscated");
+  } else {
+    RedisModule_Log(ctx, "info", "Hide user data from search logs is now disabled");
+
+  }
+}
+
+void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
+  if (eid.id != REDISMODULE_EVENT_CONFIG ||
+      event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+    return;
+  }
+  RedisModuleConfigChangeV1 *ei = data;
+  for (unsigned int i = 0; i < ei->num_changes; i++) {
+    const char *conf = ei->config_names[i];
+    if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
+      onUpdatedHideUserDataFromLogs(ctx);
+    }
+  }
+}
+
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
@@ -354,6 +388,11 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     // used only with sanitizer or valgrind
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+  }
+
+  if (RedisModule_SubscribeToServerEvent) {
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
   }
 }
 

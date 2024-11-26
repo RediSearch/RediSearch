@@ -27,10 +27,17 @@ int testMax ## name ## Obfuscation() {                             \
     return strcmp(obfuscated, #name"@18446744073709551615");       \
 }
 
-DEFINE_OBJECT_OBFUSCATION_TESTS(Index)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Field)
 DEFINE_OBJECT_OBFUSCATION_TESTS(FieldPath)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Document)
+
+int testSimpleIndexObfuscation() {
+  Sha1 sha;
+  Sha1_Compute(&sha, "idx", 3);
+  char buffer[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(&sha, buffer);
+  return strcmp(buffer, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
+}
 
 int testTextObfuscation() {
     char *obfuscated = Obfuscate_Text("hello");
@@ -95,7 +102,6 @@ int testQueryNodeObfuscation() {
 
 TEST_MAIN({
     TESTFUNC(testSimpleIndexObfuscation);
-    TESTFUNC(testMaxIndexObfuscation);
     TESTFUNC(testSimpleFieldObfuscation);
     TESTFUNC(testMaxFieldObfuscation);
     TESTFUNC(testSimpleFieldPathObfuscation);

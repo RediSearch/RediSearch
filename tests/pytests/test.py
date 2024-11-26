@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from common import *
 import redis
-from hotels import hotels
 import random
 import time
 import unittest
+from common import *
+from hotels import hotels
 
 def testAddErrors(env):
     env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
