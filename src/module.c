@@ -2891,7 +2891,8 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef spec_ref = IndexSpec_LoadUnsafe(idx);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
@@ -3158,17 +3159,17 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-
   // Prepare spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef spec_ref = IndexSpec_LoadUnsafe(idx);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
-    rm_free(sCmdCtx);
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
   }
+
+  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
 
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);

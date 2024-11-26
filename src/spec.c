@@ -1702,8 +1702,10 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
     }
   }
 
-  // Increament the number of uses.
-  IndexSpec_IncreasCounter(sp);
+  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
+    // Increament the number of uses.
+    IndexSpec_IncreasCounter(sp);
+  }
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));

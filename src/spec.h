@@ -560,6 +560,7 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
 } IndexLoadOptionsFlags;
 
 typedef struct {

@@ -3821,8 +3821,7 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-
-    assertInfoField(env, 'idx', 'number_of_uses', 3 if not env.isCluster() else 4)
+    assertInfoField(env, 'idx', 'number_of_uses', 3)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -4313,7 +4312,7 @@ def test_incompatibleIndex(env):
 
     # Connect to two shards
     first_conn = env.getConnection(0)
-    second_conn = env.getConnection()
+    second_conn = env.getConnection(1)
 
     # Create an index
     index_name = 'idx'
