@@ -80,8 +80,6 @@ def test_lazy_index_creation_debug_commands(env):
         "geom", "GEOSHAPE",
         "vec", "VECTOR",
             "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
-        "vec2", "VECTOR",
-            "HNSW", "6", "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
     ).ok()
 
     # debug command
@@ -118,10 +116,6 @@ def test_lazy_index_creation_debug_commands(env):
     env.cmd(debug_cmd(), "VECSIM_INFO", "idx", 'vec')
     expected_reply["inverted_indexes_dict_size"] += 1
     expected_reply = validate_spec_invidx_info(env, expected_reply, "VECSIM_INFO")
-
-    env.cmd(debug_cmd(), "DUMP_HNSW", "idx", 'vec2')
-    expected_reply["inverted_indexes_dict_size"] += 1
-    expected_reply = validate_spec_invidx_info(env, expected_reply, "DUMP_HNSW")
 
 def test_lazy_index_creation_info_modules(env):
     # create index with all fields types

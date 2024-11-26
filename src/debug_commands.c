@@ -445,10 +445,10 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
 
 // FT.DEBUG SPEC_INVIDXES_INFO INDEX_NAME
 DEBUG_COMMAND(SpecInvertedIndexesInfo) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
-  GET_SEARCH_CTX(argv[2])
+  GET_SEARCH_CTX(argv[0])
   START_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
 	REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
 	REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
