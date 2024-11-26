@@ -88,7 +88,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 2) return RedisModule_WrongArity(ctx);
+  if (argc < 3) return RedisModule_WrongArity(ctx);
 
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
@@ -96,13 +96,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  const bool obfuscate = false;
+  const bool obfuscate = argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "OBFUSCATE");
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Map(reply); // top
 
-  const char* specName = IndexSpec_FormatName(sp, false);
+  const char* specName = IndexSpec_FormatName(sp, obfuscate);
   REPLY_KVSTR_SAFE("index_name", specName);
 
   renderIndexOptions(reply, sp);
@@ -115,8 +116,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Reply_Map(reply); // >>field
 
     const FieldSpec *fs = &sp->fields[i];
-    char *path = FieldSpec_FormatPath(fs, false, true);
-    char *name = FieldSpec_FormatName(fs, false, true);
+    char *path = FieldSpec_FormatPath(fs, obfuscate, true);
+    char *name = FieldSpec_FormatName(fs, obfuscate, true);
     REPLY_KVSTR("identifier", path);
     REPLY_KVSTR("attribute", name);
     rm_free(path);
