@@ -440,7 +440,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
-      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false);
+      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
       if (!tagIdx) {
         continue;
       }
@@ -832,7 +832,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, 1, NULL);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -920,7 +920,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     if (!initialized) {
-      fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+      fs = IndexSpec_GetField(sctx->spec, fieldName);
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
       initialized = true;
@@ -1026,7 +1026,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
-    tagIdx = TagIndex_Open(sctx, keyName, false);
+    tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       status = FGC_CHILD_ERROR;
@@ -1034,7 +1034,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     size_t dummy_size;
-    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0, &dummy_size);
+    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, DONT_CREATE_INDEX, &dummy_size);
     if (idx == TRIEMAP_NOTFOUND || idx != value) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;

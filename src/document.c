@@ -76,7 +76,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->name);
     if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
@@ -552,7 +552,7 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs);
+  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs, CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
     return -1;
@@ -631,14 +631,14 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *rt = OpenVectorIndex(sp, keyName);
-  if (!rt) {
+  VecSimIndex *vecsim = openVectorIndex(sp, keyName, CREATE_INDEX);
+  if (!vecsim) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
     return -1;
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
-    VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
+    VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
   sp->stats.numRecords += fdata->numVec;
@@ -748,7 +748,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_BULK_INDEXER(tagIndexer) {
   RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx, kname, 1);
+  TagIndex *tidx = TagIndex_Open(ctx, kname, CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     return -1;
@@ -944,7 +944,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }

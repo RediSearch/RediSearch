@@ -57,6 +57,7 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
+#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \

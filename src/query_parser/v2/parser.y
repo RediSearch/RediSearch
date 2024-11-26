@@ -163,6 +163,9 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
+  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+
 //! " # % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ ` { | } ~
 static const char ToksepParserMap_g[256] = {
     [' '] = 1, ['\t'] = 1, [','] = 1,  ['.'] = 1, ['/'] = 1, ['('] = 1, [')'] = 1, ['{'] = 1,
@@ -278,16 +281,11 @@ static inline char *toksep2(char **s, size_t *tokLen) {
   });
 }
 
-%type modifierlist { Vector* }
+%type modifier { FieldName }
+
+%type modifierlist { FieldName* }
 %destructor modifierlist {
-  if ($$) {
-    for (size_t i = 0; i < Vector_Size($$); i++) {
-        char *s;
-        Vector_Get($$, i, &s);
-        rm_free(s);
-    }
-    Vector_Free($$);
-  }
+  array_free($$);
 }
 
 %type num { RangeNumber }
@@ -326,79 +324,79 @@ expr(A) ::= text_expr(B). [TEXTEXPR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
+  int rv = one_not_null(B, C, (void**)&A);
+  if (rv == NODENN_BOTH_INVALID) {
+    A = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing- `out` is already assigned
+  } else {
+    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+      A = B;
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
+      A = NewPhraseNode(0);
+      QueryNode_AddChild(A, B);
     }
+    QueryNode_AddChild(A, C);
+  }
 }
 
 // This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
+  int rv = one_not_null(B, C, (void**)&A);
+  if (rv == NODENN_BOTH_INVALID) {
+    A = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing- `out` is already assigned
+  } else {
+    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+      A = B;
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
+      A = NewPhraseNode(0);
+      QueryNode_AddChild(A, B);
     }
+    QueryNode_AddChild(A, C);
+  }
 }
 
 expr(A) ::= expr(B) text_expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
+  int rv = one_not_null(B, C, (void**)&A);
+  if (rv == NODENN_BOTH_INVALID) {
+    A = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing- `out` is already assigned
+  } else {
+    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+      A = B;
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
+      A = NewPhraseNode(0);
+      QueryNode_AddChild(A, B);
     }
+    QueryNode_AddChild(A, C);
+  }
 }
 
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        A = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
+  int rv = one_not_null(B, C, (void**)&A);
+  if (rv == NODENN_BOTH_INVALID) {
+    A = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing- `out` is already assigned
+  } else {
+    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
+      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
+      A = B;
     } else {
-        if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-            B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            A = B;
-        } else {
-            A = NewPhraseNode(0);
-            QueryNode_AddChild(A, B);
-        }
-        QueryNode_AddChild(A, C);
+      A = NewPhraseNode(0);
+      QueryNode_AddChild(A, B);
     }
+    QueryNode_AddChild(A, C);
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -445,78 +443,35 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON text_expr(C) . {
-    if (C == NULL) {
-        A = NULL;
-    } else {
-        if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
-        }
-        A = C;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
+    QueryNode_Free(C);
+    A = NULL;
+  } else if (C == NULL) {
+    A = NULL;
+  } else {
+    if (ctx->sctx->spec) {
+      QueryNode_SetFieldMask(C, FIELD_BIT(B.fs));
     }
-}
-
-expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  QueryNode* E = NewNumericNode(qp);
-  A = NewNotNode(E);
-}
-
-expr(A) ::= modifier(B) EQUALS param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
-}
-
-expr(A) ::= modifier(B) GT param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
-}
-
-expr(A) ::= modifier(B) GE param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
-}
-
-expr(A) ::= modifier(B) LT param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
-}
-
-expr(A) ::= modifier(B) LE param_num(C) . {
-  QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-  qp->nf->fieldName = rm_strndup(B.s, B.len);
-  A = NewNumericNode(qp);
+    A = C;
+  }
 }
 
 expr(A) ::= modifierlist(B) COLON text_expr(C) . {
-
-    if (C == NULL) {
-        for (size_t i = 0; i < Vector_Size(B); i++) {
-          char *s;
-          Vector_Get(B, i, &s);
-          rm_free(s);
-        }
-        Vector_Free(B);
-        A = NULL;
-    } else {
-        //C->opts.fieldMask = 0;
-        t_fieldMask mask = 0;
-        for (int i = 0; i < Vector_Size(B); i++) {
-            char *p;
-            Vector_Get(B, i, &p);
-            if (ctx->sctx->spec) {
-              mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p));
-            }
-            rm_free(p);
-        }
-        Vector_Free(B);
-        QueryNode_SetFieldMask(C, mask);
-        A=C;
+  if (C == NULL) {
+    array_free(B);
+    A = NULL;
+  } else {
+    t_fieldMask mask = 0;
+    if (ctx->sctx->spec) {
+      for (int i = 0; i < array_len(B); i++) {
+        mask |= FIELD_BIT(B[i].fs);
+      }
     }
+    array_free(B);
+    QueryNode_SetFieldMask(C, mask);
+    A=C;
+  }
 }
 
 expr(A) ::= LP expr(B) RP . {
@@ -565,21 +520,19 @@ attribute_list(A) ::= . {
 }
 
 expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
-
-    if (B && C) {
-        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
-    }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
-    A = B;
+  if (B && C) {
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  A = B;
 }
 
 text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
-
-    if (B && C) {
-        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
-    }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
-    A = B;
+  if (B && C) {
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+  }
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  A = B;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -627,11 +580,11 @@ text_expr(A) ::= param_term(B) . [LOWEST]  {
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
-A = B;
+  A = B;
 }
 
 text_expr(A) ::= verbatim(B) . [VERBATIM]  {
-A = B;
+  A = B;
 }
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
@@ -641,10 +594,10 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
-    A = B;
-    if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-       QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-    }
+  A = B;
+  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -652,19 +605,19 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . {
-    if (B) {
-        A = NewNotNode(B);
-    } else {
-        A = NULL;
-    }
+  if (B) {
+    A = NewNotNode(B);
+  } else {
+    A = NULL;
+  }
 }
 
 text_expr(A) ::= MINUS text_expr(B) . {
-    if (B) {
-        A = NewNotNode(B);
-    } else {
-        A = NULL;
-    }
+  if (B) {
+    A = NewNotNode(B);
+  } else {
+    A = NULL;
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -672,19 +625,19 @@ text_expr(A) ::= MINUS text_expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= TILDE expr(B) . {
-    if (B) {
-        A = NewOptionalNode(B);
-    } else {
-        A = NULL;
-    }
+  if (B) {
+    A = NewOptionalNode(B);
+  } else {
+    A = NULL;
+  }
 }
 
 text_expr(A) ::= TILDE text_expr(B) . {
-    if (B) {
-        A = NewOptionalNode(B);
-    } else {
-        A = NULL;
-    }
+  if (B) {
+    A = NewOptionalNode(B);
+  } else {
+    A = NULL;
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -692,23 +645,23 @@ text_expr(A) ::= TILDE text_expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 affix(A) ::= PREFIX(B) . {
-    A = NewPrefixNode_WithParams(ctx, &B, true, false);
+  A = NewPrefixNode_WithParams(ctx, &B, true, false);
 }
 
 affix(A) ::= SUFFIX(B) . {
-    A = NewPrefixNode_WithParams(ctx, &B, false, true);
+  A = NewPrefixNode_WithParams(ctx, &B, false, true);
 }
 
 affix(A) ::= CONTAINS(B) . {
-    A = NewPrefixNode_WithParams(ctx, &B, true, true);
+  A = NewPrefixNode_WithParams(ctx, &B, true, true);
 }
 
 // verbatim(A) ::= VERBATIM(B) . {
-//    A = NewVerbatimNode_WithParams(ctx, &B);
+//   A = NewVerbatimNode_WithParams(ctx, &B);
 // }
 
 verbatim(A) ::= WILDCARD(B) . {
-    A = NewWildcardNode_WithParams(ctx, &B);
+  A = NewWildcardNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -733,46 +686,72 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 
 modifier(A) ::= MODIFIER(B) . {
   B.len = unescapen((char*)B.s, B.len);
-  A = B;
+  A.tok = B;
+  if (ctx->sctx->spec) {
+    A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+    if (!A.fs) {
+      reportSyntaxError(ctx->status, &A.tok, "Unknown field");
+    }
+  }
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
-  if (__builtin_expect(C.len > 0, 1)) {
-    A = NewVector(char *, 2);
-    char *s = rm_strndup(B.s, B.len);
-    Vector_Push(A, s);
-    s = rm_strndup(C.s, C.len);
-    Vector_Push(A, s);
+  if (ctx->sctx->spec) {
+    if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
+      A = NULL;
+    } else {
+      FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+      if (!second.fs) {
+        reportSyntaxError(ctx->status, &second.tok, "Unknown field");
+        A = NULL;
+      } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+        REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
+        A = NULL;
+      } else {
+        A = array_new(FieldName, 2);
+        array_append(A, B);
+        array_append(A, second);
+      }
+    }
   } else {
-    reportSyntaxError(ctx->status, &C, "Syntax error");
-    A = NULL;
+    A = array_new(FieldName, 2);
+    array_append(A, B);
+    FieldName second = { .tok = C };
+    array_append(A, second);
   }
 }
 
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-  if (__builtin_expect(C.len > 0, 1)) {
-    char *s = rm_strndup(C.s, C.len);
-    Vector_Push(B, s);
-    A = B;
-  } else {
-    reportSyntaxError(ctx->status, &C, "Syntax error");
-    if (B) {
-      for (size_t i = 0; i < Vector_Size(B); i++) {
-        char *s;
-        Vector_Get(B, i, &s);
-        rm_free(s);
-      }
-      Vector_Free(B);
+  if (ctx->sctx->spec) {
+    FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+    if (!second.fs) {
+      reportSyntaxError(ctx->status, &second.tok, "Unknown field");
+      array_free(B);
+      A = NULL;
+    } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+      REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
+      array_free(B);
+      A = NULL;
+    } else {
+      A = B;
+      array_append(A, second);
     }
-    A = NULL;
+  } else {
+    A = B;
+    FieldName second = { .tok = C };
+    array_append(A, second);
   }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
-  char *s = rm_strndup(B.s, B.len);
-  size_t slen = unescapen(s, B.len);
-  A = NewMissingNode(s, slen);
+  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
+    reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
+    A = NULL;
+  } else {
+    A = NewMissingNode(B.fs);
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -780,20 +759,18 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
-    if (!C) {
-        A = NULL;
-    } else {
-      // Tag field names must be case sensitive, we can't do rm_strdupcase
-        char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen(s, B.len);
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
+    QueryNode_Free(C);
+  } else if (C) {
+    A = NewTagNode(B.fs);
+    QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
-        A = NewTagNode(s, slen);
-        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
-
-        // Set the children count on C to 0 so they won't get recursively free'd
-        QueryNode_ClearChildren(C, 0);
-        QueryNode_Free(C);
-    }
+    // Set the children count on C to 0 so they won't get recursively free'd
+    QueryNode_ClearChildren(C, 0);
+    QueryNode_Free(C);
+  }
 }
 
 tag_list(A) ::= param_term_case(B) . [TAGLIST] {
@@ -802,18 +779,18 @@ tag_list(A) ::= param_term_case(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= affix(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= verbatim(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, B);
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
@@ -822,13 +799,13 @@ tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
+  QueryNode_AddChild(B, C);
+  A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
+  QueryNode_AddChild(B, C);
+  A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
@@ -841,12 +818,14 @@ tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
-  if (C) {
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    QueryParam_Free(C);
+  } else if (C) {
     // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
+    C->nf->field = B.fs;
     A = NewNumericNode(C);
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
@@ -894,17 +873,86 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
 }
 
+expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+    qp->nf->field = B.fs;
+    QueryNode* E = NewNumericNode(qp);
+    A = NewNotNode(E);
+  }
+}
+
+expr(A) ::= modifier(B) EQUALS param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
+}
+
+expr(A) ::= modifier(B) GT param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
+}
+
+expr(A) ::= modifier(B) GE param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
+}
+
+expr(A) ::= modifier(B) LT param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
+}
+
+expr(A) ::= modifier(B) LE param_num(C) . {
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
+    A = NULL;
+  } else {
+    QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
+    qp->nf->field = B.fs;
+    A = NewNumericNode(qp);
+  }
+}
+
 /////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
-  if (C) {
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEO)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_GEO_STR);
+    QueryParam_Free(C);
+  } else if (C) {
     // we keep the capitalization as is
-    C->gf->property = rm_strndup(B.s, B.len);
+    C->gf->field = B.fs;
     A = NewGeofilterNode(C);
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
@@ -924,12 +972,14 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 // Geometry Queries
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
-  if (C) {
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
+    QueryNode_Free(C);
+  } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->attr = rm_strndup(B.s, B.len);
+    C->gmn.geomq->fs = B.fs;
     A = C;
-  } else {
-    A = NewQueryNode(QN_NULL);
   }
 }
 
@@ -1032,12 +1082,12 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
-     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr)->value));
 
   if (A) {
-      QueryNode_AddChild(B, A);
+    QueryNode_AddChild(B, A);
   }
 }
 
@@ -1071,11 +1121,14 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
+  if (ctx->sctx->spec && !FIELD_IS(C.fs, INDEXFLD_T_VECTOR)) {
+    REPORT_WRONG_FIELD_TYPE(C, SPEC_VECTOR_STR);
+    A = NULL;
+  } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->property = rm_strndup(C.s, C.len);
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+    A->vn.vq->field = C.fs;
+    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;
@@ -1110,8 +1163,14 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 
 /*** Vector range queries ***/
 expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
-    C->vn.vq->property = rm_strndup(B.s, B.len);
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
+    QueryNode_Free(C);
+  } else if (C) {
+    C->vn.vq->field = B.fs;
     A = C;
+  }
 }
 
 vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
@@ -1130,12 +1189,10 @@ vector_range_command(A) ::= TERM(T) param_num(B) ATTRIBUTE(C). {
 
 num(A) ::= SIZE(B). {
   A.num = B.numval;
-  A.inclusive = 1;
 }
 
 num(A) ::= NUMBER(B). {
   A.num = B.numval;
-  A.inclusive = 1;
 }
 
 num(A) ::= MINUS num(B). {
@@ -1194,37 +1251,31 @@ param_size(A) ::= ATTRIBUTE(B). {
 param_num(A) ::= ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_NUMERIC;
-  A.inclusive = 1;
 }
 
 param_num(A) ::= MINUS ATTRIBUTE(B). {
-    A = B;
-    A.sign = -1;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 1;
+  A = B;
+  A.sign = -1;
+  A.type = QT_PARAM_NUMERIC;
 }
 
 param_num(A) ::= num(B). {
   A.numval = B.num;
-  A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
 }
 
 exclusive_param_num(A) ::= LP num(B). {
   A.numval = B.num;
-  A.inclusive = 0;
   A.type = QT_NUMERIC;
 }
 
 exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
-    A = B;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 0;
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
 }
 
 exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
-    A = B;
-    A.type = QT_PARAM_NUMERIC;
-    A.inclusive = 0;
-    A.sign = -1;
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.sign = -1;
 }

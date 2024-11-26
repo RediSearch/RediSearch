@@ -66,8 +66,9 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
-  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  size_t len;
+  const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, &len);
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, len);
   if (!fieldSpec) {
     return NULL;
   }
@@ -273,13 +274,16 @@ DEBUG_COMMAND(DumpGeometryIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  size_t len;
+  const char *fieldName = RedisModule_StringPtrLen(argv[3], &len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, len);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs);
+
+  // TODO: use DONT_CREATE_INDEX and imitate the reply struct of an empty index.
+  const GeometryIndex *idx = OpenGeometryIndex(sctx->spec, fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
@@ -455,6 +459,21 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG SPEC_INVIDXES_INFO INDEX_NAME
+DEBUG_COMMAND(SpecInvertedIndexesInfo) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+  START_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+	REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
+	REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
+  END_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(DumpTagIndex) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
@@ -465,9 +484,11 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false);
+  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+  // Field was not initialized yet
   if (!tagIndex) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
@@ -533,9 +554,11 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
+    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+    // Field was not initialized yet
     if (!idx) {
-      RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+      RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
     if (!idx->suffix) {
@@ -940,9 +963,11 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, false);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+
+  // Field was not initialized yet
   if (!idx) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
+    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
     goto end;
   }
 
@@ -1125,7 +1150,7 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
 
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
@@ -1191,7 +1216,7 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = OpenVectorIndex(sctx->spec, keyName);
+  VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
 	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
@@ -1282,6 +1307,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary}, // Print info about an inverted index and each of its blocks.
                                {"NUMIDX_SUMMARY", NumericIndexSummary}, // Quick summary of the numeric index
+                               {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},

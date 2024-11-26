@@ -55,6 +55,7 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
 }
 
 void QueryParam_Free(QueryParam *p) {
+  if (!p) return;
   switch (p->type) {
     case QP_GEO_FILTER:
       GeoFilter_Free(p->gf);
@@ -213,9 +214,8 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
-      int inclusive = 1;
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (parseDoubleRange(val, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
