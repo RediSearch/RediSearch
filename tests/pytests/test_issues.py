@@ -382,7 +382,7 @@ def test_MOD_1808(env):
   conn.execute_command('hset', 'doc1', 't', 'world1')
   conn.execute_command('hset', 'doc2', 't', 'world2')
   conn.execute_command('hset', 'doc3', 't', 'world3')
-  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
+  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@t:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList([4, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', "<span style='background-color:yellow'>world1</span>... "], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']]))
 
 def test_2370(env):
@@ -1044,8 +1044,8 @@ def test_mod_6557(env: Env):
              '127.0.0.1:9',
              'MASTER'
   ).ok()
-  # Verify that `FT.SEARCH` queries are not hanging and return an error
-  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+  # Verify that `FT.CREATE` queries are not hanging and return an error
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').error().contains('Could not distribute command')
 
 def test_mod6186(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
