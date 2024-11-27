@@ -540,7 +540,7 @@ struct MRIterator {
   size_t len;
 };
 
-void MRIterator_Free(MRIterator *it);
+static void MRIterator_Free(MRIterator *it);
 
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;
