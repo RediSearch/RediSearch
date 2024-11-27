@@ -966,7 +966,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (!sp) return FGC_SPEC_DELETED;
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
-    if (rt->emptyLeaves >= rt->numRanges / 2) { // TODO: count `numLeaves` in the tree and use it here
+    if (rt->emptyLeaves >= rt->numLeaves / 2) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
       FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);

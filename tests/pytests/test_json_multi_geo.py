@@ -92,10 +92,9 @@ doc_non_geo_content = r'''{
 
 def checkInfo(env: Env, idx, num_docs, inverted_sz_mb):
     """ Helper function for testInfoAndGC """
-    msg = 'line: {}'.format(inspect.currentframe().f_back.f_lineno) # caller line number
     info = index_info(env, idx)
-    env.assertEqual(int(info['num_docs']), num_docs, message=msg)
-    env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb, message=msg)
+    env.assertEqual(int(info['num_docs']), num_docs, depth=1)
+    env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb, depth=1)
 
 @skip(cluster=True, no_json=True)
 def testBasic(env):
@@ -252,10 +251,10 @@ def testDebugDump(env):
     env.expect('JSON.SET', 'doc:2', '$', json.dumps(["1.2,1.3", "1.4,1.5", "2,2"])).ok()
 
     env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0,
-                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0,
-                                                                      'MemoryUsage', ANY])
+    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal([
+        'numRanges', 1, 'numLeaves', 1, 'numEntries', 6, 'lastDocId', 2, 'revisionId', 0,
+        'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY
+    ])
 
 def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     """ Helper function for RETURN with multiple GEO values """

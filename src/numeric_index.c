@@ -148,6 +148,7 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
   n->value = split;
   rv->changed = 1;
   rv->numRanges += 2;
+  rv->numLeaves += 1; // We split a single leaf into two, we got a single additional leaf
 }
 
 static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
@@ -224,6 +225,7 @@ static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, doub
     .numRecords = 1,
     .changed = 0,
     .numRanges = 0,
+    .numLeaves = 0,
   };
 
   size_t card = getCardinality(n->range);
@@ -294,11 +296,6 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
   }
 }
 
-int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value) {
-  // TODO:
-  return 0;
-}
-
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
  * nodes we'll later need to union */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf) {
@@ -313,6 +310,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf)
 void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (!n) return;
 
+  if (NumericRangeNode_IsLeaf(n)) rv->numLeaves--;
   removeRange(n, rv);
   NumericRangeNode_Free(n->left, rv);
   NumericRangeNode_Free(n->right, rv);
@@ -329,6 +327,7 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->root = NewLeafNode();
   ret->invertedIndexesSize = ret->root->range->invertedIndexSize;
   ret->numEntries = 0;
+  ret->numLeaves = 1;
   ret->numRanges = 1;
   ret->revisionId = 0;
   ret->lastDocId = 0;
@@ -342,7 +341,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   if (docId <= t->lastDocId && !isMulti) {
     // When not handling multi values - do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
     // from it
-    return (NRN_AddRv){0, 0, 0, 0};
+    return (NRN_AddRv){0};
   }
   t->lastDocId = docId;
 
@@ -355,6 +354,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
     t->revisionId++;
   }
   t->numRanges += rv.numRanges;
+  t->numLeaves += rv.numLeaves;
   t->numEntries++;
   t->invertedIndexesSize += rv.sz;
 
@@ -429,20 +429,21 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
+  NRN_AddRv rv = {0};
   NumericRangeNode_RemoveChild(&t->root, &rv);
   if (rv.changed) {
     // Update the NumericTree
     t->revisionId++;
     t->numRanges += rv.numRanges;
-    t->emptyLeaves = 0;
+    t->emptyLeaves += rv.numLeaves;
+    t->numLeaves += rv.numLeaves;
     t->invertedIndexesSize += rv.sz;
   }
   return rv;
 }
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
+  NRN_AddRv rv = {0};
   NumericRangeNode_Free(t->root, &rv);
   rm_free(t);
 }
@@ -574,23 +575,23 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
   return it;
 }
 
-void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
-  unsigned long *sz = ctx;
-  *sz += sizeof(NumericRangeNode);
+static inline size_t NumericRangeNode_sizeof() {
+  return sizeof(NumericRangeNode);
+}
 
-  if (n->range) {
-    *sz += sizeof(NumericRange);
-    *sz += NR_REG_SIZE; // hll memory size
-    if (n->range->entries) {
-      *sz += InvertedIndex_MemUsage(n->range->entries);
-    }
-  }
+static inline size_t NumericRange_sizeof() {
+  size_t size = sizeof(NumericRange);
+  size += NR_REG_SIZE; // hll memory size
+  return size;
 }
 
 unsigned long NumericIndexType_MemUsage(const void *value) {
   const NumericRangeTree *t = value;
   unsigned long ret = sizeof(NumericRangeTree);
-  NumericRangeNode_Traverse(t->root, __numericIndex_memUsageCallback, &ret);
+  ret += t->invertedIndexesSize;
+  ret += t->numRanges * NumericRange_sizeof();
+  // Our tree is a full binary tree, so `#nodes = 2 * #leaves - 1`
+  ret += (2 * t->numLeaves - 1) * NumericRangeNode_sizeof();
   return ret;
 }
 
