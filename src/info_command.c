@@ -88,7 +88,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) return RedisModule_WrongArity(ctx);
+  if (argc < 2) return RedisModule_WrongArity(ctx);
 
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
