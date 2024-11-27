@@ -531,16 +531,15 @@ void iterStartCb(void *p) {
   it->ctx.pending = len;
   it->ctx.inProcess = len; // Initially all commands are in process
 
-  MRIteratorCallbackCtx *initCmd = it->cbxs;
-  it->cbxs = rm_malloc(len * sizeof(*it->cbxs));
-  MRCommand *cmd = &initCmd->cmd;
-  for (size_t i = 0; i < len; i++) {
+  it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
+  MRCommand *cmd = &it->cbxs->cmd;
+  cmd->targetSlot = cluster_g->topo->shards[0].startSlot; // Set the first command to target the first shard
+  for (size_t i = 1; i < len; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
   }
-  rm_free(initCmd);
 
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
@@ -611,8 +610,11 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
-  // Temporary copy of the command.
-  ret->cbxs->cmd = *cmd;
+  // Initialize the first command
+  *ret->cbxs = (MRIteratorCallbackCtx){
+    .cmd = MRCommand_Copy(cmd),
+    .it = ret,
+  };
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;
