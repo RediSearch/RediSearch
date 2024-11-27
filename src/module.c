@@ -3103,14 +3103,16 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   uint16_t arg_pos = 3 + req->profileArgs;
   MRCommand_Insert(&cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
-  arrayof(sds) prefixes = sp->rule->prefixes;
+  arrayof(HiddenString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   MRCommand_Insert(&cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
   rm_free(n_prefixes);
 
   for (uint i = 0; i < array_len(prefixes); i++) {
-    MRCommand_Insert(&cmd, arg_pos++, (char *)prefixes[i], sdslen(prefixes[i]));
+    size_t len;
+    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &len);
+    MRCommand_Insert(&cmd, arg_pos++, prefix, len);
   }
 
   // Return spec references, no longer needed
