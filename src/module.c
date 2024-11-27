@@ -289,7 +289,6 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
@@ -816,45 +815,45 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 }
 
-int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Not bound to a specific index, so...
+int ConfigSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // CONFIG SET <NAME> [value]
+  size_t offset = 3;  // Might be == argc. SetOption deals with it.
+  if (argc < offset) {
+    return RedisModule_WrongArity(ctx);
+  }
   QueryError status = {0};
+  const char *name = RedisModule_StringPtrLen(argv[2], NULL);
 
-  // CONFIG <GET|SET> <NAME> [value]
-  if (argc < 3) {
+  if (REDISMODULE_OK != RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions,
+                                            name, argv, argc, &offset, &status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  // Logging the configuration name is safe here, as we now know it's a valid configuration option
+  RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
+  const char *reply = (offset != argc) ? "EXCESSARGS" : "OK";
+  return RedisModule_ReplyWithSimpleString(ctx, reply);
+}
+
+static int ConfigGetOrHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isHelp) {
+  // CONFIG <GET|HELP> <NAME>
+  if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
-  if (!strcasecmp(action, "GET")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, false);
-  } else if (!strcasecmp(action, "HELP")) {
-    RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, true);
-  } else if (!strcasecmp(action, "SET")) {
-    size_t offset = 3;  // Might be == argc. SetOption deals with it.
-    int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
-                                &offset, &status);
-    if (rc == REDISMODULE_ERR) {
-      RedisModule_Reply_QueryError(reply, &status);
-      QueryError_ClearError(&status);
-      RedisModule_EndReply(reply);
-      return REDISMODULE_OK;
-    }
-    if (offset != argc) {
-      RedisModule_Reply_SimpleString(reply, "EXCESSARGS");
-    } else {
-      RedisModule_Log(ctx, "notice", "Successfully changed configuration for `%s`", name);
-      RedisModule_Reply_SimpleString(reply, "OK");
-    }
-  } else {
-    RedisModule_Reply_SimpleString(reply, "No such configuration action");
-  }
+  RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, isHelp);
 
-  RedisModule_EndReply(reply);
-  return REDISMODULE_OK;
+  return RedisModule_EndReply(reply);
+}
+
+int ConfigGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ConfigGetOrHelpCommand(ctx, argv, argc, false);
+}
+
+int ConfigHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return ConfigGetOrHelpCommand(ctx, argv, argc, true);
 }
 
 int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -954,22 +953,15 @@ void GetFormattedRedisEnterpriseVersion(char *buf, size_t len) {
 }
 
 int IsMaster() {
-  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER) {
-    return 1;
-  } else {
-    return 0;
-  }
+  return RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_MASTER;
 }
 
 int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
-int CheckSupportedVestion() {
-  if (CompareVestions(redisVersion, supportedVersion) < 0) {
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
+static inline int isSupportedVersion() {
+  return CompareVersions(redisVersion, supportedVersion) >= 0;
 }
 
 // Creates a command and registers it to its corresponding ACL categories
@@ -1032,7 +1024,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
   }
 
-  if (CheckSupportedVestion() != REDISMODULE_OK) {
+  if (!isSupportedVersion()) {
     RedisModule_Log(ctx, "warning",
                     "Redis version is too old, please upgrade to redis %d.%d.%d and above.",
                     supportedVersion.majorVersion, supportedVersion.minorVersion,
@@ -1159,8 +1151,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read"))
 
   // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand,
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, NULL,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read"));
+  RedisModuleCommand *cursor_cmd = RedisModule_GetCommand(ctx, RS_CURSOR_CMD);
+  // TODO: ACL categories?
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "READ", RSCursorReadCommand, "readonly", 0, 0, 0)
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "DEL", RSCursorDelCommand, "readonly", 0, 0, 0)
+  RM_TRY_F(RedisModule_CreateSubcommand, cursor_cmd, "GC", RSCursorGCCommand, "readonly", 0, 0, 0)
 
   // todo: what to do with this?
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
@@ -1191,8 +1188,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand,
+  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, NULL,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "admin"))
+  RedisModuleCommand *config_cmd = RedisModule_GetCommand(ctx, RS_CONFIG);
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "SET", ConfigSetCommand, "readonly", 0, 0, 0) // TODO: ACL "admin"
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "GET", ConfigGetCommand, "readonly", 0, 0, 0)   // TODO: ACL categories?
+  RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "HELP", ConfigHelpCommand, "readonly", 0, 0, 0) // TODO: ACL categories?
 
   // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
   // Cluster is managed outside of module lets trust it and not raise cross slot error.
@@ -2894,11 +2895,15 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
                                                RSExecDistAggregate, ctx, argv, argc);
 }
 
-static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorCommand(ctx, argv, argc);
+static void CursorReadCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorReadCommand(ctx, argv, argc);
 }
 
-static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static void CursorDelCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
+  RSCursorDelCommand(ctx, argv, argc);
+}
+
+static int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -2906,13 +2911,30 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return RSCursorCommand(ctx, argv, argc);
+    return RSCursorReadCommand(ctx, argv, argc);
   }
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               CursorReadCommandInternal, ctx, argv, argc);
+}
+
+static int CursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSCursorDelCommand(ctx, argv, argc);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+  return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
+                                               CursorDelCommandInternal, ctx, argv, argc);
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3289,8 +3311,6 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   return isClusterEnabled;
 }
 
-int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -3340,20 +3360,39 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, ""))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read"))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read"))
+
+  int cursorFirst, cursorLast, cursorStep;
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read"))
+    cursorFirst = 3;
+    cursorLast = 1;
+    cursorStep = -3;
   } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read"))
+    cursorFirst = 0;
+    cursorLast = 0;
+    cursorStep = -1;
   }
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, "readonly", cursorFirst, cursorLast, cursorStep, "read"));
+  RedisModuleCommand *cursorCmd = RedisModule_GetCommand(ctx, "FT.CURSOR");
+  // Register "READ" and "DEL" subcommands to run from the coordinator thread pool
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "READ", SafeCmd(CursorReadCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "DEL", SafeCmd(CursorDelCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  // Register "GC" subcommand as the local handler (exactly like its `_FT` variants)
+  RM_TRY(RedisModule_CreateSubcommand(cursorCmd, "GC", SafeCmd(RSCursorGCCommand), "readonly", cursorFirst, cursorLast, cursorStep));
+  // TODO: ACLs for cursor commands?
+
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, ""))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
-  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
+  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, RS_DEBUG)));
 
 // OSS commands (registered via proxy in Enterprise)
 #ifndef RS_CLUSTER_ENTERPRISE
     if (!isClusterEnabled) {
       // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
+      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", NULL, "readonly", 0, 0, 0, "admin"));
+      RedisModuleCommand *config_cmd = RedisModule_GetCommand(ctx, "FT.CONFIG");
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "SET", ConfigSetCommand, "readonly", 0, 0, 0) // TODO: ACL "admin"
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "GET", ConfigGetCommand, "readonly", 0, 0, 0)   // TODO: ACL categories?
+      RM_TRY_F(RedisModule_CreateSubcommand, config_cmd, "HELP", ConfigHelpCommand, "readonly", 0, 0, 0) // TODO: ACL categories?
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // write commands (on enterprise we do not define them, the dmc take care of them)

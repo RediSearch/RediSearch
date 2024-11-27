@@ -145,7 +145,7 @@ def testTimeout(env):
     rv = 1
     while time() < exptime:
         sleep(0.01)
-        env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
+        env.cmd('FT.CURSOR', 'GC')
         rv = getCursorStats(env, 'idx1')['index_total']
         if not rv:
             break
@@ -316,7 +316,7 @@ def CursorOnCoordinator(env: Env):
         # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
         # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
         # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
-        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
+        env.expect('FT.CURSOR', 'GC').equal(0)
 
         with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
@@ -483,23 +483,23 @@ def testCountArgValidation(env):
     env.assertEqual(len(res), 2)
 
     # Query the cursor with a bad `COUNT` argument
-    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument `LOVE`')
+    env.expect('FT.CURSOR', 'READ', 'idx', str(cid), 'LOVE', '3').error().contains('Unknown argument at offset 4')
 
     # Query the cursor with bad subcommand
     env.expect(
         'FT.CURSOR', 'READS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'DELS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'GCS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
 
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(
         'FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2.3'
-    ).error().contains('Bad value for COUNT: `2.3`')
+    ).error().contains('Bad value for COUNT')
 
     # Query with lowercase `COUNT`
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'count', '2')
