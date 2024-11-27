@@ -333,13 +333,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     // Set the offset of the prefixes in the query, for further processing later
     req->prefixesOffset = ac->offset - 1;
 
-    // Advance by the number of prefixes + 1 (for the n_prefixes argument)
-    uint32_t advance_by;
-    if (AC_GetUnsigned(ac, &advance_by, AC_F_GE1) != AC_OK) {
-      RS_LOG_ASSERT(false, "Bad value for _INDEX_PREFIXES (coordinator)");
+    ArgsCursor tmp = {0};
+    if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
+      RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
     }
-
-    RS_LOG_ASSERT(AC_AdvanceBy(ac, advance_by) == AC_OK, "Not enough arguments for _INDEX_PREFIXES");
   } else {
     return ARG_UNKNOWN;
   }
