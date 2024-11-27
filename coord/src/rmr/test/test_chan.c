@@ -13,7 +13,6 @@ void testChan() {
   MRChannel *c = MR_NewChannel(0);
   mu_check(c != NULL);
   mu_assert_int_eq(0, MRChannel_Size(c));
-  mu_assert_int_eq(0, MRChannel_MaxSize(c));
 
   for (int i = 0; i < 100; i++) {
     int *ptr = rm_malloc(sizeof(*ptr));

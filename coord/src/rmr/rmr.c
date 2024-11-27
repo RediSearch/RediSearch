@@ -765,6 +765,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
+static void MRIterator_Free(MRIterator *it);
+
 MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
 
   MRIterator *ret = rm_malloc(sizeof(*ret));
@@ -778,7 +780,8 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb) {
       .timedOut = false,
       .freeFlag = false,
     },
-    .cbxs = rm_new(MRIteratorCallbackCtx),
+    .cbxs = rm_calloc(len, sizeof(MRIteratorCallbackCtx)),
+    .len = len,
   };
 
   for (size_t i = 0; i < len; i++) {
