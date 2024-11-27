@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#define RMR_C__
 #include "rmr.h"
 #include "reply.h"
 #include "reply_macros.h"
@@ -437,30 +436,25 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
   RedisModule_EndReply(reply);
 }
 
-struct MRIteratorCallbackCtx;
-
-typedef int (*MRIteratorCallback)(struct MRIteratorCallbackCtx *ctx, MRReply *rep);
-
-typedef struct MRIteratorCtx {
+struct MRIteratorCtx {
   MRChannel *chan;
   MRIteratorCallback cb;
-  int pending;    // Number of shards with more results (not depleted)
-  int inProcess;  // Number of currently running commands on shards
-  int timedOut;   // whether the coordinator experienced a timeout
-} MRIteratorCtx;
+  short pending;    // Number of shards with more results (not depleted)
+  short inProcess;  // Number of currently running commands on shards
+  bool timedOut;    // whether the coordinator experienced a timeout
+  bool freeFlag;    // whether the MRIterator should be freed
+};
 
-typedef struct MRIteratorCallbackCtx {
-  MRIteratorCtx *ic;
+struct MRIteratorCallbackCtx {
+  MRIterator *it;
   MRCommand cmd;
-} MRIteratorCallbackCtx;
+};
 
-typedef struct MRIterator {
+struct MRIterator {
   MRIteratorCtx ctx;
   MRIteratorCallbackCtx *cbxs;
   size_t len;
-} MRIterator;
-
-int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
+};
 
 static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
   MRIteratorCallbackCtx *ctx = privdata;
@@ -469,7 +463,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
     // ctx->numErrored++;
     // TODO: report error
   } else {
-    ctx->ic->cb(ctx, r);
+    ctx->it->ctx.cb(ctx, r);
   }
 }
 
@@ -479,12 +473,15 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  unsigned inProcess =  __atomic_sub_fetch(&ctx->ic->inProcess, 1, __ATOMIC_RELEASE);
-  if (!inProcess) RQ_Done(rq_g);
+  short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
+  if (!inProcess) {
+    MRIterator_Release(ctx->it);
+    RQ_Done(rq_g);
+  }
 }
 
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
-static int MRIteratorCallback_GetNumInProcess(MRIterator *it) {
+static short MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
 }
 
@@ -494,30 +491,24 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
   // Atomically set the timedOut field of the ctx
-  __atomic_store_n(&ctx->timedOut, 1, __ATOMIC_RELAXED);
+  __atomic_store_n(&ctx->timedOut, true, __ATOMIC_RELAXED);
 }
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
-  // Set the `timedOut` field to 0
-  __atomic_store_n(&ctx->timedOut, 0, __ATOMIC_RELAXED);
+  // Set the `timedOut` field to false
+  __atomic_store_n(&ctx->timedOut, false, __ATOMIC_RELAXED);
 }
 
-void *MRITERATOR_DONE = "MRITERATOR_DONE";
-
-int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
+void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   ctx->cmd.depleted = true;
-  int pending = --ctx->ic->pending; // Decrease `pending` before decreasing `inProcess`
-  MRIteratorCallback_ProcessDone(ctx);
+  short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   if (pending <= 0) {
     RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
-    // fprintf(stderr, "FINISHED iterator, error? %d pending %d\n", error, ctx->ic->pending);
-    MRChannel_Close(ctx->ic->chan);
-    return 0;
+    // Unblock the channel before calling `ProcessDone`, as it may trigger the freeing of the iterator
+    MRChannel_Unblock(ctx->it->ctx.chan);
   }
-  // fprintf(stderr, "Done iterator, error? %d pending %d\n", error, ctx->ic->pending);
-
-  return 1;
+  MRIteratorCallback_ProcessDone(ctx);
 }
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx) {
@@ -525,19 +516,11 @@ MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx) {
 }
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
-  return ctx->ic;
+  return &ctx->it->ctx;
 }
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  PushErrorMask mask = MRChannel_Push(ctx->ic->chan, rep);
-  if (mask & CHANNEL_CLOSED) {
-    // We are using a verbose log level to prevent flodding the logs with this message in production
-    RedisModule_Log(RSDummyContext, "verbose", "Tried pushing a reply to a closed channel");
-    MRReply_Free(rep);
-  }
-  if (mask & BROADCAST_FAILURE) {
-    RedisModule_Log(RSDummyContext, "verbose", "Failed broadcasting the reply in the channel");
-  }
+  MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
 void iterStartCb(void *p) {
@@ -548,16 +531,15 @@ void iterStartCb(void *p) {
   it->ctx.pending = len;
   it->ctx.inProcess = len; // Initially all commands are in process
 
-  MRIteratorCallbackCtx *initCmd = it->cbxs;
-  it->cbxs = rm_malloc(len * sizeof(*it->cbxs));
-  MRCommand *cmd = &initCmd->cmd;
-  for (size_t i = 0; i < len; i++) {
-    it->cbxs[i].ic = &it->ctx;
+  it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
+  MRCommand *cmd = &it->cbxs->cmd;
+  cmd->targetSlot = cluster_g->topo->shards[0].startSlot; // Set the first command to target the first shard
+  for (size_t i = 1; i < len; i++) {
+    it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
   }
-  rm_free(initCmd);
 
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
@@ -600,6 +582,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
+    it->ctx.freeFlag = false; // Give the writers their reference back
     RQ_Push(rq_g, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
@@ -622,12 +605,16 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
       .cb = cb,
       .pending = 1,
       .inProcess = 1,
-      .timedOut = 0,
+      .timedOut = false,
+      .freeFlag = false,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
-  // Temporary copy of the command.
-  ret->cbxs->cmd = *cmd;
+  // Initialize the first command
+  *ret->cbxs = (MRIteratorCallbackCtx){
+    .cmd = MRCommand_Copy(cmd),
+    .it = ret,
+  };
 
   RQ_Push(rq_g, iterStartCb, ret);
   return ret;
@@ -638,22 +625,29 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
 }
 
 MRReply *MRIterator_Next(MRIterator *it) {
-  void *p = MRChannel_Pop(it->ctx.chan);
-  // fprintf(stderr, "POP: %s\n", p == MRCHANNEL_CLOSED ? "CLOSED" : "ITER");
-  if (p == MRCHANNEL_CLOSED) {
-    return MRITERATOR_DONE;
-  }
-  return p;
+  return MRChannel_Pop(it->ctx.chan);
 }
 
-void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
-  if (mayBeIdle) {
-    // Wait until all the commands are at least idle (it->ctx.inProcess == 0)
-    while (MRIteratorCallback_GetNumInProcess(it)) {
-      usleep(1000);
-    }
-    // If we have no pending shards, we are done.
-    if (!it->ctx.pending) return;
+// Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
+static void MRIterator_Free(MRIterator *it) {
+  for (size_t i = 0; i < it->len; i++) {
+    MRCommand_Free(&it->cbxs[i].cmd);
+  }
+  MRReply *reply;
+  while ((reply = MRChannel_UnsafeForcePop(it->ctx.chan))) {
+    MRReply_Free(reply);
+  }
+  MRChannel_Free(it->ctx.chan);
+  rm_free(it->cbxs);
+  rm_free(it);
+}
+
+void MRIterator_Release(MRIterator *it) {
+  bool shouldFree = __atomic_test_and_set(&it->ctx.freeFlag, __ATOMIC_ACQUIRE);
+  if (!shouldFree) return;
+
+  // Both reader and writers are done with the iterator. No writer is in process.
+  if (it->ctx.pending) {
     // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
     it->ctx.inProcess = it->ctx.pending;
     // Change the root command to DEL for each pending shard
@@ -666,23 +660,12 @@ void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle) {
         cmd->lens[1] = 3;
       }
     }
-    // Send the DEL commands, and wait for them to be done
+    // Send the DEL commands without reseting the free flag,
+    // so we free the iterator after the DEL commands are done
     RQ_Push(rq_g, iterManualNextCb, it);
+  } else {
+    // No pending shards, so no remote resources to free.
+    // Free the iterator and we are done.
+    MRIterator_Free(it);
   }
-  // Wait until all the commands are done (it->ctx.pending == 0)
-  MRChannel_WaitClose(it->ctx.chan);
-}
-
-// Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
-void MRIterator_Free(MRIterator *it) {
-  for (size_t i = 0; i < it->len; i++) {
-    MRCommand_Free(&it->cbxs[i].cmd);
-  }
-  MRReply *reply;
-  while ((reply = MRChannel_UnsafeForcePop(it->ctx.chan))) {
-    MRReply_Free(reply);
-  }
-  MRChannel_Free(it->ctx.chan);
-  rm_free(it->cbxs);
-  rm_free(it);
 }
