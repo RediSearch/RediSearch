@@ -3086,15 +3086,17 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
     RedisModule_FreeThreadSafeContext(clientCtx);
     return REDISMODULE_OK;
   }
-  MRCommand_Append(&cmd, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
+
+  uint16_t arg_pos = 3 + req->profileArgs;
+  MRCommand_Insert(&cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
   arrayof(sds) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  MRCommand_Append(&cmd, n_prefixes, sizeof(n_prefixes) - 1);
+  MRCommand_Insert(&cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
   rm_free(n_prefixes);
 
   for (uint i = 0; i < array_len(prefixes); i++) {
-    MRCommand_Append(&cmd, (char *)prefixes[i], sdslen(prefixes[i]));
+    MRCommand_Insert(&cmd, arg_pos++, (char *)prefixes[i], sdslen(prefixes[i]));
   }
 
   // Return spec references, no longer needed

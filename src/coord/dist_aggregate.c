@@ -693,7 +693,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    QueryError_SetError(&status, QUERY_EDROPPEDBACKGROUND, NULL);
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
     goto err;
   }
 

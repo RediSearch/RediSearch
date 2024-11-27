@@ -337,10 +337,9 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     uint32_t advance_by;
     if (AC_GetUnsigned(ac, &advance_by, AC_F_GE1) != AC_OK) {
       RS_LOG_ASSERT(false, "Bad value for _INDEX_PREFIXES (coordinator)");
-      return ARG_ERROR;
     }
 
-    AC_AdvanceBy(ac, advance_by);
+    RS_LOG_ASSERT(AC_AdvanceBy(ac, advance_by) == AC_OK, "Not enough arguments for _INDEX_PREFIXES");
   } else {
     return ARG_UNKNOWN;
   }

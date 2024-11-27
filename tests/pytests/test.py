@@ -1230,7 +1230,7 @@ def testInKeys(env):
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', -1)
     with env.assertResponseError():
-        env.cmd('ft.search', 'idx', 'hello', 'inkeys', 5, 'foo')
+        env.cmd('ft.search', 'idx', 'hello', 'inkeys', 4, 'foo')
 
 def testSlopInOrder(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text').ok()
