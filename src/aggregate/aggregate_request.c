@@ -959,7 +959,7 @@ static bool IsIndexCoherent(AREQ *req) {
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
-  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  arrayof(HiddenString*) spec_prefixes = req->sctx->spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;
   }
@@ -969,7 +969,8 @@ static bool IsIndexCoherent(AREQ *req) {
   // The first argument is at req->prefixesOffset + 2
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
-    if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
+    sds arg = args[base_idx + i];
+    if (HiddenString_CompareC(spec_prefixes[i], arg, sdslen(arg)) != 0) {
       // Unmatching prefixes
       return false;
     }
