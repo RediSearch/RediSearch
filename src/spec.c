@@ -2177,7 +2177,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
         StrongRef_Release(curr_run_ref);
       } else {
         // spec was deleted
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
                       scanner->spec_name);
       }
     }
