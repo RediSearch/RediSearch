@@ -412,10 +412,10 @@ const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
     return obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
 }
 
-char *IndexSpec_FormatObfuscatedName(const IndexSpec *sp) {
+char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
   Sha1 sha1;
   size_t len;
-  const char* value = HiddenString_GetUnsafe(sp->specName, &len);
+  const char* value = HiddenString_GetUnsafe(specName, &len);
   Sha1_Compute(&sha1, value, len);
   char buffer[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(&sha1, buffer);
@@ -451,8 +451,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Add the spec to the global spec dictionary
   dictAdd(specDict_g, sp->specName, spec_ref.rm);
-
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
 
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
@@ -1630,11 +1628,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   dictDelete(specDict_g, (void*)spec->specName);
 
   // Remove spec from global aliases list
-  if (spec->obfuscatedName) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    IndexSpec_ClearAliases(spec_ref);
-  }
+  IndexSpec_ClearAliases(spec_ref);
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
@@ -1809,6 +1803,7 @@ IndexSpec *NewIndexSpec(HiddenString *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->specName = name;
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -2559,6 +2554,18 @@ void Indexes_ScanAndReindex() {
 
 int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
+  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  size_t len = strlen(rawName);
+  HiddenString* specName = NewHiddenString(rawName, len, true);
+  RedisModule_Free(rawName);
+
+  RefManager *oldSpec = dictFetchValue(specDict_g, specName);
+  if (oldSpec) {
+    // spec already exists lets just free this one
+    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
+    return REDISMODULE_OK;
+  }
+
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -2570,10 +2577,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->sortables = NewSortingTable();
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-  size_t len = strlen(rawName);
-  sp->specName = NewHiddenString(rawName, len, true);
-  RedisModule_Free(rawName);
+  sp->specName = specName;
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -2630,8 +2634,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
-
   IndexSpec_StartGC(ctx, spec_ref, sp);
   Cursors_initSpec(sp);
 
@@ -2657,26 +2659,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
   sp->scan_in_progress = false;
+  dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
-  RefManager *oldSpec = dictFetchValue(specDict_g, sp->specName);
-  if (oldSpec) {
-    // spec already exists lets just free this one
-    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-    // setting unique id to zero will make sure index will not be removed from global
-    // cursor map and aliases.
-    sp->obfuscatedName = NULL;
-    // Remove the new spec from the global prefixes dictionary.
-    // This is the only global structure that we added the new spec to at this point
-    SchemaPrefixes_RemoveSpec(spec_ref);
-    addPendingIndexDrop();
-    StrongRef_Release(spec_ref);
-    spec_ref = (StrongRef){oldSpec};
-  } else {
-    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
-
-    for (int i = 0; i < sp->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
-    }
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
 
   return REDISMODULE_OK;
@@ -2741,7 +2727,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp);
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
 
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {

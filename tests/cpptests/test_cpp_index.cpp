@@ -1264,7 +1264,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_STREQ(realName, spec_name);
 
   const char *obfuscatedName = IndexSpec_FormatName(s, true);
-  ASSERT_STREQ(obfuscatedName, "Index@0");
+  ASSERT_STREQ(obfuscatedName, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
 
   const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
