@@ -654,16 +654,18 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Use FT.* command to make sure that the module is loaded and initialized
+# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
 def verify_shard_init(shard):
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.SEARCH', 'non-existing', '*')
-                raise Exception('Expected FT.SEARCH to fail')
+                shard.execute_command('FT.CREATE', 'init_shard_idx' ,'SCHEMA', 't', 'TEXT')
+                shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
+                break
             except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
-                    break
+                if 'Uninitialized cluster state, could not perform command' in str(e):
+                    continue
+                raise
 
 def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)

@@ -552,6 +552,7 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
 } IndexLoadOptionsFlags;
 
 typedef struct {
@@ -569,14 +570,15 @@ typedef struct {
  * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
  * If an owned reference is needed, use StrongRef API to create one.
  */
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
+// TODO: Remove the context from this function!
+StrongRef IndexSpec_LoadUnsafe(const char *name);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter
  * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
-StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
