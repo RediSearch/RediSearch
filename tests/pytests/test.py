@@ -3361,7 +3361,7 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        expected = getInvertedIndexInitialSize_MB([ft])
+        expected = getInvertedIndexInitialSize_MB(env, [ft])
         env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
         env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
         env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")

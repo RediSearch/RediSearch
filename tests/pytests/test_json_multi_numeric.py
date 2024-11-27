@@ -331,7 +331,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     expected_info = { 'num_docs': 0,
                      'total_inverted_index_blocks': 1, # 1 block might be left
                      # an initialized numeric tree alawys contains a range in its root
-                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(['NUMERIC'])
+                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
                     }
     info = index_info(env, idx)
     compare_index_info_dict(env, idx, expected_info)
