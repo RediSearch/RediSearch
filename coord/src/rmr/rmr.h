@@ -67,9 +67,6 @@ void MRCtx_Free(struct MRCtx *ctx);
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, void *privdata);
 
-extern void *MRITERATOR_DONE;
-
-#ifndef RMR_C__
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIterator MRIterator;
 
@@ -85,17 +82,10 @@ MRIterator *MR_Iterate(MRCommandGenerator cg, MRIteratorCallback cb);
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
-int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
+void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd);
 
-void MRIterator_Free(MRIterator *it);
-
-/* Wait until the iterators producers are all  done */
-void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle);
-
-#endif // RMR_C__
-
-size_t MR_NumHosts();
+void MRIterator_Release(MRIterator *it);
