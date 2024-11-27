@@ -2160,7 +2160,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // Get the memory limit and memory usage
   setMemoryInfo(ctx);
   if(used_memory > 0.8 * memoryLimit) {
-      error = "Used memory is more than 80%% of max memory, cancelling the scan";
+      error = "Used memory is more than 80% of max memory, cancelling the scan";
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
   }

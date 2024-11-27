@@ -388,7 +388,7 @@ def test_fail_background_index_when_low_mem(env):
     expected_error_dict = {
       indexing_failures_str: 1,
       last_indexing_error_key_str: 'doc1',
-      last_indexing_error_str: 'Used memory is more than 80%% of max memory, cancelling the scan'
+      last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan'
     }
     env.assertEqual(global_index_errors, expected_error_dict)
     
