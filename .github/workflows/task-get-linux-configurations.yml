@@ -2,50 +2,30 @@ name: Get Linux Configurations
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
-# TODO: Turn back on when node issue is resolved
-# env:
-#   ALL_X86_IMAGES: "['ubuntu:noble',
-#                     'ubuntu:jammy',
-#                     'ubuntu:focal',
-#                     'ubuntu:bionic',
-#                     'rockylinux:8',
-#                     'rockylinux:9',
-#                     'debian:bullseye',
-#                     'gcc:12-bookworm',
-#                     'amazonlinux:2',
-#                     'amazonlinux:2023',
-#                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-#                     'alpine:3']"
-#   ALL_ARM_IMAGES: "['ubuntu:noble',
-#                     'ubuntu:jammy',
-#                     'ubuntu:focal',
-#                     'ubuntu:bionic',
-#                     'rockylinux:8',
-#                     'rockylinux:9',
-#                     'debian:bullseye',
-#                     'gcc:12-bookworm',
-#                     'amazonlinux:2',
-#                     'amazonlinux:2023',
-#                     'alpine:3']"
-
 env:
   ALL_X86_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
+                    'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
                     'gcc:12-bookworm',
+                    'amazonlinux:2',
                     'amazonlinux:2023',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'alpine:3']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
+                    'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
                     'gcc:12-bookworm',
-                    'amazonlinux:2023']"
+                    'amazonlinux:2',
+                    'amazonlinux:2023',
+                    'alpine:3']"
 
 on:
   workflow_call:
