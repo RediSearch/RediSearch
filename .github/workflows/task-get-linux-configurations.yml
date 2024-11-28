@@ -22,7 +22,7 @@ env:
                     'ubuntu:focal',
                     'rockylinux:8',
                     'rockylinux:9',
-                    'debian:bullseye',,
+                    'debian:bullseye',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal']"
