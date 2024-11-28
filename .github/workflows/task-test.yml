@@ -6,7 +6,8 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "${{ vars.RUNS_ON }}"
+        # default: "${{ vars.RUNS_ON }}"
+        default: ubuntu-2204-x64-pin
         type: string
       container:
         type: string
