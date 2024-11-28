@@ -663,7 +663,15 @@ def verify_shard_init(shard):
                 shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
                 break
             except redis_exceptions.ResponseError as e:
-                if 'Uninitialized cluster state, could not perform command' in str(e):
+                # One of the following errors can be raised (timing), yet they
+                # mean the same thing in this case - the command was dispatched
+                # to the shards before the connections were ready. Continue to
+                # try until success\timeout.
+                possible_errors = [
+                    'ERRCLUSTER Uninitialized cluster state, could not perform command',
+                    'Could not distribute command'
+                ]
+                if any([err in str(e) for err in possible_errors]):
                     continue
                 raise
 
