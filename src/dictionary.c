@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "rdb.h"
 #include "resp3.h"
+#include "rmutil/rm_assert.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -165,7 +166,9 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    dictAdd(spellCheckDicts, key, val);
+    if (val->size) {
+      dictAdd(spellCheckDicts, key, val);
+    }
     RedisModule_Free(key);
   }
   return REDISMODULE_OK;
@@ -175,7 +178,7 @@ cleanup:
   return REDISMODULE_ERR;
 }
 
-static int NonEmptySpellCheckDictExists(void) {
+static bool NonEmptySpellCheckDictExists(void) {
   int ret = 0;
   dictEntry *entry;
   dictIterator *iter = dictGetIterator(spellCheckDicts);
@@ -201,9 +204,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
     Trie *val = dictGetVal(entry);
-    if (val->size == 0) {
-      continue;
-    }
+    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false);
   }
