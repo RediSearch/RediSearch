@@ -316,9 +316,9 @@ def CursorOnCoordinator(env: Env):
         _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
         env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
         # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
-        # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
-        # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
-        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
+        with TimeLimit(5, "shard cursors were not deleted"):
+            while getCursorStats(env)['global_total'] > 0:
+                sleep(0.1)
 
         with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
