@@ -64,8 +64,7 @@ static void OPT_Rewind(void *ctx) {
   optIt->numericIter = NULL;
 
   int resultsCollectedSinceLast = heap_count(heap) - optIt->heapOldSize;
-  double successRatio = resultsCollectedSinceLast / optIt->lastLimitEstimate;
-  RS_LOG_ASSERT(successRatio < 1, "successRatio == 1 means heap is full");
+  double successRatio = (double)resultsCollectedSinceLast / optIt->lastLimitEstimate;
 
   // very low success, lets get all remaining results
   if (successRatio < 0.01 || optIt->numIterations == 3) {
