@@ -509,17 +509,19 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
 }
 
 static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, us->nserialized);
 
+  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+
   if (profileArgs == 0) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
-    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, index_name);  // Index name
   } else {
     array_append(tmparr, RS_PROFILE_CMD);
-    array_append(tmparr, RedisModule_StringPtrLen(argv[1], NULL));  // Index name
+    array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
     if (profileArgs == 3) {
       array_append(tmparr, "LIMITED");
@@ -531,6 +533,16 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
+
+  // Add the index prefixes to the command, for validation in the shard
+  array_append(tmparr, "_INDEX_PREFIXES");
+  arrayof(sds) prefixes = sp->rule->prefixes;
+  char *n_prefixes;
+  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  array_append(tmparr, n_prefixes);
+  for (uint i = 0; i < array_len(prefixes); i++) {
+    array_append(tmparr, (const char *)prefixes[i]);
+  }
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
@@ -586,6 +598,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   MRCommand_SetPrefix(xcmd, "_FT");
 
+  rm_free(n_prefixes);
   array_free(tmparr);
 }
 
@@ -670,6 +683,14 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
 
+  // Check if the index still exists, and promote the ref accordingly
+  StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  IndexSpec *sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    goto err;
+  }
+
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
@@ -709,7 +730,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd);
+  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
@@ -744,6 +765,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  StrongRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
@@ -751,6 +774,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 err:
   assert(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  if (sp) {
+    StrongRef_Release(strong_ref);
+  }
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);
   RedisModule_EndReply(reply);

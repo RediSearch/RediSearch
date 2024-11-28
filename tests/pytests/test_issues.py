@@ -1044,8 +1044,8 @@ def test_mod_6557(env: Env):
              '127.0.0.1:9',
              'MASTER'
   ).ok()
-  # Verify that `FT.SEARCH` queries are not hanging and return an error
-  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+  # Verify that `FT.CREATE` queries are not hanging and return an error
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').error().contains('Could not distribute command')
 
 def test_mod6186(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
