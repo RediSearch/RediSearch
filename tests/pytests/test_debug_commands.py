@@ -53,6 +53,8 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            "INDEXES",
+            "INFO",
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -60,7 +62,7 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INDEXES']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -357,3 +359,15 @@ def testSpecIndexesInfo(env: Env):
     expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
+
+def testIndexes(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    debug_output = env.cmd(debug_cmd(), 'INDEXES')
+    env.assertEqual(debug_output, ['Index@4e7f626df794f6491574a236f22c100c34ed804f'])
+
+def testIndexObfuscatedInfo(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
+    debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
+    info = to_dict(debug_output)
+    env.assertEqual(info['index_name'], obfuscated_name)

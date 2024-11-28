@@ -302,7 +302,7 @@ int Cursor_Free(Cursor *cur) {
   return Cursors_Purge(getCursorList(cur->is_coord), cur->id);
 }
 
-void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
   CursorList_Lock(cl_coord);
 
@@ -321,7 +321,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, 
 }
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx) {
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx) {
   CursorList_Lock(cl);
 
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
