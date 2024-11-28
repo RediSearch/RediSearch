@@ -632,23 +632,23 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   WeakRef spec_ref;
-  const char *spec_name_for_logs;
+  char *spec_name_for_logs;
   size_t scannedKeys;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
  * TrieMaps used for the `values` and `suffix` fields.
  */
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
  * sp->terms and sp->suffix Tries.
  */
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
@@ -682,6 +682,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 
 //---------------------------------------------------------------------------------------------
 

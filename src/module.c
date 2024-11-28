@@ -352,8 +352,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, fs->fieldName);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, fs->fieldName);
+  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -881,19 +881,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const bool obfuscate = argc == 2 && RMUtil_StringEqualsCaseC(argv[1], "OBFUSCATE");
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Set(reply);
-    dictIterator *iter = dictGetIterator(specDict_g);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-      StrongRef ref = dictGetRef(entry);
-      IndexSpec *sp = StrongRef_Get(ref);
-      const char *specName = IndexSpec_FormatName(sp, obfuscate);
-      REPLY_SIMPLE_SAFE(specName);
-    }
-    dictReleaseIterator(iter);
-  RedisModule_Reply_SetEnd(reply);
-  RedisModule_EndReply(reply);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, false);
   return REDISMODULE_OK;
 }
 

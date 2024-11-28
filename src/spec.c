@@ -34,6 +34,7 @@
 #include "util/workers.h"
 #include "global_stats.h"
 #include "hash/hash.h"
+#include "reply_macros.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -337,7 +338,7 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
 
 //---------------------------------------------------------------------------------------------
 
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp) {
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
       size_t totalKeys = RedisModule_DbSize(ctx);
@@ -369,7 +370,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the tags
   size_t overhead = 0;
   for (size_t i = 0; i < sp->numFields; i++) {
@@ -381,7 +382,7 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the text suffixes
   size_t overhead = 0;
   // Collect overhead from sp->terms
@@ -1757,7 +1758,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = fmtRedisNumericIndexKey(&sctx, fs->fieldName);
         break;
       case INDEXFLD_T_TAG:
-        ret = TagIndex_FormatName(&sctx, fs->fieldName);
+        ret = TagIndex_FormatName(sctx.spec, fs->fieldName);
         break;
       case INDEXFLD_T_VECTOR:
         ret = HiddenString_CreateString(fs->fieldName, sctx.redisCtx);
@@ -2157,7 +2158,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
-  scanner->spec_name_for_logs = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
+  scanner->spec_name_for_logs = rm_strdup(IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
   // scan already in progress?
   if (spec->scanner) {
@@ -2173,6 +2174,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
 }
 
 void IndexesScanner_Free(IndexesScanner *scanner) {
+  rm_free(scanner->spec_name_for_logs);
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
   } else {
@@ -3276,5 +3278,20 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
+}
+
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
+  RedisModule_Reply_Set(reply);
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    const char *specName = IndexSpec_FormatName(sp, obfuscate);
+    REPLY_SIMPLE_SAFE(specName);
+  }
+  dictReleaseIterator(iter);
+  RedisModule_Reply_SetEnd(reply);
+  RedisModule_EndReply(reply);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
