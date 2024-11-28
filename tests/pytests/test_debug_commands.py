@@ -1,6 +1,4 @@
-from RLTest import Env
-from includes import *
-from common import waitForIndex, getWorkersThpoolStats, create_np_array_typed, TimeLimit
+from common import *
 
 class TestDebugCommands(object):
 
@@ -26,11 +24,36 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
-                     'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
-                     'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
-                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS']
+        help_list = [
+            "DUMP_INVIDX",
+            "DUMP_NUMIDX",
+            "DUMP_NUMIDXTREE",
+            "DUMP_TAGIDX",
+            "INFO_TAGIDX",
+            "DUMP_GEOMIDX",
+            "DUMP_PREFIX_TRIE",
+            "IDTODOCID",
+            "DOCIDTOID",
+            "DOCINFO",
+            "DUMP_PHONETIC_HASH",
+            "DUMP_SUFFIX_TRIE",
+            "DUMP_TERMS",
+            "INVIDX_SUMMARY",
+            "NUMIDX_SUMMARY",
+            "SPEC_INVIDXES_INFO",
+            "GC_FORCEINVOKE",
+            "GC_FORCEBGINVOKE",
+            "GC_CLEAN_NUMERIC",
+            "GC_STOP_SCHEDULE",
+            "GC_CONTINUE_SCHEDULE",
+            "GC_WAIT_FOR_JOBS",
+            "GIT_SHA",
+            "TTL",
+            "TTL_PAUSE",
+            "TTL_EXPIRE",
+            "VECSIM_INFO",
+            "DELETE_LOCAL_CURSORS",
+        ]
         if MT_BUILD:
             help_list.append('WORKER_THREADS')
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
@@ -38,7 +61,7 @@ class TestDebugCommands(object):
         for cmd in help_list:
             if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
-                 continue
+                continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
 
     def testDocInfo(self):
@@ -216,7 +239,6 @@ class TestDebugCommands(object):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
 
-
     def testStopAndResumeWorkersPool(self):
         if not MT_BUILD:
             self.env.skip()
@@ -257,3 +279,24 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': 0,
                                      'highPriorityPendingJobs': 0,
                                      'lowPriorityPendingJobs': 0})
+
+@skip(cluster=True)
+def testSpecIndexesInfo(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    expected_reply = {
+        "inverted_indexes_dict_size": 0,
+        "inverted_indexes_memory": 0,
+    }
+    # Sanity check - empty spec
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)
+
+    # Add a document
+    env.expect('HSET', 'doc1', 'n', 1).equal(1)
+    expected_reply["inverted_indexes_dict_size"] = 1
+
+    # assuming the document doesn't exceed the initial block size
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)
