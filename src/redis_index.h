@@ -21,10 +21,8 @@ IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocT
                               t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight);
 
-InvertedIndex *Redis_OpenInvertedIndexEx(const RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew, RedisModuleKey **keyp);
-#define Redis_OpenInvertedIndex(ctx, term, len, isWrite, outIsNew) \
-  Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, outIsNew, NULL)
+InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
+                                         int write, bool *outIsNew);
 void Redis_CloseReader(IndexReader *r);
 
 /*
@@ -40,6 +38,9 @@ const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
 
 #define INVERTED_INDEX_ENCVER 1
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
+
+#define DONT_CREATE_INDEX false
+#define CREATE_INDEX true
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 

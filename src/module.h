@@ -21,6 +21,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define PROXY_FILTERED "_proxy-filtered"
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
@@ -54,6 +57,7 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
+#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \

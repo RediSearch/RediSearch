@@ -249,7 +249,7 @@ def exceedCursorCapacity(env):
         env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
 
     # Trying to create another cursor should fail
-    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('Too many cursors allocated for index')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('INDEX_CURSOR_LIMIT')
 
 @skip(cluster=True)
 def testExceedCursorCapacity(env):
@@ -314,9 +314,9 @@ def CursorOnCoordinator(env: Env):
         _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', count)
         env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
         # We expect that deleting the cursor will trigger the shards to delete their cursors as well.
-        # Since none of the cursors is expected to be expired, we don't expect `FT.CURSOR GC` to return a positive number.
-        # `FT.CURSOR GC` will return -1 if there are no cursors to delete, and 0 if the cursor list was empty.
-        env.expect('FT.CURSOR', 'GC', '42', '42').equal(0)
+        with TimeLimit(5, "shard cursors were not deleted"):
+            while getCursorStats(env)['global_total'] > 0:
+                sleep(0.1)
 
         with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
@@ -384,6 +384,8 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
+    starting_cursor_count = getCursorStats(env, 'idx')['index_total']
+
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
@@ -393,6 +395,8 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         n_recieved += len(res) - 1
 
     env.assertEqual(n_recieved, num_docs)
+    # Ensure that the cursors we opened were closed properly
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
 
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when

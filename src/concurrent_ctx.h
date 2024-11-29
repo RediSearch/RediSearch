@@ -12,6 +12,7 @@
 #include "config.h"
 #include <time.h>
 #include "thpool/thpool.h"
+#include "util/references.h"
 
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
@@ -165,12 +166,16 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
  */
 void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 
+// Returns the WeakRef held in the context.
+WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
+
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
-                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          WeakRef spec_ref);
 
 /** This macro is called by concurrent executors (currently the query only).
  * It checks if enough time has passed and releases the global lock if that is the case.

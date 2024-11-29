@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "default_gc.h"
 #include "redismodule.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
@@ -132,15 +131,14 @@ typedef struct {
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
   size_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
+  uint32_t activeQueries;
+  uint32_t activeWrites;
 } IndexStats;
 
 typedef enum {
@@ -327,7 +325,6 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters
-  size_t cursorsCap;
   size_t activeCursors;
 
   // Quick access to the spec's strong ref
@@ -363,6 +360,26 @@ typedef struct {
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
+
+static inline void IndexSpec_IncrActiveQueries(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveQueries(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeQueries, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveQueries(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeQueries, __ATOMIC_RELAXED);
+}
+
+static inline void IndexSpec_IncrActiveWrites(IndexSpec *sp) {
+  __atomic_add_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
+  __atomic_sub_fetch(&sp->stats.activeWrites, 1, __ATOMIC_RELAXED);
+}
+static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
 
 /**
  * This lightweight object contains a COPY of the actual index spec.
@@ -407,7 +424,8 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
@@ -448,6 +466,9 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
+
+/* Get the number of indexing failures */
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.
@@ -504,6 +525,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;
+} VectorIndexStats;
+
+/**
+ * Get an index's vector index stats.
+ */
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
@@ -529,6 +560,7 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
 } IndexLoadOptionsFlags;
 
 typedef struct {
@@ -546,14 +578,15 @@ typedef struct {
  * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
  * If an owned reference is needed, use StrongRef API to create one.
  */
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
+// TODO: Remove the context from this function!
+StrongRef IndexSpec_LoadUnsafe(const char *name);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter
  * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
-StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -603,10 +636,10 @@ typedef struct IndexesScanner {
   bool cancelled;
   WeakRef spec_ref;
   char *spec_name;
-  size_t scannedKeys, totalKeys;
+  size_t scannedKeys;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
@@ -619,6 +652,12 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
  * sp->terms and sp->suffix Tries.
  */
 size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+
+/**
+ * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
+ * numeric tree structs.
+ */
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.

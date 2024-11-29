@@ -401,7 +401,7 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
-  ret->nn.nf->fieldName = rm_strdup(field);
+  ret->nn.nf->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
@@ -416,7 +416,7 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->property = rm_strdup(field);
+  flt->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
@@ -488,7 +488,7 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -507,7 +507,7 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -515,8 +515,7 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
 
 QueryNode* RediSearch_CreateTagNode(RefManager* rm, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
-  ret->tag.fieldName = rm_strdup(field);
-  ret->tag.len = strlen(field);
+  ret->tag.fs = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
   return ret;
 }
@@ -884,9 +883,9 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = sp->stats.invertedCap;
-  info->skipIndexesSize = sp->stats.skipIndexesSize;
-  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
+  info->invertedCap = 0;
+  info->skipIndexesSize = 0;
+  info->scoreIndexesSize = 0;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
@@ -910,26 +909,14 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  size_t res = 0;
-  res += sp->docs.memsize;
-  res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
-  res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
-  res += sp->stats.offsetVecsSize;
-  res += sp->stats.termsSize;
-  return res;
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
 }
 
-// Collect mem-usage, indexing time and gc statistics of all the currently
-// existing indexes
+// Collect statistics of all the currently existing indexes
 TotalSpecsInfo RediSearch_TotalInfo(void) {
   TotalSpecsInfo info = {0};
   info.min_mem = -1; // Initialize to max value
-  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
@@ -946,12 +933,34 @@ TotalSpecsInfo RediSearch_TotalInfo(void) {
     if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
+    // Vector index stats
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    info.fields_stats.total_vector_idx_mem += vec_info.memory;
+    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
+
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
       info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
       info.gc_stats.totalCycles += gcStats.numCycles;
       info.gc_stats.totalTime += gcStats.totalMSRun;
     }
+
+    // Index
+    size_t activeQueries = IndexSpec_GetActiveQueries(sp);
+    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+    if (activeQueries) info.num_active_indexes_querying++;
+    if (activeWrites) info.num_active_indexes_indexing++;
+    if (activeQueries || activeWrites) info.num_active_indexes++;
+    info.total_active_queries += activeQueries;
+    info.total_active_writes += activeWrites;
+
+    // Index errors metrics
+    size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
+    info.indexing_failures += index_error_count;
+    if (info.max_indexing_failures < index_error_count) {
+      info.max_indexing_failures = index_error_count;
+    }
+
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);

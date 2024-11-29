@@ -35,9 +35,12 @@ typedef struct {
 } FieldsGlobalStats;
 
 typedef struct {
-  size_t total_queries_processed; // Number of successful queries. If using cursors, not counting reading from the cursor
-  size_t total_query_commands;    // Number of successful query commands, including `FT.CURSOR READ`
-  uint_least8_t used_dialects;    // bitarray of dialects used by all indices
+  size_t total_queries_processed;     // Number of successful queries. If using cursors, not counting reading from the cursor
+  size_t total_query_commands;        // Number of successful query commands, including `FT.CURSOR READ`
+  clock_t total_query_execution_time; // Total time spent on queries (in clock ticks)
+  uint_least8_t used_dialects;        // bitarray of dialects used by all indices
+  size_t logically_deleted;           // Number of logically deleted documents in all indices
+                                      // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
 } TotalGlobalStats;
 
 // The global stats object type
@@ -55,11 +58,42 @@ extern GlobalStats RSGlobalStats;
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 
 /**
- * Exposing all the fields that > 0 to INFO command.
+ * Add or increase `toAdd` number of errors to the global index errors counter of field_type.
+ * `toAdd` can be negative to decrease the counter.
  */
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
+
+/**
+ * Exposing stats on all the field's type with existing field count > 0 to INFO command.
+ */
+void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *, TotalSpecsFieldInfo *);
+
+/**
+ * Increase all relevant counters in the global stats object.
+ */
+void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration);
+
+/**
+ * Add all the query-related information to the INFO command.
+ */
+void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx);
 
 /**
  * Add all the dialect-related information to the INFO command.
  */
 void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+
+/**
+ * Increase the number of logically deleted documents in all indices by `toAdd`.
+ */
+void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
+
+/**
+ * Get the number of logically deleted documents in all indices.
+ */
+size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
+
+/**
+ * Add all the index-related global information to the INFO command.
+ */
+void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);

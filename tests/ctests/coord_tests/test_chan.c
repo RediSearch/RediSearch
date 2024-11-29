@@ -17,8 +17,7 @@ void testChan() {
   for (int i = 0; i < 100; i++) {
     int *ptr = rm_malloc(sizeof(*ptr));
     *ptr = i;
-    int rc = MRChannel_Push(c, ptr);
-    mu_assert_int_eq(1, rc);
+    MRChannel_Push(c, ptr);
     mu_assert_int_eq(i + 1, MRChannel_Size(c));
   }
 
