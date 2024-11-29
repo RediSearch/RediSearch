@@ -26,11 +26,6 @@ extern "C" {
 #define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
 #define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
-typedef struct {
-  double value;
-  size_t appearances;
-} CardinalityValue;
-
 /* A numeric range is a node in a numeric range tree, representing a range of
  * values bunched together.
  * Since we do not know the distribution of scores ahead, we use a splitting
@@ -42,10 +37,9 @@ typedef struct {
 typedef struct {
   double minVal;
   double maxVal;
+  struct HLL hll;
 
   size_t invertedIndexSize;
-
-  struct HLL hll;
   InvertedIndex *entries;
 } NumericRange;
 

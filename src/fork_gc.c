@@ -778,10 +778,9 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode, size_t
   size_t startIdx = r->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
   t_docId startId = r->entries->blocks[startIdx].firstId;
   int rc = IR_SkipTo(ir, startId, &cur);
-  if (INDEXREAD_OK == rc) {
-    do {
-      hll_add(&r->hll, &cur->num.value, sizeof(cur->num.value));
-    } while (IR_Read(ir, &cur) == INDEXREAD_OK);
+  while (INDEXREAD_OK == rc) {
+    hll_add(&r->hll, &cur->num.value, sizeof(cur->num.value));
+    rc = IR_Read(ir, &cur);
   }
   IR_Free(ir);
 }
