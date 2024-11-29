@@ -178,22 +178,6 @@ cleanup:
   return REDISMODULE_ERR;
 }
 
-static bool NonEmptySpellCheckDictExists(void) {
-  int ret = 0;
-  dictEntry *entry;
-  dictIterator *iter = dictGetIterator(spellCheckDicts);
-  
-  while ((entry = dictNext(iter))) {
-    Trie *val = dictGetVal(entry);
-    if (val->size) {
-      ret = 1;
-      break;
-    }
-  }
-  dictReleaseIterator(iter);
-  return ret;
-}
-
 static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
     return;
@@ -213,10 +197,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
 
 static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(spellCheckDicts)) {
-    // if at least one dictionary has terms, save the dictionaries
-    if (NonEmptySpellCheckDictExists()) {
-      SpellCheckDictAuxSave(rdb, when);
-    }
+    SpellCheckDictAuxSave(rdb, when);
   }
 }
 
