@@ -1206,3 +1206,28 @@ def test_mod_7495(env: Env):
   # First non-stopword is not found
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()
+
+
+@skip(cluster=True)
+def test_mod_8142(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 't', 'city')
+  env.cmd('HSET', 'doc2', 't', 'cities')
+  score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
+
+  # Test with a term search
+  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  # Test with an exact term search
+  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '2', ['t', 'city']])
+  # Test with an optional term search
+  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  # Test with an optional exact term search
+  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  # Test without a term search
+  env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
+  # Test without an exact term search
+  env.expect('FT.SEARCH', 'idx', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
+  # Test with an optional negated term search
+  env.expect('FT.SEARCH', 'idx', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  # Test with an optional negated exact term search
+  env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
