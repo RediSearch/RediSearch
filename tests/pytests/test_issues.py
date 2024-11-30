@@ -1239,3 +1239,12 @@ def test_mod_8142(env:Env):
   # Test with an optional negated exact term search
   env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+
+  # Verify that the vector search doesn't affect the scoring or result set
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', np.array([1, 1], dtype=np.float32).tobytes())
+  env.cmd('HSET', 'doc2', 'v', np.array([1, 2], dtype=np.float32).tobytes())
+  res1 = env.cmd('FT.SEARCH', 'idx', 'city', 'WITHSCORES', 'RETURN', '1', 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'city=>[KNN 10 @v $BLOB]', 'WITHSCORES', 'RETURN', '1', 't', 'DIALECT', '2',
+                                                                'PARAMS', 2, 'BLOB', np.array([1, 0], dtype=np.float32).tobytes())
+  env.assertEqual(res1, res2)
