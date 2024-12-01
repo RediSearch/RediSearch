@@ -326,8 +326,14 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello world)=>[KNN 10 @v $B]', 'PARAMS', 2, 'B', '#blob#').equal(r'''
 VECTOR {
   @t1:INTERSECT {
-    @t1:hello
-    @t1:world
+    @t1:UNION {
+      @t1:hello
+      @t1:+hello(expanded)
+    }
+    @t1:UNION {
+      @t1:world
+      @t1:+world(expanded)
+    }
   }
 } => {K=10 nearest vectors to `$B` in vector index associated with field @v, yields distance as `__v_score`}
 '''[1:])
@@ -444,7 +450,10 @@ UNION {
   NOT{
     INTERSECT {
       world
-      again
+      UNION {
+        again
+        +again(expanded)
+      }
     }
   }
 }
@@ -462,7 +471,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])
@@ -518,7 +530,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])
