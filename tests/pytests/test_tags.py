@@ -184,8 +184,7 @@ def testTagIndex_OnReopen(env:Env): # issue MOD-8011
     forceInvokeGC(env)
 
     # Read from the cursor, should not crash
-    _, cursor = env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().res
-    env.assertEqual(cursor, 0) # done
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
 
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
