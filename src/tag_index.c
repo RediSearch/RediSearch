@@ -226,12 +226,12 @@ static void TagReader_OnReopen(void *privdata) {
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
                                               ir->record->term.term->len, DONT_CREATE_INDEX, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
-        // the inverted index was collected entirely by GC, lets stop searching.
+        // the inverted index was collected entirely by GC.
         // notice, it might be that a new inverted index was created, we will not
         // continue read those results and we are not promise that documents
         // that was added during cursor life will be returned by the cursor.
         IR_Abort(ir);
-        return;
+        continue; // Deal with the next IndexReader
       }
     }
     // Use generic `OnReopen` callback for all readers
