@@ -163,7 +163,7 @@ def testIssue1305(env):
 
 @skip(cluster=True)
 def testTagIndex_OnReopen(env:Env): # issue MOD-8011
-    env.flush() # TEMP
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
     env.cmd('HSET', 'doc1', 't', 'bar')
     env.cmd('HSET', 'doc2', 't', 'foo')
