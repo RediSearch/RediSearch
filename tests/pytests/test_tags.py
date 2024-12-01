@@ -180,8 +180,7 @@ def testTagIndex_OnReopen(env:Env): # issue MOD-8011
     env.expect('DEL', 'first').equal(1)
     for i in range(n_docs_per_tag_block):
         env.expect('DEL', f'doc{i}').equal(1)
-    # Trigger GC
-    forceInvokeGC(env)
+    forceInvokeGC(env) # Trigger GC to remove the inverted index of `bar` and the first block of `foo`
 
     # Read from the cursor, should not crash
     env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
