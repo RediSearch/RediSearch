@@ -520,9 +520,30 @@ def test_background_index_no_lazy_expiration(env):
 
     # Validate that doc:1 has expired but not evicted.
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['t', 'arr']])
-    # TODO: why monitor the expiration is set? this is causing the lazy expiration to be triggered
     env.expect('DBSIZE').equal(2)
 
     # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
     env.expect('HGET', 'doc:1', 't').equal(None)
+    env.expect('DBSIZE').equal(1)
+
+
+# Same test as the above but for JSON documents.
+@skip(cluster=True, no_json=True)
+def test_background_index_no_lazy_expiration_json(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
+    env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
+    env.expect('EXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(1.5)
+
+    # Expect background indexing to take place after doc:1 has expired.
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
+    waitForIndex(env, 'idx')
+
+    # Validate that doc:1 has expired but not evicted.
+    env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['$', '{"t":"arr"}']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
