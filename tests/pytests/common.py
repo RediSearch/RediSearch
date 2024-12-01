@@ -70,7 +70,7 @@ class DialectEnv(Env):
                 message = f'Dialect {self.dialect}'
             else:
                 message = f'Dialect {self.dialect}, {message}'
-        super().assertEqual(first, second, depth=depth, message=message)
+        super().assertEqual(first, second, depth=depth+1, message=message)
 
 def getConnectionByEnv(env):
     conn = None
