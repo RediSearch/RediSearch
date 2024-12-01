@@ -423,6 +423,8 @@ def testLazyTextFieldExpiration(env):
     # We added not_text_field to make sure that the expandFieldMask function hits the continue clause
     # Meaning that at least one field ftid during the expiration check will be RS_INVALID_FIELD_ID
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
     conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
@@ -443,6 +445,8 @@ def testLazyGeoshapeFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT', 'INDEXMISSING').ok()
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
     first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
     second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
     conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
@@ -460,6 +464,8 @@ def testLazyVectorFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 INDEXMISSING t TEXT n NUMERIC').ok()
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
     conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
     conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
