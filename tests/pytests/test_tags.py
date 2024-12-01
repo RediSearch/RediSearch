@@ -187,7 +187,7 @@ def testTagIndex_OnReopen(env:Env): # issue MOD-8011
     forceInvokeGC(env) # Trigger GC to remove the inverted index of `bar` and the first block of `foo`
 
     # Read from the cursor, should not crash
-    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().apply(lambda x: x[-1]).equal(0) # cursor is done
 
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
