@@ -163,39 +163,29 @@ def testIssue1305(env):
 
 @skip(cluster=True)
 def testTagIndex_OnReopen(env:Env): # issue MOD-8011
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    n_docs_per_tag_block = 1000
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
-    env.cmd('HSET', 'doc1', 't', 'bar')
-    env.cmd('HSET', 'doc2', 't', 'foo')
-    env.cmd('HSET', 'doc3', 't', 'foo')
+    # Add a first tag
+    env.cmd('HSET', 'first', 't', 'bar')
+    # Add 2 blocks of documents with the same tag
+    for i in range(n_docs_per_tag_block * 2):
+        env.cmd('HSET', f'doc{i}', 't', 'foo')
 
-    # Open a cursor over both tags
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '3', '@__key', 'AS', 'key', 'WITHCURSOR', 'COUNT', '1')
-    env.assertEqual(res[1:], [['key', 'doc1']])
-    env.assertNotEqual(cursor, 0)
+    # Search for both tags, read first + more than 1 block of the second
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '*', 'WITHCURSOR', 'COUNT', int(1 + n_docs_per_tag_block * 1.5))
+    env.assertEqual(res[1], ['t', 'bar']) # First tag
+    env.assertNotEqual(cursor, 0) # Not done, we have more results to read from the second block of the second tag
 
-    # Delete all documents
-    env.expect('DEL', 'doc1', 'doc2', 'doc3').equal(3)
-    forceInvokeGC(env) # force GC to clean the inverted indexes
+    # Delete the first tag + first block of the second tag
+    env.expect('DEL', 'first').equal(1)
+    for i in range(n_docs_per_tag_block):
+        env.expect('DEL', f'doc{i}').equal(1)
+    # Trigger GC
+    forceInvokeGC(env)
 
-    # Read from the cursor
-    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([[0], 0])
-
-    env.cmd('HSET', 'doc1', 't', 'bar')
-    env.cmd('HSET', 'doc2', 't', 'foo')
-    env.cmd('HSET', 'doc3', 't', 'foo')
-
-    # Open a cursor over both tags
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '3', '@__key', 'AS', 'key', 'WITHCURSOR', 'COUNT', '2')
-    env.assertEqual(res[1:], [['key', 'doc1'], ['key', 'doc2']])
-    env.assertNotEqual(cursor, 0)
-
-    # Delete the first two documents (removing `foo` tag, and changing `bar` tag)
-    env.expect('DEL', 'doc1', 'doc2').equal(2)
-    forceInvokeGC(env) # force GC to clean the inverted indexes
-
-    # Read from the cursor
-    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError()#.equal([[1, ['key', 'doc3']], 0]) # TODO: fix MOD-8185
+    # Read from the cursor, should not crash
+    _, cursor = env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().res
+    env.assertEqual(cursor, 0) # done
 
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
