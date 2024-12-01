@@ -194,7 +194,7 @@ static void TagReader_OnReopen(void *privdata) {
         // continue read those results and we are not promise that documents
         // that was added during cursor life will be returned by the cursor.
         IR_Abort(ir);
-        return;
+        continue; // Deal with the next IndexReader
       }
     }
     // Use generic `OnReopen` callback for all readers
