@@ -161,6 +161,42 @@ def testIssue1305(env):
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
 
+@skip(cluster=True)
+def testTagIndex_OnReopen(env:Env): # issue MOD-8011
+    env.flush() # TEMP
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    env.cmd('HSET', 'doc1', 't', 'bar')
+    env.cmd('HSET', 'doc2', 't', 'foo')
+    env.cmd('HSET', 'doc3', 't', 'foo')
+
+    # Open a cursor over both tags
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '3', '@__key', 'AS', 'key', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res[1:], [['key', 'doc1']])
+    env.assertNotEqual(cursor, 0)
+
+    # Delete all documents
+    env.expect('DEL', 'doc1', 'doc2', 'doc3').equal(3)
+    forceInvokeGC(env) # force GC to clean the inverted indexes
+
+    # Read from the cursor
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([[0], 0])
+
+    env.cmd('HSET', 'doc1', 't', 'bar')
+    env.cmd('HSET', 'doc2', 't', 'foo')
+    env.cmd('HSET', 'doc3', 't', 'foo')
+
+    # Open a cursor over both tags
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '3', '@__key', 'AS', 'key', 'WITHCURSOR', 'COUNT', '2')
+    env.assertEqual(res[1:], [['key', 'doc1'], ['key', 'doc2']])
+    env.assertNotEqual(cursor, 0)
+
+    # Delete the first two documents (removing `foo` tag, and changing `bar` tag)
+    env.expect('DEL', 'doc1', 'doc2').equal(2)
+    forceInvokeGC(env) # force GC to clean the inverted indexes
+
+    # Read from the cursor
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([[1, ['key', 'doc3']], 0])
+
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
 
