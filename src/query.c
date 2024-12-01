@@ -383,21 +383,16 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
                              QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
-  // Do not expand verbatim nodes
-  if (qn->opts.flags & QueryNode_Verbatim) {
+  if ((qn->opts.flags & QueryNode_Verbatim) ||    // Do not expand verbatim nodes
+      (qn->type == QN_PHRASE && qn->pn.exact) ||  // Do not expand exact phrases
+      (qn->type == QN_TAG)) {                     // Tag nodes are handles by their node evaluator
     return;
   }
-
-  int expandChildren = 0;
 
   if (qn->type == QN_TOKEN) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
-  } else if (qn->type == QN_UNION ||
-             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
-    expandChildren = 1;
-  }
-  if (expandChildren) {
+  } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
