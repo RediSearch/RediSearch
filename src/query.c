@@ -551,6 +551,16 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
+static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
+  if (pfx->prefix && pfx->suffix) {
+    return "INFIX";
+  } else if (pfx->prefix) {
+    return "PREFIX";
+  } else {
+    return "SUFFIX";
+  }
+}
+
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
@@ -571,10 +581,11 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  rune *str = NULL;
   size_t nstr;
-  if (qn->pfx.tok.str) {
-    str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
+  rune *str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
+  if (!str) {
+    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s query string is too long", PrefixNode_GetTypeString(&qn->pfx));
+    return NULL;
   }
 
   ctx.cap = 8;
@@ -637,6 +648,10 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
+  if (!str) {
+    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard query string is too long");
+    return NULL;
+  }
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
@@ -1806,13 +1821,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      if(qs->pfx.prefix && qs->pfx.suffix) {
-        s = sdscatprintf(s, "INFIX{*%s*}", (char *)qs->pfx.tok.str);
-      } else if (qs->pfx.suffix) {
-        s = sdscatprintf(s, "SUFFIX{*%s}", (char *)qs->pfx.tok.str);
-      } else {
-        s = sdscatprintf(s, "PREFIX{%s*}", (char *)qs->pfx.tok.str);
-      }
+      s = sdscatprintf(s, "%s{%s%s%s}", PrefixNode_GetTypeString(&qs->pfx),
+                                        qs->pfx.suffix ? "*" : "",
+                                        qs->pfx.tok.str,
+                                        qs->pfx.prefix ? "*" : "");
       break;
 
     case QN_LEXRANGE:
