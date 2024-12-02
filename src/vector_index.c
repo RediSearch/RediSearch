@@ -87,7 +87,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size"
-                               " (%zu) does not match index's expected size (%zu).",
+                               , " (%zu) does not match index's expected size (%zu).",
                                vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
@@ -114,15 +114,15 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size"
+                               "Error parsing vector similarity query: query vector blob size",
                                " (%zu) does not match index's expected size (%zu).",
                                vq->range.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       if (vq->range.radius < 0) {
         QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: negative radius (%g) "
-                               "given in a range query",
+                               "Error parsing vector similarity query: negative radius",
+                               " (%g) given in a range query",
                                vq->range.radius);
         return NULL;
       }
@@ -277,7 +277,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   if (REDISMODULE_OK != rv) {
     size_t old_block_size = 0;
     size_t old_initial_cap = 0;
-    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status));
+    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetError(&status, RSGlobalConfig.hideUserDataFromLog));
     // We change the initial size and block size to default and try again.
     switch (vecsimParams->algo) {
       case VecSimAlgo_BF:
@@ -325,7 +325,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
     }
     // If the second validation failed, we fail.
     if (REDISMODULE_OK != rv) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetError(&status));
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetError(&status, RSGlobalConfig.hideUserDataFromLog));
     }
   }
   QueryError_ClearError(&status);
@@ -498,7 +498,7 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
   }
   const char *error_msg = QueryError_Strerror(RSErrorCode);
-  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters: %s", error_msg);
+  QueryError_SetErrorFmt(status, RSErrorCode, "Error parsing vector similarity parameters", ": %s", error_msg);
   return vecSimCode;
 }
 

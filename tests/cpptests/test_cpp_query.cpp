@@ -54,7 +54,7 @@ class QASTCXX : public QueryAST {
   }
 
   const char *getError() const {
-    return QueryError_GetError(&m_status);
+    return QueryError_GetError(&m_status, false);
   }
 
   ~QASTCXX() {
@@ -95,7 +95,7 @@ TEST_F(QueryTest, testParser_delta) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
 
   // wildcard with parentheses are avalible from version 2
   assertInvalidQuery_v(1, "(*)");
@@ -148,7 +148,7 @@ TEST_F(QueryTest, testParser_v1) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   int version = 1;
 
   // test some valid queries
@@ -345,7 +345,7 @@ TEST_F(QueryTest, testParser_v2) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   int version = 2;
 
   // test some valid queries

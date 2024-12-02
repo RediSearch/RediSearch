@@ -79,6 +79,7 @@ typedef enum {
 
 typedef struct QueryError {
   QueryErrorCode code;
+  const char* message;
   char *detail;
 
   // warnings
@@ -97,34 +98,43 @@ const char *QueryError_Strerror(QueryErrorCode code);
  *
  * Only has an effect if no error is already present
  */
-void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err);
+void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *message);
 
 /** Set the error code of the query without setting an error string. */
 void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
 /** Set the error code using a custom-formatted string */
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
+
+/**
+ * Set the error code using a custom-formatted string
+ * Only use this function if you are certain that no user data is leaked in the format string
+ */
+void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
 /** Convenience macro to set an error of a 'bad argument' with the name of the argument */
 #define QERR_MKBADARGS_FMT(status, fmt, ...) \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
+#define QERR_MKBADARGS(status, message) \
+  QueryError_SetError(status, QUERY_EPARSEARGS, message)
+
 /** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
+  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
                          AC_Strerror(rv))
 
-#define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
+#define QERR_MKSYNTAXERR(status, ...) QueryError_SetError(status, QUERY_ESYNTAX, ##__VA_ARGS__)
 
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
  * I'm making this into a macro so I don't need to include redismodule.h
  */
-#define QueryError_ReplyAndClear(rctx, qerr)                     \
-  ({                                                             \
-    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr)); \
-    QueryError_ClearError(qerr);                                 \
-    REDISMODULE_OK;                                              \
+#define QueryError_ReplyAndClear(rctx, qerr, obfuscate)                     \
+  ({                                                                        \
+    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr, obfuscate)); \
+    QueryError_ClearError(qerr);                                            \
+    REDISMODULE_OK;                                                         \
   })
 
 /**
@@ -138,7 +148,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
  * Equivalent to the following boilerplate:
  * @code{c}
  *  const char *unknown = AC_GetStringNC(ac, NULL);
- *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s: %s", name, unknown);
+ *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, unknown);
  * @endcode
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
@@ -148,7 +158,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
  * built-in error string for the given code, or the custom string within the
  * object.
  */
-const char *QueryError_GetError(const QueryError *status);
+const char *QueryError_GetError(const QueryError *status, bool obfuscate);
 
 /**
  * Retrieve the error code.
@@ -168,6 +178,9 @@ static inline int QueryError_HasError(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
+
+#define ADD_QUERY_ERROR(name, err, query_ptr, key) \
+name ## _AddError(err, QueryError_GetError(query_ptr, true), QueryError_GetError(query_ptr, false), key);
 
 #ifdef __cplusplus
 }

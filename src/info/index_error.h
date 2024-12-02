@@ -18,9 +18,10 @@ extern "C" {
 #endif
 
 typedef struct IndexError {
-    size_t error_count;     // Number of errors.
-    char *last_error;       // Last error message.
-    RedisModuleString *key; // Key of the document that caused the error.
+    size_t error_count;              // Number of errors.
+    char *detailed_last_error;       // Last error message, can contain formatted user data
+    char *short_last_error;          // Last error message, should not contain formatted user data
+    RedisModuleString *key;          // Key of the document that caused the error.
     struct timespec last_error_time; // Time of the last error.
 } IndexError;
 
@@ -31,13 +32,13 @@ extern char* const IndexError_ObjectName;
 IndexError IndexError_Init();
 
 // Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
-void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key);
+void IndexError_AddError(IndexError *error, const char *shortError, const char* detailedError, RedisModuleString *key);
 
 // Returns the number of errors in the IndexError.
 size_t IndexError_ErrorCount(const IndexError *error);
 
 // Returns the last error message in the IndexError.
-const char *IndexError_LastError(const IndexError *error);
+const char *IndexError_LastError(const IndexError *error, bool obfuscate);
 
 // Returns the key of the document that caused the error.
 RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate);

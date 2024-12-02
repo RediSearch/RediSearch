@@ -163,7 +163,7 @@ char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNee
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */
-void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+void FieldSpec_AddError(FieldSpec *, const char *shortError, const char *detailedError, RedisModuleString *key);
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 

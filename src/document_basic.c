@@ -176,7 +176,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key", " %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -240,7 +240,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   if (!k) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key", " %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -285,8 +285,10 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
-      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", HiddenString_GetUnsafe(field->fieldPath, NULL));
+      FieldSpec_AddError(field, QueryError_GetError(status, true), QueryError_GetError(status, false), doc->docKey);
+      char* path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog, false);
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", path);
+      rm_free(path);
       goto done;
     }
     japi->freeIter(jsonIter);

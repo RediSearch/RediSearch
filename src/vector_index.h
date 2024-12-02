@@ -39,7 +39,7 @@
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 typedef enum {
   VECSIM_QT_KNN,

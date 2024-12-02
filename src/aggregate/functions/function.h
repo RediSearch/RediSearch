@@ -28,7 +28,7 @@ extern "C" {
                                                                                                \
       QueryError_SetErrorFmt(                                                                  \
           err, QUERY_EPARSEARGS,                                                               \
-          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
+          "Invalid type", " (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \
     }                                                                                          \

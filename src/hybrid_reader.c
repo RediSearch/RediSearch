@@ -444,7 +444,7 @@ void HybridIterator_Free(struct indexIterator *self) {
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+    QueryError_SetError(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
   }
 
   HybridIterator *hi = rm_new(HybridIterator);

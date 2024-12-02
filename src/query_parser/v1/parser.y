@@ -32,7 +32,7 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetSafeErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -498,7 +498,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
             B.len = unescapen((char*)B.s, B.len);
             A->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
             if (!A->tag.fs) {
-                QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
+                QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field", " at offset %d near %.*s", B.pos, B.len, B.s);
                 QueryNode_Free(A);
                 A = NULL;
             }
@@ -562,7 +562,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     if (ctx->sctx->spec) {
         A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
         if (!A->nn.nf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
+            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field", " at offset %d near %.*s", B.pos, B.len, B.s);
             QueryNode_Free(A);
             A = NULL;
         }
@@ -586,7 +586,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     if (ctx->sctx->spec) {
         A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
         if (!A->gn.gf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
+            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field", " at offset %d near %.*s", B.pos, B.len, B.s);
             QueryNode_Free(A);
             A = NULL;
         }

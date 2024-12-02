@@ -23,7 +23,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %lu for %s",
+  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }
 
@@ -68,7 +68,24 @@ void QueryError_ClearError(QueryError *err) {
   err->code = QUERY_OK;
 }
 
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
+void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
+  if (status->code != QUERY_OK) {
+    return;
+  }
+
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  rm_asprintf(&status->detail, "%s%s", message, formatted);
+  rm_free(formatted);
+  status->code = code;
+  status->message = message;
+}
+
+void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
   if (status->code != QUERY_OK) {
     return;
   }
@@ -95,8 +112,12 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   status->code = code;
 }
 
-const char *QueryError_GetError(const QueryError *status) {
-  return status->detail ? status->detail : QueryError_Strerror(status->code);
+const char *QueryError_GetError(const QueryError *status, bool obfuscate) {
+  if (status->detail == NULL || obfuscate) {
+    return status->message ? status->message : QueryError_Strerror(status->code);
+  } else {
+    return status->detail ? status->detail : QueryError_Strerror(status->code);
+  }
 }
 
 QueryErrorCode QueryError_GetCode(const QueryError *status) {
