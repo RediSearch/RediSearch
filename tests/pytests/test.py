@@ -509,21 +509,20 @@ def testOptional(env):
     env.expect('ft.add', 'idx', 'doc3',
                                     1.0, 'fields', 'foo', 'hello world werld').ok()
 
-    expected = [3, 'doc1', 'doc2', 'doc3']
     res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc1', 'doc2', 'doc3'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env):
 
