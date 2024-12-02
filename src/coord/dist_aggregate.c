@@ -770,7 +770,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 // See if we can distribute the plan...
 err:
   assert(QueryError_HasError(&status));
-  QueryError_ReplyAndClear(ctx, &status);
+  QueryError_ReplyAndClear(ctx, &status, false);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     StrongRef_Release(strong_ref);
