@@ -160,7 +160,8 @@ def testIssue1305(env):
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
     env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
-    expectedRes = {'doc2': ['nan', ['title', '"work"']], 'doc3': ['nan', ['title', '"hello"']], 'doc1': ['nan', ['title', '"hello,work"']]}
+    score = 'nan' if server_version_at_least(env, '7') else '-nan'
+    expectedRes = {'doc2': [score, ['title', '"work"']], 'doc3': [score, ['title', '"hello"']], 'doc1': [score, ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
