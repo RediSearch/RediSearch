@@ -161,7 +161,7 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RETURN_ERROR_ON_CRDT(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
@@ -176,10 +176,6 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
   RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
-
-  if (tree->size == 0) {
-    RedisModule_DeleteKey(key);
-  }
 
 end:
   if (key) {
@@ -199,7 +195,7 @@ Get completion suggestions for a prefix
 
    - prefix: the prefix to complete on
 
-   - FUZZY: if set, we do a fuzzy prefix search, including prefixes at
+   - FUZZY: if set,we do a fuzzy prefix search, including prefixes at
      levenshtein distance of 1  from the prefix sent
 
    - MAX num: If set, we limit the results to a maximum of `num`. The default
@@ -304,7 +300,7 @@ parse_error:
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (tree == NULL) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithNull(ctx);
     goto end;
   }
 
