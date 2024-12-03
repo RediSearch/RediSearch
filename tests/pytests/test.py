@@ -509,21 +509,20 @@ def testOptional(env):
     env.expect('ft.add', 'idx', 'doc3',
                                     1.0, 'fields', 'foo', 'hello world werld').ok()
 
-    expected = [3, 'doc1', 'doc2', 'doc3']
     res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc1', 'doc2', 'doc3'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual([2, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, expected)
+    env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
     res = r.execute_command(
         'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '2', 'doc1', '1'])
+    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env):
 
@@ -579,7 +578,7 @@ def testExplain(env):
     # test with hybrid query
     q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = r.execute_command('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+    expected = """VECTOR {\n  INTERSECT {\n    @t:UNION {\n      @t:hello\n      @t:+hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty

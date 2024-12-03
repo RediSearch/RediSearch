@@ -1429,8 +1429,10 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (found) {
     // Has a real hit
     RSIndexResult *r = nc->base.current;
+    r->weight = nc->weight;
   } else {
     nc->virt->docId = docId;
+    nc->virt->weight = 0;
     nc->base.current = nc->virt;
   }
 
@@ -1497,6 +1499,7 @@ static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
     nc->base.current = nc->virt;
     nc->base.current->weight = 0;
   } else {
+    nc->base.current = nc->child->current;
     nc->base.current->weight = nc->weight;
   }
 
