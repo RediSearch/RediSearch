@@ -36,7 +36,7 @@ else
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
 
     $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
-        devtoolset-10-make rsync unzip clang
+        devtoolset-10-make rsync unzip clang curl
 
     source /opt/rh/devtoolset-10/enable
 
