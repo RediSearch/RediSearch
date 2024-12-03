@@ -84,20 +84,39 @@ jobs:
         # --> We need to install git per-OS, and only then can we actually checkout the repo.
         # Since we do not have many such OS's, I think we can just have the OS-condition here, and install it accordingly.
         run: |
-          # Checkout script logic
-          perform_checkout() {
+          # Sparse checkout script logic
+          perform_sparse_checkout() {
             REPO_URL="https://github.com/RediSearch/RediSearch.git"  # Replace with the correct repository URL
+            DEST_DIR="setup"  # Directory to clone into
+            SPARSE_PATHS=(".install" "tests/pytests/requirements.*")  # Sparse paths to include
 
-            # Clone the repository with submodules
+            # # Ensure the workspace is clean
+            # if [ -d "$DEST_DIR" ]; then
+            #   echo "Cleaning up existing directory: $DEST_DIR"
+            #   rm -rf "$DEST_DIR"
+            # fi
+
+            # Clone the repository (shallow clone without tags)
             echo "Cloning repository into $DEST_DIR..."
-            git clone --recurse-submodules --depth=1 "$REPO_URL"
+            git clone --depth=1 --no-tags "$REPO_URL" "$DEST_DIR"
 
             # Navigate to the destination directory
-            cd RediSearch || exit 1
+            cd "$DEST_DIR" || exit 1
 
-            # Optionally, you can print the current directory to verify
-            echo "Current directory: $(pwd)"
-            ls -lhta
+            # Configure sparse checkout (basic mode)
+            echo "Configuring sparse checkout..."
+            git sparse-checkout init --no-cone
+
+            # Add specified paths to sparse checkout
+            for path in "${SPARSE_PATHS[@]}"; do
+              echo "$path" >> .git/info/sparse-checkout
+            done
+
+            # Apply sparse checkout
+            git read-tree -mu HEAD
+
+            echo "Sparse checkout complete. Checked out paths:"
+            printf "  - %s\n" "${SPARSE_PATHS[@]}"
           }
 
           # Execute the logic based on the detected platform
@@ -109,10 +128,12 @@ jobs:
               # Install git (platform-specific package management)
               case "${{ inputs.container }}" in
                 ubuntu:bionic)
+                  echo "Updating package lists..."
                   apt update
                   apt install software-properties-common -y
                   add-apt-repository ppa:git-core/ppa -y
                   apt install -y git
+                  echo "git: $(git --version)"
                   ;;
                 centos:7)
                   yum update -y
@@ -128,20 +149,16 @@ jobs:
                   ;;
               esac
 
-              # Perform checkout
-              perform_checkout
+              # Perform sparse checkout
+              perform_sparse_checkout
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
               exit 1
               ;;
           esac
-      - name: Setup specific (node20)
-        if: steps.node20.outputs.supported == 'true'
+      - name: Setup specific
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup specific (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
@@ -151,22 +168,20 @@ jobs:
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
-          echo "Done already..."
-          # # Define the repository URL and destination directory
-          # REPO_URL="https://github.com/RediSearch/RediSearch.git"
-          # DEST_DIR="RediSearch"
+          # Define the repository URL and destination directory
+          REPO_URL="https://github.com/RediSearch/RediSearch.git"
+          DEST_DIR="RediSearch"
 
-          # # Clone the repository with submodules
-          # # git clone --recurse-submodules --depth=1 $REPO_URL
-          # git submodule update --init --recursive
+          # Clone the repository with submodules
+          git clone --recurse-submodules --depth=1 $REPO_URL
 
-          # # Navigate into the cloned repository directory
-          # echo "working directory: $(pwd)"
-          # ls -lhta
-          # echo "Navigating to the cloned repository directory: $DEST_DIR"
-          # cd $DEST_DIR
-          # echo "working directory: $(pwd)"
-          # ls -lhta
+          # Navigate into the cloned repository directory
+          echo "working directory: $(pwd)"
+          ls -lhta
+          echo "Navigating to the cloned repository directory: $DEST_DIR"
+          cd $DEST_DIR
+          echo "working directory: $(pwd)"
+          ls -lhta
       - name: Setup common
         working-directory: RediSearch
         run: |
