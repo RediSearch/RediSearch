@@ -3290,7 +3290,7 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     const char *specName = IndexSpec_FormatName(sp, obfuscate);
-    REPLY_SIMPLE_SAFE(reply, specName);
+    REPLY_SIMPLE_SAFE(specName);
   }
   dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
