@@ -2580,6 +2580,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->specName = specName;
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
@@ -2693,6 +2694,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
+  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -3288,7 +3290,7 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     const char *specName = IndexSpec_FormatName(sp, obfuscate);
-    REPLY_SIMPLE_SAFE(specName);
+    RedisModule_Reply_StringBuffer(reply, specName, strlen(specName));
   }
   dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);

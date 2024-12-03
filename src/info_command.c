@@ -297,7 +297,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_ARRAY_END; // >Field statistics
 
   RedisModule_Reply_MapEnd(reply); // top
-  RedisModule_EndReply(reply);
 }
 
 /* FT.INFO {index}
@@ -315,6 +314,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   fillReplyWithIndexInfo(&sctx, &_reply, false, with_times);
+  RedisModule_EndReply(&_reply);
   return REDISMODULE_OK;
 }
 
@@ -323,16 +323,18 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 // This function might use an optimization at a later date to not run in O(n) time
 int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);
-  const char *obfuscatedIndexName = RedisModule_StringPtrLen(argv[2], NULL);
+  const char *nameOrAll = RedisModule_StringPtrLen(argv[2], NULL);
+  const bool everything = !strcasecmp(nameOrAll, "ALL");
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   bool found = false;
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  RedisModule_Reply_Array(&_reply);
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
-    if (sp && !strcmp(sp->obfuscatedName, obfuscatedIndexName)) {
+    if (sp && (everything || !strcasecmp(sp->obfuscatedName, nameOrAll))) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-      RedisModule_Reply _reply = RedisModule_NewReply(ctx);
       fillReplyWithIndexInfo(&sctx, &_reply, true, true);
       found = true;
     } else if (found) {
@@ -340,6 +342,8 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       break;
     }
   }
+  RedisModule_Reply_ArrayEnd(&_reply);
+  RedisModule_EndReply(&_reply);
   dictReleaseIterator(iter);
   if (!found) {
     return RedisModule_ReplyWithError(ctx, "Unknown obfuscated index name");
