@@ -3884,7 +3884,7 @@ def test_missing_schema(env):
     # make sure the index succeecfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No index exists with provided name idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster

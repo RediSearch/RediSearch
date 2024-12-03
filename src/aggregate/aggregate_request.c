@@ -1091,7 +1091,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
         return NULL;
       }
     }
@@ -1404,7 +1404,7 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       ReturnedField *ff = req->outFields.fields + ii;
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
+        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in schema", ff->name);

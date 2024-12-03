@@ -853,7 +853,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "No such index exists", " with name %s", indexname);
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "No index exists with provided name", " %s", indexname);
     goto done;
   }
 
