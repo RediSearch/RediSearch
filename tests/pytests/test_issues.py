@@ -1256,3 +1256,18 @@ def test_mod_8142(env:Env):
   res2 = env.cmd('FT.SEARCH', 'idx', 'city=>[KNN 10 @v $BLOB]', 'WITHSCORES', 'RETURN', '1', 't', 'DIALECT', '2',
                                                                 'PARAMS', 2, 'BLOB', np.array([1, 0], dtype=np.float32).tobytes())
   env.assertEqual(res1, res2)
+
+@skip(cluster=True)
+def test_mod_7882(env:Env):
+  """
+  We currently don't support searching for strings that are longer than 1024 characters in the Trie.
+  """
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  long_text = 'a'*1025
+
+  # All the queries below should return an error without crashing.
+  env.expect('FT.SEARCH', 'idx', '*' + long_text).error().contains('SUFFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', long_text + '*').error().contains('PREFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', '*' + long_text + '*').error().contains('INFIX query string is too long')
+
+  env.expect('FT.SEARCH', 'idx', "w'" + long_text + "'", 'DIALECT', '2').error().contains('Wildcard query string is too long')
