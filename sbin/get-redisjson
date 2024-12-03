@@ -140,7 +140,7 @@ fi
 if [[ -z $BINROOT ]]; then
 	BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
 fi
-DEST_DIR="$BINROOT/RedisJSON"
+DEST_DIR="$BINROOT/RedisJSON/${BRANCH}"
 
 if [[ -n $MODULE_FILE ]]; then
 	echo "${DEST_DIR}/rejson.so" > $MODULE_FILE
@@ -168,7 +168,7 @@ if [[ -z $REPO_PATH ]]; then
 					exit 1
 				fi
 				echo "Cannot download binary artifacts - building ${MOD_NAME} from source."
-				$ROOT/sbin/build-redisjson BINROOT=$BINROOT
+				$ROOT/sbin/build-redisjson BINROOT=$BINROOT BRANCH=$BRANCH
 				exit $?
 			fi
 		fi
