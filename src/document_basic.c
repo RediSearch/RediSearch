@@ -175,7 +175,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   // DvirDu: Is this even possible?
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key", " %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -239,7 +239,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   if (!k) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key", " %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
