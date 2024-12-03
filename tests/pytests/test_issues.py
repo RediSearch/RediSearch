@@ -1252,7 +1252,7 @@ def test_mod_8142(env:Env):
 @skip(cluster=True)
 def test_mod_7882(env:Env):
   """
-  We currently not supporting searching for strings that are longer than 1024 characters in the Trie.
+  We currently don't support searching for strings that are longer than 1024 characters in the Trie.
   """
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   long_text = 'a'*1025

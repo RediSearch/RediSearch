@@ -35,6 +35,11 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 
+#ifndef STRINGIFY
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+#endif
+
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -561,6 +566,8 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
+#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
+
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
@@ -582,9 +589,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   size_t nstr;
-  rune *str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
+  rune *str = qn->pfx.tok.str ? strToFoldedRunes(qn->pfx.tok.str, &nstr) : NULL;
   if (!str) {
-    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s query string is too long", PrefixNode_GetTypeString(&qn->pfx));
+    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
 
@@ -649,7 +656,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
   if (!str) {
-    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard query string is too long");
+    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
   }
 
