@@ -101,9 +101,9 @@ static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void 
 }
 
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
-  return FormatFieldNameOrPath(fs->ftId, fs->fieldName, Obfuscate_Field, obfuscate, escapeIfNeeded);
+  return FormatFieldNameOrPath(fs->index, fs->fieldName, Obfuscate_Field, obfuscate, escapeIfNeeded);
 }
 
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
-  return FormatFieldNameOrPath(fs->ftId, fs->fieldPath, Obfuscate_FieldPath, obfuscate, escapeIfNeeded);
+  return FormatFieldNameOrPath(fs->index, fs->fieldPath, Obfuscate_FieldPath, obfuscate, escapeIfNeeded);
 }
