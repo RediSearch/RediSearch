@@ -6,8 +6,7 @@ on:
   workflow_call:
     inputs:
       env:
-        # default: "${{ vars.RUNS_ON }}"
-        default: ubuntu-2204-x64-pin
+        default: "${{ vars.RUNS_ON }}"
         type: string
       container:
         type: string
@@ -62,10 +61,10 @@ jobs:
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               # https://github.com/actions/checkout/issues/1809
-              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
+              # echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
+              # echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
               # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
+              # echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
@@ -81,15 +80,68 @@ jobs:
             tests/pytests/requirements.*
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Setup specific
+        # Problem here: We do not yet have git, since we did not run the install script yet.
+        # --> We need to install git per-OS, and only then can we actually checkout the repo.
+        # Since we do not have many such OS's, I think we can just have the OS-condition here, and install it accordingly.
+        run: |
+          # Checkout script logic
+          perform_checkout() {
+            REPO_URL="https://github.com/RediSearch/RediSearch.git"  # Replace with the correct repository URL
+
+            # Clone the repository with submodules
+            echo "Cloning repository into $DEST_DIR..."
+            git clone --recurse-submodules --depth=1 "$REPO_URL"
+
+            # Navigate to the destination directory
+            cd RediSearch || exit 1
+
+            # Optionally, you can print the current directory to verify
+            echo "Current directory: $(pwd)"
+            ls -lhta
+          }
+
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | centos:7 | amazonlinux:2 | alpine:3)
+              echo "Installing prerequisites for ${{ inputs.container }}..."
+
+              # Install git (platform-specific package management)
+              case "${{ inputs.container }}" in
+                ubuntu:bionic)
+                  apt update
+                  apt install software-properties-common -y
+                  add-apt-repository ppa:git-core/ppa -y
+                  apt install -y git
+                  ;;
+                centos:7)
+                  yum update -y
+                  yum install -y git
+                  ;;
+                amazonlinux:2)
+                  yum update -y
+                  yum install -y git
+                  ;;
+                alpine:3)
+                  apk update
+                  apk add --no-cache git
+                  ;;
+              esac
+
+              # Perform checkout
+              perform_checkout
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
@@ -98,15 +150,34 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        run: |
+          echo "Done already..."
+          # # Define the repository URL and destination directory
+          # REPO_URL="https://github.com/RediSearch/RediSearch.git"
+          # DEST_DIR="RediSearch"
+
+          # # Clone the repository with submodules
+          # # git clone --recurse-submodules --depth=1 $REPO_URL
+          # git submodule update --init --recursive
+
+          # # Navigate into the cloned repository directory
+          # echo "working directory: $(pwd)"
+          # ls -lhta
+          # echo "Navigating to the cloned repository directory: $DEST_DIR"
+          # cd $DEST_DIR
+          # echo "working directory: $(pwd)"
+          # ls -lhta
       - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        working-directory: RediSearch
+        run: |
+          echo "working directory: $(pwd)"
+          ls -lhta
+          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
@@ -173,11 +244,12 @@ jobs:
         if: >
           steps.node20.outputs.supported == 'false' &&
           (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: tests/**/logs/*.log*
-          if-no-files-found: ignore
+        run: echo "Not currently available..."
+        # uses: actions/upload-artifact@v3
+        # with:
+        #   name: Test Logs ${{ steps.artifact-names.outputs.name }}
+        #   path: tests/**/logs/*.log*
+        #   if-no-files-found: ignore
 
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
