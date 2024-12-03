@@ -182,7 +182,7 @@ def test_internal_commands(env):
     env.expect('AUTH', 'test', '123').true()
 
     # `test` user should be able to execute internal commands
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains('No index exists with provided name idx2')
+    env.expect('_FT.SEARCH', 'idx', '*').error().contains('No index exists with provided name idx')
 
     # Remove the `_search_internal` permissions from the `test` user
     env.expect('ACL', 'SETUSER', 'test', '-@_search_internal').ok()
