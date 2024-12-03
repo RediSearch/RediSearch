@@ -127,8 +127,8 @@ void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code,
 #define QERR_MKSYNTAXERR(status, ...) QueryError_SetError(status, QUERY_ESYNTAX, ##__VA_ARGS__)
 
 // Hidden must be first argument in fmt
-#define QERR_MK_USING_HIDDEN_NAME(status, code, fmt, name, ...) \
-  QueryError_SetErrorFmt(status, code, fmt, HiddenString_GetUnsafe(name, NULL))
+#define QERR_MK_USING_HIDDEN_NAME(status, code, message, fmt, name) \
+  QueryError_SetErrorFmt(status, code, message fmt, HiddenString_GetUnsafe(name, NULL))
 
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
