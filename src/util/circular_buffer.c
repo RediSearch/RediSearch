@@ -12,9 +12,9 @@
 
 #include <stdatomic.h>
 
-// circular buffer structure
-// the buffer is of fixed size
-// items are removed by order of insertion, similar to a queue
+// Circular buffer structure.
+// The buffer is of fixed size.
+// Items are removed by order of insertion, similar to a queue.
 struct _CircularBuffer {
 	char *read;                   // read data from here
 	_Atomic uint64_t write;       // write offset into data
@@ -25,6 +25,7 @@ struct _CircularBuffer {
 	char data[];                  // data
 };
 
+// Creates a new circular buffer, with `cap` items of size `item_size`
 CircularBuffer CircularBuffer_New
 (
 	size_t item_size,  // size of item in bytes
@@ -42,7 +43,7 @@ CircularBuffer CircularBuffer_New
 	return cb;
 }
 
-// returns number of items in buffer
+// Returns the number of items in the buffer
 uint64_t CircularBuffer_ItemCount
 (
 	CircularBuffer cb  // buffer to inspect
@@ -52,7 +53,7 @@ uint64_t CircularBuffer_ItemCount
 	return cb->item_count;
 }
 
-// returns buffer capacity
+// Returns buffer capacity
 uint64_t CircularBuffer_Cap
 (
 	CircularBuffer cb // buffer
@@ -62,6 +63,7 @@ uint64_t CircularBuffer_Cap
 	return cb->item_cap;
 }
 
+// Returns the size of each item in the buffer
 uint CircularBuffer_ItemSize
 (
 	const CircularBuffer cb  // buffer
@@ -69,7 +71,7 @@ uint CircularBuffer_ItemSize
 	return cb->item_size;
 }
 
-// return true if buffer is empty
+// Returns true if buffer is empty
 inline bool CircularBuffer_Empty
 (
 	const CircularBuffer cb  // buffer
@@ -79,7 +81,7 @@ inline bool CircularBuffer_Empty
 	return cb->item_count == 0;
 }
 
-// returns true if buffer is full
+// Returns true if buffer is full
 inline bool CircularBuffer_Full
 (
 	const CircularBuffer cb  // buffer
@@ -89,7 +91,7 @@ inline bool CircularBuffer_Full
 	return cb->item_count == cb->item_cap;
 }
 
-// sets the read pointer to the oldest item in buffer
+// Sets the read pointer to the beginning of the buffer.
 // assuming the buffer looks like this:
 //
 // [., ., ., A, B, C, ., ., .]
@@ -138,9 +140,9 @@ void CircularBuffer_ResetReader
 	}
 }
 
-// adds an item to buffer
-// returns 1 on success, 0 otherwise
-// this function is thread-safe and lock-free
+// Adds an item to buffer.
+// Returns 1 on success, 0 otherwise
+// This function is thread-safe and lock-free
 int CircularBuffer_Add
 (
 	CircularBuffer cb,   // buffer to populate
@@ -192,9 +194,9 @@ int CircularBuffer_Add
 	return 1;
 }
 
-// reserve a slot within buffer
-// returns a pointer to a 'item size' slot within the buffer
-// this function is thread-safe and lock-free
+// Reserve a slot within buffer.
+// Returns a pointer to a 'item size' slot within the buffer.
+// This function is thread-safe and lock-free.
 void *CircularBuffer_Reserve
 (
 	CircularBuffer cb  // buffer to populate
@@ -240,9 +242,9 @@ void *CircularBuffer_Reserve
 	return cb->data + offset;
 }
 
-// read oldest item from buffer
-// this function is not thread-safe
-// this function pops the oldest item from the buffer
+// Read oldest item from buffer.
+// This function is not thread-safe.
+// This function pops the oldest item from the buffer.
 void *CircularBuffer_Read
 (
 	CircularBuffer cb,  // buffer to read item from
@@ -276,7 +278,7 @@ void *CircularBuffer_Read
 	return read;
 }
 
-// free buffer (does not free its elements if its free callback is NULL)
+// Frees buffer (does not free its elements if its free callback is NULL)
 void CircularBuffer_Free
 (
 	CircularBuffer cb  // buffer to free

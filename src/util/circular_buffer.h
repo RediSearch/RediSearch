@@ -17,73 +17,76 @@ extern "C" {
 typedef struct _CircularBuffer _CircularBuffer;
 typedef _CircularBuffer* CircularBuffer;
 
+// Creates a new circular buffer, with `cap` items of size `item_size`
 CircularBuffer CircularBuffer_New
 (
 	size_t item_size,  // size of item in bytes
 	uint cap           // max number of items in buffer
 );
 
-// returns number of items in buffer
+// Returns the number of items in the buffer
 uint64_t CircularBuffer_ItemCount
 (
 	CircularBuffer cb  // buffer
 );
 
-// returns buffer capacity
+// Returns buffer capacity
 uint64_t CircularBuffer_Cap
 (
 	CircularBuffer cb // buffer
 );
 
+// Returns the size of each item in the buffer
 uint CircularBuffer_ItemSize
 (
 	const CircularBuffer cb  // buffer
 );
 
-// return true if buffer is empty
+// Returns true if buffer is empty
 bool CircularBuffer_Empty
 (
 	const CircularBuffer cb  // buffer to inspect
 );
 
-// returns true if buffer is full
+// Returns true if buffer is full
 bool CircularBuffer_Full
 (
 	const CircularBuffer cb  // buffer to inspect
 );
 
-// adds an item to buffer
-// returns 1 on success, 0 otherwise
+// Adds an item to buffer.
+// Returns 1 on success, 0 otherwise
+// This function is thread-safe and lock-free
 int CircularBuffer_Add
 (
 	CircularBuffer cb,  // buffer to populate
 	void *item          // item to add
 );
 
-// reserve a slot within buffer
-// returns a pointer to a 'item size' slot within the buffer
-// this function is thread-safe and lock-free
+// Reserve a slot within buffer.
+// Returns a pointer to a 'item size' slot within the buffer.
+// This function is thread-safe and lock-free.
 void *CircularBuffer_Reserve
 (
 	CircularBuffer cb  // buffer to populate
 );
 
-// read oldest item from buffer
-// this function is not thread-safe
-// this function pops the oldest item from the buffer
+// Read oldest item from buffer.
+// This function is not thread-safe.
+// This function pops the oldest item from the buffer.
 void *CircularBuffer_Read
 (
 	CircularBuffer cb,  // buffer to read item from
 	void *item          // [optional] pointer populated with removed item
 );
 
-// sets the read pointer to the beginning of the buffer
+// Sets the read pointer to the beginning of the buffer.
 void CircularBuffer_ResetReader
 (
 	CircularBuffer cb  // circular buffer
 );
 
-// free buffer (does not free its elements if its free callback is NULL)
+// Frees buffer (does not free its elements if its free callback is NULL)
 void CircularBuffer_Free
 (
 	CircularBuffer cb  // buffer to free
