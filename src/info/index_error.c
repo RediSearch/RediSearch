@@ -103,7 +103,8 @@ const char *IndexError_LastError(const IndexError *error, bool obfuscate) {
 
 // Returns the key of the document that caused the error.
 RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate) {
-    if (!obfuscate) {
+    // if there is no obfuscation or the key is NA_rstr then return the key as is
+    if (!obfuscate || error->key == NA_rstr) {
       // We use hold string so the caller can always call free string regardless which clause of the if was reached
       return RedisModule_HoldString(RSDummyContext, error->key);
     } else {
