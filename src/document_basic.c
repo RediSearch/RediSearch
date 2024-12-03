@@ -175,7 +175,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
   if (!jsonRoot) {
     goto done;
   }
