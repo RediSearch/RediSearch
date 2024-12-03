@@ -369,5 +369,5 @@ def testIndexObfuscatedInfo(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
     debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
-    info = to_dict(debug_output)
+    info = to_dict(debug_output[0])
     env.assertEqual(info['index_name'], obfuscated_name)
