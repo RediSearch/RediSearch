@@ -128,7 +128,7 @@ void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const c
 
 // Hidden must be first argument in fmt
 #define QERR_MK_USING_HIDDEN_NAME(status, code, message, fmt, name) \
-  QueryError_SetErrorFmt(status, code, message fmt, HiddenString_GetUnsafe(name, NULL))
+  QueryError_SetErrorFmt(status, code, message, fmt, HiddenString_GetUnsafe(name, NULL))
 
 /**
  * Convenience macro to reply the error string to redis and clear the error code.
