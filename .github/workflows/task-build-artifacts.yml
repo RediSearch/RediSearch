@@ -179,7 +179,8 @@ jobs:
             cd $DEST_DIR
 
             # Checkout the REF
-            git fetch origin ${{ inputs.redis-ref }}
+            git remote update
+            git fetch
             git checkout origin/${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
