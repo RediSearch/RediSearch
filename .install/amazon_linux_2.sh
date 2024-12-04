@@ -6,7 +6,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
 $MODE amazon-linux-extras enable python3.8
-$MODE yum install -y python3.8 python38-devel which curl unzip
+$MODE yum install -y python3.8 python38-devel which
 $MODE ln -s "$(which python3.8)" /usr/bin/python3
 
 if [[ $ARCH = 'x86_64' ]]
@@ -19,7 +19,7 @@ then
     $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo                        # Disable mirrorlist
     $MODE sed -i 's/#baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo # Enable a working baseurl
 
-    $MODE yum install -y wget git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync
+    $MODE yum install -y wget git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync unzip
 
     source /opt/rh/devtoolset-11/enable
 
@@ -36,7 +36,7 @@ else
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
 
     $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
-        devtoolset-10-make rsync clang
+        devtoolset-10-make rsync unzip clang
 
     source /opt/rh/devtoolset-10/enable
 
@@ -51,8 +51,4 @@ fi
 
 $MODE yum install -y openssl11 openssl11-devel
 $MODE ln -s "$(which openssl11)" /usr/bin/openssl
-
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip && ./aws/install
-
 source install_cmake.sh $MODE
