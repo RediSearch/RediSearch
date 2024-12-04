@@ -168,6 +168,8 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     }
     if (val->size) {
       dictAdd(spellCheckDicts, key, val);
+    } else {
+      TrieType_Free(val);
     }
     RedisModule_Free(key);
   }

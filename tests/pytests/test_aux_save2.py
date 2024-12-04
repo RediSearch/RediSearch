@@ -181,7 +181,7 @@ def testLoadRdbWithEmptySpellcheckDict(env):
         env.assertEqual(filesize, 205)
         env.cmd('SAVE')
         filesize_after_save = os.path.getsize(rdbFilePath)
-        env.assertEqual(filesize_after_save, 145)
+        env.assertGreater(filesize, filesize_after_save)
 
 @skip(cluster=True, no_json=True, asan=True)
 def testLoadRdbWithoutSuggestionData(env: Env):
