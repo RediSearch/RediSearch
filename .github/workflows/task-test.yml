@@ -84,11 +84,10 @@ jobs:
         # --> We need to install git per-OS, and only then can we actually checkout the repo.
         # Since we do not have many such OS's, I think we can just have the OS-condition here, and install it accordingly.
         run: |
-          # Sparse checkout script logic
-          perform_sparse_checkout() {
+          # Checkout script logic
+          perform_checkout() {
             REPO_URL="https://github.com/RediSearch/RediSearch.git"  # Replace with the correct repository URL
-            DEST_DIR="setup"  # Directory to clone into
-            SPARSE_PATHS=(".install" "tests/pytests/requirements.*")  # Sparse paths to include
+            DEST_DIR="RediSearch"  # Directory to clone into
 
             # # Ensure the workspace is clean
             # if [ -d "$DEST_DIR" ]; then
@@ -98,25 +97,10 @@ jobs:
 
             # Clone the repository (shallow clone without tags)
             echo "Cloning repository into $DEST_DIR..."
-            git clone --depth=1 --no-tags "$REPO_URL" "$DEST_DIR"
+            git clone --recurse-submodules --depth=1 $REPO_URL
 
             # Navigate to the destination directory
             cd "$DEST_DIR" || exit 1
-
-            # Configure sparse checkout (basic mode)
-            echo "Configuring sparse checkout..."
-            git sparse-checkout init --no-cone
-
-            # Add specified paths to sparse checkout
-            for path in "${SPARSE_PATHS[@]}"; do
-              echo "$path" >> .git/info/sparse-checkout
-            done
-
-            # Apply sparse checkout
-            git read-tree -mu HEAD
-
-            echo "Sparse checkout complete. Checked out paths:"
-            printf "  - %s\n" "${SPARSE_PATHS[@]}"
           }
 
           # Execute the logic based on the detected platform
@@ -130,8 +114,6 @@ jobs:
                 ubuntu:bionic)
                   echo "Updating package lists..."
                   apt update
-                  apt install software-properties-common -y
-                  add-apt-repository ppa:git-core/ppa -y
                   apt install -y git
                   echo "git: $(git --version)"
                   ;;
@@ -149,16 +131,27 @@ jobs:
                   ;;
               esac
 
-              # Perform sparse checkout
-              perform_sparse_checkout
+              # Perform checkout
+              perform_checkout
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
               exit 1
               ;;
           esac
-      - name: Setup specific
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
+        run: |
+          echo "working directory: $(pwd)"
+          echo "ls -lhta"
+          ls -lhta
+          echo "ls -lhta .."
+          ls -lhta ..
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
         run: |
           echo "working directory: $(pwd)"
           echo "ls -lhta"
@@ -173,23 +166,10 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        run: |
-          # Define the repository URL and destination directory
-          REPO_URL="https://github.com/RediSearch/RediSearch.git"
-          DEST_DIR="RediSearch"
-
-          # Clone the repository with submodules
-          git clone --recurse-submodules --depth=1 $REPO_URL
-
-          # Navigate into the cloned repository directory
-          echo "working directory: $(pwd)"
-          ls -lhta
-          echo "Navigating to the cloned repository directory: $DEST_DIR"
-          cd $DEST_DIR
-          echo "working directory: $(pwd)"
-          ls -lhta
-      - name: Setup common
         working-directory: RediSearch
+        run: |
+          echo "Done already earlier."
+      - name: Setup common
         run: |
           echo "working directory: $(pwd)"
           ls -lhta
