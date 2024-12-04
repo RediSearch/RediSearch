@@ -178,12 +178,9 @@ jobs:
             git clone --depth=1 $REPO_URL $DEST_DIR
             cd $DEST_DIR
 
-            # Add safe directory
-            git config --global --add safe.directory '*'
-
             # Checkout the REF
             git fetch origin ${{ inputs.redis-ref }}
-            git checkout ${{ inputs.redis-ref }}
+            git checkout origin/${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
