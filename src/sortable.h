@@ -8,6 +8,7 @@
 #define __RS_SORTABLE_H__
 #include "redismodule.h"
 #include "value.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,10 +67,19 @@ RSSortingTable *NewSortingTable();
 void SortingTable_Free(RSSortingTable *t);
 
 /** Adds a field and returns the ID of the newly-inserted field */
-int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t);
+int RSSortingTable_AddC(RSSortingTable **tbl, const char *name, RSValueType t);
+
+/** Adds a field and returns the ID of the newly-inserted field */
+static inline int RSSortingTable_Add(RSSortingTable **tbl, const HiddenString* name, RSValueType t) {
+  return RSSortingTable_AddC(tbl, HiddenString_GetUnsafe(name, NULL), t);
+}
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
+int RSSortingTable_GetFieldIdxC(RSSortingTable *tbl, const char *field);
+
+static inline int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const HiddenString *field) {
+  return RSSortingTable_GetFieldIdxC(tbl, HiddenString_GetUnsafe(field, NULL));
+}
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */
 int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,

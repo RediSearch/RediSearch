@@ -839,7 +839,7 @@ TEST_F(IndexTest, testHybridVector) {
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
 
   RSIndexResult *h = NULL;
   size_t count = 0;
@@ -866,7 +866,7 @@ TEST_F(IndexTest, testHybridVector) {
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
 
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
@@ -917,7 +917,7 @@ TEST_F(IndexTest, testHybridVector) {
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -996,7 +996,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);
@@ -1244,9 +1244,10 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  const char* spec_name = "idx";
+  StrongRef ref = IndexSpec_Parse(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
@@ -1259,46 +1260,54 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body);
+  const char *realName = IndexSpec_FormatName(s, false);
+  ASSERT_STREQ(realName, spec_name);
+
+  const char *obfuscatedName = IndexSpec_FormatName(s, true);
+  ASSERT_STREQ(obfuscatedName, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
+
+  const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(f->name, body);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title);
+  f = IndexSpec_GetFieldWithLength(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, title) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo);
+  f = IndexSpec_GetFieldWithLength(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, foo) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
+  const int fooIdx = RSSortingTable_GetFieldIdx(s->sortables, f->fieldName);
+  ASSERT_EQ(fooIdx, 0);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar);
+  f = IndexSpec_GetFieldWithLength(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_TRUE(strcmp(f->name, bar) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name);
+  f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, name) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
@@ -1306,11 +1315,12 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(s->sortables != NULL);
   ASSERT_TRUE(s->sortables->len == 2);
-  int rc = RSSortingTable_GetFieldIdx(s->sortables, foo);
+  int rc = RSSortingTable_GetFieldIdxC(s->sortables, foo);
   ASSERT_EQ(0, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, bar);
+  ASSERT_EQ(0, rc);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, bar);
   ASSERT_EQ(1, rc);
-  rc = RSSortingTable_GetFieldIdx(s->sortables, title);
+  rc = RSSortingTable_GetFieldIdxC(s->sortables, title);
   ASSERT_EQ(-1, rc);
 
   IndexSpec_RemoveFromGlobals(ref);
@@ -1321,7 +1331,7 @@ TEST_F(IndexTest, testIndexSpec) {
   };
   ref = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
@@ -1334,7 +1344,7 @@ TEST_F(IndexTest, testIndexSpec) {
   QueryError_ClearError(&err);
   ref = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
   IndexSpec_RemoveFromGlobals(ref);
@@ -1382,7 +1392,7 @@ TEST_F(IndexTest, testHugeSpec) {
   QueryError err = {QUERY_OK};
   StrongRef ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
   IndexSpec_RemoveFromGlobals(ref);
@@ -1398,9 +1408,9 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err, false));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetError(&err, false));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
@@ -1574,21 +1584,21 @@ TEST_F(IndexTest, testDocTable) {
 
 TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
+  RSSortingTable_AddC(&tbl, "foo", RSValue_String);
+  RSSortingTable_AddC(&tbl, "bar", RSValue_String);
+  RSSortingTable_AddC(&tbl, "baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);
   ASSERT_EQ(RSValue_String, tbl->fields[0].type);
   ASSERT_STREQ("bar", tbl->fields[1].name);
   ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "foo"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdxC(tbl, "FoO"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(NULL, "FoO"));
 
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+  ASSERT_EQ(1, RSSortingTable_GetFieldIdxC(tbl, "bar"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdxC(tbl, "barbar"));
 
   RSSortingVector *v = NewSortingVector(tbl->len);
   ASSERT_EQ(v->len, tbl->len);
