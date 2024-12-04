@@ -176,6 +176,7 @@ jobs:
 
             # Clone the repository (shallow clone without tags)
             git clone --depth=1 $REPO_URL $DEST_DIR
+            cd $DEST_DIR
 
             # Checkout the REF
             git fetch origin ${{ inputs.redis-ref }}
