@@ -2731,8 +2731,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     sp->stopwords = DefaultStopWordList();
   }
 
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
-
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
