@@ -1,5 +1,11 @@
+import subprocess
 from common import *
 from RLTest import Env
+
+RDBS = [
+    'redisearch_2.8.18_empty_dict.rdb',
+    'redisearch_2.10.7_empty_dict.rdb',
+]
 
 @skip(cluster=True, no_json=True, asan=True)
 def testLoadRdbWithoutIndexAuxData(env: Env):
@@ -136,6 +142,46 @@ def testLoadRdbWithSpellcheckDictAuxDataUsingModules(env: Env):
     env.assertEqual(res, ['bar', 'baz', 'hakuna matata'])
     # dict2 does not exist, but FT.DICTDUMP returns an empty list
     env.expect('FT.DICTDUMP', 'dict2').equal([])
+
+@skip(cluster=True)
+def testLoadRdbWithEmptySpellcheckDict(env):
+    # Test loading an RDB with 3 dictionaries:
+    # empty_dict1 and empty_dict2 are empty dictionaries
+    # dict is a non-empty dictionary, containing two items: ['hello', 'hola']
+
+    env = Env()
+    skipOnExistingEnv(env)
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    rdbFilePath = os.path.join(dbDir, dbFileName)
+    if not downloadFiles(RDBS):
+        if CI:
+            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
+        else:
+            env.skip()
+            return
+
+    for fileName in RDBS:
+        env.stop()
+        filePath = os.path.join(REDISEARCH_CACHE_DIR, fileName)
+        try:
+            os.unlink(rdbFilePath)
+        except OSError:
+            pass
+        os.symlink(filePath, rdbFilePath)
+        env.start()
+
+        # Check that the non-empty dictionary is loaded
+        res = env.cmd('FT.DICTDUMP', 'dict')
+        env.assertEqual(res, ['hello', 'hola'])
+
+        # File size after saving the RDB is smaller than the original file size
+        # because the empty dictionaries are not saved
+        filesize = os.path.getsize(rdbFilePath)
+        env.assertEqual(filesize, 205)
+        env.cmd('SAVE')
+        filesize_after_save = os.path.getsize(rdbFilePath)
+        env.assertEqual(filesize_after_save, 145)
 
 @skip(cluster=True, no_json=True, asan=True)
 def testLoadRdbWithoutSuggestionData(env: Env):
