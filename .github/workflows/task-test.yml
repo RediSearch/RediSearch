@@ -57,14 +57,9 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
         run: |
-          for platform in ubuntu:bionic centos:7 amazonlinux:2 alpine:3; do
+          for platform in ubuntu:bionic amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
-              # https://github.com/actions/checkout/issues/1809
-              # echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              # echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
-              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              # echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
@@ -80,23 +75,20 @@ jobs:
             tests/pytests/requirements.*
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        # Problem here: We do not yet have git, since we did not run the install script yet.
-        # --> We need to install git per-OS, and only then can we actually checkout the repo.
-        # Since we do not have many such OS's, I think we can just have the OS-condition here, and install it accordingly.
         run: |
           # Checkout script logic
           perform_checkout() {
             REPO_URL="https://github.com/RediSearch/RediSearch.git"
             DEST_DIR="RediSearch"  # Directory to clone into
 
-            # Clone the repository (shallow clone without tags)
+            # Clone the repository to the current directory
             git clone --recurse-submodules --depth=1 $REPO_URL .
           }
 
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | centos:7 | amazonlinux:2 | alpine:3)
+            ubuntu:bionic | amazonlinux:2 | alpine:3)
               echo "Installing prerequisites for ${{ inputs.container }}..."
 
               # Install git (platform-specific package management)
@@ -106,10 +98,6 @@ jobs:
                   apt update
                   apt install -y git
                   echo "git: $(git --version)"
-                  ;;
-                centos:7)
-                  yum update -y
-                  yum install -y git
                   ;;
                 amazonlinux:2)
                   yum update -y
@@ -146,16 +134,13 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        run: |
-          echo "Done already earlier."
+        run: echo "Done already earlier."
       - name: Setup common
-        run: |
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
       - name: Install Boost
         working-directory: .install
-        run: |
-          ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       - name: Get Redis (node20)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
@@ -223,12 +208,7 @@ jobs:
         if: >
           steps.node20.outputs.supported == 'false' &&
           (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        run: echo "Not currently available..."
-        # uses: actions/upload-artifact@v3
-        # with:
-        #   name: Test Logs ${{ steps.artifact-names.outputs.name }}
-        #   path: tests/**/logs/*.log*
-        #   if-no-files-found: ignore
+        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
