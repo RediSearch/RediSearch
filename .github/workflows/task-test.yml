@@ -94,17 +94,14 @@ jobs:
             #   echo "Cleaning up existing directory: $DEST_DIR"
             #   rm -rf "$DEST_DIR"
             # fi
-
-            # Clone the repository (shallow clone without tags)
-            echo "Cloning repository into $DEST_DIR..."
-            git clone --recurse-submodules --depth=1 $REPO_URL
-
+            
             echo "Current directory: $(pwd)"
             echo "ls -lhta"
             ls -lhta
-            
-            # Navigate to the destination directory
-            cd "$DEST_DIR" || exit 1
+
+            # Clone the repository (shallow clone without tags)
+            echo "Cloning repository into $DEST_DIR..."
+            git clone --recurse-submodules --depth=1 $REPO_URL .
 
             echo "Current directory: $(pwd)"
             echo "ls -lhta"
