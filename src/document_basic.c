@@ -175,9 +175,10 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   if (spec->monitorFieldExpiration) {
     doc->fieldExpirations = getHashFieldExpirationTime(spec, sctx->redisCtx, doc->docKey);
   }
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey,
+    REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   int rv = REDISMODULE_ERR;
-  // DvirDu: Is this even possible?
+  // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -243,7 +244,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   if (!k) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;

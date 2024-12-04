@@ -1044,8 +1044,8 @@ def test_mod_6557(env: Env):
              '127.0.0.1:9',
              'MASTER'
   ).ok()
-  # Verify that `FT.SEARCH` queries are not hanging and return an error
-  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+  # Verify that `FT.CREATE` queries are not hanging and return an error
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').error().contains('Could not distribute command')
 
 def test_mod6186(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
@@ -1206,3 +1206,60 @@ def test_mod_7495(env: Env):
   # First non-stopword is not found
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()
+
+
+@skip(cluster=True)
+def test_mod_8142(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 't', 'city')
+  env.cmd('HSET', 'doc2', 't', 'cities')
+  score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
+
+  # Test with a term search
+  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', 'cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  # Test with an exact term search
+  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '2', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '2', ['t', 'cities']])
+  # Test with an optional term search
+  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  # Test with an optional exact term search
+  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  # Test without a term search
+  env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idx', '-cities', *score_opt).equal([0])
+  # Test without an exact term search
+  env.expect('FT.SEARCH', 'idx', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
+  # Test with an optional negated term search
+  env.expect('FT.SEARCH', 'idx', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  # Test with an optional negated exact term search
+  env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idx', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+
+  # Verify that the vector search doesn't affect the scoring or result set
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', np.array([1, 1], dtype=np.float32).tobytes())
+  env.cmd('HSET', 'doc2', 'v', np.array([1, 2], dtype=np.float32).tobytes())
+  res1 = env.cmd('FT.SEARCH', 'idx', 'city', 'WITHSCORES', 'RETURN', '1', 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'city=>[KNN 10 @v $BLOB]', 'WITHSCORES', 'RETURN', '1', 't', 'DIALECT', '2',
+                                                                'PARAMS', 2, 'BLOB', np.array([1, 0], dtype=np.float32).tobytes())
+  env.assertEqual(res1, res2)
+
+@skip(cluster=True)
+def test_mod_7882(env:Env):
+  """
+  We currently don't support searching for strings that are longer than 1024 characters in the Trie.
+  """
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  long_text = 'a'*1025
+
+  # All the queries below should return an error without crashing.
+  env.expect('FT.SEARCH', 'idx', '*' + long_text).error().contains('SUFFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', long_text + '*').error().contains('PREFIX query string is too long')
+  env.expect('FT.SEARCH', 'idx', '*' + long_text + '*').error().contains('INFIX query string is too long')
+
+  env.expect('FT.SEARCH', 'idx', "w'" + long_text + "'", 'DIALECT', '2').error().contains('Wildcard query string is too long')

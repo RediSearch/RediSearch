@@ -411,7 +411,7 @@ def testSetACLUsername():
     timeout = 3 # 3 seconds, more than enough for the an env to be up normally
     try:
         with TimeLimit(timeout):
-            env.cmd('FT.SEARCH', 'idx', '*')
+            env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
             # Client hangs.
             env.assertTrue(False)
     except Exception as e:

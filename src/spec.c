@@ -1650,11 +1650,7 @@ void Indexes_Free(dict *d) {
   SchemaPrefixes_Free(SchemaPrefixes_g);
   SchemaPrefixes_Create();
 
-  // Mark all Coordinator cursors as expired.
-  // We cannot free them from the main thread (as we are now) because they might attempt to
-  // delete their related cursors at the shards and wait for the response, and we will get
-  // into a deadlock with the shard we are in.
-  CursorList_Expire(&g_CursorsListCoord);
+  CursorList_Empty(&g_CursorsListCoord);
   // cursor list is iterating through the list as well and consuming a lot of CPU
   CursorList_Empty(&g_CursorsList);
 
@@ -1684,12 +1680,12 @@ inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name) {
+StrongRef IndexSpec_LoadUnsafe(const char *name) {
   IndexLoadOptions lopts = {.nameC = name};
-  return IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  return IndexSpec_LoadUnsafeEx(&lopts);
 }
 
-StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   const char *ixname = NULL;
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     ixname = RedisModule_StringPtrLen(options->nameR, NULL);
@@ -1709,8 +1705,10 @@ StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options)
     }
   }
 
-  // Increament the number of uses.
-  IndexSpec_IncreasCounter(sp);
+  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
+    // Increament the number of uses.
+    IndexSpec_IncreasCounter(sp);
+  }
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
@@ -1805,7 +1803,9 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->monitorDocumentExpiration = true;
-  sp->monitorFieldExpiration = true;
+  // Todo: this is now disabled by default, since otherwise we call HPEXPIRETIME on every indexing
+  // of a document, which causes performance regressions and lazy expiration even if not inteded.
+  sp->monitorFieldExpiration = false;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -2186,7 +2186,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
-    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
     keyOpened = true;
   }
 
