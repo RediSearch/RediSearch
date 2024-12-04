@@ -76,15 +76,6 @@ jobs:
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
-          # Checkout script logic
-          perform_checkout() {
-            REPO_URL="https://github.com/RediSearch/RediSearch.git"
-            DEST_DIR="RediSearch"  # Directory to clone into
-
-            # Clone the repository to the current directory
-            git clone --recurse-submodules --depth=1 $REPO_URL .
-          }
-
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
@@ -110,7 +101,11 @@ jobs:
               esac
 
               # Perform checkout
-              perform_checkout
+              REPO_URL="https://github.com/RediSearch/RediSearch.git"
+              DEST_DIR="RediSearch"  # Directory to clone into
+
+              # Clone the repository to the current directory
+              git clone --recurse-submodules --depth=1 $REPO_URL .
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"

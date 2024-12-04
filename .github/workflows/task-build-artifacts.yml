@@ -182,8 +182,7 @@ jobs:
             cd $DEST_DIR
 
             # Checkout the REF
-            git remote update
-            git fetch --all
+            git fetch origin ${{ inputs.redis-ref }}
             git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
@@ -225,11 +224,6 @@ jobs:
           if [ $? -ne 0 ]; then
             echo "Failed to assume AWS role" && exit 1
           fi
-
-          export AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.AccessKeyId')
-          export AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.SecretAccessKey')
-          export AWS_SESSION_TOKEN=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.SessionToken')
-          export AWS_REGION="$AWS_REGION"
 
           echo "AWS credentials configured successfully."
       - name: Configure AWS Credentials Using Keys (node20)
