@@ -91,16 +91,16 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   }
 
   if (type != MR_REPLY_ARRAY) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
-                            MRReply_Type(reply));
+    QueryError_SetSafeErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+                               MRReply_Type(reply));
     return false;
   }
 
   MRReply *ndocs = MRReply_ArrayElement(reply, 0);
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
-                           MRReply_Type(ndocs));
+    QueryError_SetSafeErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
+                               MRReply_Type(ndocs));
     return false;
   }
 
@@ -117,16 +117,16 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   }
 
   if (type != MR_REPLY_MAP) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
-                            MRReply_Type(reply));
+    QueryError_SetSafeErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
+                               MRReply_Type(reply));
     return false;
   }
 
   MRReply *ndocs = MRReply_MapElement(reply, "total_docs");
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
-                           MRReply_Type(ndocs));
+    QueryError_SetSafeErrorFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
+                               MRReply_Type(ndocs));
     return false;
   }
 
@@ -279,7 +279,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   QueryError qerr = {0};
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp2(replies[i], &totalDocNum, &qerr)) {
-      QueryError_ReplyAndClear(ctx, &qerr);
+      QueryError_ReplyAndClear(ctx, &qerr, false);
       return REDISMODULE_OK;
     }
   }
@@ -328,7 +328,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   QueryError qerr = {0};
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp3(replies[i], &totalDocNum, &qerr)) {
-      QueryError_ReplyAndClear(ctx, &qerr);
+      QueryError_ReplyAndClear(ctx, &qerr, false);
       return REDISMODULE_OK;
     }
   }

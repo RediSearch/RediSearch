@@ -35,7 +35,7 @@ static void testAverage() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetError(&status, false));
     abort();
   }
 
@@ -43,7 +43,7 @@ static void testAverage() {
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -61,7 +61,7 @@ static void testAverage() {
   assert(dstp);
 
   printf("Printing local plan\n");
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
 
@@ -70,8 +70,8 @@ static void testAverage() {
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
   printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
-    printf("ERROR!!!: %s\n", QueryError_GetError(&status));
-    AGPLN_Dump(&r->ap);
+    printf("ERROR!!!: %s\n", QueryError_GetError(&status, false));
+    AGPLN_Dump(&r->ap, false);
   }
   AREQ_Free(r);
 }
@@ -95,14 +95,14 @@ static void testCountDistinct() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetError(&status, false));
     abort();
   }
 
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -111,10 +111,10 @@ static void testCountDistinct() {
   AREQDIST_UpstreamInfo us = {0};
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
+    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status, false));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
@@ -133,14 +133,14 @@ static void testSplit() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetError(&status, false));
     abort();
   }
 
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -149,10 +149,10 @@ static void testSplit() {
   AREQDIST_UpstreamInfo us = {0};
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
+    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status, false));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(&r->ap, false);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
