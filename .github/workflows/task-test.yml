@@ -99,8 +99,16 @@ jobs:
             echo "Cloning repository into $DEST_DIR..."
             git clone --recurse-submodules --depth=1 $REPO_URL
 
+            echo "Current directory: $(pwd)"
+            echo "ls -lhta"
+            ls -lhta
+            
             # Navigate to the destination directory
             cd "$DEST_DIR" || exit 1
+
+            echo "Current directory: $(pwd)"
+            echo "ls -lhta"
+            ls -lhta
           }
 
           # Execute the logic based on the detected platform
@@ -139,6 +147,11 @@ jobs:
               exit 1
               ;;
           esac
+
+
+          echo "current directory: $(pwd)"
+          echo "ls -lhta"
+          ls -lhta
       - name: Setup specific (node20)
         if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
