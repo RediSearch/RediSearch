@@ -175,7 +175,7 @@ jobs:
             DEST_DIR="redis"  # Directory to clone into
 
             # Clone the repository (shallow clone without tags)
-            git clone --depth=1 $REPO_URL $DEST_DIR
+            git clone $REPO_URL $DEST_DIR
             cd $DEST_DIR
 
             # Checkout the REF
