@@ -109,8 +109,7 @@ jobs:
     uses:  ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      # env: ${{ vars.RUNS_ON_ARM }}
-      env: ubuntu24-arm64-2-8-pin
+      env: ${{ vars.RUNS_ON_ARM }}
       get-redis: ${{ inputs.redis-ref }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
