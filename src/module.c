@@ -87,7 +87,7 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 
   sds *prefixes = sp->rule->prefixes;
   for (uint i = 0; i < array_len(prefixes); i++) {
-    if (!RedisModule_ACLCheckKeyPrefixPermissions(user, RedisModule_CreateString(ctx, (const char *)prefixes[i], NULL), REDISMODULE_CMD_KEY_ACCESS)) {
+    if (RedisModule_ACLCheckKeyPrefixPermissions(user, RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i])), REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
       return false;
     }
   }

@@ -204,3 +204,24 @@ def test_internal_commands(env):
     # Authenticate as `default`, and run the internal debug command
     env.expect('AUTH', 'default', 'nopass').true()
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
+
+@skip(redis_less_than="7.9.0")
+def test_acl_key_permissions_validation(env):
+    """Tests that the key permission validation works properly"""
+
+    # Create an ACL user with partial key-space permissions
+    env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~h:*', '&*', '+@all').ok()
+
+    # Create a key that the user has permissions to access, and one that he can't
+    env.expect('HSET', 'h:1', 'n', 500).equal(1)
+    env.expect('HSET', 'k:1', 'n', 500).equal(1)
+
+    # Create an index on the key the user does not have permissions to access
+    # All prefixes will do (default)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+
+    # Authenticate as the user
+    env.expect('AUTH', 'test', '123').true()
+
+    # The `test` user should not be able to access the index
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains("-NOPERM User does not have the required permissions to query the index")
