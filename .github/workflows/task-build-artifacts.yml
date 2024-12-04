@@ -209,6 +209,7 @@ jobs:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Role (node20 not supported)
+        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
         run: |
           # Variables from the workflow
           ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
