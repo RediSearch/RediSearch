@@ -153,21 +153,11 @@ jobs:
         if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
         run: |
-          echo "working directory: $(pwd)"
-          echo "ls -lhta"
-          ls -lhta
-          echo "ls -lhta .."
-          ls -lhta ..
           ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Setup specific (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         working-directory: .install
         run: |
-          echo "working directory: $(pwd)"
-          echo "ls -lhta"
-          ls -lhta
-          echo "ls -lhta .."
-          ls -lhta ..
           ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
@@ -176,8 +166,10 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        working-directory: RediSearch
         run: |
+          echo "current directory: $(pwd)"
+          echo "ls -lhta"
+          ls -lhta
           echo "Done already earlier."
       - name: Setup common
         run: |
