@@ -44,7 +44,9 @@ typedef uint64_t t_fieldMask;
 #define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 
-struct RSSortingVector;
+// Forward declaration of needed structs
+struct RLookupKey;
+struct RSValue;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
@@ -145,7 +147,7 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
-  struct RSSortingVector *sortVector;
+  struct RSValue** sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
@@ -317,10 +319,6 @@ typedef struct {
   // A map of the aggregate type of the underlying results
   uint32_t typeMask;
 } RSAggregateResult;
-
-// Forward declaration of needed structs
-struct RLookupKey;
-struct RSValue;
 
 // Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
 // A result processor will write the value into the key if the result passed the AST.

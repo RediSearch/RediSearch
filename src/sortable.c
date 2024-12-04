@@ -15,26 +15,16 @@
 #include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len) {
+RSSortingVector NewSortingVector(int len) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
-  RSSortingVector *ret = rm_malloc(sizeof(RSSortingVector) + (len * sizeof(RSValue*)));
-  ret->len = len;
+  RSSortingVector ret = array_newlen(RSValue *, len);
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret->values[i] = RS_NullVal();
+    ret[i] = RS_NullVal();
   }
   return ret;
-}
-
-/* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
-                        QueryError *qerr) {
-  RSValue *v1 = self->values[sk->index];
-  RSValue *v2 = other->values[sk->index];
-  int rc = RSValue_Cmp(v1, v2, qerr);
-  return sk->ascending ? rc : -rc;
 }
 
 /* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
@@ -69,51 +59,45 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type, int unf) {
-  if (idx > RS_SORTABLES_MAX) {
+void RSSortingVector_Put(RSSortingVector vec, int idx, const void *p, int type, int unf) {
+  if (idx > array_len(vec)) {
     return;
   }
-  if (tbl->values[idx]) {
-    RSValue_Decref(tbl->values[idx]);
-    tbl->values[idx] = NULL;
+  if (vec[idx]) {
+    RSValue_Decref(vec[idx]);
   }
   switch (type) {
     case RS_SORTABLE_NUM:
-      tbl->values[idx] = RS_NumVal(*(double *)p);
+      vec[idx] = RS_NumVal(*(double *)p);
 
       break;
     case RS_SORTABLE_STR: {
       char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
-      tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
+      vec[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_RSVAL:
-      tbl->values[idx] = (RSValue*)p;
+      vec[idx] = (RSValue*)p;
       break;
     case RS_SORTABLE_NIL:
     default:
-      tbl->values[idx] = RS_NullVal();
+      vec[idx] = RS_NullVal();
       break;
   }
 }
 
 /* Free a sorting vector */
-void SortingVector_Free(RSSortingVector *v) {
-  for (size_t i = 0; i < v->len; i++) {
-    RSValue_Decref(v->values[i]);
-  }
-  rm_free(v);
+void SortingVector_Free(RSSortingVector v) {
+  array_foreach(v, value, RSValue_Decref(value));
+  array_free(v);
 }
 
 /* Save a sorting vector to rdb. This is called from the doc table */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
-  if (!v) {
-    RedisModule_SaveUnsigned(rdb, 0);
-    return;
-  }
-  RedisModule_SaveUnsigned(rdb, v->len);
-  for (int i = 0; i < v->len; i++) {
-    RSValue *val = v->values[i];
+void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector v) {
+  uint32_t len = array_len(v);
+  RedisModule_SaveUnsigned(rdb, len);
+  for (int i = 0; i < len; i++) {
+    RSValue *val = v[i];
     if (!val) {
       RedisModule_SaveUnsigned(rdb, RSValue_Null);
       continue;
@@ -137,13 +121,13 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
 }
 
 /* Load a sorting vector from RDB */
-RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
+RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {
     return NULL;
   }
-  RSSortingVector *vec = NewSortingVector(len);
+  RSSortingVector vec = NewSortingVector(len);
   for (int i = 0; i < len; i++) {
     RSValueType t = RedisModule_LoadUnsigned(rdb);
 
@@ -153,74 +137,38 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
+        vec[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
         RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
+        vec[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
       default:
-        vec->values[i] = RS_NullVal();
+        vec[i] = RS_NullVal();
         break;
     }
   }
   return vec;
 }
 
-size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
+size_t RSSortingVector_GetMemorySize(RSSortingVector v) {
   if (!v) return 0;
 
-  size_t sum = v->len * sizeof(RSValue *);
-  for (int i = 0; i < v->len; i++) {
-    if (!v->values[i]) continue;
+  size_t sum = array_sizeof(array_hdr(v));
+  for (int i = 0; i < array_len(v); i++) {
+    if (!v[i] || v[i] == RS_NullVal()) continue;
     sum += sizeof(RSValue);
 
-    RSValue *val = RSValue_Dereference(v->values[i]);
-    if (val && RSValue_IsString(val)) {
+    RSValue *val = RSValue_Dereference(v[i]);
+    if (RSValue_IsString(val)) {
       size_t sz;
       RSValue_StringPtrLen(val, &sz);
       sum += sz;
     }
   }
   return sum;
-}
-
-/* Create a new sorting table of a given length */
-RSSortingTable *NewSortingTable(void) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
-  tbl->cap = 1;
-  return tbl;
-}
-
-void SortingTable_Free(RSSortingTable *t) {
-  rm_free(t);
-}
-
-int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
-  if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
-
-  if ((*tbl)->len == (*tbl)->cap) {
-    (*tbl)->cap += 8;
-    *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
-  }
-
-  (*tbl)->fields[(*tbl)->len].name = name;
-  (*tbl)->fields[(*tbl)->len].type = t;
-  return (*tbl)->len++;
-}
-
-/* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
-
-  if (!tbl) return -1;
-  for (int i = 0; i < tbl->len; i++) {
-    if (!strcasecmp(tbl->fields[i].name, field)) {
-      return i;
-    }
-  }
-  return -1;
 }
