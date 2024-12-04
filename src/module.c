@@ -59,6 +59,7 @@
 #include "global_stats.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
+#define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
 #define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
 
 extern RSConfig RSGlobalConfig;
@@ -72,6 +73,26 @@ size_t NumShards = 0;
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
+}
+
+static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
+  RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+  RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+
+  if (!user) {
+    // TODO: Consider having an assertion instead - when could this happen?
+    RedisModule_Log(ctx, "warning", "No user found");
+    return false;
+  }
+
+  sds *prefixes = sp->rule->prefixes;
+  for (uint i = 0; i < array_len(prefixes); i++) {
+    if (!RedisModule_ACLCheckKeyPrefixPermissions(user, RedisModule_CreateString(ctx, (const char *)prefixes[i], NULL), REDISMODULE_CMD_KEY_ACCESS)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /* FT.MGET {index} {key} ...
@@ -2877,9 +2898,6 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return RSAggregateCommand(ctx, argv, argc);
   }
 
   if (argc < 3) {
@@ -2897,6 +2915,16 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (!sp) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+  }
+
+  // Check the ACL key permissions of the user w.r.t the queried index
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSAggregateCommand(ctx, argv, argc);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
