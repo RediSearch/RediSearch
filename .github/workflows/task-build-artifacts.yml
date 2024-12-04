@@ -180,7 +180,7 @@ jobs:
 
             # Checkout the REF
             git remote update
-            git fetch
+            git fetch --all
             git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
