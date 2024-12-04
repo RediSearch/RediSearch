@@ -190,19 +190,19 @@ jobs:
         run: ${{ steps.mode.outputs.mode }} make install
 
       # Build & Pack
-      # - name: Build and Pack RediSearch OSS
-      #   env:
-      #     COORD: oss
-      #   run: ${{ env.BUILD_CMD }} && make pack
+      - name: Build and Pack RediSearch OSS
+        env:
+          COORD: oss
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:
           LITE: 1
         run: ${{ env.BUILD_CMD }} && make pack
-      # - name: Build and Pack RediSearch Enterprise
-      #   env:
-      #     COORD: rlec
-      #     MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
-      #   run: ${{ env.BUILD_CMD }} && make pack
+      - name: Build and Pack RediSearch Enterprise
+        env:
+          COORD: rlec
+          MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
+        run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
       - name: Configure AWS Credentials Using Role (node20)
@@ -258,11 +258,6 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
-
-          export AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.AccessKeyId')
-          export AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.SecretAccessKey')
-          export AWS_SESSION_TOKEN=$(echo "$ASSUME_ROLE_OUTPUT" | jq -r '.Credentials.SessionToken')
-          export AWS_REGION="$AWS_REGION"
 
           # Verify configuration
           echo "Verifying AWS CLI configuration..."
