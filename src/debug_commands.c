@@ -1038,10 +1038,10 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
                             RedisSearchCtx *sctx, RedisModule_Reply *reply) {
-  RSSortingVector sv = dmd->sortVector;
+  RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
-  for (size_t ii = 0; ii < array_len(sv); ++ii) {
-    if (!sv[ii]) {
+  for (size_t ii = 0; ii < sv->len; ++ii) {
+    if (!sv->values[ii]) {
       continue;
     }
     RedisModule_Reply_Array(reply);
@@ -1052,7 +1052,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
 
       RedisModule_Reply_CString(reply, "value");
-      RSValue_SendReply(reply, sv[ii], 0);
+      RSValue_SendReply(reply, sv->values[ii], 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);

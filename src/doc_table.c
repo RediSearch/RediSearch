@@ -174,7 +174,7 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
-int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v) {
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v) {
   if (!dmd) {
     return 0;
   }
@@ -446,10 +446,6 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
           RedisModule_SaveStringBuffer(rdb, "", 1);
         }
       }
-
-      //      if (dmd->flags & Document_HasSortVector) {
-      //        SortingVector_RdbSave(rdb, dmd->sortVector);
-      //      }
 
       if (dmd->flags & Document_HasOffsetVector) {
         Buffer tmp;

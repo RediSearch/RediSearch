@@ -30,29 +30,31 @@ extern "C" {
 
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */
-typedef arrayof(RSValue*) RSSortingVector;
+#pragma pack(2)
+typedef struct RSSortingVector {
+  uint16_t len;
+  RSValue *values[];
+} RSSortingVector;
+#pragma pack()
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector vec, int idx, const void *p, int type, int unf);
+void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf);
 
 /* Returns the value for a given index. Does not increment the refcount */
-static inline RSValue *RSSortingVector_Get(RSSortingVector v, size_t index) {
-  return array_len(v) > index ? v[index] : NULL;
+static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
+  return v->len > index ? v->values[index] : NULL;
 }
 
-size_t RSSortingVector_GetMemorySize(RSSortingVector v);
+size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector NewSortingVector(int len);
+RSSortingVector *NewSortingVector(int len);
 
 /* Free a sorting vector */
-void SortingVector_Free(RSSortingVector v);
+void SortingVector_Free(RSSortingVector *v);
 
-/* Save a document's sorting vector into an rdb dump */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector v);
-
-/* Load a sorting vector from RDB */
-RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
+/* Load a sorting vector from RDB. Used by legacy RDB load only */
+RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }

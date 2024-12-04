@@ -275,7 +275,7 @@ typedef struct RSAddDocumentCtx {
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
-  RSSortingVector sv;
+  RSSortingVector *sv;
 
   // Byte offsets for highlighting. If term offsets are stored, this contains
   // the field byte offset for each term.

@@ -110,7 +110,7 @@ typedef struct RLookup {
  */
 typedef struct {
   /** Sorting vector attached to document */
-  RSSortingVector sv;
+  const RSSortingVector *sv;
 
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
@@ -289,8 +289,8 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (array_len(row->sv) > key->svidx) {
-        ret = row->sv[key->svidx];
+      if (row->sv && row->sv->len > key->svidx) {
+        ret = row->sv->values[key->svidx];
         if (ret != NULL && ret == RS_NullVal()) {
           ret = NULL;
         }

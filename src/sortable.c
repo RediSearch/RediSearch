@@ -15,14 +15,15 @@
 #include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector NewSortingVector(int len) {
+RSSortingVector *NewSortingVector(int len) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
-  RSSortingVector ret = array_newlen(RSValue *, len);
+  RSSortingVector *ret = rm_malloc(sizeof(RSSortingVector) + (len * sizeof(RSValue*)));
+  ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
-    ret[i] = RS_NullVal();
+    ret->values[i] = RS_NullVal();
   }
   return ret;
 }
@@ -59,75 +60,49 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector vec, int idx, const void *p, int type, int unf) {
-  if (idx > array_len(vec)) {
+void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf) {
+  if (idx > vec->len) {
     return;
   }
-  if (vec[idx]) {
-    RSValue_Decref(vec[idx]);
+  if (vec->values[idx]) {
+    RSValue_Decref(vec->values[idx]);
   }
   switch (type) {
     case RS_SORTABLE_NUM:
-      vec[idx] = RS_NumVal(*(double *)p);
+      vec->values[idx] = RS_NumVal(*(double *)p);
 
       break;
     case RS_SORTABLE_STR: {
       char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
-      vec[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
+      vec->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_RSVAL:
-      vec[idx] = (RSValue*)p;
+      vec->values[idx] = (RSValue*)p;
       break;
     case RS_SORTABLE_NIL:
     default:
-      vec[idx] = RS_NullVal();
+      vec->values[idx] = RS_NullVal();
       break;
   }
 }
 
 /* Free a sorting vector */
-void SortingVector_Free(RSSortingVector v) {
-  array_foreach(v, value, RSValue_Decref(value));
-  array_free(v);
-}
-
-/* Save a sorting vector to rdb. This is called from the doc table */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector v) {
-  uint32_t len = array_len(v);
-  RedisModule_SaveUnsigned(rdb, len);
-  for (int i = 0; i < len; i++) {
-    RSValue *val = v[i];
-    if (!val) {
-      RedisModule_SaveUnsigned(rdb, RSValue_Null);
-      continue;
-    }
-    RedisModule_SaveUnsigned(rdb, val->t);
-    switch (val->t) {
-      case RSValue_String:
-        // save string - one extra byte for null terminator
-        RedisModule_SaveStringBuffer(rdb, val->strval.str, val->strval.len + 1);
-        break;
-
-      case RSValue_Number:
-        // save numeric value
-        RedisModule_SaveDouble(rdb, val->numval);
-        break;
-      // for nil we write nothing
-      default:
-        break;
-    }
+void SortingVector_Free(RSSortingVector *v) {
+  for (size_t i = 0; i < v->len; i++) {
+    RSValue_Decref(v->values[i]);
   }
+  rm_free(v);
 }
 
 /* Load a sorting vector from RDB */
-RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
+RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {
     return NULL;
   }
-  RSSortingVector vec = NewSortingVector(len);
+  RSSortingVector *vec = NewSortingVector(len);
   for (int i = 0; i < len; i++) {
     RSValueType t = RedisModule_LoadUnsigned(rdb);
 
@@ -137,33 +112,33 @@ RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
+        vec->values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
         RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
+        vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
       default:
-        vec[i] = RS_NullVal();
+        vec->values[i] = RS_NullVal();
         break;
     }
   }
   return vec;
 }
 
-size_t RSSortingVector_GetMemorySize(RSSortingVector v) {
+size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
   if (!v) return 0;
 
-  size_t sum = array_sizeof(array_hdr(v));
-  for (int i = 0; i < array_len(v); i++) {
-    if (!v[i] || v[i] == RS_NullVal()) continue;
+  size_t sum = v->len * sizeof(RSValue *);
+  for (int i = 0; i < v->len; i++) {
+    if (!v->values[i] || v->values[i] == RS_NullVal()) continue;
     sum += sizeof(RSValue);
 
-    RSValue *val = RSValue_Dereference(v[i]);
+    RSValue *val = RSValue_Dereference(v->values[i]);
     if (RSValue_IsString(val)) {
       size_t sz;
       RSValue_StringPtrLen(val, &sz);

@@ -36,8 +36,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  if ((kk->flags & RLOOKUP_F_SVSRC) && array_len(r->rowdata.sv) > kk->svidx) {
-    return r->rowdata.sv[kk->svidx];
+  if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
+    return r->rowdata.sv->values[kk->svidx];
   } else {
     return RLookup_GetItem(kk, &r->rowdata);
   }
