@@ -317,47 +317,6 @@ def testReplace(env):
         env.assertEqual(1, res[0])
         env.assertEqual('doc1', res[1])
 
-def testDrop(env):
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-
-    for i in range(100):
-        env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
-    env.assertGreaterEqual(countKeys(env), 100)
-
-    env.expect('ft.drop', 'idx').ok()
-
-    env.assertEqual(0, countKeys(env))
-    env.flush()
-
-    # Now do the same with KEEPDOCS
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-
-    for i in range(100):
-        env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
-    env.assertGreaterEqual(countKeys(env), 100)
-
-    if not env.isCluster():
-        env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
-        keys = env.keys('*')
-        env.assertEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15',
-                             'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22',
-                             'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3',
-                             'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37',
-                             'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44',
-                             'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51',
-                             'doc52', 'doc53', 'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59',
-                             'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66',
-                             'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73',
-                             'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80',
-                             'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88',
-                             'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95',
-                             'doc96', 'doc97', 'doc98', 'doc99'],
-                             py2sorted(keys))
-
-    env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
 
 def testDelete(env):
     conn = getConnectionByEnv(env)
@@ -1023,7 +982,7 @@ def testPrefixNodeCaseSensitive(env):
             docs.sort()
             env.assertEqual(res[0], expectation[0])
             env.assertEqual(docs, expectation[1:])
-        env.expect('FT.DROP', 'idx').ok()
+        env.expect('FT.DROPINDEX', 'idx').ok()
 
 
 def testSortBy(env):
@@ -1847,8 +1806,7 @@ def _test_create_options_real(env, *options):
     has_freqs = 'NOFREQS' not in options
 
     try:
-        env.cmd('ft.drop', 'idx')
-        # RS 2.0 ft.drop does not remove documents
+        env.cmd('ft.dropindex', 'idx')
         env.flush()
     except Exception as e:
         pass
@@ -1933,7 +1891,7 @@ def testInfoCommand(env):
             combo = list(filter(None, combo))
             options = combo + ['schema', 'f1', 'text']
             try:
-                env.cmd('ft.drop', 'idx')
+                env.cmd('ft.dropindex', 'idx')
             except:
                 pass
             env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', *options)
@@ -2448,8 +2406,7 @@ def testAlias(env):
     env.expect('ft.aliasAdd', 'myIndex', 'idx2').error()
     env.expect('ft.aliasAdd', 'alias2', 'idx').noError()
     # now delete the index
-    env.cmd('ft.drop', 'myIndex')
-    # RS2 does not delete doc on ft.drop
+    env.cmd('ft.dropindex', 'myIndex')
     conn.execute_command('DEL', 'doc1')
 
     # index list should be cleared now. This can be tested by trying to alias
@@ -2524,22 +2481,6 @@ def testSpellCheck(env):
 
 # Standalone functionality
 def testIssue484(env):
-# Issue with split
-# 127.0.0.1:6379> ft.drop productSearch1
-# OK
-# 127.0.0.1:6379> "FT.CREATE" "productSearch1" "NOSCOREIDX" "SCHEMA" "productid" "TEXT" "categoryid" "TEXT"  "color" "TEXT" "timestamp" "NUMERIC"
-# OK
-# 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID1" "1.0" "REPLACE" "FIELDS" "productid" "1" "categoryid" "cars" "color" "blue" "categoryType" 0
-# OK
-# 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID2" "1.0" "REPLACE" "FIELDS" "productid" "1" "categoryid" "small cars" "color" "white" "categoryType" 0
-# OK
-# 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID3" "1.0" "REPLACE" "FIELDS" "productid" "2" "categoryid" "Big cars" "color" "white" "categoryType" 0
-# OK
-# 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID4" "1.0" "REPLACE" "FIELDS" "productid" "2" "categoryid" "Big cars" "color" "green" "categoryType" 0
-# OK
-# 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID5" "1.0" "REPLACE" "FIELDS" "productid" "3" "categoryid" "cars" "color" "blue" "categoryType" 0
-# OK
-# 127.0.0.1:6379>  FT.AGGREGATE productSearch1 * load 2 @color @categoryid APPLY "split(format(\"%s-%s\",@color,@categoryid),\"-\")" as value GROUPBY 1 @value REDUCE COUNT 0 as value_count
     env.cmd('ft.create', 'productSearch1', 'noscoreidx', 'ON', 'HASH', 'schema', 'productid',
             'text', 'categoryid', 'text', 'color', 'text', 'timestamp', 'numeric')
     env.cmd('ft.add', 'productSearch1', 'GUID1', '1.0', 'REPLACE', 'FIELDS', 'productid', '1', 'categoryid', 'cars', 'color', 'blue', 'categoryType', 0)
@@ -3366,14 +3307,14 @@ def testIssue1184(env):
         env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
         env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
 
-        env.cmd('FT.DROP idx')
+        env.cmd('FT.DROPINDEX idx')
 
 def testIndexListCommand(env):
     env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()
     env.expect('FT.CREATE idx2 ON HASH SCHEMA n NUMERIC').ok()
     res = env.cmd('FT._LIST')
     env.assertEqual(set(res), set(['idx1', 'idx2']))
-    env.expect('FT.DROP idx1').ok()
+    env.expect('FT.DROPINDEX idx1').ok()
     env.expect('FT._LIST').equal(['idx2'])
     env.expect('FT.CREATE idx3 ON HASH SCHEMA n NUMERIC').ok()
     res = env.cmd('FT._LIST')
@@ -3528,8 +3469,6 @@ def testCreateIfNX(env):
     env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
     env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
 
-def testDropIfX(env):
-    env.expect('FT._DROPIFX idx').ok()
 
 def testDeleteIfX(env):
     env.expect('FT._DROPINDEXIFX idx').ok()

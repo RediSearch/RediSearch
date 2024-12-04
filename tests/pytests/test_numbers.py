@@ -246,7 +246,7 @@ def testRangeParentsConfig(env):
 		env.assertEqual(actual_res[0:2], result[test])
 
 		# reset with old ranges parents param
-		env.cmd('ft.drop', 'idx0')
+		env.cmd('ft.dropindex', 'idx0', 'DD')
 		env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
 
 	# reset back

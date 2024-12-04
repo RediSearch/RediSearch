@@ -350,8 +350,8 @@ def test_create():
 
             env.assertEqual(info_data_FLAT, expected_FLAT)
 
-        conn.execute_command('FT.DROP', 'idx1')
-        conn.execute_command('FT.DROP', 'idx2')
+        conn.execute_command('FT.DROPINDEX', 'idx1')
+        conn.execute_command('FT.DROPINDEX', 'idx2')
 
 @skip(cluster=True)
 def test_create_multiple_vector_fields():
