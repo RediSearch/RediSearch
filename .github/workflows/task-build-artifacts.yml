@@ -170,13 +170,6 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          repository: redis/redis
-          ref: ${{ inputs.redis-ref }}
-          path: redis
-      - name: Get Redis (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
         run: |
             REPO_URL="https://github.com/redis/redis.git"
             DEST_DIR="redis"  # Directory to clone into
@@ -214,11 +207,6 @@ jobs:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Role (node20 not supported)
-        # if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
-        # uses: aws-actions/configure-aws-credentials@v3
-        # with:
-        #   role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-        #   aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
         run: |
           # Variables from the workflow
           ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
