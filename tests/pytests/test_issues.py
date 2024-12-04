@@ -1263,3 +1263,23 @@ def test_mod_7882(env:Env):
   env.expect('FT.SEARCH', 'idx', '*' + long_text + '*').error().contains('INFIX query string is too long')
 
   env.expect('FT.SEARCH', 'idx', "w'" + long_text + "'", 'DIALECT', '2').error().contains('Wildcard query string is too long')
+
+@skip(cluster=True)
+def test_mod_6783(env:Env):
+  n_max_sortable = 1024
+  n_docs = 10
+
+  # Create an index with a large number of sortable fields, all with the same path
+  schema = []
+  for i in range(n_max_sortable):
+    schema.extend(('n', 'AS', f'f{i}', 'NUMERIC', 'SORTABLE'))
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+
+  # Add documents with a unique value for each sortable field, in a "random" order
+  for doc_id in range(n_docs):
+    env.cmd('HSET', f'doc{doc_id}', 'n', (doc_id * 17) % n_docs)
+
+  expected = [n_docs] + sorted([f'doc{doc_id}' for doc_id in range(n_docs)], key=lambda doc_id: (int(doc_id[3:]) * 17) % n_docs)
+
+  for i in range(n_max_sortable):
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT'), expected, message=f'Failed on field f{i}')
