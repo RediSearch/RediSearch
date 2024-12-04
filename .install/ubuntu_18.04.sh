@@ -6,7 +6,7 @@ MODE=$1 # whether to install using sudo or not
 $MODE apt update -qq
 $MODE apt upgrade -yqq
 $MODE apt dist-upgrade -yqq
-$MODE apt install -yqq software-properties-common unzip rsync
+$MODE apt install -yqq software-properties-common unzip rsync curl
 
 # ppa for modern python and gcc10
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
@@ -20,5 +20,8 @@ $MODE apt -y install python3.8 python3.8-venv python3.8-dev python3-venv python3
 
 # Set python3 to point to python3.8
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 2
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && ./aws/install
 
 source install_cmake.sh $MODE
