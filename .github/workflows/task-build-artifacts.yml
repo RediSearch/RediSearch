@@ -134,8 +134,13 @@ jobs:
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli
+      - name: Install aws cli (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
