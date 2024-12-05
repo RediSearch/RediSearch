@@ -1185,8 +1185,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       }
 
       fs->sortIdx = sp->numSortableFields++;
-    } else {
-      fs->sortIdx = -1;
     }
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
