@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from common import *
+import random
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -1268,18 +1269,23 @@ def test_mod_7882(env:Env):
 def test_mod_6783(env:Env):
   n_max_sortable = 1024
   n_docs = 10
+  step = 71 # Testing every possible number of sortables is too slow
 
-  # Create an index with a large number of sortable fields, all with the same path
-  schema = []
-  for i in range(n_max_sortable):
-    schema.extend(('n', 'AS', f'f{i}', 'NUMERIC', 'SORTABLE'))
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+  # Add documents with a unique values for each sortable field, in unique random orders
+  orders = random.choices(list(itertools.permutations(range(n_docs))), k=n_max_sortable)
+  for field_id, vals in enumerate(orders):
+    for doc_id, val in enumerate(vals):
+      env.cmd('HSET', f'doc{doc_id}', f'f{field_id}', val)
 
-  # Add documents with a unique value for each sortable field, in a "random" order
-  for doc_id in range(n_docs):
-    env.cmd('HSET', f'doc{doc_id}', 'n', (doc_id * 17) % n_docs)
+  expected = [sorted(range(n_docs), key=lambda x: order[x]) for order in orders]
+  expected = [[n_docs] + [f'doc{doc_id}' for doc_id in exp] for exp in expected]
 
-  expected = [n_docs] + sorted([f'doc{doc_id}' for doc_id in range(n_docs)], key=lambda doc_id: (int(doc_id[3:]) * 17) % n_docs)
+  for n_sortables in range(1, n_max_sortable + 1, step):
+    env.expect('FT._DROPINDEXIFX', 'idx').ok()
+    schema = sum([['f'+str(i), 'NUMERIC', 'SORTABLE'] for i in range(n_sortables)], [])
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
+    waitForIndex(env)
 
-  for i in range(n_max_sortable):
-    env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT'), expected, message=f'Failed on field f{i}')
+    for i in range(n_sortables):
+      res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
+      env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')

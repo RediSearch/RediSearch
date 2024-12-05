@@ -7,7 +7,6 @@
 #pragma once
 
 #include "value.h"
-#include "util/arr.h"
 
 #ifdef __cplusplus
 extern "C" {
