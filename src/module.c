@@ -85,31 +85,37 @@ typedef struct {
 // Array containing commands names and the index of the index name in the
 // command arguments.
 static CommandIndexNamePos commandIndexPositions[] = {
-  {"FT.CURSOR",     1},
-  {"FT.SEARCH",     1},
-  {"FT.AGGREGATE",  1},
-  {"FT.INFO",       1},
-  {"FT.SPELLCHECK", 1},
-  {"FT.ALIASADD",   2},
-  {"FT.ALIASUPDATE",2},
-  {"FT.PROFILE",    1},
-  {"FT.SYNUPDATE",  1},
-  {"FT.SYNDUMP",    1},
-  {"FT.ALTER",      1},
-  {"FT.DROPINDEX",  1},
-  {"FT.EXPLAIN",    1},
-  {"FT.EXPLAINCLI", 1},
-  {"FT.TAGVALS",    1},
-  {"FT.CREATE",    -1},  // Since this index does not exist.
-  {"FT.ALIASDEL",  -1},
-  {"FT.CONFIG",    -1},
-  {"FT.DICTADD",   -1},
-  {"FT.DICTDEL",   -1},
-  {"FT.DICTDUMP",  -1},
-  {"FT.SUGADD",    -1},
-  {"FT.SUGDEL",    -1},
-  {"FT.SUGGET",    -1},
-  {"FT.SUGLEN",    -1},
+  {"FT.CURSOR",      1},
+  {"FT.SEARCH",      1},
+  {"FT.AGGREGATE",   1},
+  {"FT.INFO",        1},
+  {"FT.SPELLCHECK",  1},
+  {"FT.ALIASADD",    2},
+  {"FT.ALIASUPDATE", 2},
+  {"FT.PROFILE",     1},
+  {"FT.SYNUPDATE",   1},
+  {"FT.SYNDUMP",     1},
+  {"FT.ALTER",       1},
+  {"FT.DROPINDEX",   1},
+  {"FT.EXPLAIN",     1},
+  {"FT.EXPLAINCLI",  1},
+  {"FT.TAGVALS",     1},
+  {"FT.ADD",         1},
+  {"FT.GET",         1},
+  {"FT.DEL",         1},
+  {"FT.DROP",        1},
+  {"FT.TAGVALS",     1},
+  {"FT.MGET",        1},
+  {"FT.CREATE",     -1},  // Since this index does not exist.
+  {"FT.ALIASDEL",   -1},
+  {"FT.CONFIG",     -1},
+  {"FT.DICTADD",    -1},
+  {"FT.DICTDEL",    -1},
+  {"FT.DICTDUMP",   -1},
+  {"FT.SUGADD",     -1},
+  {"FT.SUGDEL",     -1},
+  {"FT.SUGGET",     -1},
+  {"FT.SUGLEN",     -1},
 };
 
 extern RSConfig RSGlobalConfig;
@@ -669,10 +675,16 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  StrongRef ref = IndexSpec_LoadUnsafe(idx);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+  }
+
+  // Verify ACL keys permission
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
   if (!sp->smap) {
@@ -2896,6 +2908,8 @@ static int CommandIndexPos(RedisModuleString *cmd) {
       return commandIndexPositions[i].indexNamePos;
     }
   }
+  RS_LOG_ASSERT(false, "Command not found in commandIndexPositions");   // TODO: To be removed - for testing only
+  return -1;
 }
 
 static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
