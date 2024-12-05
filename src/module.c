@@ -2794,35 +2794,6 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
-// Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
-// If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
-// Notice that only OSS cluster should deal with such redirections.
-int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  if (!SearchCluster_Ready()) {
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  }
-  if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
-  RS_AutoMemory(ctx);
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  MR_MapSingle(MR_CreateCtx(ctx, 0, NULL, NumShards), singleReplyReducer, cmd);
-
-  return REDISMODULE_OK;
-}
-
 /* FT.MGET {idx} {key} ... */
 int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -2851,21 +2822,21 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Check that the cluster state is valid
   if (NumShards == 0) {
     // Cluster state is not ready
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return SpellCheckCommand(ctx, argv, argc);
-  }
-  if (argc < 3) {
+  } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
+
+  VERIFY_ACL(ctx, argv[1])
+
+  if (NumShards == 1) {
+    return SpellCheckCommand(ctx, argv, argc);
+  }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
@@ -2903,6 +2874,35 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   struct MRCtx *mrctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
 
   MR_Fanout(mrctx, allOKReducer, cmd, true);
+  return REDISMODULE_OK;
+}
+
+// Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
+// If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
+// Notice that only OSS cluster should deal with such redirections.
+int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchCluster_Ready()) {
+    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  }
+  if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+  RS_AutoMemory(ctx);
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand_SetProtocol(&cmd, ctx);
+  /* Replace our own FT command with _FT. command */
+  MRCommand_SetPrefix(&cmd, "_FT");
+
+  MR_MapSingle(MR_CreateCtx(ctx, 0, NULL, NumShards), singleReplyReducer, cmd);
+
   return REDISMODULE_OK;
 }
 

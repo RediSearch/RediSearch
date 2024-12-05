@@ -231,6 +231,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.CURSOR', 'READ', idx_name, '555'],
         ['FT.CURSOR', 'DEL', idx_name, '555'],
         ['FT.CURSOR', 'GC', idx_name, '555'],
+        ['FT.SPELLCHECK', idx_name, 'name'],
         # ['FT.SUGADD', idx_name, 'hello', '1'],
         # ['FT.SUGDEL', idx_name, 'hello'],
         # ['FT.SUGGET', idx_name, 'hello'],
@@ -252,3 +253,5 @@ def test_acl_key_permissions_validation(env):
     # The `test` user should also not be able to create an index on keys that
     # it cannot access (?)
     # TBD
+
+    # TODO: Gaurd the Redis `INFO` command as well (?)
