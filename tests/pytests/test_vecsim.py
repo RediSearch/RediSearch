@@ -277,6 +277,7 @@ def test_del_reuse():
 
 
 # test for issue https://github.com/RediSearch/RediSearch/pull/2705
+@skip(no_json=True)
 def test_update_with_bad_value():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1764,7 +1765,7 @@ class TestTimeoutReached(object):
             self.run_long_queries(n_vec, query_vec)
             self.env.flush()
 
-
+@skip(no_json=True)
 def test_create_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1791,7 +1792,7 @@ def test_create_multi_value_json():
                        '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
             env.assertEqual(to_dict(env.cmd(prefix+"FT.DEBUG", "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
-
+@skip(no_json=True)
 def test_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -1854,7 +1855,7 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range)
 
-
+@skip(no_json=True)
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
