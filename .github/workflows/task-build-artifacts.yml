@@ -28,6 +28,9 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
+  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
 
 jobs:
   build:
@@ -57,11 +60,6 @@ jobs:
           for platform in ubuntu:xenial ubuntu:bionic centos:7 amazonlinux:2; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
-              # https://github.com/actions/checkout/issues/1809
-              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
-              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
@@ -78,19 +76,70 @@ jobs:
             tests/pytests/requirements.txt
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          path: setup
-          ref: ${{ env.REF }}
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.txt
-      - name: Setup specific
+        run: |
+          # Checkout script logic
+          perform_checkout_ref() {
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+            DEST_DIR="RediSearch"  # Directory to clone into
+
+            # Clone the repository to the current directory
+            git clone --recurse-submodules --depth=1 $REPO_URL .
+
+            # Configure the safe directory
+            git config --global --add safe.directory /__w/${{ github.repository }}
+
+            # Checkout the REF
+            git fetch origin ${{ env.REF }}
+            git checkout ${{ env.REF }}
+          }
+
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | amazonlinux:2 | alpine:3)
+              echo "Installing prerequisites for ${{ inputs.container }}..."
+
+              # Install git (platform-specific package management)
+              case "${{ inputs.container }}" in
+                ubuntu:bionic)
+                  apt update
+                  apt install -y git
+                  ;;
+                amazonlinux:2)
+                  yum update -y
+                  yum install -y git
+                  ;;
+                alpine:3)
+                  apk update
+                  apk add --no-cache git
+                  ;;
+              esac
+
+              # Perform checkout to the REF
+              perform_checkout_ref
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
@@ -100,10 +149,7 @@ jobs:
           ref: ${{ env.REF }}
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
-          ref: ${{ env.REF }}
+        run: echo "Done already earlier."
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
@@ -118,11 +164,17 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          repository: redis/redis
-          ref: ${{ inputs.redis-ref }}
-          path: redis
+        run: |
+            REPO_URL="https://github.com/redis/redis.git"
+            DEST_DIR="redis"  # Directory to clone into
+
+            # Clone the repository (shallow clone without tags)
+            git clone $REPO_URL $DEST_DIR
+            cd $DEST_DIR
+
+            # Checkout the REF
+            git fetch origin ${{ inputs.redis-ref }}
+            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
@@ -152,10 +204,19 @@ jobs:
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Role (node20 not supported)
         if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+        run: |
+          # Variables from the workflow
+          ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
+          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
+          SESSION_NAME="github-actions-session"
+
+          # Assume the AWS role and configure temporary credentials
+          ASSUME_ROLE_OUTPUT=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$SESSION_NAME" --region "$AWS_REGION")
+          if [ $? -ne 0 ]; then
+            echo "Failed to assume AWS role" && exit 1
+          fi
+
+          echo "AWS credentials configured successfully."
       - name: Configure AWS Credentials Using Keys (node20)
         if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
         uses: aws-actions/configure-aws-credentials@v4
@@ -165,10 +226,22 @@ jobs:
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Keys (node20 not supported)
         if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'false'
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+        run: |
+          # Variables from the workflow
+          AWS_ACCESS_KEY_ID="${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}"
+          AWS_SECRET_ACCESS_KEY="${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}"
+          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
+
+          # Check if the required environment variables are set
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
+            echo "Missing AWS credentials or region configuration."
+            exit 1
+          fi
+
+          # Configure AWS CLI with provided credentials and region
+          echo "Configuring AWS CLI with access keys..."
+          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+          aws configure set region "$AWS_REGION"
       - name: Upload Artifacts
         run: make upload-artifacts
