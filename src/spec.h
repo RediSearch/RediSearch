@@ -384,10 +384,6 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
  */
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
 
-/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
- * not sortable */
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
-
 /**
  * Get the field spec from the sortable index
  */

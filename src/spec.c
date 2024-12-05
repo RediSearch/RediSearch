@@ -136,11 +136,6 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
   return 1;
 }
 
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
-  if (!sp->sortables) return -1;
-  return RSSortingTable_GetFieldIdx(sp->sortables, name);
-}
-
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
