@@ -20,8 +20,6 @@ extern "C" {
 // Maximum number of sortables
 #define RS_SORTABLES_MAX 1024 // aligned with SPEC_MAX_FIELDS
 
-#pragma pack(1)
-
 #define RS_SORTABLE_NUM 1
 // #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
