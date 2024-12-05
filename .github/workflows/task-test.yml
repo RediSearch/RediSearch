@@ -85,10 +85,8 @@ jobs:
               # Install git (platform-specific package management)
               case "${{ inputs.container }}" in
                 ubuntu:bionic)
-                  echo "Updating package lists..."
                   apt update
                   apt install -y git
-                  echo "git: $(git --version)"
                   ;;
                 amazonlinux:2)
                   yum update -y
@@ -101,7 +99,7 @@ jobs:
               esac
 
               # Perform checkout
-              REPO_URL="https://github.com/RediSearch/RediSearch.git"
+              REPO_URL="https://github.com/${{ github.repository }}.git"
               DEST_DIR="RediSearch"  # Directory to clone into
 
               # Clone the repository to the current directory

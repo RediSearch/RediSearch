@@ -81,14 +81,14 @@ jobs:
         run: |
           # Checkout script logic
           perform_checkout_ref() {
-            REPO_URL="https://github.com/RediSearch/RediSearch.git"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
             DEST_DIR="RediSearch"  # Directory to clone into
 
             # Clone the repository to the current directory
             git clone --recurse-submodules --depth=1 $REPO_URL .
 
             # Configure the safe directory
-            git config --global --add safe.directory /__w/RediSearch/RediSearch
+            git config --global --add safe.directory /__w/${{ github.repository }}
 
             # Checkout the REF
             git fetch origin ${{ env.REF }}
@@ -104,10 +104,8 @@ jobs:
               # Install git (platform-specific package management)
               case "${{ inputs.container }}" in
                 ubuntu:bionic)
-                  echo "Updating package lists..."
                   apt update
                   apt install -y git
-                  echo "git: $(git --version)"
                   ;;
                 amazonlinux:2)
                   yum update -y
@@ -219,7 +217,6 @@ jobs:
           SESSION_NAME="github-actions-session"
 
           # Assume the AWS role and configure temporary credentials
-          echo "Assuming AWS Role: $ROLE_ARN"
           ASSUME_ROLE_OUTPUT=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$SESSION_NAME" --region "$AWS_REGION")
           if [ $? -ne 0 ]; then
             echo "Failed to assume AWS role" && exit 1
