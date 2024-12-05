@@ -140,7 +140,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
-    aCtx->sv = NewSortingVector(sp->sortables->len);
+    aCtx->sv = NewSortingVector(sp->numSortableFields);
   }
 
   int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
@@ -922,11 +922,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       dedupes[fs->index] = 1;
 
-      int idx = IndexSpec_GetFieldSortingIndex(sctx->spec, f->name, strlen(f->name));
+      int idx = fs->sortIdx;
       if (idx < 0) continue;
 
       if (!md->sortVector) {
-        md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+        md->sortVector = NewSortingVector(sctx->spec->numSortableFields);
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");

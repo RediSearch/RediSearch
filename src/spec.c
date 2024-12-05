@@ -136,11 +136,6 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
   return 1;
 }
 
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
-  if (!sp->sortables) return -1;
-  return RSSortingTable_GetFieldIdx(sp->sortables, name);
-}
-
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
@@ -859,7 +854,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     sp->spcache = NULL;
   }
   const size_t prevNumFields = sp->numFields;
-  const size_t prevSortLen = sp->sortables->len;
+  const size_t prevSortLen = sp->numSortableFields;
   FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
@@ -957,14 +952,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
 
-      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
-      if (fs->sortIdx == -1) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
-                               SPEC_MAX_FIELDS);
-        goto reset;
-      }
-    } else {
-      fs->sortIdx = -1;
+      fs->sortIdx = sp->numSortableFields++;
     }
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
@@ -994,7 +982,7 @@ reset:
   }
 
   sp->numFields = prevNumFields;
-  sp->sortables->len = prevSortLen;
+  sp->numSortableFields = prevSortLen;
   return 0;
 }
 
@@ -1247,11 +1235,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec name
   rm_free(spec->name);
-  // Free sortable list
-  if (spec->sortables) {
-    SortingTable_Free(spec->sortables);
-    spec->sortables = NULL;
-  }
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -1527,7 +1510,6 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
 IndexSpec *NewIndexSpec(const char *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
-  sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->nameLen = strlen(name);
@@ -2190,7 +2172,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_MakeKeyless(sp);
 
-  sp->sortables = NewSortingTable();
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   sp->nameLen = strlen(sp->name);
@@ -2213,7 +2194,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     }
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      sp->numSortableFields++;
     }
     if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       sp->flags |= Index_HasSuffixTrie;
@@ -2315,7 +2296,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_MakeKeyless(sp);
-  sp->sortables = NewSortingTable();
+  sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = rm_strdup(name);
@@ -2334,7 +2315,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      sp->numSortableFields++;
     }
   }
 

@@ -857,7 +857,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  QueryError err = {QUERY_OK};                              
+  QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
@@ -1166,14 +1166,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  ASSERT_TRUE(s->sortables != NULL);
-  ASSERT_TRUE(s->sortables->len == 2);
-  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
-  ASSERT_EQ(0, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
-  ASSERT_EQ(1, rc);
-  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
-  ASSERT_EQ(-1, rc);
+  ASSERT_EQ(s->numSortableFields, 2);
 
   IndexSpec_Free(s);
 
@@ -1409,78 +1402,6 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DocTable_Free(&dt);
-}
-
-TEST_F(IndexTest, testSortable) {
-  RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(&tbl, "foo", RSValue_String);
-  RSSortingTable_Add(&tbl, "bar", RSValue_String);
-  RSSortingTable_Add(&tbl, "baz", RSValue_String);
-  ASSERT_EQ(3, tbl->len);
-
-  ASSERT_STREQ("foo", tbl->fields[0].name);
-  ASSERT_EQ(RSValue_String, tbl->fields[0].type);
-  ASSERT_STREQ("bar", tbl->fields[1].name);
-  ASSERT_STREQ("baz", tbl->fields[2].name);
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
-
-  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
-
-  RSSortingVector *v = NewSortingVector(tbl->len);
-  ASSERT_EQ(v->len, tbl->len);
-
-  const char *str = "hello";
-  const char *masse = "Maße";
-  double num = 3.141;
-  ASSERT_TRUE(RSValue_IsNull(v->values[0]));
-  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR, 0);
-  ASSERT_EQ(v->values[0]->t, RSValue_String);
-  ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
-
-  ASSERT_TRUE(RSValue_IsNull(v->values[1]));
-  ASSERT_TRUE(RSValue_IsNull(v->values[2]));
-  RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
-  ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
-
-  RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
-
-  /// test string unicode lowercase normalization
-  ASSERT_STREQ("masse", v2->values[0]->strval.str);
-
-  double s2 = 4.444;
-  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM, 0);
-
-  RSSortingKey sk = {.index = 0, .ascending = 0};
-
-  QueryError qerr;
-  QueryError_Init(&qerr);
-
-  int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_LT(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-  sk.ascending = 1;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_GT(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-  rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
-  ASSERT_EQ(0, rc);
-  ASSERT_EQ(QUERY_OK, qerr.code);
-
-  sk.index = 1;
-
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(-1 == rc && qerr.code == QUERY_OK);
-  sk.ascending = 0;
-  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(1 == rc && qerr.code == QUERY_OK);
-
-  SortingTable_Free(tbl);
-  SortingVector_Free(v);
-  SortingVector_Free(v2);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {

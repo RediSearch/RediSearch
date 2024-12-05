@@ -388,10 +388,6 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
         }
       }
 
-      //      if (dmd->flags & Document_HasSortVector) {
-      //        SortingVector_RdbSave(rdb, dmd->sortVector);
-      //      }
-
       if (dmd->flags & Document_HasOffsetVector) {
         Buffer tmp;
         Buffer_Init(&tmp, 16);

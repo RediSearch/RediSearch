@@ -245,7 +245,8 @@ typedef struct IndexSpec {
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
   IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
@@ -254,8 +255,6 @@ typedef struct IndexSpec {
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -384,10 +383,6 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
  * If not allowed, set error message in status.
  */
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
-
-/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
- * not sortable */
-int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 
 /**
  * Get the field spec from the sortable index

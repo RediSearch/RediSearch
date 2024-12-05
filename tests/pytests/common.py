@@ -54,7 +54,7 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
-def waitForIndex(env, idx):
+def waitForIndex(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
