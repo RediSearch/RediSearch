@@ -15,10 +15,10 @@ extern "C" {
 #endif
 
 struct HLL {
-  uint8_t bits;
-  uint8_t rank_bits;  // cached value of 32 - bits. Represents the number of bits used for the rank/max rank
+  uint8_t bits;       // number of bits used for the register index. 4 <= bits <= 20
+  uint8_t rank_bits;  // number of bits used for the rank, and also the max rank. cached value of 32 - bits
   uint32_t size;      // number of registers (2^bits). bits <= 20 so this fits in 32 bits
-  size_t cachedCard;  // cached cardinality
+  size_t cachedCard;  // cached cardinality from the last count operation. Invalidated when registers are modified.
   uint8_t *registers;
 };
 

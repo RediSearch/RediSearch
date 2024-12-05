@@ -5,7 +5,6 @@
  */
 
 #include <stdlib.h>
-#include <errno.h>
 #include <math.h>
 #include <string.h>
 
@@ -29,7 +28,6 @@ static inline uint8_t _hll_rank(uint32_t hash, uint8_t max) {
  */
 int hll_init(struct HLL *hll, uint8_t bits) {
   if (bits < 4 || bits > 20) {
-    errno = ERANGE;
     return -1;
   }
 
@@ -113,7 +111,6 @@ size_t hll_count(const struct HLL *hll) {
 
 int hll_merge(struct HLL *dst, const struct HLL *src) {
   if (dst->size != src->size) {
-    errno = EINVAL;
     return -1;
   }
 
@@ -129,8 +126,7 @@ int hll_merge(struct HLL *dst, const struct HLL *src) {
 
 int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
   if (__builtin_popcount(size) != 1) {
-    errno = EINVAL; // size must be a power of 2 - a single bit set
-    return -1;
+    return -1; // size must be a power of 2 - a single bit set
   }
 
   // Since `size` is a power of 2, the number of trailing zeros is the log2 of `size`
@@ -143,8 +139,7 @@ int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
 
 int hll_set_registers(struct HLL *hll, const void *registers, uint32_t size) {
   if (__builtin_popcount(size) != 1) {
-    errno = EINVAL; // size must be a power of 2 - a single bit set
-    return -1;
+    return -1; // size must be a power of 2 - a single bit set
   }
 
   if (hll->size != size) {

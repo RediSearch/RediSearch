@@ -310,9 +310,9 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 typedef struct {
-  struct HLL majority_card;
-  struct HLL last_block_card;
-  const IndexBlock *last_block;
+  struct HLL majority_card;     // Holds the majority cardinality of all the blocks we've seen so far
+  struct HLL last_block_card;   // Holds the cardinality of the last block we've seen
+  const IndexBlock *last_block; // The last block we've seen, to know when to merge the cardinalities
 } numCbCtx;
 
 static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg) {

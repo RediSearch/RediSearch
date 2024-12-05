@@ -76,6 +76,12 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
   return size;
 }
 
+/**
+ * Get the median from the given index reader.
+ * Getting the median this way performs good enough today (the number of records is limited),
+ * but if we see performance issues in the future, we can consider using another algorithm
+ * like QuickSelect or an approximation algorithm for the median.
+ */
 static double NumericRange_GetMedian(IndexReader *ir) {
   size_t median_idx = ir->idx->numEntries / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
