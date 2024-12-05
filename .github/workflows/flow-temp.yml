@@ -9,7 +9,7 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   get-latest-redis-tag:
@@ -20,7 +20,7 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
-  test-rockylinux:
+  test-alpine:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
@@ -32,22 +32,22 @@ jobs:
       # redis-ref: meiravg_static_link_libstc++
       test-config: QUICK=1
       fail-fast: false
-      platform: "rockylinux:8"
-      # architecture: "x86_64"
+      platform: "alpine:3"
+      architecture: "aarch64"
 
-  test-amz2amazonlinux:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      coordinator: true
-      ## redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
-      redis-ref: unstable
-      # redis-ref: meiravg_static_link_libstc++
-      test-config: QUICK=1
-      fail-fast: false
-      platform: "amazonlinux:2"
+  # test-amz2amazonlinux:
+  #   needs: [docs-only, get-latest-redis-tag]
+  #   if: needs.docs-only.outputs.only-docs-changed == 'false'
+  #   uses: ./.github/workflows/flow-linux-platforms.yml
+  #   secrets: inherit
+  #   with:
+  #     coordinator: true
+  #     ## redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
+  #     redis-ref: unstable
+  #     # redis-ref: meiravg_static_link_libstc++
+  #     test-config: QUICK=1
+  #     fail-fast: false
+  #     platform: "amazonlinux:2"
 
   # test-debian:
   #   needs: [docs-only, get-latest-redis-tag]
