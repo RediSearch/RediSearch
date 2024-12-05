@@ -84,35 +84,33 @@ typedef struct {
 
 // Array containing commands names and the index of the index name in the
 // command arguments.
-CommandIndexNamePos commandIndexPositions[] = {
-  {"FT.CURSOR", 1},
-  {"FT.SEARCH", 1},
-  {"FT.AGGREGATE", 1},
-  {"FT.INFO", 1},
+static CommandIndexNamePos commandIndexPositions[] = {
+  {"FT.CURSOR",     1},
+  {"FT.SEARCH",     1},
+  {"FT.AGGREGATE",  1},
+  {"FT.INFO",       1},
   {"FT.SPELLCHECK", 1},
-  {"FT.ALIASADD", 2},
-  {"FT.ALIASUPDATE", 2},
-  {"FT.PROFILE", 1},
-  {"FT.SYNUPDATE", 1},
-  {"FT.SYNDUMP", 1},
-  {"FT.ALTER", 1},
-  {"FT.DROPINDEX", 1},
-  {"FT.EXPLAIN", 1},
+  {"FT.ALIASADD",   2},
+  {"FT.ALIASUPDATE",2},
+  {"FT.PROFILE",    1},
+  {"FT.SYNUPDATE",  1},
+  {"FT.SYNDUMP",    1},
+  {"FT.ALTER",      1},
+  {"FT.DROPINDEX",  1},
+  {"FT.EXPLAIN",    1},
   {"FT.EXPLAINCLI", 1},
-  {"FT.TAGVALS", 1},
-  {"FT.CREATE", -1},      // Since this index does not exist.
-  {"FT.ALIASDEL", -1},
-  {"FT.CONFIG", -1},
-  {"FT.DICTADD", -1},
-  {"FT.DICTDEL", -1},
-  {"FT.DICTDUMP", -1},
-  {"FT.SUGADD", -1},
-  {"FT.SUGDEL", -1},
-  {"FT.SUGGET", -1},
-  {"FT.SUGLEN", -1},
+  {"FT.TAGVALS",    1},
+  {"FT.CREATE",    -1},  // Since this index does not exist.
+  {"FT.ALIASDEL",  -1},
+  {"FT.CONFIG",    -1},
+  {"FT.DICTADD",   -1},
+  {"FT.DICTDEL",   -1},
+  {"FT.DICTDUMP",  -1},
+  {"FT.SUGADD",    -1},
+  {"FT.SUGDEL",    -1},
+  {"FT.SUGGET",    -1},
+  {"FT.SUGLEN",    -1},
 };
-
-// dict *commandIndexNamePos = NULL;
 
 extern RSConfig RSGlobalConfig;
 
@@ -126,14 +124,6 @@ size_t NumShards = 0;
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
-
-// static void Initialize_CommandIndexNamePos() {
-//   commandIndexNamePos = dictCreate(&dictTypeHeapStrings, NULL);
-//   for (size_t i = 0; i < sizeof(commandIndexPositions) / sizeof(CommandIndexPos); i++) {
-//     dictAdd(commandIndexNamePos, (void *)commandIndexPositions[i].cmdName,
-//             (void *)(intptr_t)commandIndexPositions[i].indexNamePos);
-//   }
-// }
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);

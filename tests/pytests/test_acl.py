@@ -252,7 +252,7 @@ def test_acl_key_permissions_validation(env):
     non_index_commands = [
         [config_cmd(), 'GET', 'TIMEOUT'],
         [config_cmd(), 'SET', 'TIMEOUT', '1000'],
-        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating
+        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating ACL key permissions
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],
@@ -273,10 +273,3 @@ def test_acl_key_permissions_validation(env):
             env.execute_command(*command)
         except Exception as e:
             env.assertNotContains("User does not have the required permissions", str(e))
-
-    # TODO:
-    # The `test` user should also not be able to create an index on keys that
-    # it cannot access (?)
-    # TBD
-
-    # TODO: Gaurd the Redis `INFO` command as well (?)
