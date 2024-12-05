@@ -31,7 +31,7 @@ extern "C" {
  * are defined will have such a vector. */
 #pragma pack(2)
 typedef struct RSSortingVector {
-  uint16_t len;
+  uint16_t len;      // Should be able to hold RS_SORTABLES_MAX-1 (requires 10 bits today)
   RSValue *values[];
 } RSSortingVector;
 #pragma pack()
