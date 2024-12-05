@@ -245,7 +245,8 @@ typedef struct IndexSpec {
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
   IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
@@ -254,8 +255,6 @@ typedef struct IndexSpec {
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 

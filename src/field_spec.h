@@ -133,6 +133,4 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-RSValueType fieldTypeToValueType(FieldType ft);
-
 #endif /* SRC_FIELD_SPEC_H_ */
