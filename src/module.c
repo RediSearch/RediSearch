@@ -77,6 +77,43 @@
     }                                                                          \
   } while(0);
 
+typedef struct {
+  const char *cmdName;
+  int indexNamePos;
+} CommandIndexNamePos;
+
+// Array containing commands names and the index of the index name in the
+// command arguments.
+CommandIndexNamePos commandIndexPositions[] = {
+  {"FT.CURSOR", 1},
+  {"FT.SEARCH", 1},
+  {"FT.AGGREGATE", 1},
+  {"FT.INFO", 1},
+  {"FT.SPELLCHECK", 1},
+  {"FT.ALIASADD", 2},
+  {"FT.ALIASUPDATE", 2},
+  {"FT.PROFILE", 1},
+  {"FT.SYNUPDATE", 1},
+  {"FT.SYNDUMP", 1},
+  {"FT.ALTER", 1},
+  {"FT.DROPINDEX", 1},
+  {"FT.EXPLAIN", 1},
+  {"FT.EXPLAINCLI", 1},
+  {"FT.TAGVALS", 1},
+  {"FT.CREATE", -1},      // Since this index does not exist.
+  {"FT.ALIASDEL", -1},
+  {"FT.CONFIG", -1},
+  {"FT.DICTADD", -1},
+  {"FT.DICTDEL", -1},
+  {"FT.DICTDUMP", -1},
+  {"FT.SUGADD", -1},
+  {"FT.SUGDEL", -1},
+  {"FT.SUGGET", -1},
+  {"FT.SUGLEN", -1},
+};
+
+// dict *commandIndexNamePos = NULL;
+
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
@@ -89,6 +126,14 @@ size_t NumShards = 0;
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
+
+// static void Initialize_CommandIndexNamePos() {
+//   commandIndexNamePos = dictCreate(&dictTypeHeapStrings, NULL);
+//   for (size_t i = 0; i < sizeof(commandIndexPositions) / sizeof(CommandIndexPos); i++) {
+//     dictAdd(commandIndexNamePos, (void *)commandIndexPositions[i].cmdName,
+//             (void *)(intptr_t)commandIndexPositions[i].indexNamePos);
+//   }
+// }
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
@@ -317,9 +362,11 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  VERIFY_ACL(ctx, argv[1])
   return queryExplainCommon(ctx, argv, argc, 0);
 }
 int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  VERIFY_ACL(ctx, argv[1])
   return queryExplainCommon(ctx, argv, argc, 1);
 }
 
@@ -2850,6 +2897,17 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
+static int CommandIndexPos(RedisModuleString *cmd) {
+  const char *cmdStr = RedisModule_StringPtrLen(cmd, NULL);
+  // TODO: Consider using a hashmap for this (already some commented out code for this..)
+  size_t n_commands = sizeof(commandIndexPositions) / sizeof(commandIndexPositions[0]);
+  for (size_t i = 0; i < n_commands; i++) {
+    if (strcasecmp(cmdStr, commandIndexPositions[i].cmdName) == 0) {
+      return commandIndexPositions[i].indexNamePos;
+    }
+  }
+}
+
 static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -2858,14 +2916,21 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   // Check that the cluster state is valid
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
+
+  // Validate ACL key permissions if needed (for commands that access an index)
+  int indexNamePos;
+  if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+    VERIFY_ACL(ctx, argv[indexNamePos])
+  }
+
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
@@ -2887,7 +2952,15 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
+  }
+
+  // Validate ACL key permissions if needed (for commands that access an index)
+  int indexNamePos;
+  if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+    VERIFY_ACL(ctx, argv[indexNamePos])
+  }
+
+  else if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return genericCallUnderscoreVariant(ctx, argv, argc);
   }
@@ -3450,6 +3523,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
+
+  // Initialize_CommandIndexNamePos();
 
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {

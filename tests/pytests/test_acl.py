@@ -217,12 +217,16 @@ def test_acl_key_permissions_validation(env):
     idx_name = 'idx'
     env.expect('FT.CREATE', idx_name, 'SCHEMA', 'n', 'NUMERIC')
 
+    # Create another index an alias for it, that will soon be dropped.
+    env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC')
+    env.expect('FT.ALIASADD', 'myAlias', 'index_to_drop')
+
     # Authenticate as the user
     env.expect('AUTH', 'test', '123').true()
 
     # The `test` user should not be able to access the index, with any of the
     # following commands:
-    commands = [
+    index_commands = [
         ['FT.AGGREGATE', idx_name, '*'],
         ['FT.INFO', idx_name],
         ['FT.SEARCH', idx_name, '*'],
@@ -232,18 +236,39 @@ def test_acl_key_permissions_validation(env):
         ['FT.CURSOR', 'DEL', idx_name, '555'],
         ['FT.CURSOR', 'GC', idx_name, '555'],
         ['FT.SPELLCHECK', idx_name, 'name'],
-        # ['FT.SUGADD', idx_name, 'hello', '1'],
-        # ['FT.SUGDEL', idx_name, 'hello'],
-        # ['FT.SUGGET', idx_name, 'hello'],
-        # ['FT.SUGLEN', idx_name]
+        ['FT.ALIASADD', 'myAlias', idx_name],
+        ['FT.ALIASUPDATE', 'myAlias', idx_name],
+        ['FT.ALTER', idx_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
+        ['FT.DROPINDEX', 'index_to_drop'],
+        ['FT.EXPLAIN', idx_name, '*'],
+        ['FT.EXPLAINCLI', idx_name, '*'],
+        ['FT.INFO', idx_name],
     ]
-    for command in commands:
+    for command in index_commands:
         env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
+
+    # the user should be able to execute all commands that do not refer to a
+    # specific index
+    non_index_commands = [
+        [config_cmd(), 'GET', 'TIMEOUT'],
+        [config_cmd(), 'SET', 'TIMEOUT', '1000'],
+        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating
+        ['FT.DICTADD', 'dict', 'hello'],
+        ['FT.DICTDEL', 'dict', 'hello'],
+        ['FT.DICTDUMP', 'dict'],
+        ['FT.ALIASDEL', 'myAlias'],
+        ['FT.SUGADD', 'h:sug', 'hello', '1'],
+        ['FT.SUGDEL', 'h:sug', 'hello'],
+        ['FT.SUGGET', 'h:sug', 'hello'],
+        ['FT.SUGLEN', 'h:sug']
+    ]
+    for command in non_index_commands:
+        env.expect(*command).noError()
 
     # For completeness, we verify that the default user, which has permissions
     # to access all keys, can access the index
     env.expect('AUTH', 'default', 'nopass').true()
-    for command in commands:
+    for command in index_commands + non_index_commands:
         try:
             env.execute_command(*command)
         except Exception as e:
