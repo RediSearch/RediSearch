@@ -62,6 +62,21 @@
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
 #define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
 
+#define VERIFY_ACL(ctx, idxR)                                                  \
+  do {                                                                         \
+    const char *idx = RedisModule_StringPtrLen(idxR, NULL);                    \
+    IndexLoadOptions lopts =                                                   \
+      {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                    \
+    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                       \
+    IndexSpec *sp = StrongRef_Get(spec_ref);                                   \
+    if (!sp) {                                                                 \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);  \
+    }                                                                          \
+    if (!ACLUserMayAccessIndex(ctx, sp)) {                                     \
+      return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                      \
+    }                                                                          \
+  } while(0);
+
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
@@ -2917,8 +2932,10 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
   }
 
-  // Check the ACL key permissions of the user w.r.t the queried index
-  if (!ACLUserMayAccessIndex(ctx, sp)) {
+  bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
+  // Check the ACL key permissions of the user w.r.t the queried index (only if
+  // not profiling, as it was already checked).
+  if (!isProfile && !ACLUserMayAccessIndex(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -2942,13 +2959,17 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  VERIFY_ACL(ctx, argv[2])
+
+  if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSCursorCommand(ctx, argv, argc);
   }
-  if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
@@ -2990,19 +3011,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  // Check the ACL key permissions of the user w.r.t the queried index
-  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
-  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
-  IndexSpec *sp = StrongRef_Get(spec_ref);
-  if (!sp) {
-    // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
-  }
-
-  if (!ACLUserMayAccessIndex(ctx, sp)) {
-    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
-  }
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
@@ -3193,14 +3202,9 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return RSSearchCommand(ctx, argv, argc);
-  }
-  if (argc < 3) {
+  } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
@@ -3212,6 +3216,18 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+  }
+
+  bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
+  // Check the ACL key permissions of the user w.r.t the queried index (only if
+  // not profiling, as it was already checked).
+  if (!isProfile && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSSearchCommand(ctx, argv, argc);
   }
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
@@ -3242,6 +3258,9 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
   }
+
+  VERIFY_ACL(ctx, argv[1])
+
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     // We must first check that we don't have a cursor, as the local command handler allows cursors

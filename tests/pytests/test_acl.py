@@ -212,16 +212,43 @@ def test_acl_key_permissions_validation(env):
     # Create an ACL user with partial key-space permissions
     env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~h:*', '&*', '+@all').ok()
 
-    # Create a key that the user has permissions to access, and one that he can't
-    env.expect('HSET', 'h:1', 'n', 500).equal(1)
-    env.expect('HSET', 'k:1', 'n', 500).equal(1)
-
     # Create an index on the key the user does not have permissions to access
     # All prefixes will do (default)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+    idx_name = 'idx'
+    env.expect('FT.CREATE', idx_name, 'SCHEMA', 'n', 'NUMERIC')
 
     # Authenticate as the user
     env.expect('AUTH', 'test', '123').true()
 
-    # The `test` user should not be able to access the index
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains("-NOPERM User does not have the required permissions to query the index")
+    # The `test` user should not be able to access the index, with any of the
+    # following commands:
+    commands = [
+        ['FT.AGGREGATE', idx_name, '*'],
+        ['FT.INFO', idx_name],
+        ['FT.SEARCH', idx_name, '*'],
+        ['FT.PROFILE', idx_name, 'AGGREGATE', 'QUERY', '*'],
+        ['FT.PROFILE', idx_name, 'SEARCH', 'QUERY', '*'],
+        ['FT.CURSOR', 'READ', idx_name, '555'],
+        ['FT.CURSOR', 'DEL', idx_name, '555'],
+        ['FT.CURSOR', 'GC', idx_name, '555'],
+        # ['FT.SUGADD', idx_name, 'hello', '1'],
+        # ['FT.SUGDEL', idx_name, 'hello'],
+        # ['FT.SUGGET', idx_name, 'hello'],
+        # ['FT.SUGLEN', idx_name]
+    ]
+    for command in commands:
+        env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
+
+    # For completeness, we verify that the default user, which has permissions
+    # to access all keys, can access the index
+    env.expect('AUTH', 'default', 'nopass').true()
+    for command in commands:
+        try:
+            env.execute_command(*command)
+        except Exception as e:
+            env.assertNotContains("User does not have the required permissions", str(e))
+
+    # TODO:
+    # The `test` user should also not be able to create an index on keys that
+    # it cannot access (?)
+    # TBD
