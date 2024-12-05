@@ -9,12 +9,12 @@ on:
           - all
           - ubuntu:jammy
           - ubuntu:focal
-          # - ubuntu:bionic
-          # - centos:7
+          - ubuntu:bionic
+          - centos:7
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
-          # - amazonlinux:2
+          - amazonlinux:2
           - mariner:2
           - macos
         description: 'Platform to build on. Use "all" to build on all'
