@@ -1018,9 +1018,9 @@ def test_hybrid_query_non_vector_score():
                       '97', '2', ['__v_score', '1152', 't', 'text value'],
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
                          hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
-    execute_hybrid_query(env, '((text ~value)|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
+    execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
                          sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'

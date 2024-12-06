@@ -447,7 +447,10 @@ UNION {
   NOT{
     INTERSECT {
       world
-      again
+      UNION {
+        again
+        +again(expanded)
+      }
     }
   }
 }
@@ -465,7 +468,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])
@@ -527,7 +533,10 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    again
+    UNION {
+      again
+      +again(expanded)
+    }
   }
 }
 '''[1:])

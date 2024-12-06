@@ -35,6 +35,11 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 
+#ifndef STRINGIFY
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+#endif
+
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -432,8 +437,9 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
                              QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
-  // Do not expand verbatim nodes
-  if (qn->opts.flags & QueryNode_Verbatim) {
+  if ((qn->opts.flags & QueryNode_Verbatim) ||    // Do not expand verbatim nodes
+      (qn->type == QN_PHRASE && qn->pn.exact) ||  // Do not expand exact phrases
+      (qn->type == QN_TAG)) {                     // Tag nodes are handles by their node evaluator
     return;
   }
 
@@ -463,16 +469,10 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     }
   }
 
-  int expandChildren = 0;
-
   if (qn->type == QN_TOKEN && qn->tn.len > 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
-  } else if (qn->type == QN_UNION ||
-             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
-    expandChildren = 1;
-  }
-  if (expandChildren) {
+  } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
@@ -582,6 +582,18 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
+static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
+  if (pfx->prefix && pfx->suffix) {
+    return "INFIX";
+  } else if (pfx->prefix) {
+    return "PREFIX";
+  } else {
+    return "SUFFIX";
+  }
+}
+
+#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
+
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
@@ -602,10 +614,11 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  rune *str = NULL;
   size_t nstr;
-  if (qn->pfx.tok.str) {
-    str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
+  rune *str = qn->pfx.tok.str ? strToFoldedRunes(qn->pfx.tok.str, &nstr) : NULL;
+  if (!str) {
+    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
+    return NULL;
   }
 
   ctx.cap = 8;
@@ -668,6 +681,10 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
+  if (!str) {
+    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
+    return NULL;
+  }
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
@@ -1837,13 +1854,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      if(qs->pfx.prefix && qs->pfx.suffix) {
-        s = sdscatprintf(s, "INFIX{*%s*}", (char *)qs->pfx.tok.str);
-      } else if (qs->pfx.suffix) {
-        s = sdscatprintf(s, "SUFFIX{*%s}", (char *)qs->pfx.tok.str);
-      } else {
-        s = sdscatprintf(s, "PREFIX{%s*}", (char *)qs->pfx.tok.str);
-      }
+      s = sdscatprintf(s, "%s{%s%s%s}", PrefixNode_GetTypeString(&qs->pfx),
+                                        qs->pfx.suffix ? "*" : "",
+                                        qs->pfx.tok.str,
+                                        qs->pfx.prefix ? "*" : "");
       break;
 
     case QN_LEXRANGE:
