@@ -1029,6 +1029,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  GetRedisVersion(ctx);
+
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));
   RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %s", ver);
