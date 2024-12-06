@@ -20,8 +20,9 @@
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 
-#define LAST_DEPTH_OF_NON_MAX_CARD 3 // Last depth to not have the max split cardinality
 #define _SPLIT_CARD_BY_DEPTH(depth) (NR_MINRANGE_CARD << ((depth) * 2)) // *2 to get exponential growth of 4
+
+#define LAST_DEPTH_OF_NON_MAX_CARD 3 // Last depth to not have the max split cardinality
 static_assert(NR_MAXRANGE_CARD < _SPLIT_CARD_BY_DEPTH(LAST_DEPTH_OF_NON_MAX_CARD + 1));
 static_assert(NR_MAXRANGE_CARD >= _SPLIT_CARD_BY_DEPTH(LAST_DEPTH_OF_NON_MAX_CARD));
 
@@ -198,55 +199,53 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
   (*n)->maxDepth = MAX((*n)->left->maxDepth, (*n)->right->maxDepth) + 1;
 }
 
-static NRN_AddRv NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double value, size_t depth) {
+static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double value, NRN_AddRv *rv, size_t depth) {
   NumericRangeNode *n = *np;
   if (!NumericRangeNode_IsLeaf(n)) {
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
-    NRN_AddRv rv = NumericRangeNode_Add(childP, docId, value, depth + 1);
+    NumericRangeNode_Add(childP, docId, value, rv, depth + 1);
 
     if (n->range) {
       // if this inner node retains a range, add the value to the range without
       // updating the cardinality
-      rv.sz += NumericRange_Add(n->range, docId, value);
-      rv.numRecords++;
+      rv->sz += NumericRange_Add(n->range, docId, value);
+      rv->numRecords++;
     }
 
-    if (rv.changed) {
+    if (rv->changed) {
       NumericRangeNode_Balance(np);
       n = *np; // rebalance might have changed the root
       if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
         // we are too high up - we don't retain this node's range anymore.
-        removeRange(n, &rv);
+        removeRange(n, rv);
       }
     }
 
-    return rv;
-  }
+  } else { // a leaf node
 
-  // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  updateCardinality(n->range, value);
-  NRN_AddRv rv = {
-    .sz = (uint32_t)NumericRange_Add(n->range, docId, value),
-    .numRecords = 1,
-    .changed = 0,
-    .numRanges = 0,
-    .numLeaves = 0,
-  };
+    // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
+    updateCardinality(n->range, value);
+    *rv = (NRN_AddRv){
+      .sz = (uint32_t)NumericRange_Add(n->range, docId, value),
+      .numRecords = 1,
+      .changed = 0,
+      .numRanges = 0,
+      .numLeaves = 0,
+    };
 
-  size_t card = getCardinality(n->range);
-  if (card >= getSplitCardinality(depth) ||
-      (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+    size_t card = getCardinality(n->range);
+    if (card >= getSplitCardinality(depth) ||
+        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
 
-    // split this node but don't delete its range
-    NumericRangeNode_Split(n, &rv);
+      // split this node but don't delete its range
+      NumericRangeNode_Split(n, rv);
 
-    if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
-      removeRange(n, &rv);
+      if (n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange) {
+        removeRange(n, rv);
+      }
     }
   }
-
-  return rv;
 }
 
 /* Recursively add a node's children to the range. */
@@ -351,7 +350,8 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   }
   t->lastDocId = docId;
 
-  NRN_AddRv rv = NumericRangeNode_Add(&t->root, docId, value, 0);
+  NRN_AddRv rv;
+  NumericRangeNode_Add(&t->root, docId, value, &rv, 0);
 
   // rv != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it

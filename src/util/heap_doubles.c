@@ -95,7 +95,7 @@ void double_heap_push(double_heap_t *heap, double value) {
   heap->size++;
 }
 
-double double_heap_peek(double_heap_t *heap) {
+double double_heap_peek(const double_heap_t *heap) {
   assert(heap->size > 0);
   return heap->data[0];
 }

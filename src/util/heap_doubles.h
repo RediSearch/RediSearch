@@ -34,7 +34,7 @@ void double_heap_push(double_heap_t *heap, double value);
 // Remove the top element from the heap
 void double_heap_pop(double_heap_t *heap);
 // Get the top element from the heap
-double double_heap_peek(double_heap_t *heap);
+double double_heap_peek(const double_heap_t *heap);
 // Replace the top element with a new value and maintain the heap property
 void double_heap_replace(double_heap_t *heap, double value);
 
