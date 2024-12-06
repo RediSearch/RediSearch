@@ -2829,6 +2829,12 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictReleaseIterator(iter);
 }
 
+void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
+  if (dictSize(specDict_g)) {
+    Indexes_RdbSave(rdb, when);
+  }
+}
+
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
@@ -2907,6 +2913,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
       .free = IndexSpec_LegacyFree,
       .aof_rewrite = GenericAofRewrite_DisabledHandler,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
+      .aux_save2 = Indexes_RdbSave2,
   };
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
