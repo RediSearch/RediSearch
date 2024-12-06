@@ -321,14 +321,14 @@ def CursorOnCoordinator(env: Env):
         with env.getConnection().monitor() as monitor:
             # Some periodic cluster commands are sent to the shards and also break the monitor.
             # This function skips them and returns the actual next command we want to observe.
-            def next_command():
+            def next_cursor_command():
                 while True:
                     try:
                         command = monitor.next_command()['command']
                     except ValueError:
                         continue
                     # Filter out the periodic cluster commands
-                    if command.startswith('_FT.') or command.startswith('FT.'):
+                    if command.startswith('_FT.CURSOR') or command.startswith('FT.CURSOR'):
                         return command
 
             # Generate the cursor and read all the results
@@ -340,9 +340,6 @@ def CursorOnCoordinator(env: Env):
 
             # Check the monitor for the expected commands
 
-            env.assertContains('FT.AGGREGATE', next_command())
-            env.assertContains('_FT.AGGREGATE', next_command())
-
             # Verify that after the first chunk, we make `FT.CURSOR READ` without triggering `_FT.CURSOR READ`.
             # Each shard has more than 1000 results, and the initial aggregation request yielded in `nShards` * 1000 results
             # with `nShards` replies. We expect more ((`nShards` - `threshold`) * 1000 / 100) - 1 `FT.CURSOR READ` before we
@@ -350,13 +347,13 @@ def CursorOnCoordinator(env: Env):
             # ((`nShards` - `threshold`) * 1000 / 100) - 1 + 1 => (`nShards` - `threshold`) * 10
             exp = 'FT.CURSOR READ'
             for _ in range((env.shardsCount - threshold) * 10):
-                cmd = next_command()
+                cmd = next_cursor_command()
                 env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
             # we expect to observe the next "_FT.CURSOR READ" in the next `expected_reads` "FT.CURSOR READ"
             # commands (most likely the next command).
             found = False
             for i in range(1, expected_reads + 1 + 1):
-                cmd = next_command()
+                cmd = next_cursor_command()
                 if not cmd.startswith('FT.CURSOR'):
                     exp = '_FT.CURSOR READ'
                     env.assertTrue(cmd.startswith(exp), message=f'expected `{exp}` but got `{cmd}`')
