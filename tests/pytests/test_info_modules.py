@@ -25,10 +25,6 @@ def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs
     'IndexErrors': str(index_errors),
     **{key: str(value) for key, value in kwargs.items()}
   }
-  # Default values Per field type (if needed)
-  if type == 'Vector':
-    info.setdefault('used_memory', ANY)
-    info.setdefault('mark_deleted_vectors', '0')
   return info
 
 def field_info_to_dict(info):
@@ -182,7 +178,7 @@ def test_redis_info_errors():
 
     # Index level errors count
     env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
-    env.assertEqual(res['search_errors_indexing_failures_max'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+    env.assertEqual(res['search_errors_for_index_with_max_failures'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
 
   # Add a document we will fail to index in both indices
   conn.execute_command('HSET', f'doc:1', 'n', f'meow', 'n2', f'meow')
@@ -241,7 +237,7 @@ def test_redis_info_errors_json():
 
     # Index level errors count
     env.assertEqual(res['search_errors_indexing_failures'], expected_total_errors, message=message + " failed in number of IndexErrors")
-    env.assertEqual(res['search_errors_indexing_failures_max'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
+    env.assertEqual(res['search_errors_for_index_with_max_failures'], max(expected['idx1_errors'], expected['idx2_errors']), message=message + " failed in max number of IndexErrors")
 
   # Add a document we will fail to index in both indices
   json_val = r'{"n":"meow","n2":"meow"}'
@@ -303,10 +299,11 @@ def test_redis_info():
   # ========== Memory statistics ==========
   env.assertGreater(res['search_used_memory_indexes'], 0)
   env.assertGreater(res['search_used_memory_indexes_human'], 0)
-  env.assertGreater(res['search_min_memory_index'], 0)
-  env.assertGreater(res['search_min_memory_index_human'], 0)
-  env.assertGreater(res['search_max_memory_index'], 0)
-  env.assertGreater(res['search_max_memory_index_human'], 0)
+  env.assertGreater(res['search_largest_memory_index'], 0)
+  env.assertGreater(res['search_largest_memory_index_human'], 0)
+  env.assertGreater(res['search_smallest_memory_index'], 0)
+  env.assertGreater(res['search_smallest_memory_index_human'], 0)
+  env.assertEqual(res['search_used_memory_vector_index'], 0)
   # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
 
   # ========== Cursors statistics ==========
@@ -317,6 +314,8 @@ def test_redis_info():
   env.assertEqual(res['search_bytes_collected'], 0)
   env.assertEqual(res['search_total_cycles'], 0)
   env.assertEqual(res['search_total_ms_run'], 0)
+  env.assertEqual(res['search_total_docs_not_collected_by_gc'], 0)
+  env.assertEqual(res['search_marked_deleted_vectors'], 0)
 
   # ========== Dialect statistics ==========
   env.assertEqual(res['search_dialect_1'], 0)
@@ -326,7 +325,7 @@ def test_redis_info():
 
   # ========== Errors statistics ==========
   env.assertEqual(res['search_errors_indexing_failures'], 0)
-  env.assertEqual(res['search_errors_indexing_failures_max'], 0)
+  env.assertEqual(res['search_errors_for_index_with_max_failures'], 0)
 
   # Create a cursor
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
@@ -490,28 +489,28 @@ def test_redis_info_modules_vecsim():
   set_doc().equal(1) # Add a document for the first time
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
-  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['mark_deleted_vectors'], 0)
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_marked_deleted_vectors'], 0)
 
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
   set_doc().equal(0) # Add (override) the document for the second time
 
-  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['mark_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
   env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
   [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
 
-  info = env.cmd('INFO', 'MODULES')['search_fields_vector']
+  info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['used_memory'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['mark_deleted_vectors'], 0)
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
 
@@ -522,7 +521,7 @@ def test_indexes_logically_deleted_docs(env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
-  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_logically_deleted_docs']
+  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_docs_not_collected_by_gc']
 
   # Init state
   env.assertEqual(get_logically_deleted_docs(), 0)

@@ -302,7 +302,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -352,7 +352,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -453,7 +453,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef global_ref = IndexSpec_LoadUnsafe(ctx, spec_name);
+  StrongRef global_ref = IndexSpec_LoadUnsafe(spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -507,7 +507,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -548,7 +548,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -596,7 +596,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -644,7 +644,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = {0};
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, ixname);
+  StrongRef ref = IndexSpec_LoadUnsafe(ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -714,7 +714,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   IndexLoadOptions loadOpts = {
       .nameR = argv[2],
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
@@ -758,7 +758,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
@@ -779,7 +779,7 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
   if (!StrongRef_Get(ref)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -794,7 +794,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = {0};
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
+  StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
     if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
@@ -1110,7 +1110,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
          INDEX_DOC_CMD_ARGS, "read admin"))
-
 
   // Do not force cross slot validation since coordinator will handle it.
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
@@ -1540,7 +1539,6 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   }
   return REDISMODULE_OK;
 }
-
 
 void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   if(!req->specialCases) {
@@ -2890,8 +2888,20 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
+  // Prepare the spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // Reply with error
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               RSExecDistAggregate, ctx, argv, argc);
+                                               RSExecDistAggregate, ctx, argv, argc,
+                                               StrongRef_Demote(spec_ref));
 }
 
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
@@ -2912,7 +2922,8 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               CursorCommandInternal, ctx, argv, argc);
+                                               CursorCommandInternal, ctx, argv, argc,
+                                               (WeakRef){0});
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3017,7 +3028,8 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisModuleString **argv, int argc) {
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+      RedisModuleString **argv, int argc, WeakRef spec_ref) {
   QueryError status = {0};
   searchRequestCtx *req = rscParseRequest(argv, argc, &status);
 
@@ -3060,6 +3072,37 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol, RedisMo
     sendRequiredFields(req, &cmd);
   }
 
+  // Append the prefixes of the index to the command
+  StrongRef strong_ref = WeakRef_Promote(spec_ref);
+  IndexSpec *sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    MRCommand_Free(&cmd);
+
+    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_ReplyAndClear(clientCtx, &status);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, NULL);
+    RedisModule_FreeThreadSafeContext(clientCtx);
+    return REDISMODULE_OK;
+  }
+
+  uint16_t arg_pos = 3 + req->profileArgs;
+  MRCommand_Insert(&cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
+  arrayof(sds) prefixes = sp->rule->prefixes;
+  char *n_prefixes;
+  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  MRCommand_Insert(&cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
+  rm_free(n_prefixes);
+
+  for (uint i = 0; i < array_len(prefixes); i++) {
+    MRCommand_Insert(&cmd, arg_pos++, (char *)prefixes[i], sdslen(prefixes[i]));
+  }
+
+  // Return spec references, no longer needed
+  StrongRef_Release(strong_ref);
+  WeakRef_Release(spec_ref);
+
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
@@ -3073,11 +3116,12 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
-}SearchCmdCtx;
+  WeakRef spec_ref;
+} SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -3116,8 +3160,21 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
+
+  // Prepare spec ref for the background thread
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // Reply with error
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+  }
+
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+  sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
+
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
@@ -3127,6 +3184,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
+
   ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;

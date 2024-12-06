@@ -195,6 +195,8 @@ typedef struct AREQ {
   // Profiling function
   profiler_func profile;
 
+  // The offset of the prefixes in the command
+  size_t prefixesOffset;
 } AREQ;
 
 /**

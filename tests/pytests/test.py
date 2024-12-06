@@ -549,7 +549,7 @@ def testExplain(env: Env):
     # test with hybrid query
     q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = env.cmd('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+    expected = """VECTOR {\n  INTERSECT {\n    @t:UNION {\n      @t:hello\n      @t:+hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty
@@ -3358,7 +3358,7 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        expected = getInvertedIndexInitialSize_MB([ft])
+        expected = getInvertedIndexInitialSize_MB(env, [ft])
         env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
         env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
         env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
@@ -3818,7 +3818,6 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-
     assertInfoField(env, 'idx', 'number_of_uses', 3)
 
 def test_aggregate_return_fail(env):
@@ -4302,3 +4301,53 @@ def test_notIterTimeout(env):
         'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
         'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+@skip(cluster=False, min_shards=2)
+def test_incompatibleIndex(env):
+    """Tests that we get an error if we try to query an index with a different
+    schema than the one used in the query"""
+
+    # Connect to two shards
+    first_conn = env.getConnection(0)
+    second_conn = env.getConnection(1)
+
+    # Create an index
+    index_name = 'idx'
+    env.expect('FT.CREATE', index_name, 'PREFIX', '1', 'h:', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+
+    def modify_index(conn, index_name, prefixes):
+        # Connect to a shard, and create an index with a different schema, but
+        # the same name
+        res = conn.execute_command('_FT.DROPINDEX', index_name)
+        env.assertEqual(res, 'OK')
+        res = conn.execute_command('_FT.CREATE', index_name, 'PREFIX', len(prefixes), *prefixes, 'SCHEMA', 'n', 'NUMERIC')
+        env.assertEqual(res, 'OK')
+
+    modify_index(first_conn, index_name, ['k:'])
+
+    # Query via the cluster connection, such that we will get the mismatch error
+    commands = [
+        ['FT.SEARCH', index_name, '*'],
+        ['FT.AGGREGATE', index_name, '*', 'LOAD', '*'],
+        ['FT.PROFILE', index_name, 'SEARCH', 'QUERY', '*'],
+        ['FT.PROFILE', index_name, 'AGGREGATE', 'QUERY', '*', 'LOAD', '*']
+    ]
+
+    # Run commands on second shard (different index prefixes -> error)
+    for command in commands:
+        try:
+            second_conn.execute_command(*command)
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
+
+    # Also for an index with a different amount of prefixes
+    modify_index(first_conn, index_name, ['h:', 'k:'])
+    # Run commands on second shard (different index prefixes -> error)
+    for command in commands:
+        try:
+            second_conn.execute_command(*command)
+            env.assertTrue(False)
+        except Exception as e:
+            env.assertContains("Index mismatch: Shard index is different than queried index", str(e))

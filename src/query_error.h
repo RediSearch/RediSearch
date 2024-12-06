@@ -63,11 +63,14 @@ extern "C" {
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")                 \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
+  X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index")            \
+  X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                  \
+  X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")       \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 
-typedef enum {      
-  QUERY_OK = 0,     
+typedef enum {
+  QUERY_OK = 0,
 
 #define X(N, msg) N,
   QUERY_XERRS(X)
@@ -123,13 +126,6 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
     QueryError_ClearError(qerr);                                 \
     REDISMODULE_OK;                                              \
   })
-
-#define QueryError_ReplyNoIndex(rctx, ixname)                                        \
-  {                                                                                  \
-    QueryError qidx__tmp = {0};                                                      \
-    QueryError_SetErrorFmt(&qidx__tmp, QUERY_ENOINDEX, "%s: No such index", ixname); \
-    QueryError_ReplyAndClear(rctx, &qidx__tmp);                                      \
-  }
 
 /**
  * Sets the current error from the current argument within the args cursor

@@ -101,10 +101,10 @@ void TermReader_OnReopen(void *privdata) {
     InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, ir->record->term.term->str,
                                                  ir->record->term.term->len, 0, NULL);
     if (!idx || ir->idx != idx) {
-      // the inverted index was collected entirely by GC, lets stop searching.
-      // notice, it might be that a new inverted index was created, we will not
-      // continue read those results and we are not promise that documents
-      // that was added during cursor life will be returned by the cursor.
+      // The inverted index was collected entirely by GC.
+      // All the documents that were inside were deleted and new ones were added.
+      // We will not continue reading those new results and instead abort reading
+      // for this specific inverted index.
       IR_Abort(ir);
       return;
     }

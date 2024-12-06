@@ -89,6 +89,11 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
 
 /**
+ * Get the number of logically deleted documents in all indices.
+ */
+size_t IndexesGlobalStats_GetLogicallyDeletedDocs();
+
+/**
  * Add all the index-related global information to the INFO command.
  */
 void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
