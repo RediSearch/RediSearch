@@ -23,7 +23,7 @@ typedef struct {
   IndexIterator *it;
   uint32_t lastRevId;
   IndexSpec *sp;
-  const char *fieldName;
+  const FieldSpec *field;
 } NumericUnionCtx;
 
 void NumericRangeIterator_OnReopen(void *privdata);
@@ -387,6 +387,7 @@ NumericRangeTree *NewNumericRangeTree() {
 
   // updated value since splitCard should be >NR_CARD_CHECK
   ret->root = NewLeafNode(2, 16);
+  ret->invertedIndexesSize = ret->root->range->invertedIndexSize;
   ret->numEntries = 0;
   ret->numRanges = 1;
   ret->revisionId = 0;
@@ -415,6 +416,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   }
   t->numRanges += rv.numRanges;
   t->numEntries++;
+  t->invertedIndexesSize += rv.sz;
 
   return rv;
 }
@@ -494,6 +496,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
     t->revisionId++;
     t->numRanges += rv.numRanges;
     t->emptyLeaves = 0;
+    t->invertedIndexesSize += rv.sz;
   }
   return rv;
 }
@@ -574,13 +577,13 @@ RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char
                                         field);
 }
 
-static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
-                                             int write) {
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
+                                             bool create_if_missing) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!create_if_missing) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
@@ -594,7 +597,7 @@ static NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString 
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
                                                const FieldFilterContext* filterCtx) {
-  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
+  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, flt->field, forType);
   if (!s) {
     return NULL;
   }
@@ -608,7 +611,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
 
     t = RedisModule_ModuleTypeGetValue(key);
   } else {
-    t = openNumericKeysDict(ctx->spec, s, 0);
+    t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
   }
 
   if (!t) {
@@ -625,14 +628,10 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
     uc->lastRevId = t->revisionId;
     uc->it = it;
     uc->sp = ctx->spec;
-    uc->fieldName = flt->fieldName;
+    uc->field = flt->field;
     ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
-}
-
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName) {
-  return openNumericKeysDict(ctx->spec, keyName, 1);
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
@@ -819,8 +818,8 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   IndexSpec *sp = nu->sp;
   IndexIterator *it = nu->it;
 
-  RedisModuleString *numField = IndexSpec_GetFormattedKeyByName(sp, nu->fieldName, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(sp, numField, 0);
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(sp, nu->field, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
 
   if (!rt || rt->revisionId != nu->lastRevId) {
     // The numeric tree was either completely deleted or a node was splitted or removed.

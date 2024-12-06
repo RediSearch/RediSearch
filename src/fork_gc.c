@@ -47,10 +47,13 @@ typedef enum {
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
             size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  sctx->spec->stats.invertedSize += bytesAdded - bytesCollected;
+  sctx->spec->stats.invertedSize += bytesAdded;
+  sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
+  gc->stats.totalCollected -= bytesAdded;
 }
 
+// Buff shouldn't be NULL.
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
   ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
@@ -254,7 +257,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
   if (array_len(blocklist) == idx->size) {
     // no empty block, there is no need to send the blocks array. Don't send
     // any new blocks.
-    FGC_sendBuffer(gc, NULL, 0);
+    size_t len = 0;
+    FGC_SEND_VAR(gc, len);
   } else {
     FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
   }
@@ -292,7 +296,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
-    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
@@ -422,7 +426,12 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+
+    // No entries were added to the numeric field, hence the tree was not initialized
+    if (!rt) {
+      continue;
+    }
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
@@ -470,7 +479,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
-      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false);
+      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
       if (!tagIdx) {
         continue;
       }
@@ -834,12 +843,6 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize += info->nbytesAdded;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
 
-  // TODO: fix for NUMERIC similar to TAG fix PR#2269
-  if (currNode->range->entries->numDocs == 0) {
-  //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
-    info->nbytesCollected += InvertedIndex_MemUsage(currNode->range->entries);
-    currNode->range->invertedIndexSize = 0;
-  }
   FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
   resetCardinality(ninfo, currNode);
@@ -876,7 +879,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, 1, NULL);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -930,9 +933,12 @@ cleanup:
 static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
+  const FieldSpec *fs = NULL;
+  RedisModuleString *keyName = NULL;
   uint64_t rtUniqueId;
   NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
+  bool initialized = false;
   if (status == FGC_DONE) {
     return FGC_DONE;
   }
@@ -959,8 +965,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    rt = OpenNumericIndex(sctx, keyName);
+    if (!initialized) {
+      fs = IndexSpec_GetField(sctx->spec, fieldName);
+      keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
+      rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
+      initialized = true;
+    }
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
@@ -974,6 +984,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     applyNumIdx(gc, sctx, &ninfo);
     rt->numEntries -= ninfo.info.nentriesCollected;
+    rt->invertedIndexesSize -= ninfo.info.nbytesCollected;
+    rt->invertedIndexesSize += ninfo.info.nbytesAdded;
 
     if (ninfo.node->range->entries->numDocs == 0) {
       rt->emptyLeaves++;
@@ -993,16 +1005,16 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   rm_free(fieldName);
 
-  if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
+  if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {
+    // We need to have a valid strong reference to the spec in order to dereference rt
     StrongRef spec_ref = WeakRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp) {
-      return FGC_SPEC_DELETED;
-    }
+    if (!sp) return FGC_SPEC_DELETED;
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
-    if (gc->cleanNumericEmptyNodes) {
+    if (rt->emptyLeaves >= rt->numRanges / 2) { // TODO: count `numLeaves` in the tree and use it here
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+      // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
       FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
@@ -1060,7 +1072,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
-    tagIdx = TagIndex_Open(sctx, keyName, false);
+    tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       status = FGC_CHILD_ERROR;
@@ -1068,7 +1080,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     size_t dummy_size;
-    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0, &dummy_size);
+    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, DONT_CREATE_INDEX, &dummy_size);
     if (idx == TRIEMAP_NOTFOUND || idx != value) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;

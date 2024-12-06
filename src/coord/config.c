@@ -141,8 +141,15 @@ CONFIG_GETTER(getSearchThreads) {
 }
 
 // search-threads
-CONFIG_API_NUMERIC_SETTER(set_search_threads);
-CONFIG_API_NUMERIC_GETTER(get_search_threads);
+int set_search_threads(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
+  *(long long *)privdata = val;
+  return REDISMODULE_OK;
+}
+
+long long get_search_threads(const char *name, void *privdata) {
+  return (*(long long *)privdata);
+}
 
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
@@ -272,21 +279,18 @@ void ClusterConfig_RegisterTriggers(void) {
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   if (RedisModule_RegisterNumericConfig(
         ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE, 1, LLONG_MAX, get_search_threads,
-        set_search_threads, NULL,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_search_threads, set_search_threads, NULL,
         (void*)&(clusterConfig.coordinatorPoolSize)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "search-threads registered");
   }
 
   if (RedisModule_RegisterNumericConfig (
-        ctx, "topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_topology_validation_timeout,
-        set_topology_validation_timeout, NULL, (void*)&clusterConfig) == REDISMODULE_ERR) {
+        ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+        get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+        (void*)&clusterConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
-  } else {
-    RedisModule_Log(ctx, "notice", "topology-validation-timeout registered");
   }
 
   // Check if global-password is already registered, because it is shared

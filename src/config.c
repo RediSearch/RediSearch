@@ -26,6 +26,16 @@
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
+int set_numeric_config(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
+  *(long long *)privdata = val;
+  return REDISMODULE_OK;
+}
+
+long long get_numeric_config(const char *name, void *privdata) {
+  return (*(long long *)privdata);
+}
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -42,7 +52,18 @@ CONFIG_GETTER(getExtLoad) {
 
 // ext-load
 CONFIG_API_STRING_SETTER(set_ext_load);
-CONFIG_API_STRING_GETTER(get_ext_load);
+
+RedisModuleString* get_ext_load(const char *get_ext_load, void *privdata) {
+  char *str = *(char **)privdata;
+  if (str) {
+    if (config_ext_load) {
+      RedisModule_FreeString(NULL, config_ext_load);
+    }
+    config_ext_load = RedisModule_CreateString(NULL, str, strlen(str));
+    return config_ext_load;
+  }
+  return NULL;
+}
 
 // NOGC
 CONFIG_SETTER(setNoGc) {
@@ -55,7 +76,7 @@ CONFIG_BOOLEAN_GETTER(getNoGc, gcConfigParams.enableGC, 1)
 // no-gc
 static int set_no_gc(const char *name, int val, void *privdata,
                       RedisModuleString **err) {
-  // getNoGc and get_no_gc return the inverted value, so we need to invert 
+  // getNoGc and get_no_gc return the inverted value, so we need to invert
   // when setting
   RSGlobalConfig.gcConfigParams.enableGC = (val == 0);
   return REDISMODULE_OK;
@@ -86,10 +107,6 @@ CONFIG_GETTER(getMinPrefix) {
   return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
 }
 
-// min-prefix
-CONFIG_API_NUMERIC_SETTER(set_min_prefix);
-CONFIG_API_NUMERIC_GETTER(get_min_prefix);
-
 // MINSTEMLEN
 CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
@@ -107,10 +124,6 @@ CONFIG_GETTER(getMinStemLen) {
   return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minStemLength);
 }
 
-// min-stem-len
-CONFIG_API_NUMERIC_SETTER(set_min_stem_len);
-CONFIG_API_NUMERIC_GETTER(get_min_stem_len);
-
 // FORKGC_SLEEP_BEFORE_EXIT
 CONFIG_SETTER(setForkGCSleep) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
@@ -121,10 +134,6 @@ CONFIG_GETTER(getForkGCSleep) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%zu", config->gcConfigParams.forkGc.forkGcSleepBeforeExit);
 }
-
-// fork-gc-sleep-before-exit
-CONFIG_API_NUMERIC_SETTER(set_fork_gc_sleep_before_exit);
-CONFIG_API_NUMERIC_GETTER(get_fork_gc_sleep_before_exit);
 
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
@@ -143,10 +152,6 @@ CONFIG_GETTER(getMaxDocTableSize) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
 }
-
-// max-doctablesize
-CONFIG_API_NUMERIC_SETTER(set_max_doctablesize);
-CONFIG_API_NUMERIC_GETTER(get_max_doctablesize);
 
 // MAXSEARCHRESULTS
 CONFIG_SETTER(setMaxSearchResults) {
@@ -168,10 +173,6 @@ CONFIG_GETTER(getMaxSearchResults) {
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
-// max-search-results
-CONFIG_API_NUMERIC_SETTER(set_max_search_results);
-CONFIG_API_NUMERIC_GETTER(get_max_search_results);
-
 // MAXAGGREGATERESULTS
 CONFIG_SETTER(setMaxAggregateResults) {
   long long newsize = 0;
@@ -192,11 +193,6 @@ CONFIG_GETTER(getMaxAggregateResults) {
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
 }
 
-// max-aggregate-results
-CONFIG_API_NUMERIC_SETTER(set_max_aggregate_results);
-
-CONFIG_API_NUMERIC_GETTER(get_max_aggregate_results);
-
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
@@ -208,10 +204,6 @@ CONFIG_GETTER(getMaxExpansions) {
   return sdscatprintf(ss, "%llu", config->iteratorsConfigParams.maxPrefixExpansions);
 }
 
-// max-prefix-expansions
-CONFIG_API_NUMERIC_SETTER(set_max_prefix_expansions);
-CONFIG_API_NUMERIC_GETTER(get_max_prefix_expansions);
-
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
   int acrc = AC_GetLongLong(ac, &config->requestConfigParams.queryTimeoutMS, AC_F_GE0);
@@ -222,10 +214,6 @@ CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
 }
-
-// timeout
-CONFIG_API_NUMERIC_SETTER(set_timeout);
-CONFIG_API_NUMERIC_GETTER(get_timeout);
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
@@ -405,11 +393,6 @@ CONFIG_GETTER(getTieredIndexBufferLimit) {
   return sdscatprintf(ss, "%lu", config->tieredVecSimIndexBufferLimit);
 }
 
-// tiered-hnsw-buffer-limit
-CONFIG_API_NUMERIC_SETTER(set_tiered_hnsw_buffer_limit);
-
-CONFIG_API_NUMERIC_GETTER(get_tiered_hnsw_buffer_limit);
-
 // WORKERS_PRIORITY_BIAS_THRESHOLD
 CONFIG_SETTER(setHighPriorityBiasNum) {
   int acrc = AC_GetSize(ac, &config->highPriorityBiasNum, AC_F_GE0);
@@ -420,11 +403,6 @@ CONFIG_GETTER(getHighPriorityBiasNum) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->highPriorityBiasNum);
 }
-
-// workers-priority-bias-threshold
-CONFIG_API_NUMERIC_SETTER(set_workers_priority_bias_threshold);
-
-CONFIG_API_NUMERIC_GETTER(get_workers_priority_bias_threshold);
 
 // PRIVILEGED_THREADS_NUM
 CONFIG_SETTER(setPrivilegedThreadsNum) {
@@ -447,7 +425,18 @@ CONFIG_GETTER(getFrisoINI) {
 
 // friso-ini
 CONFIG_API_STRING_SETTER(set_friso_ini);
-CONFIG_API_STRING_GETTER(get_friso_ini);
+
+RedisModuleString * get_friso_ini(const char *get_ext_load, void *privdata) {
+  char *str = *(char **)privdata;
+  if (str) {
+    if (config_friso_ini) {
+      RedisModule_FreeString(NULL, config_friso_ini);
+    }
+    config_friso_ini = RedisModule_CreateString(NULL, str, strlen(str));
+    return config_friso_ini;
+  }
+  return NULL;
+}
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
@@ -489,11 +478,6 @@ CONFIG_GETTER(getGcScanSize) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcScanSize);
 }
 
-// gc-scan-size
-CONFIG_API_NUMERIC_SETTER(set_gc_scan_size);
-
-CONFIG_API_NUMERIC_GETTER(get_gc_scan_size);
-
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
@@ -504,11 +488,6 @@ CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRunIntervalSec);
 }
-
-// fork-gc-run-interval
-CONFIG_API_NUMERIC_SETTER(set_fork_gc_run_interval);
-
-CONFIG_API_NUMERIC_GETTER(get_fork_gc_run_interval);
 
 // FORK_GC_CLEAN_THRESHOLD
 CONFIG_SETTER(setForkGcCleanThreshold) {
@@ -521,11 +500,6 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcCleanThreshold);
 }
 
-// fork-gc-clean-threshold
-CONFIG_API_NUMERIC_SETTER(set_fork_gc_clean_threshold);
-
-CONFIG_API_NUMERIC_GETTER(get_fork_gc_clean_threshold);
-
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRetryInterval, AC_F_GE1);
@@ -536,11 +510,6 @@ CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRetryInterval);
 }
-
-// fork-gc-retry-interval
-CONFIG_API_NUMERIC_SETTER(set_fork_gc_retry_interval);
-
-CONFIG_API_NUMERIC_GETTER(get_fork_gc_retry_interval);
 
 // UNION_ITERATOR_HEAP
 CONFIG_SETTER(setMinUnionIteratorHeap) {
@@ -553,11 +522,6 @@ CONFIG_GETTER(getMinUnionIteratorHeap) {
   return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
 }
 
-// union-iterator-heap
-CONFIG_API_NUMERIC_SETTER(set_union_iterator_heap);
-
-CONFIG_API_NUMERIC_GETTER(get_union_iterator_heap);
-
 // CURSOR_MAX_IDLE
 CONFIG_SETTER(setCursorMaxIdle) {
   int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
@@ -568,11 +532,6 @@ CONFIG_GETTER(getCursorMaxIdle) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
 }
-
-// cursor-max-idle
-CONFIG_API_NUMERIC_SETTER(set_cursor_max_idle);
-
-CONFIG_API_NUMERIC_GETTER(get_cursor_max_idle);
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
@@ -601,11 +560,6 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
 }
-
-// min-phonetic-term-len
-CONFIG_API_NUMERIC_SETTER(set_min_phonetic_term_len);
-
-CONFIG_API_NUMERIC_GETTER(get_min_phonetic_term_len);
 
 // _NUMERIC_COMPRESS
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
@@ -658,11 +612,6 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
 }
 
-// _numeric-ranges-parents
-CONFIG_API_NUMERIC_SETTER(set_numeric_ranges_parents);
-
-CONFIG_API_NUMERIC_GETTER(get_numeric_ranges_parents);
-
 // DEFAULT_DIALECT
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
@@ -679,11 +628,6 @@ CONFIG_GETTER(getDefaultDialectVersion) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->requestConfigParams.dialectVersion);
 }
-
-// default-dialect
-CONFIG_API_NUMERIC_GETTER(get_default_dialect);
-
-CONFIG_API_NUMERIC_SETTER(set_default_dialect);
 
 // VSS_MAX_RESIZE
 CONFIG_SETTER(setVSSMaxResize) {
@@ -877,11 +821,6 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
-// index-cursor-limit
-CONFIG_API_NUMERIC_SETTER(set_index_cursor_limit);
-
-CONFIG_API_NUMERIC_GETTER(get_index_cursor_limit);
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -942,6 +881,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
         const char *value = AC_GetStringNC(&ac, NULL);
       }
     }
+    sdsfree(currValue);
+    sdsfree(currValueDefault);
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
   }
@@ -1405,251 +1346,264 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Numeric parameters
   if (RedisModule_RegisterNumericConfig(
-        ctx, "_numeric-ranges-parents", 0, REDISMODULE_CONFIG_DEFAULT, 0,
-        NR_MAX_DEPTH_BALANCE, get_numeric_ranges_parents,
-        set_numeric_ranges_parents, NULL, 
+        ctx, "search-_numeric-ranges-parents", 0,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        NR_MAX_DEPTH_BALANCE, get_numeric_config,
+        set_numeric_config, NULL,
         &(RSGlobalConfig.numericTreeMaxDepthRange)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
+
   if (RedisModule_RegisterNumericConfig(
-      ctx, "bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
-      REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX, get_bg_index_sleep_gap,
+      ctx, "search-bg-index-sleep-gap", DEFAULT_BG_INDEX_SLEEP_GAP,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_bg_index_sleep_gap,
       set_bg_index_sleep_gap, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "default-dialect", DEFAULT_DIALECT_VERSION,
-        REDISMODULE_CONFIG_DEFAULT, MIN_DIALECT_VERSION, MAX_DIALECT_VERSION,
-        get_default_dialect, set_default_dialect, NULL,
+        ctx, "search-default-dialect", DEFAULT_DIALECT_VERSION,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+        MIN_DIALECT_VERSION, MAX_DIALECT_VERSION,
+        get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.requestConfigParams.dialectVersion)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig (
-        ctx, "fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_clean_threshold,
-        set_fork_gc_clean_threshold, NULL,
+        ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig (
-        ctx, "fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_retry_interval,
-        set_fork_gc_retry_interval, NULL,
+        ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_fork_gc_run_interval,
-        set_fork_gc_run_interval, NULL,
+        ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "fork-gc-sleep-before-exit", 0,
-        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_fork_gc_sleep_before_exit,
-        set_fork_gc_sleep_before_exit, NULL,
+        ctx, "search-fork-gc-sleep-before-exit", 0,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "gc-scan-size", DEFAULT_GC_SCANSIZE, REDISMODULE_CONFIG_DEFAULT,
-        1, LLONG_MAX, get_gc_scan_size, set_gc_scan_size, NULL,
+        ctx, "search-gc-scan-size", DEFAULT_GC_SCANSIZE,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.gcConfigParams.gcScanSize)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT, 
-        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_index_cursor_limit,
-        set_index_cursor_limit, NULL,
+        ctx, "search-index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.indexCursorLimit)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-aggregate-results", DEFAULT_MAX_AGGREGATE_RESULTS,
-        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_aggregate_results,
-        set_max_aggregate_results, NULL,
+        ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_RESULTS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.maxAggregateResults)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_max_prefix_expansions,
-        set_max_prefix_expansions, NULL,
+        ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-doctablesize", DEFAULT_DOC_TABLE_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE, 1, MAX_DOC_TABLE_SIZE,
-        get_max_doctablesize, set_max_doctablesize, NULL,
+        ctx, "search-max-doctablesize", DEFAULT_DOC_TABLE_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        MAX_DOC_TABLE_SIZE, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.maxDocTableSize)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_cursor_max_idle,
-        set_cursor_max_idle, NULL,
+        ctx, "search-cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.cursorMaxIdle)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "max-search-results", DEFAULT_MAX_SEARCH_RESULTS,
-        REDISMODULE_CONFIG_DEFAULT, 0, LLONG_MAX, get_max_search_results,
-        set_max_search_results, NULL,
+        ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_RESULTS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         &(RSGlobalConfig.maxSearchResults)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "min-operation-workers", MIN_OPERATION_WORKERS,
-        REDISMODULE_CONFIG_DEFAULT, 1, MAX_WORKER_THREADS,
-        get_min_operation_workers, set_min_operation_workers, NULL,
-        NULL) == REDISMODULE_ERR) {
+        ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        MAX_WORKER_THREADS, get_min_operation_workers,
+        set_min_operation_workers, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "min-phonetic-term-len", DEFAULT_MIN_PHONETIC_TERM_LEN,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_phonetic_term_len,
-        set_min_phonetic_term_len, NULL,
+        ctx, "search-min-phonetic-term-len", DEFAULT_MIN_PHONETIC_TERM_LEN,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.minPhoneticTermLen)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "min-prefix", DEFAULT_MIN_TERM_PREFIX,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_min_prefix,
-        set_min_prefix, NULL,
+        ctx, "search-min-prefix", DEFAULT_MIN_TERM_PREFIX,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.iteratorsConfigParams.minTermPrefix)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "min-stem-len", DEFAULT_MIN_STEM_LENGTH,
-        REDISMODULE_CONFIG_DEFAULT, 2, UINT32_MAX, get_min_stem_len,
-        set_min_stem_len, NULL,
+        ctx, "search-min-stem-len", DEFAULT_MIN_STEM_LENGTH,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 2,
+        UINT32_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.iteratorsConfigParams.minStemLength)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "multi-text-slop", DEFAULT_MULTI_TEXT_SLOP,
-        REDISMODULE_CONFIG_IMMUTABLE, 1, UINT32_MAX, get_multi_text_slop,
-        set_multi_text_slop, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "search-multi-text-slop", DEFAULT_MULTI_TEXT_SLOP,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        UINT32_MAX, get_multi_text_slop, set_multi_text_slop, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "tiered-hnsw-buffer-limit", DEFAULT_BLOCK_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE, 0, LLONG_MAX, get_tiered_hnsw_buffer_limit,
-        set_tiered_hnsw_buffer_limit, NULL,
+        ctx, "search-tiered-hnsw-buffer-limit", DEFAULT_BLOCK_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.tieredVecSimIndexBufferLimit)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "timeout", DEFAULT_QUERY_TIMEOUT_MS,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_timeout, set_timeout, NULL,
+        ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
-        REDISMODULE_CONFIG_DEFAULT, 1, LLONG_MAX, get_union_iterator_heap,
-        set_union_iterator_heap, NULL,
+        ctx, "search-union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
-        REDISMODULE_CONFIG_DEFAULT, 0, UINT32_MAX, get_vss_max_resize,
-        set_vss_max_resize, NULL, NULL) == REDISMODULE_ERR) {
+        ctx, "search-vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        UINT32_MAX, get_vss_max_resize, set_vss_max_resize, NULL,
+        NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "workers", DEFAULT_WORKER_THREADS,
-        REDISMODULE_CONFIG_DEFAULT, 0, MAX_WORKER_THREADS, get_workers,
-        set_workers, NULL, (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
+        ctx, "search-workers", DEFAULT_WORKER_THREADS,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        MAX_WORKER_THREADS, get_workers, set_workers, NULL,
+        (void *)&RSGlobalConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "workers-priority-bias-threshold",
-        DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, REDISMODULE_CONFIG_IMMUTABLE, 0,
-        LLONG_MAX, get_workers_priority_bias_threshold,
-        set_workers_priority_bias_threshold, NULL,
+        ctx, "search-workers-priority-bias-threshold",
+        DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
+        LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
         (void *)&(RSGlobalConfig.highPriorityBiasNum)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   // String parameters
   if (RedisModule_RegisterStringConfig(
-        ctx, "ext-load", "", REDISMODULE_CONFIG_IMMUTABLE, get_ext_load,
-        set_ext_load, NULL,
+        ctx, "search-ext-load", "",
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+        get_ext_load, set_ext_load, NULL,
         (void *)&(RSGlobalConfig.extLoad)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   if (RedisModule_RegisterStringConfig(
-        ctx, "friso-ini", "", REDISMODULE_CONFIG_IMMUTABLE, get_friso_ini,
-        set_friso_ini, NULL,
+        ctx, "search-friso-ini", "",
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+        get_friso_ini, set_friso_ini, NULL,
         (void *)&(RSGlobalConfig.frisoIni)) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   // Enum parameters
   if (RedisModule_RegisterEnumConfig(
-        ctx, "on-timeout", TimeoutPolicy_Return, REDISMODULE_CONFIG_DEFAULT,
+        ctx, "search-on-timeout", TimeoutPolicy_Return,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
         on_timeout_vals, int_on_timeout_vals, 2,
         get_on_timeout, set_on_timeout, NULL, NULL) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
   // Boolean parameters
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_free-resource-on-thread",
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-_free-resource-on-thread",
       get_free_resource_on_thread, set_free_resource_on_thread, 1,
-      REDISMODULE_CONFIG_DEFAULT);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_numeric-compress",
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-_numeric-compress",
       get_numeric_compress, set_numeric_compress, 0,
-      REDISMODULE_CONFIG_DEFAULT);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_print-profile-clock",
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-_print-profile-clock",
       get_print_profile_clock, set_print_profile_clock, 1,
-      REDISMODULE_CONFIG_DEFAULT);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_prioritize-intersect-union-children",
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx,
+      "search-_prioritize-intersect-union-children",
       get_prioritize_intersect_union_children,
       set_prioritize_intersect_union_children,
-      0, REDISMODULE_CONFIG_DEFAULT);
+      0, REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED);
   // CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "_fork-gc-clean-numeric-empty-nodes",
   //     get_fork_gc_clean_numeric_empty_nodes, set_fork_gc_clean_numeric_empty_nodes,
   //     1, REDISMODULE_CONFIG_DEFAULT);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-mem-pools",
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-no-mem-pools",
       get_no_mem_pools, set_no_mem_pools, 0,
-      REDISMODULE_CONFIG_IMMUTABLE);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "no-gc",
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-no-gc",
       get_no_gc, set_no_gc, 0,
-      REDISMODULE_CONFIG_IMMUTABLE);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "partial-indexed-docs",
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-partial-indexed-docs",
       get_partial_indexed_docs, set_partial_indexed_docs, 0,
-      REDISMODULE_CONFIG_IMMUTABLE);
-  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "raw-docid-encoding",
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED);
+  CONFIG_API_REGISTER_BOOL_CONFIG(ctx, "search-raw-docid-encoding",
       get_raw_docid_encoding, set_raw_docid_encoding, 0,
-      REDISMODULE_CONFIG_IMMUTABLE);
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED);
 
   return REDISMODULE_OK;
 }
