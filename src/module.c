@@ -972,7 +972,7 @@ int IsEnterprise() {
 }
 
 int CheckSupportedVestion() {
-  if (CompareVestions(redisVersion, supportedVersion) < 0) {
+  if (CompareVersions(redisVersion, supportedVersion) < 0) {
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -3377,21 +3377,26 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ClusterConfig_RegisterTriggers();
 
   // Register the module configuration parameters
-  if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Error registering module configuration");
-    return REDISMODULE_ERR;
+  Version unstableRedis = {8, 1, 0};
+  bool unprefixedConfigSupported = CompareVersions(redisVersion, unstableRedis) >= 0;
+  if (unprefixedConfigSupported) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering module configuration");
+      return REDISMODULE_ERR;
+    }
   }
 
   // Check if we are actually in cluster mode
   bool isClusterEnabled = checkClusterEnabled(ctx);
 
-  if (isClusterEnabled) {
-    // Register module configuration parameters for cluster
-    RM_TRY_F(RegisterClusterModuleConfig, ctx);
-  }
-
   // Apply configuration
-  RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  if (unprefixedConfigSupported) {
+    if (isClusterEnabled) {
+      // Register module configuration parameters for cluster
+      RM_TRY_F(RegisterClusterModuleConfig, ctx);
+    }
+    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  }
 
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {

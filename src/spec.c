@@ -2839,7 +2839,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-int CompareVestions(Version v1, Version v2) {
+int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;
   } else if (v1.majorVersion > v2.majorVersion) {
