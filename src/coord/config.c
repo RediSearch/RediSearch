@@ -109,6 +109,17 @@ CONFIG_GETTER(getSearchThreads) {
   return sdsfromlonglong(realConfig->coordinatorPoolSize);
 }
 
+// search-threads
+int set_search_threads(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
+  *(long long *)privdata = val;
+  return REDISMODULE_OK;
+}
+
+long long get_search_threads(const char *name, void *privdata) {
+  return (*(long long *)privdata);
+}
+
 // TOPOLOGY_VALIDATION_TIMEOUT
 CONFIG_SETTER(setTopologyValidationTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
@@ -131,6 +142,20 @@ CONFIG_SETTER(setOSSACLUsername) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
   RETURN_STATUS(acrc);
+}
+
+// topology-validation-timeout
+int set_topology_validation_timeout(const char *set_topology_validation_timeout,
+                      long long val, void *privdata, RedisModuleString **err) {
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  realConfig->topologyValidationTimeoutMS = val;
+  return REDISMODULE_OK;
+}
+
+long long get_topology_validation_timeout(
+                const char *get_topology_validation_timeout, void *privdata) {
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  return realConfig->topologyValidationTimeoutMS;
 }
 
 static RSConfigOptions clusterOptions_g = {
@@ -214,4 +239,24 @@ RSConfigOptions *GetClusterConfigOptions(void) {
 void ClusterConfig_RegisterTriggers(void) {
   const char *connPerShardConfigs[] = {"WORKERS", NULL};
   RSConfigExternalTrigger_Register(triggerConnPerShard, connPerShardConfigs);
+}
+
+int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
+  if (RedisModule_RegisterNumericConfig(
+        ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+        LLONG_MAX, get_search_threads, set_search_threads, NULL,
+        (void*)&(clusterConfig.coordinatorPoolSize)) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+
+  if (RedisModule_RegisterNumericConfig (
+        ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+        get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+        (void*)&clusterConfig) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
 }
