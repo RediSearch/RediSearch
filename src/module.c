@@ -1029,8 +1029,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  GetRedisVersion(ctx);
-
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));
   RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %s", ver);
@@ -3377,8 +3375,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ClusterConfig_RegisterTriggers();
 
   // Register the module configuration parameters
+  GetRedisVersion(ctx);
   Version unstableRedis = {8, 1, 0};
-  bool unprefixedConfigSupported = CompareVersions(redisVersion, unstableRedis) >= 0;
+  bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
   if (unprefixedConfigSupported) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");

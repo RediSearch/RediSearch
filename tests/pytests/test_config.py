@@ -585,28 +585,29 @@ def testModuleLoadexNumericParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-        # For immutable parameters, we need to test that the limits are enforced
-        # using MODULE LOADEX
-        # if immutable:
-        #     env.start()
-        #     res = env.cmd('MODULE', 'LIST')
-        #     env.assertEqual(res, [])
-        #     env.expect('MODULE', 'LOADEX', redisearch_module_path,
-        #                'CONFIG', configName, str(minValue - 1)).error()\
-        #                 .contains('Error loading the extension')
-        #     env.assertTrue(env.isUp())
-        #     env.stop()
-        #     os.unlink(rdbFilePath)
+# Skip on ASAN since RedisModule_Unload is not fully implemented
+@skip(redis_less_than='8.1', asan=True)
+def testConfigAPILoadTimeNumericParams():
+    env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+    redisearch_module_path = os.getenv('MODULE')
+    if (redisearch_module_path is None):
+        env.debugPrint('MODULE environment variable is not set. Skipping test')
+        env.skip()
 
-        #     env.start()
-        #     res = env.cmd('MODULE', 'LIST')
-        #     env.assertEqual(res, [])
-        #     env.expect('MODULE', 'LOADEX', redisearch_module_path,
-        #                'CONFIG', configName, str(maxValue + 1)).error()\
-        #                 .contains('Error loading the extension')
-        #     env.assertTrue(env.isUp())
-        #     env.stop()
-        #     os.unlink(rdbFilePath)
+    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        if configName in ['search-threads',
+                          'search-topology-validation-timeout']:
+            continue
+
+        # Test that the limits are enforced using MODULE LOADEX
+        env.start()
+        res = env.cmd('MODULE', 'LIST')
+        env.assertEqual(res, [])
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(maxValue + 1)).error()\
+                    .contains('Error loading the extension')
+        env.assertTrue(env.isUp())
+        env.stop()
 
 @skip(cluster=True, redis_less_than='8.1.0')
 def testConfigFileNumericParams():

@@ -1524,7 +1524,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   }
 
   if (RedisModule_RegisterNumericConfig(
-        ctx, "vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
+        ctx, "search-vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
         REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
         UINT32_MAX, get_vss_max_resize, set_vss_max_resize, NULL,
         NULL) == REDISMODULE_ERR) {
