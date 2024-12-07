@@ -859,6 +859,74 @@ def testConfigAPIRunTimeStringParams():
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
 
+
+@skip(cluster=False, redis_less_than='8.1.0')
+def testConfigAPIRunTimeOssGlobalPassword():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
+        .equal(['search-oss-global-password', 'Password: *******'])
+
+    env.expect('CONFIG', 'SET', 'search-oss-global-password', '123')\
+        .error().contains('CONFIG SET failed')
+
+
+@skip(cluster=False, redis_less_than='8.1.0')
+def testConfigAPIRunTimeOssACLUser():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
+        .equal(['search-oss-acl-username', 'default'])
+
+    env.expect('CONFIG', 'SET', 'search-oss-acl-username', 'myUser')\
+        .error().contains('CONFIG SET failed')
+
+
+@skip(cluster=False, redis_less_than='8.1.0')
+def testClusterConfigFileOssGlobalPassword():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testClusterConfigFileOssGlobalPassword.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write('search-oss-global-password mySecretPassword\n')
+
+    # Start the server using the conf file
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
+        .equal(['search-oss-global-password', 'Password: *******'])
+
+
+@skip(cluster=False, redis_less_than='8.1.0')
+def testClusterConfigFileOssACLUser():
+    # Test using only redis config file
+    redisConfigFile = '/tmp/testClusterConfigFileOssACLUser.conf'
+
+    # create redis.conf file in /tmp
+    if os.path.isfile(redisConfigFile):
+        os.unlink(redisConfigFile)
+    with open(redisConfigFile, 'w') as f:
+        f.write('search-oss-acl-username myUserName\n')
+
+    # Start the server using the conf file
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
+    if env.env != 'oss-cluster':
+        env.skip()
+
+    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
+        .equal(['search-oss-acl-username', 'myUserName'])
+    env.expect(config_cmd(), 'GET', 'OSS_ACL_USERNAME')\
+        .equal([['OSS_ACL_USERNAME', 'myUserName']])
+
 @skip(cluster=True, redis_less_than='8.1.0')
 def testModuleLoadexStringParams():
     env = Env(noDefaultModuleArgs=True)
