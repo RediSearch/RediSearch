@@ -761,25 +761,24 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNode, size_t blocksSinceFork) {
-  NumericRange *r = currNode->range;
+static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
   if (!info->idxbufs.lastBlockIgnored) {
-    hll_set_registers(&r->hll, info->registersWithLastBlock, NR_REG_SIZE);
+    hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
     }
   } else {
-    hll_set_registers(&r->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
+    hll_set_registers(&range->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
     blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
-  IndexReader *ir = NewMinimalNumericReader(r->entries, false);
   RSIndexResult *cur;
-  size_t startIdx = r->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
-  t_docId startId = r->entries->blocks[startIdx].firstId;
+  IndexReader *ir = NewMinimalNumericReader(range->entries, false);
+  size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
+  t_docId startId = range->entries->blocks[startIdx].firstId;
   int rc = IR_SkipTo(ir, startId, &cur);
   while (INDEXREAD_OK == rc) {
-    hll_add(&r->hll, &cur->num.value, sizeof(cur->num.value));
+    hll_add(&range->hll, &cur->num.value, sizeof(cur->num.value));
     rc = IR_Read(ir, &cur);
   }
   IR_Free(ir);
@@ -797,7 +796,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
 
   FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
 
-  resetCardinality(ninfo, currNode, blocksSinceFork);
+  resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc) {
