@@ -50,28 +50,9 @@ CONFIG_GETTER(getClusterTimeout) {
   return sdsfromlonglong(realConfig->timeoutMS);
 }
 
-bool ConfigExists(RedisModuleCtx *ctx, const char* confName) {
-  RedisModuleCallReply *rep =
-            RedisModule_Call(ctx, "CONFIG", "cc", "GET", confName);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 2) {
-    RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 0);
-    if (RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING) {
-      size_t len;
-      const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-      if (strcmp(valueRepCStr, confName) == 0) {
-        RedisModule_FreeCallReply(rep);
-        return true;
-      }
-    }
-  }
-  RedisModule_FreeCallReply(rep);
-  return false;
-}
-
 CONFIG_SETTER(setGlobalPass) {
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET global-password <password>` instead");
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET search-oss-global-password <password>` instead");
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
   RETURN_STATUS(acrc);
@@ -79,7 +60,7 @@ CONFIG_SETTER(setGlobalPass) {
 
 CONFIG_GETTER(getGlobalPass) {
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET global-password` instead");
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET search-oss-global-password` instead");
   return sdsnew("Password: *******");
 }
 
@@ -293,25 +274,21 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  // Check if global-password is already registered, because it is shared
-  // between RediSearch and RedisTimeSeries
-  // TODO: We need to use REDISMODULE_CONFIG_UNPREFIXED flag here,
-  // but it is not available in Redis 7.x
-  if (clusterConfig.type == ClusterType_RedisOSS && !ConfigExists(ctx, "global-password")) {
+  if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "global-password", "",
-          REDISMODULE_CONFIG_IMMUTABLE, get_oss_global_password,
-          set_oss_global_password, NULL,
+          ctx, "search-oss-global-password", "",
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+          get_oss_global_password, set_oss_global_password, NULL,
           (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
   }
 
-  if (clusterConfig.type == ClusterType_RedisOSS && !ConfigExists(ctx, "acl-username")) {
+  if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "acl-username", DEFAULT_ACL_USERNAME,
-          REDISMODULE_CONFIG_IMMUTABLE, get_oss_acl_username,
-          set_oss_acl_username, NULL,
+          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+          get_oss_acl_username, set_oss_acl_username, NULL,
           (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }

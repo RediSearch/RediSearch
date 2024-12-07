@@ -56,6 +56,4 @@ MRClusterType DetectClusterType();
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
 
-// Returns true if confName is registered as configuration parameter
-bool ConfigExists(RedisModuleCtx *ctx, const char* confName);
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx);
