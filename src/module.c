@@ -64,13 +64,13 @@
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
-    const char *idx = RedisModule_StringPtrLen(idxR, NULL);                    \
+    const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                \
     IndexLoadOptions lopts =                                                   \
-      {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                    \
+      {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                \
     StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                       \
     IndexSpec *sp = StrongRef_Get(spec_ref);                                   \
     if (!sp) {                                                                 \
-      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);  \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);\
     }                                                                          \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                     \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                      \
@@ -2848,17 +2848,19 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
+    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
+
+  VERIFY_ACL(ctx, argv[1])
+
+  if (NumShards == 1) {
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
@@ -2901,7 +2903,6 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 static int CommandIndexPos(RedisModuleString *cmd) {
   const char *cmdStr = RedisModule_StringPtrLen(cmd, NULL);
-  // TODO: Consider using a hashmap for this (already some commented out code for this..)
   size_t n_commands = sizeof(commandIndexPositions) / sizeof(commandIndexPositions[0]);
   for (size_t i = 0; i < n_commands; i++) {
     if (strcasecmp(cmdStr, commandIndexPositions[i].cmdName) == 0) {
@@ -2915,10 +2916,8 @@ static int CommandIndexPos(RedisModuleString *cmd) {
 static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
-  }
-
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
+    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -2953,10 +2952,12 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
+  RS_AutoMemory(ctx);
 
   // Validate ACL key permissions if needed (for commands that access an index)
   int indexNamePos;
@@ -2964,14 +2965,10 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
     VERIFY_ACL(ctx, argv[indexNamePos])
   }
 
-  else if (NumShards == 1) {
+  if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return genericCallUnderscoreVariant(ctx, argv, argc);
   }
-  if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
-  RS_AutoMemory(ctx);
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
@@ -3011,7 +3008,7 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
-  // not profiling, as it was already checked).
+  // not profiling, as it was already checked earlier).
   if (!isProfile && !ACLUserMayAccessIndex(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
@@ -3033,8 +3030,7 @@ static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -3080,13 +3076,13 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (argc != 2) {
     // FT.INFO {index}
     return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
+    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+  RS_AutoMemory(ctx);
 
   VERIFY_ACL(ctx, argv[1])
 
@@ -3094,7 +3090,6 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     // There is only one shard in the cluster. We can handle the command locally.
     return IndexInfoCommand(ctx, argv, argc);
   }
-  RS_AutoMemory(ctx);
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
   MRCommand_SetProtocol(&cmd, ctx);
