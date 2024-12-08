@@ -85,37 +85,46 @@ typedef struct {
 // Array containing commands names and the index of the index name in the
 // command arguments.
 static CommandIndexNamePos commandIndexPositions[] = {
-  {"FT.CURSOR",      1},
-  {"FT.SEARCH",      1},
-  {"FT.AGGREGATE",   1},
-  {"FT.INFO",        1},
-  {"FT.SPELLCHECK",  1},
-  {"FT.ALIASADD",    2},
-  {"FT.ALIASUPDATE", 2},
-  {"FT.PROFILE",     1},
-  {"FT.SYNUPDATE",   1},
-  {"FT.SYNDUMP",     1},
-  {"FT.ALTER",       1},
-  {"FT.DROPINDEX",   1},
-  {"FT.EXPLAIN",     1},
-  {"FT.EXPLAINCLI",  1},
-  {"FT.TAGVALS",     1},
-  {"FT.ADD",         1},
-  {"FT.GET",         1},
-  {"FT.DEL",         1},
-  {"FT.DROP",        1},
-  {"FT.TAGVALS",     1},
-  {"FT.MGET",        1},
-  {"FT.CREATE",     -1},  // Since this index does not exist.
-  {"FT.ALIASDEL",   -1},
-  {"FT.CONFIG",     -1},
-  {"FT.DICTADD",    -1},
-  {"FT.DICTDEL",    -1},
-  {"FT.DICTDUMP",   -1},
-  {"FT.SUGADD",     -1},
-  {"FT.SUGDEL",     -1},
-  {"FT.SUGGET",     -1},
-  {"FT.SUGLEN",     -1},
+  {"FT.CURSOR",       1},
+  {"FT.SEARCH",       1},
+  {"FT.AGGREGATE",    1},
+  {"FT.INFO",         1},
+  {"FT.SPELLCHECK",   1},
+  {"FT.ALIASADD",     2},
+  {"FT.ALIASUPDATE",  2},
+  {"FT.PROFILE",      1},
+  {"FT.SYNUPDATE",    1},
+  {"FT.SYNDUMP",      1},
+  {"FT.ALTER",        1},
+  {"FT.DROPINDEX",    1},
+  {"FT.EXPLAIN",      1},
+  {"FT.EXPLAINCLI",   1},
+  {"FT.TAGVALS",      1},
+  {"FT.ADD",          1},
+  {"FT.GET",          1},
+  {"FT.DEL",          1},
+  {"FT.DROP",         1},
+  {"FT.TAGVALS",      1},
+  {"FT.MGET",         1},
+  {"FT.CREATE",      -1},  // Since this index does not exist.
+  {"FT.ALIASDEL",    -1},
+  {"FT.CONFIG",      -1},
+  {"FT.DICTADD",     -1},
+  {"FT.DICTDEL",     -1},
+  {"FT.DICTDUMP",    -1},
+  {"FT.SUGADD",      -1},
+  {"FT.SUGDEL",      -1},
+  {"FT.SUGGET",      -1},
+  {"FT.SUGLEN",      -1},
+  // Do not validate replication commands
+  {"FT._ALTERIFNX",    -1},
+  {"FT._ALIASADDIFNX",    -1},
+  {"FT._ALIASDELIFX",    -1},
+  {"FT._DROPIFX",    -1},
+  {"FT._DROPINDEXIFX", -1},
+  {"FT._CREATEIFNX",   -1},
+  // What is this?
+  {"FT.SYNFORCEUPDATE", -1},
 };
 
 extern RSConfig RSGlobalConfig;
@@ -331,6 +340,8 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+  VERIFY_ACL(ctx, argv[1])
+
   QueryError status = {0};
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
@@ -358,11 +369,9 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 /* FT.EXPLAIN {index_name} {query} */
 int QueryExplainCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  VERIFY_ACL(ctx, argv[1])
   return queryExplainCommon(ctx, argv, argc, 0);
 }
 int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  VERIFY_ACL(ctx, argv[1])
   return queryExplainCommon(ctx, argv, argc, 1);
 }
 
@@ -2845,7 +2854,6 @@ static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString *
 
 /* FT.MGET {idx} {key} ... */
 int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -2949,7 +2957,6 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
 // If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
 // Notice that only OSS cluster should deal with such redirections.
 int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -2987,12 +2994,9 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-
-  if (argc < 3) {
+  } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
@@ -3051,17 +3055,19 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  // Check that the cluster state is valid
-  if (!SearchCluster_Ready()) {
+  } else if (!SearchCluster_Ready()) {
+    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (NumShards == 1) {
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  }
-  if (cannotBlockCtx(ctx)) {
+  } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
+
+  VERIFY_ACL(ctx, argv[1])
+
+  if (NumShards == 1) {
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);

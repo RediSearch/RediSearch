@@ -232,7 +232,7 @@ def testIndexDropWhileIdle(env: Env):
         res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
         env.assertEqual(res[1:], [[]] , message=f'res == {res}')
     else:
-        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
+        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
 
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')
