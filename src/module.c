@@ -85,42 +85,42 @@ typedef struct {
 // Array containing commands names and the index of the index name in the
 // command arguments.
 static CommandIndexNamePos commandIndexPositions[] = {
-  {"FT.CURSOR",       1},
-  {"FT.SEARCH",       1},
-  {"FT.AGGREGATE",    1},
-  {"FT.INFO",         1},
-  {"FT.SPELLCHECK",   1},
-  {"FT.ALIASADD",     2},
-  {"FT.ALIASUPDATE",  2},
-  {"FT.PROFILE",      1},
-  {"FT.SYNUPDATE",    1},
-  {"FT.SYNDUMP",      1},
-  {"FT.ALTER",        1},
-  {"FT.DROPINDEX",    1},
-  {"FT.EXPLAIN",      1},
-  {"FT.EXPLAINCLI",   1},
-  {"FT.TAGVALS",      1},
-  {"FT.ADD",          1},
-  {"FT.GET",          1},
-  {"FT.DEL",          1},
-  {"FT.DROP",         1},
-  {"FT.TAGVALS",      1},
-  {"FT.MGET",         1},
-  {"FT.CREATE",      -1},  // Since this index does not exist.
-  {"FT.ALIASDEL",    -1},
-  {"FT.CONFIG",      -1},
-  {"FT.DICTADD",     -1},
-  {"FT.DICTDEL",     -1},
-  {"FT.DICTDUMP",    -1},
-  {"FT.SUGADD",      -1},
-  {"FT.SUGDEL",      -1},
-  {"FT.SUGGET",      -1},
-  {"FT.SUGLEN",      -1},
+  {"FT.CURSOR",         1},
+  {"FT.SEARCH",         1},
+  {"FT.AGGREGATE",      1},
+  {"FT.INFO",           1},
+  {"FT.SPELLCHECK",     1},
+  {"FT.ALIASADD",       2},
+  {"FT.ALIASUPDATE",    2},
+  {"FT.PROFILE",        1},
+  {"FT.SYNUPDATE",      1},
+  {"FT.SYNDUMP",        1},
+  {"FT.ALTER",          1},
+  {"FT.DROPINDEX",      1},
+  {"FT.EXPLAIN",        1},
+  {"FT.EXPLAINCLI",     1},
+  {"FT.TAGVALS",        1},
+  {"FT.ADD",            1},
+  {"FT.GET",            1},
+  {"FT.DEL",            1},
+  {"FT.DROP",           1},
+  {"FT.TAGVALS",        1},
+  {"FT.MGET",           1},
+  {"FT.CREATE",        -1},  // Since this index does not exist.
+  {"FT.ALIASDEL",      -1},
+  {"FT.CONFIG",        -1},
+  {"FT.DICTADD",       -1},
+  {"FT.DICTDEL",       -1},
+  {"FT.DICTDUMP",      -1},
+  {"FT.SUGADD",        -1},
+  {"FT.SUGDEL",        -1},
+  {"FT.SUGGET",        -1},
+  {"FT.SUGLEN",        -1},
   // Do not validate replication commands
   {"FT._ALTERIFNX",    -1},
-  {"FT._ALIASADDIFNX",    -1},
-  {"FT._ALIASDELIFX",    -1},
-  {"FT._DROPIFX",    -1},
+  {"FT._ALIASADDIFNX", -1},
+  {"FT._ALIASDELIFX",  -1},
+  {"FT._DROPIFX",      -1},
   {"FT._DROPINDEXIFX", -1},
   {"FT._CREATEIFNX",   -1},
   // What is this?
@@ -3529,8 +3529,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
-
-  // Initialize_CommandIndexNamePos();
 
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {

@@ -227,13 +227,12 @@ def testIndexDropWhileIdle(env: Env):
     # drop the index while the cursor is idle/running in bg
     env.expect('FT.DROPINDEX', 'idx').ok()
 
-    # TODO: Why is this now failing in cluster mode?
     # Try to read from the cursor
-    # if env.isCluster():
-    #     res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
-    #     env.assertEqual(res[1:], [[]] , message=f'res == {res}')
-    # else:
-    #     env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
+    if env.isCluster():
+        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
+        env.assertEqual(res[1:], [[]] , message=f'res == {res}')
+    else:
+        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
 
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')
