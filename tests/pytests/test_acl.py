@@ -205,7 +205,7 @@ def test_internal_commands(env):
     env.expect('AUTH', 'default', 'nopass').true()
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
 
-@skip(redis_less_than="7.9.0")
+@skip(redis_less_than="8.0.3")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 
