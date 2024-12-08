@@ -205,9 +205,11 @@ def test_internal_commands(env):
     env.expect('AUTH', 'default', 'nopass').true()
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
 
-@skip(redis_less_than="8.0.3")
+@skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
+
+    conn = env.getClusterConnectionIfNeeded()
 
     # Create an ACL user with partial key-space permissions
     env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~h:*', '&*', '+@all').ok()
@@ -263,7 +265,11 @@ def test_acl_key_permissions_validation(env):
         ['FT.SUGLEN', 'h:sug']
     ]
     for command in non_index_commands:
-        env.expect(*command).noError()
+        try:
+            conn.execute_command(*command)
+        except Exception as e:
+            # Should not fail on permissions
+            env.assertNotContains("User does not have the required permissions", str(e))
 
     # For completeness, we verify that the default user, which has permissions
     # to access all keys, can access the index

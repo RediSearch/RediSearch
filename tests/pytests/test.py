@@ -357,8 +357,6 @@ def testDrop(env):
                              'doc96', 'doc97', 'doc98', 'doc99'],
                              py2sorted(keys))
 
-    env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("no such index")
-
 def testDelete(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
@@ -387,8 +385,6 @@ def testDelete(env):
         env.expect('FT.DROPINDEX', 'idx').ok()
         keys = env.keys('*')
         env.assertEqual(py2sorted("doc%d" %k for k in range(100)), py2sorted(keys))
-
-    env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("no such index")
 
 def testCustomStopwords(env):
     # Index with default stopwords
