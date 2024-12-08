@@ -2859,8 +2859,6 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -2868,6 +2866,8 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2886,8 +2886,6 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -2895,6 +2893,8 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (NumShards == 1) {
     return SpellCheckCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2927,8 +2927,6 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -2941,6 +2939,8 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2961,8 +2961,6 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -2975,6 +2973,8 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2996,8 +2996,6 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   // Prepare the spec ref for the background thread
@@ -3020,6 +3018,8 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSAggregateCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
@@ -3036,8 +3036,6 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   VERIFY_ACL(ctx, argv[2])
@@ -3045,6 +3043,8 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSCursorCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
@@ -3058,8 +3058,6 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -3067,6 +3065,8 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -3085,8 +3085,6 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
   RS_AutoMemory(ctx);
 
@@ -3095,7 +3093,10 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return IndexInfoCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
+
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
   MRCommand_SetProtocol(&cmd, ctx);
@@ -3282,8 +3283,6 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   // Prepare spec ref for the background thread
@@ -3306,6 +3305,8 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return RSSearchCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));

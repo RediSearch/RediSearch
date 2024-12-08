@@ -864,11 +864,9 @@ def test_mod5791(env):
                   'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
     env.assertEqual(res[:2], [1, 'doc1'])
 
-
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster(env):
     mod5778_add_new_shard_to_cluster(env)
-
 
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster_TLS():
