@@ -53,7 +53,7 @@ CONFIG_GETTER(getExtLoad) {
 // ext-load
 CONFIG_API_STRING_SETTER(set_ext_load);
 
-RedisModuleString* get_ext_load(const char *get_ext_load, void *privdata) {
+RedisModuleString* get_ext_load(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   if (str) {
     if (config_ext_load) {
@@ -250,7 +250,7 @@ CONFIG_GETTER(getWorkThreads) {
 }
 
 // workers
-int set_workers(const char *set_workers, long long val, void *privdata,
+int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
@@ -261,7 +261,7 @@ RedisModuleString **err) {
   return REDISMODULE_OK;
 }
 
-long long get_workers(const char *get_workers, void *privdata) {
+long long get_workers(const char *name, void *privdata) {
   RSConfig *config = (RSConfig *)privdata;
   return config->numWorkerThreads;
 }
@@ -296,8 +296,7 @@ int set_min_operation_workers(const char *set_min_operation_workers,
   return REDISMODULE_OK;
 }
 
-long long get_min_operation_workers(const char *get_min_operation_workers,
-                                    void *privdata) {
+long long get_min_operation_workers(const char *name, void *privdata) {
   return (long long) RSGlobalConfig.minOperationWorkers;
 }
 
@@ -649,7 +648,7 @@ int set_vss_max_resize(const char *set_vss_max_resize, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_vss_max_resize(const char *get_vss_max_resize, void *privdata) {
+long long get_vss_max_resize(const char *name, void *privdata) {
   return (long long)RSGlobalConfig.vssMaxResize;
 }
 
@@ -671,7 +670,7 @@ int set_multi_text_slop(const char *set_multi_text_slop, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_multi_text_slop(const char *get_multi_text_slop, void *privdata) {
+long long get_multi_text_slop(const char *name, void *privdata) {
   return (long long)RSGlobalConfig.multiTextOffsetDelta;
 }
 
@@ -798,7 +797,7 @@ int set_bg_index_sleep_gap(const char *set_bg_index_sleep_gap, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_bg_index_sleep_gap(const char *get_bg_index_sleep_gap, void *privdata) {
+long long get_bg_index_sleep_gap(const char *name, void *privdata) {
   return (long long)RSGlobalConfig.numBGIndexingIterationsBeforeSleep;
 }
 
