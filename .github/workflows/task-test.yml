@@ -106,17 +106,6 @@ jobs:
               # Checkout the REF
               REPO_URL="https://github.com/${{ github.repository }}.git"
 
-              # # Clone the repository to the current directory
-              # git clone $REPO_URL .
-
-              # # Configure the safe directory
-              # git config --global --add safe.directory /__w/${{ github.repository }}
-
-              # # Checkout the REF and its submodules
-              # git fetch origin ${{ env.REF }}
-              # git checkout ${{ env.REF }}
-              # git submodule update --init --recursive
-
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
