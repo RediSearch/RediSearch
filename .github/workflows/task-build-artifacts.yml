@@ -114,8 +114,14 @@ jobs:
               git init
               git remote add origin "$REPO_URL"
 
-              # Fetch all refs and checkout the specified ref
-              git fetch origin "${{ github.ref }}"  # Full fetch
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Fetch and checkout ref
+              git fetch origin "$REF" || {
+                echo "Failed to fetch ref: $REF";
+                exit 1;
+              }
               git checkout FETCH_HEAD  # Check out the fetched ref
 
               # Update submodules
