@@ -98,12 +98,20 @@ jobs:
                   ;;
               esac
 
-              # Perform checkout
+              # Checkout the REF
               REPO_URL="https://github.com/${{ github.repository }}.git"
               DEST_DIR="RediSearch"  # Directory to clone into
 
               # Clone the repository to the current directory
-              git clone --recurse-submodules --depth=1 $REPO_URL .
+              git clone $REPO_URL .
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout the REF and its submodules
+              git fetch origin ${{ env.REF }}
+              git checkout ${{ env.REF }}
+              git submodule update --init --recursive
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
@@ -149,7 +157,12 @@ jobs:
             DEST_DIR="redis"  # Directory to clone into
 
             # Clone the repository (shallow clone without tags)
-            git clone --depth=1 $REPO_URL $DEST_DIR
+            git clone $REPO_URL $DEST_DIR
+            cd $DEST_DIR
+
+            # Checkout the REF
+            git fetch origin ${{ inputs.redis-ref }}
+            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
