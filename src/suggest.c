@@ -178,7 +178,6 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
 
   if (tree->size == 0) {
-    // TrieType_Free(tree);
     RedisModule_DeleteKey(key);
   }
 
