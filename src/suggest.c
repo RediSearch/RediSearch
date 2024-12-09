@@ -305,7 +305,7 @@ parse_error:
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (tree == NULL) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithArray(ctx, 0);
     goto end;
   }
 
