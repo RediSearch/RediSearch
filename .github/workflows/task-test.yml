@@ -101,14 +101,15 @@ jobs:
               DEST_DIR="RediSearch"  # Directory to clone into
 
               # Clone the repository to the current directory
-              git clone --recurse-submodules $REPO_URL .
+              git clone $REPO_URL .
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
 
-              # Checkout the REF
+              # Checkout the REF and its submodules
               git fetch origin ${{ env.REF }}
               git checkout ${{ env.REF }}
+              git submodule update --init --recursive
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
