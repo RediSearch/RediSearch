@@ -101,7 +101,8 @@ jobs:
               DEST_DIR="RediSearch"  # Directory to clone into
 
               # Clone the repository to the current directory
-              git clone --recurse-submodules $REPO_URL .
+              git clone $REPO_URL .
+              git submodule update --init --recursive
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
@@ -142,8 +143,8 @@ jobs:
             REPO_URL="https://github.com/redis/redis.git"
             DEST_DIR="redis"  # Directory to clone into
 
-            # Clone the repository (shallow clone without tags)
-            git clone --depth=1 $REPO_URL $DEST_DIR
+            # Clone the repository
+            git clone $REPO_URL $DEST_DIR
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
