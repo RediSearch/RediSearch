@@ -85,7 +85,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
   status->message = message;
 }
 
-void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
+void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
   if (status->code != QUERY_OK) {
     return;
   }

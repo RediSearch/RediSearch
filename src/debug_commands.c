@@ -1076,7 +1076,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 }
 
 /**
- * FT.DEBUG DOC_INFO <index> <doc>
+ * FT.DEBUG DOC_INFO <index> <doc> [OBFUSCATE]
  */
 DEBUG_COMMAND(DocInfo) {
   if (argc < 4) {

@@ -73,7 +73,7 @@ CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGTH) {
-    QueryError_SetSafeErrorFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
+    QueryError_SetDataAgnosticErrorFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -184,7 +184,7 @@ CONFIG_GETTER(getTimeout) {
 #endif
 
 static inline int errorTooManyThreads(QueryError *status) {
-  QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
   return REDISMODULE_ERR;
 }
 
@@ -248,7 +248,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
   numWorkerThreads_config = newNumThreads;
@@ -488,7 +488,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetSafeErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetDataAgnosticErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
@@ -551,14 +551,15 @@ CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
   const char *rawIndexName;
   SchemaRuleArgs *rule = NULL;
-  int acrc = AC_GetString(ac, &rawIndexName, NULL, 0);
+  size_t len;
+  int acrc = AC_GetString(ac, &rawIndexName, &len, 0);
 
   if (acrc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
     return REDISMODULE_ERR;
   }
 
-  HiddenString *indexName = NewHiddenString(rawIndexName, strlen(rawIndexName), false);
+  HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
   if (dictFetchValue(legacySpecRules, indexName)) {
     HiddenString_Free(indexName, false);
     QueryError_SetError(status, QUERY_EPARSEARGS,

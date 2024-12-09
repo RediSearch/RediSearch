@@ -32,7 +32,7 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetSafeErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }

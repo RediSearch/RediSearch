@@ -110,7 +110,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char*
  * Set the error code using a custom-formatted string
  * Only use this function if you are certain that no user data is leaked in the format string
  */
-void QueryError_SetSafeErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
 /** Convenience macro to set an error of a 'bad argument' with the name of the argument */
 #define QERR_MKBADARGS_FMT(status, fmt, ...) \

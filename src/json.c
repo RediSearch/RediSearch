@@ -249,7 +249,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   for (int i = 0; i < len; ++i) {
     RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, target) != REDISMODULE_OK) {
-      QueryError_SetSafeErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetDataAgnosticErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       return REDISMODULE_ERR;
     }
     target += step;
@@ -304,7 +304,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetSafeErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 

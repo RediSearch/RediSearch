@@ -196,7 +196,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetSafeErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }
@@ -315,7 +315,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), true);
+  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
   HiddenString_Free(expr, true);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers

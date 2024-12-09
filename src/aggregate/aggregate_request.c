@@ -159,7 +159,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetSafeErrorFmt(
+      QueryError_SetDataAgnosticErrorFmt(
         status, QUERY_EPARSEARGS,
         "DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
@@ -272,16 +272,16 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > req->maxSearchResults) {
-      QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     }
@@ -342,7 +342,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   }
 
   if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetSafeErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -1023,7 +1023,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-    QueryError_SetSafeErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
 
@@ -1113,7 +1113,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!ff) {
       // No such reducer!
       Grouper_Free(grp);
-      QueryError_SetSafeErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      QueryError_SetDataAgnosticErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
