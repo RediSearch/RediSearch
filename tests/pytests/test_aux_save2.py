@@ -7,6 +7,15 @@ RDBS = [
     'redisearch_2.10.7_empty_dict.rdb',
 ]
 
+def _removeModuleArgs(env: Env):
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
 @skip(cluster=True, no_json=True, asan=True)
 def testLoadRdbWithoutIndexAuxData(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
@@ -15,14 +24,7 @@ def testLoadRdbWithoutIndexAuxData(env: Env):
     env.expect('FT.DROPINDEX', 'idx').equal('OK')
     # Save state to RDB
     env.stop()
-    # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should work because the RDB
     # does not contains module aux data
     env.start()
@@ -36,13 +38,7 @@ def testLoadRdbWithIndexAuxData(env: Env):
     # Save state to RDB
     env.stop()
     # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should fail because the RDB contains module aux data
     try:
         env.start()
@@ -78,13 +74,7 @@ def testLoadRdbWithoutSpellcheckDictAuxData(env: Env):
     # Save state to RDB
     env.stop()
     # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should work because the RDB
     # does not contains module aux data
     env.start()
@@ -100,13 +90,7 @@ def testLoadRdbWithSpellcheckDictAuxData(env: Env):
     # Save state to RDB
     env.stop()
     # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should fail because the RDB contains module aux data
     try:
         env.start()
@@ -199,13 +183,7 @@ def testLoadRdbWithoutSuggestionData(env: Env):
     # Save state to RDB
     env.stop()
     # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should work because the RDB does not contain
     # empty suggestion data
     env.start()
@@ -221,14 +199,7 @@ def testLoadRdbWithSuggestionData(env: Env):
     env.assertEqual(res, ['hakuna', 'hakuna matata'])
     # Save state to RDB
     env.stop()
-    # Restart without modules
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
     # Attempt to load RDB should fail because the RDB contains module data
     try:
         env.start()
