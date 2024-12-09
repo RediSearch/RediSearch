@@ -438,7 +438,8 @@
     "arguments": [
       {
         "name": "key",
-        "type": "string"
+        "type": "key",
+        "key_spec_index": 1
       },
       {
         "name": "string",
@@ -482,7 +483,8 @@
     "arguments": [
       {
         "name": "key",
-        "type": "string"
+        "type": "key",
+        "key_spec_index": 1
       },
       {
         "name": "prefix",
@@ -522,7 +524,8 @@
     "arguments": [
       {
         "name": "key",
-        "type": "string"
+        "type": "key",
+        "key_spec_index": 1
       },
       {
         "name": "string",
@@ -538,7 +541,8 @@
     "arguments": [
       {
         "name": "key",
-        "type": "string"
+        "type": "key",
+        "key_spec_index": 1
       }
     ],
     "since": "1.0.0",

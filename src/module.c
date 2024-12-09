@@ -13,6 +13,7 @@
 #include <time.h>
 
 #include "commands.h"
+#include "command_info.h"
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
@@ -972,11 +973,54 @@ int CheckSupportedVestion() {
   return REDISMODULE_OK;
 }
 
+typedef struct {
+  int firstkey, lastkey, keystep;
+} CommandKeys;
+
+typedef int (*SetCommandInfo)(RedisModuleCtx *, RedisModuleCommand *);
+typedef struct {
+  const char *name;
+  const char *flags;
+  const char *aclCategories;
+  RedisModuleCmdFunc callback;
+  SetCommandInfo setCommandInfo;
+  CommandKeys position;
+} SearchCommand;
+
+  typedef struct {
+    const char *name;
+    const char *fullName;
+    const char *flags;
+    RedisModuleCmdFunc callback;
+    SetCommandInfo setCommandInfo;
+    CommandKeys position;
+  } SubCommand;
+
+int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const SubCommand* subcommands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    const SubCommand* subcommand = &subcommands[i];
+    if (RedisModule_CreateSubcommand(command, subcommand->name, subcommand->callback, subcommand->flags, subcommand->position.firstkey, subcommand->position.lastkey, subcommand->position.keystep) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not create subcommand %s, flags: %s", subcommand->fullName, subcommand->flags); \
+      return REDISMODULE_ERR;
+    }
+    RedisModuleCommand *subCommand = RedisModule_GetCommand(ctx, subcommand->fullName);
+    if (!subCommand) {
+      RedisModule_Log(ctx, "warning", "Could not find subcommand %s", subcommand->fullName);
+      return REDISMODULE_ERR;
+    }
+    if (subcommand->setCommandInfo && subcommand->setCommandInfo(ctx, subCommand) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Could not set command info for subcommand %s", subcommand->fullName);
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
 // Creates a command and registers it to its corresponding ACL categories
-int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
-                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
-                  int lastkey, int keystep, const char *aclCategories) {
-  if (RedisModule_CreateCommand(ctx, name, callback, flags, firstkey, lastkey, keystep) == REDISMODULE_ERR) {
+// Also sets the command info if setCommandInfo is not NULL
+static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc callback, SetCommandInfo setCommandInfo,
+                                 const char *flags, CommandKeys position, const char *aclCategories) {
+  if (RedisModule_CreateCommand(ctx, name, callback, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
     return REDISMODULE_ERR;
   }
@@ -984,6 +1028,11 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
   RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
   if (!command) {
     RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
+    return REDISMODULE_ERR;
+  }
+
+  if (setCommandInfo && setCommandInfo(ctx, command) != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Could not set command info for command: %s", name);
     return REDISMODULE_ERR;
   }
 
@@ -1007,9 +1056,100 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
   if (!is_internal) {
     rm_free(categories);
   }
-
   return rc;
 }
+
+static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details) {
+  return RMCreateSearchCommand(ctx, details->name, details->callback, details->setCommandInfo, details->flags, details->position, details->aclCategories);
+}
+
+/** A dummy command handler, for commands that are disabled when running the module in OSS
+ * clusters
+ * when it is not an internal OSS build. */
+int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
+}
+
+/** A wrapper function that safely checks whether we are running in OSS cluster when registering
+ * commands.
+ * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
+ * to a dummy function disabling the actual handler.
+ *
+ * If we are running in RLEC or in a special OSS build - we simply return the original command.
+ *
+ * All coordinator handlers must be wrapped in this decorator.
+ */
+static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
+  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
+    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
+    return DisabledCommandHandler;
+  }
+
+  /* Valid - we return the original function */
+  return f;
+}
+
+#define CONFIG_SUBCOMMANDS(command, func) \
+  SubCommand subcommands[] = { \
+    {.name = "GET", .fullName = command "|GET", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigGetInfo, .position = {INDEX_ONLY_CMD_ARGS}},    \
+    {.name = "SET", .fullName = command "|SET", .flags = "write", .callback = func, .setCommandInfo = SetFtConfigSetInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
+    {.name = "HELP", .fullName = command "|HELP", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigHelpInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
+  }
+
+static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
+  CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand);
+  return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
+  RedisModuleCmdFunc func = SafeCmd(ConfigCommand);
+  CONFIG_SUBCOMMANDS("FT.CONFIG", func);
+  return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                                             \
+  SubCommand subcommands[] = {                                                                                                                                                  \
+    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .callback = func, .setCommandInfo = SetFtCursorReadInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
+    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .callback = func, .setCommandInfo = SetFtCursorDelInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
+    {.name = "GC", .fullName = command "|GC", .flags = "write", .callback = func, .setCommandInfo = NULL, .position = {INDEX_ONLY_CMD_ARGS}},                       \
+  }
+
+static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  RedisModuleCmdFunc func = SafeCmd(RSCursorCommand);
+  CURSOR_SUBCOMMANDS("FT.CURSOR", func);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *debugCommand) {
+  int rc = RegisterDebugCommands(debugCommand);
+  if (rc != REDISMODULE_OK) {
+    return rc;
+  }
+  rc = RegisterCoordDebugCommands(debugCommand);
+  if (rc != REDISMODULE_OK) {
+    return rc;
+  }
+}
+
+static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    const SearchCommand *command = &commands[i];
+    if (CreateSearchCommand(ctx, command) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Could not create search command %s", command->name);
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+#define DEFINE_COMMAND(name_, callback_, flags_, setCommandInfo_, aclCategories_, firstkey_, lastkey_, keystep_) \
+  (SearchCommand){ .name = name_, .flags = flags_, .aclCategories = aclCategories_, .callback = callback_,       \
+  .setCommandInfo = setCommandInfo_, .position = (CommandKeys){.firstkey = firstkey_, .lastkey = lastkey_, .keystep = keystep_}},
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
@@ -1062,148 +1202,23 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY_F(NumericIndexType_Register, ctx);
 
-
-// With coordinator we do not want to raise a move error for index commands so we do not specify
-// any key.
-#define INDEX_ONLY_CMD_ARGS 0, 0, 0
-#define INDEX_DOC_CMD_ARGS 2, 2, 1
-
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
-      return REDISMODULE_ERR;
+    RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
+    return REDISMODULE_ERR;
   }
 
   // Create the ACL command category for our internal commands
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
-      return REDISMODULE_ERR;
+    RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
+    return REDISMODULE_ERR;
   }
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0, "slow admin"))
+  SearchCommand commands[] = {
+      RS_COMMANDS(DEFINE_COMMAND)
+  };
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
-                    INDEX_DOC_CMD_ARGS, "write admin"))
-
-#ifdef RS_CLUSTER_ENTERPRISE
-  // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
-  // to be able to replicate from an old RediSearch version.
-  // If this is the light version then the _ft.safeadd/_ft.del does not exist
-  // and we will get the normal ft.safeadd/ft.del command.
-  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
-         IsEnterprise() ? "write deny-oom " PROXY_FILTERED : "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
-  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand,
-         IsEnterprise() ? "write " PROXY_FILTERED : "write", INDEX_DOC_CMD_ARGS, "write admin"))
-#endif
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS, "write admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DEL_CMD, DeleteCommand,
-         IsEnterprise() ? "write " PROXY_FILTERED : "write", INDEX_DOC_CMD_ARGS, "write admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
-         INDEX_DOC_CMD_ARGS, "read admin"))
-
-  // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_INFO_CMD, IndexInfoCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_TAGVALS_CMD, TagValsCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read admin dangerous"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_PROFILE_CMD, RSProfileCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
-         1, "write"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1, "write"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1, "read"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read"))
-
-  // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read"));
-
-  // todo: what to do with this?
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "admin"))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
-         INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, ""))
-  RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand,
-         IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "admin"))
-
-  // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
-  // Cluster is managed outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
-         0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, ""))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
-         0, ""))
-  return REDISMODULE_OK;
+  return CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand));
 }
 
 void ReindexPool_ThreadPoolDestroy();
@@ -3278,32 +3293,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-/** A dummy command handler, for commands that are disabled when running the module in OSS
- * clusters
- * when it is not an internal OSS build. */
-int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
-}
-
-/** A wrapper function that safely checks whether we are running in OSS cluster when registering
- * commands.
- * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
- * to a dummy function disabling the actual handler.
- *
- * If we are running in RLEC or in a special OSS build - we simply return the original command.
- *
- * All coordinator handlers must be wrapped in this decorator.
- */
-static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
-    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
-    return DisabledCommandHandler;
-  }
-
-  /* Valid - we return the original function */
-  return f;
-}
-
 /**
  * A wrapper function to override hiredis allocators with redis allocators.
  * It should be called after RedisModule_Init.
@@ -3389,64 +3378,52 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
+  const CommandKeys noKeys = {0, 0, -1};
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read"))
+    const CommandKeys keys = {0, 1, -2};
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), SetFtAggregateInfo, "readonly", keys, "read"))
   } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), SetFtAggregateInfo, "readonly", noKeys, "read"))
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read"))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read"))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), SetFtInfoInfo, "readonly", noKeys, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), SetFtSearchInfo, "readonly", noKeys, "read"))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), SetFtProfileInfo, "readonly", noKeys, "read"))
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read"))
+    const CommandKeys keys = {3, 1, -3};
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, RegisterCoordCursorCommands, "readonly", keys, "read"))
   } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, RegisterCoordCursorCommands, "readonly", noKeys, "read"))
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), SetFtSpellcheckInfo, "readonly", noKeys, ""))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
-  RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
 // OSS commands (registered via proxy in Enterprise)
 #ifndef RS_CLUSTER_ENTERPRISE
     if (!isClusterEnabled) {
+      const char *commandName = "FT.CONFIG";
       // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin"));
+      CommandKeys configKeys = {0, 0, 0};
+      RM_TRY(RMCreateSearchCommand(ctx, commandName, NULL, RegisterCoordConfigSubCommands, "readonly", configKeys, "admin"));
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
-    // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
-    // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, ""))
 
-    // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
+    SearchCommand commands[] = {
+      RS_OSS_COMMANDS(DEFINE_COMMAND)
+    };
+    if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
 #endif
 
   // cluster set commands
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), NULL, "readonly allow-loading deny-script", noKeys, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), NULL, "readonly deny-script", noKeys, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), NULL, "readonly allow-loading deny-script", noKeys, ""))
 
   // Deprecated commands. Grouped here for easy tracking
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read admin"))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), NULL, "readonly", noKeys, "read admin"))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), SetFtTagvalsInfo, "readonly", noKeys, "read admin dangerous"))
 
   return REDISMODULE_OK;
 }

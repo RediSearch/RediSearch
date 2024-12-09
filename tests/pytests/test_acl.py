@@ -1,17 +1,42 @@
+import copy
+
 from common import *
 
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
-INTERNAL_SEARCH_COMMANDS = [
-        '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
-        '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
-        '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
-        '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
-        '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
-        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
-    ]
+INTERNAL_SEARCH_COMMANDS = {
+        '_FT.ALIASDEL': 'alias',
+        '_FT.AGGREGATE': 'idx *',
+        '_FT.ALIASADD': 'idx alias',
+        '_FT.ALIASUPDATE': 'idx alias2',
+        '_FT.CURSOR': ['READ 1234', 'DEL 1234'],
+        '_FT.INFO': 'idx',
+        '_FT.ALTER': 'idx SCHEMA ADD f2 NUMERIC',
+        '_FT.DICTDEL': 'dict word',
+        '_FT.SYNUPDATE': 'synonym hello hi',
+        '_FT.SPELLCHECK': 'idx held DISTANCE 2',
+        '_FT.CREATE': 'idx SCHEMA f1 NUMERIC',
+        '_FT.DICTADD': 'dict word',
+        '_FT.PROFILE': 'idx SEARCH *',
+        '_FT.SEARCH': 'idx *',
+        '_FT.DEBUG': 'DUMP_PREFIX_TRIE',
+        '_FT.CONFIG': 'GET foo',
+        '_FT.TAGVALS': 'idx tag',
+        '_FT._ALTERIFNX': 'idx SCHEMA ADD f2 NUMERIC',
+        '_FT._ALIASDELIFX': 'alias',
+        '_FT._ALIASADDIFNX': 'idx alias',
+        '_FT._DROPINDEXIFX': 'idx',
+        '_FT.DROPINDEX': 'idx',
+        '_FT.ADD': 'idx doc:1 fields f1 val',
+        '_FT.DROP': 'idx',
+        '_FT.GET': 'doc:1',
+        '_FT._CREATEIFNX': 'idx SCHEMA f1 NUMERIC',
+        '_FT.MGET': 'doc:1 doc:2',
+        '_FT.DEL': 'doc:1',
+        '_FT._DROPIFX': 'idx',
+        '_FT.SAFEADD': 'idx doc:1 fields f1 val'
+}
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
@@ -47,7 +72,7 @@ def test_acl_search_commands(env):
 
     # ---------------- internal search command category ----------------
     res = env.cmd('ACL', 'CAT', '_search_internal')
-    commands = INTERNAL_SEARCH_COMMANDS
+    commands = INTERNAL_SEARCH_COMMANDS.keys()
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
@@ -193,10 +218,11 @@ def test_internal_commands(env):
 
     # Now `test` should not be able to execute RediSearch internal commands
     # `_FT.DEBUG` has only subcommands, so we check it separately.
-    internal_commands = INTERNAL_SEARCH_COMMANDS[::]
-    internal_commands.remove('_FT.DEBUG')
-    for command in internal_commands:
-        env.expect(command).error().contains("User test has no permissions to run")
+    internal_commands = copy.deepcopy(INTERNAL_SEARCH_COMMANDS)
+    internal_commands.pop('_FT.DEBUG')
+    for command, args in internal_commands:
+        arg_list = args.split(' ')
+        env.expect(command, *arg_list).error().contains("User test has no permissions to run")
 
     # Check `_FT.DEBUG`
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').error().contains("User test has no permissions to run")
