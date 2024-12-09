@@ -22,8 +22,6 @@
 extern "C" {
 #endif
 
-#define PROXY_FILTERED "_proxy-filtered"
-
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
@@ -37,10 +35,6 @@ void RediSearch_CleanupModule(void);
 
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
-int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
-                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
-                  int lastkey, int keystep, const char *aclCategories);
 
 /** Module-level dummy context for certain dummy RM_XXX operations */
 extern RedisModuleCtx *RSDummyContext;
