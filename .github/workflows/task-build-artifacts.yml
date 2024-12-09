@@ -97,8 +97,8 @@ jobs:
                   # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
                   # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
                   for file in /etc/yum.repos.d/*.repo; do
-                    $MODE sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
-                    $MODE sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
+                    sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
+                    sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
                   done
 
                   yum update -y
