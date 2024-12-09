@@ -2917,7 +2917,6 @@ static int CommandIndexPos(RedisModuleString *cmd) {
       return commandIndexPositions[i].indexNamePos;
     }
   }
-  RS_LOG_ASSERT(false, "Command not found in commandIndexPositions");   // TODO: To be removed - for testing only
   return -1;
 }
 
