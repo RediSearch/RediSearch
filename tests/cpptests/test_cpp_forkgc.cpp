@@ -47,22 +47,26 @@ typedef struct {
   RedisModuleCtx *ctx;
   void *fgc;
   RefManager *ism;
+  volatile bool runGc;
 } args_t;
-
-static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
-  ForkGC *fgc = reinterpret_cast<ForkGC *>(get_spec(fgcArgs->ism)->gc->gcCtx);
+  GCContext *gc = get_spec(fgcArgs->ism)->gc;
+  ForkGC *fgc = reinterpret_cast<ForkGC *>(gc->gcCtx);
 
-  // sync thread
-  while (fgc->pauseState != FGC_PAUSED_CHILD) {
-    usleep(500);
+  while (true) {
+    // sync thread
+    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
+      usleep(500);
+    }
+    if (!fgcArgs->runGc) {
+      break;
+    }
+
+    // run ForkGC
+    gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
   }
-
-  // run ForkGC
-  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
-  rm_free(args);
   return NULL;
 }
 
@@ -71,6 +75,8 @@ class FGCTest : public ::testing::Test {
   RMCK::Context ctx;
   RefManager *ism;
   ForkGC *fgc;
+  args_t args;
+  pthread_t thread;
 
   void SetUp() override {
     ism = createSpec(ctx);
@@ -81,17 +87,16 @@ class FGCTest : public ::testing::Test {
   void runGcThread() {
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
     thread = {0};
-    args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-    *args = {.ctx = ctx, .fgc = fgc, .ism = ism};
+    args = {.ctx = ctx, .fgc = fgc, .ism = ism, .runGc = true};
 
-    pthread_create(&thread, NULL, cbWrapper, args);
+    pthread_create(&thread, NULL, cbWrapper, &args);
   }
 
   void TearDown() override {
+    args.runGc = false;
+    // wait for the gc thread to finish current loop and exit the thread
+    pthread_join(thread, NULL);
     freeSpec(ism);
-    // Detach from the gc to make sure we are not stuck on waiting
-    // for the pauseState to be changed.
-    pthread_detach(thread);
   }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
