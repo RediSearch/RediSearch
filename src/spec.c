@@ -1797,9 +1797,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->monitorDocumentExpiration = true;
-  // Todo: this is now disabled by default, since otherwise we call HPEXPIRETIME on every indexing
-  // of a document, which causes performance regressions and lazy expiration even if not inteded.
-  sp->monitorFieldExpiration = false;
+  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
