@@ -40,25 +40,26 @@ static timespec getTimespecCb(void *) {
 }
 
 typedef struct {
-  RedisModuleCtx *ctx;
   void *fgc;
   IndexSpec *sp;
+  volatile bool runGc;
 } args_t;
-
-static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
   ForkGC *fgc = reinterpret_cast<ForkGC *>(fgcArgs->sp->gc->gcCtx);
 
-  // sync thread
-  while (fgc->pauseState != FGC_PAUSED_CHILD) {
-    usleep(500);
-  }
+  while (true) {
+    // sync thread
+    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
+      usleep(500);
+    }
+    if (!fgcArgs->runGc) {
+      break;
+    }
 
   // run ForkGC
   fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
-  rm_free(args);
   return NULL;
 }
 
@@ -69,6 +70,8 @@ class FGCTest : public ::testing::Test {
   RMCK::Context ctx;
   IndexSpec *sp;
   ForkGC *fgc;
+  args_t args;
+  pthread_t thread;
 
   void SetUp() override {
     sp = createIndex(ctx);
@@ -80,16 +83,15 @@ class FGCTest : public ::testing::Test {
     Spec_AddToDict(sp);
     fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
     thread = {0};
-    args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-    *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
+    args = {.fgc = fgc, .sp = sp, .runGc = true};
 
-    pthread_create(&thread, NULL, cbWrapper, args);
+    pthread_create(&thread, NULL, cbWrapper, &args);
   }
   void TearDown() override {
+    args.runGc = false;
+    // wait for the gc thread to finish current loop and exit the thread
+    pthread_join(thread, NULL);
     RediSearch_DropIndex(sp);
-    // Detach from the gc to make sure we are not stuck on waiting
-    // for the pauseState to be changed.
-    pthread_detach(thread);
   }
 
   IndexSpec *createIndex(RedisModuleCtx *ctx) {
