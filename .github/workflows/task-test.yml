@@ -91,6 +91,8 @@ jobs:
                   yum install -y git
                   ;;
                 centos:7)
+                  set -e
+                  export DEBIAN_FRONTEND=noninteractive
                   yum update -y
 
                   # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-11
