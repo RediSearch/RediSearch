@@ -80,22 +80,18 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | amazonlinux:2 | alpine:3)
+            ubuntu:xenial | ubuntu:bionic | centos:7 | amazonlinux:2)
               echo "Installing prerequisites for ${{ inputs.container }}..."
 
               # Install git (platform-specific package management)
               case "${{ inputs.container }}" in
-                ubuntu:bionic)
+                ubuntu:xenial | ubuntu:bionic)
                   apt update
                   apt install -y git
                   ;;
-                amazonlinux:2)
+                amazonlinux:2 | centos:7)
                   yum update -y
                   yum install -y git
-                  ;;
-                alpine:3)
-                  apk update
-                  apk add --no-cache git
                   ;;
               esac
 
