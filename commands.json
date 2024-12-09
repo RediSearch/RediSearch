@@ -745,6 +745,14 @@
       [
           "2.0.0",
           "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
+      ],
+      [
+        "2.6",
+        "Deprecated `GEOFILTER` argument"
+      ],
+      [
+        "2.10",
+        "Deprecated `FILTER` argument"
       ]
     ],
     "arguments": [
