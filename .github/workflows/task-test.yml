@@ -96,19 +96,19 @@ jobs:
                   ;;
               esac
 
-              # Perform checkout
+              # Checkout the REF
               REPO_URL="https://github.com/${{ github.repository }}.git"
               DEST_DIR="RediSearch"  # Directory to clone into
 
               # Clone the repository to the current directory
-              git clone $REPO_URL .
-              # Checkout the branch
-              git checkout ${{ github.ref }}
-              git submodule update --init --recursive
+              git clone --recurse-submodules $REPO_URL .
 
-              # Print the tags of the submodules
-              echo "Submodule tags:"
-              git submodule foreach 'git tag'
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout the REF
+              git fetch origin ${{ env.REF }}
+              git checkout ${{ env.REF }}
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
