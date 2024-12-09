@@ -34,11 +34,11 @@ on:
           - all
           - ubuntu:jammy
           - ubuntu:focal
-          # - ubuntu:bionic
+          - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
-          # - amazonlinux:2
+          - amazonlinux:2
           - mariner:2
         description: 'Platform to build on. Use "all" to build on all'
         default: all

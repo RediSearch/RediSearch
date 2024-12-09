@@ -57,14 +57,9 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
         run: |
-          for platform in ubuntu:bionic centos:7 amazonlinux:2; do
+          for platform in ubuntu:bionic amazonlinux:2; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
-              # https://github.com/actions/checkout/issues/1809
-              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
-              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
@@ -80,16 +75,55 @@ jobs:
             tests/pytests/requirements.*
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Setup specific
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | amazonlinux:2)
+              echo "Installing prerequisites for ${{ inputs.container }}..."
+
+              # Install git (platform-specific package management)
+              case "${{ inputs.container }}" in
+                ubuntu:bionic)
+                  apt update
+                  apt install -y git
+                  ;;
+                amazonlinux:2)
+                  yum update -y
+                  yum install -y git
+                  ;;
+              esac
+
+              # Checkout the REF
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+              DEST_DIR="RediSearch"  # Directory to clone into
+
+              # Clone the repository to the current directory
+              git clone $REPO_URL .
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout the REF and its submodules
+              git fetch origin ${{ env.REF }}
+              git checkout ${{ env.REF }}
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -97,9 +131,7 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        run: echo "Done already earlier."
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
 
@@ -116,11 +148,17 @@ jobs:
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
-        uses: actions/checkout@v3
-        with:
-          repository: redis/redis
-          ref: ${{ inputs.get-redis }}
-          path: redis
+        run: |
+            REPO_URL="https://github.com/redis/redis.git"
+            DEST_DIR="redis"  # Directory to clone into
+
+            # Clone the repository (shallow clone without tags)
+            git clone $REPO_URL $DEST_DIR
+            cd $DEST_DIR
+
+            # Checkout the REF
+            git fetch origin ${{ inputs.redis-ref }}
+            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
@@ -165,7 +203,7 @@ jobs:
         run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts
+      - name: Upload Artifacts (node20)
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
@@ -175,18 +213,11 @@ jobs:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log*
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
-      # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported)
-        # Upload artifacts only if tests failed (including sanitizer failures)
+      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure' || steps.coordinator_unit_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: tests/**/logs/*.log*
-          if-no-files-found: ignore
+          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure' || steps.coordinator_unit_tests.outcome == 'failure'
