@@ -102,7 +102,13 @@ jobs:
 
               # Clone the repository to the current directory
               git clone $REPO_URL .
+              # Checkout the branch
+              git checkout ${{ github.ref }}
               git submodule update --init --recursive
+
+              # Print the tags of the submodules
+              echo "Submodule tags:"
+              git submodule foreach 'git tag'
               ;;
             *)
               echo "Unsupported platform: '${{ inputs.container }}'"
