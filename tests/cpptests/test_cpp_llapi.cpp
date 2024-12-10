@@ -1266,6 +1266,8 @@ TEST_F(LLApiTest, testIndexesInfo) {
   bool is_equal = !memcmp(&api_indexes_info, &expected_indexes_info, sizeof(TotalIndexesInfo));
 
   ASSERT_TRUE(is_equal);
+
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testLanguage) {

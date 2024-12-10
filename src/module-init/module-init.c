@@ -2,7 +2,6 @@
 #include "redismodule.h"
 
 #include "module.h"
-#include "version.h"
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
