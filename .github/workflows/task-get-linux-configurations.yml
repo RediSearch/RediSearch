@@ -2,35 +2,22 @@ name: Get Linux Configurations
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
-# TODO: restore when node issues is resolved
-# env:
-#   ALL_X86_IMAGES: "['ubuntu:jammy',
-#                     'ubuntu:focal',
-#                     'ubuntu:bionic',
-#                     'ubuntu:xenial',
-#                     'centos:7',
-#                     'rockylinux:8',
-
-#                     'debian:bullseye',
-#                     'amazonlinux:2',
-#                     'mcr.microsoft.com/cbl-mariner/base/core:2.0'
-#                     ]"
-#                     # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
-#   ALL_ARM_IMAGES: "['ubuntu:jammy',
-#                     'ubuntu:focal',
-#                     'ubuntu:bionic']"
-
 env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
+                    'ubuntu:bionic',
+                    'ubuntu:xenial',
+                    'centos:7',
                     'rockylinux:8',
 
                     'debian:bullseye',
+                    'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0'
                     ]"
                     # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
   ALL_ARM_IMAGES: "['ubuntu:jammy',
-                    'ubuntu:focal']"
+                    'ubuntu:focal',
+                    'ubuntu:bionic']"
 
 on:
   workflow_call:
