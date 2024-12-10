@@ -195,26 +195,26 @@
 // write commands (on enterprise we do not define them, the dmc take care of them)
 // search write slow dangerous
 #define RS_OSS_WRITE_COMMANDS(OP, ...)                                                                                                    \
-    OP("FT.CREATE",         SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtCreateInfo,      "",                     __VA_ARGS__)) \
-    OP("FT._CREATEIFNX",    SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__)) \
-    OP("FT.ALTER",          SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAlterInfo,       "",                     __VA_ARGS__)) \
-    OP("FT._ALTERIFNX",     SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__)) \
-    OP("FT.DROPINDEX",      SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDropindexInfo,   "write slow dangerous", __VA_ARGS__)) \
-    OP("FT._DROPINDEXIFX",  SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write slow dangerous", __VA_ARGS__)) \
-    OP("FT.DICTADD",        SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDictaddInfo,     "",                     __VA_ARGS__)) \
-    OP("FT.DICTDEL",        SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDictdelInfo,     "",                     __VA_ARGS__)) \
-    OP("FT.ALIASADD",       SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasaddInfo,    "",                     __VA_ARGS__)) \
-    OP("FT._ALIASADDIFNX",  SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__)) \
-    OP("FT.ALIASDEL",       SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasdelInfo,    "",                     __VA_ARGS__)) \
-    OP("FT._ALIASDELIFX",   SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__)) \
-    OP("FT.ALIASUPDATE",    SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasupdateInfo, "",                     __VA_ARGS__)) \
-    OP("FT.SYNUPDATE",      SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtSynupdateInfo,   "",                     __VA_ARGS__)) \
-    OP("FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__)) \
-    OP("FT.GET",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "read admin",           __VA_ARGS__)) \
-    OP("FT.ADD",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__)) \
-    OP("FT.DEL",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__)) \
-    OP("FT.DROP",           SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write admin",          __VA_ARGS__)) \
-    OP("FT._DROPIFX",       SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write admin",          __VA_ARGS__))
+    OP("FT.CREATE",         SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtCreateInfo,      "",                     __VA_ARGS__) \
+    OP("FT._CREATEIFNX",    SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
+    OP("FT.ALTER",          SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAlterInfo,       "",                     __VA_ARGS__) \
+    OP("FT._ALTERIFNX",     SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
+    OP("FT.DROPINDEX",      SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDropindexInfo,   "write slow dangerous", __VA_ARGS__) \
+    OP("FT._DROPINDEXIFX",  SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write slow dangerous", __VA_ARGS__) \
+    OP("FT.DICTADD",        SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDictaddInfo,     "",                     __VA_ARGS__) \
+    OP("FT.DICTDEL",        SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtDictdelInfo,     "",                     __VA_ARGS__) \
+    OP("FT.ALIASADD",       SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasaddInfo,    "",                     __VA_ARGS__) \
+    OP("FT._ALIASADDIFNX",  SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
+    OP("FT.ALIASDEL",       SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasdelInfo,    "",                     __VA_ARGS__) \
+    OP("FT._ALIASDELIFX",   SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
+    OP("FT.ALIASUPDATE",    SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasupdateInfo, "",                     __VA_ARGS__) \
+    OP("FT.SYNUPDATE",      SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtSynupdateInfo,   "",                     __VA_ARGS__) \
+    OP("FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
+    OP("FT.GET",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "read admin",           __VA_ARGS__) \
+    OP("FT.ADD",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__) \
+    OP("FT.DEL",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__) \
+    OP("FT.DROP",           SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write admin",          __VA_ARGS__) \
+    OP("FT._DROPIFX",       SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "write admin",          __VA_ARGS__)
 
 #endif
 
