@@ -215,13 +215,14 @@ def test_acl_key_permissions_validation(env):
     env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~h:*', '&*', '+@all').ok()
 
     # Create an index on the key the user does not have permissions to access
-    # All prefixes will do (default)
-    idx_name = 'idx'
-    env.expect('FT.CREATE', idx_name, 'SCHEMA', 'n', 'NUMERIC')
+    # and one that it can access
+    no_perm_index = 'noPermIdx'
+    perm_index = 'permIdx'
+    env.expect('FT.CREATE', no_perm_index, 'SCHEMA', 'n', 'NUMERIC')
+    env.expect('FT.CREATE', perm_index, 'PREFIXES', 1, 'h:','SCHEMA', 'n', 'NUMERIC')
 
     # Create another index an alias for it, that will soon be dropped.
     env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC')
-    env.expect('FT.ALIASADD', 'myAlias', 'index_to_drop')
 
     # Authenticate as the user
     env.expect('AUTH', 'test', '123').true()
@@ -229,27 +230,27 @@ def test_acl_key_permissions_validation(env):
     # The `test` user should not be able to access the index, with any of the
     # following commands:
     index_commands = [
-        ['FT.AGGREGATE', idx_name, '*'],
-        ['FT.INFO', idx_name],
-        ['FT.SEARCH', idx_name, '*'],
-        ['FT.PROFILE', idx_name, 'AGGREGATE', 'QUERY', '*'],
-        ['FT.PROFILE', idx_name, 'SEARCH', 'QUERY', '*'],
-        ['FT.CURSOR', 'READ', idx_name, '555'],
-        ['FT.CURSOR', 'DEL', idx_name, '555'],
-        ['FT.CURSOR', 'GC', idx_name, '555'],
-        ['FT.SPELLCHECK', idx_name, 'name'],
-        ['FT.ALIASADD', 'myAlias', idx_name],
-        ['FT.ALIASUPDATE', 'myAlias', idx_name],
-        ['FT.ALTER', idx_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
+        ['FT.AGGREGATE', no_perm_index, '*'],
+        ['FT.INFO', no_perm_index],
+        ['FT.SEARCH', no_perm_index, '*'],
+        ['FT.PROFILE', no_perm_index, 'AGGREGATE', 'QUERY', '*'],
+        ['FT.PROFILE', no_perm_index, 'SEARCH', 'QUERY', '*'],
+        ['FT.CURSOR', 'READ', no_perm_index, '555'],
+        ['FT.CURSOR', 'DEL', no_perm_index, '555'],
+        ['FT.CURSOR', 'GC', no_perm_index, '555'],
+        ['FT.SPELLCHECK', no_perm_index, 'name'],
+        ['FT.ALIASADD', 'myAlias', no_perm_index],
+        ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
+        ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
+        ['FT.EXPLAIN', no_perm_index, '*'],
+        ['FT.EXPLAINCLI', no_perm_index, '*'],
+        ['FT.INFO', no_perm_index],
         ['FT.DROPINDEX', 'index_to_drop'],
-        ['FT.EXPLAIN', idx_name, '*'],
-        ['FT.EXPLAINCLI', idx_name, '*'],
-        ['FT.INFO', idx_name],
     ]
     for command in index_commands:
         env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
 
-    # the user should be able to execute all commands that do not refer to a
+    # the `test` user should be able to execute all commands that do not refer to a
     # specific index
     non_index_commands = [
         [config_cmd(), 'GET', 'TIMEOUT'],
@@ -269,6 +270,19 @@ def test_acl_key_permissions_validation(env):
             conn.execute_command(*command)
         except Exception as e:
             # Should not fail on permissions
+            env.assertNotContains("User does not have the required permissions", str(e))
+
+    # The `test` user should also be able to access the index it has permissions
+    # to access.
+    # Modify the `DROPINDEX` command that does not have the same index
+    index_commands[-1][1] = perm_index
+    for command in index_commands:
+        # Switch the index name to the one the user has permissions to access
+        if no_perm_index in command:
+            command[command.index(no_perm_index)] = perm_index
+        try:
+            env.execute_command(*command)
+        except Exception as e:
             env.assertNotContains("User does not have the required permissions", str(e))
 
     # For completeness, we verify that the default user, which has permissions
