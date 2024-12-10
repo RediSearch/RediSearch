@@ -5,7 +5,7 @@
  */
 
 #include "INFO_MODULES.h"
-#include "version.h"         // TODO: remove from module-init
+#include "version.h"
 #include "global_stats.h"
 #include "cursor.h"
 #include "indexes_info.h"
