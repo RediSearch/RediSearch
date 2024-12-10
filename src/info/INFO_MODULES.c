@@ -6,22 +6,22 @@
 
 #include "INFO_MODULES.h"
 #include "version.h"         // TODO: remove from module-init
-#include "redisearch_api.h"  // TODO: remove once RediSearch_TotalInfo is moved
 #include "global_stats.h"
 #include "cursor.h"
+#include "indexes_info.h"
+#include "util/units.h"
 
-#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
-static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFieldsStats);
+static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregatedFieldsStats);
 
 // General sections info
-static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
-static inline void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
+static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
-static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
-static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
-static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
+static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
@@ -43,7 +43,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
 
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+  TotalIndexesInfo total_info = IndexesInfo_TotalInfo();
 
   // Indexes related statistics
   AddToInfo_Indexes(ctx, &total_info);
@@ -75,9 +75,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
 /* ========================== IMP ============================ */
 
-// TODO: revert and read directly from RSGLOBALCONFIG
 // Assuming that the GIL is already acquired
-void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFieldsStats) {
+void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregatedFieldsStats) {
 
   RedisModule_InfoAddSection(ctx, "fields_statistics");
 
@@ -167,7 +166,7 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalSpecsFieldInfo *aggregatedFi
   }
 }
 
-void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "index");
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
@@ -176,7 +175,7 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info->total_active_writes);
 }
 
-void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "memory");
 
 	// Total
@@ -203,7 +202,7 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
 }
 
-void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "gc");
   InfoGCStats stats = total_info->gc_stats;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
@@ -213,7 +212,7 @@ void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
 
-void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "queries");
   QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
   RedisModule_InfoAddFieldULongLong(ctx, "total_queries_processed", stats.total_queries_processed);
@@ -222,7 +221,7 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
 }
 
-void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info) {
+void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "warnings_and_errors");
   RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs

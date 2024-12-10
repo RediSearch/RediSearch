@@ -21,9 +21,8 @@
 #include "util/array.h"
 #include "cursor.h"
 #include "fork_gc.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "profile.h"
-#include "global_stats.h"
 #include "info/INFO_MODULES.h"
 
 /**

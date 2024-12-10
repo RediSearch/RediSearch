@@ -6,6 +6,7 @@
 
 #include "global_stats.h"
 #include "aggregate/aggregate.h"
+#include "util/units.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
