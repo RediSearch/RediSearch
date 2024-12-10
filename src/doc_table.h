@@ -195,13 +195,7 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-/* Save the table to RDB. Called from the owning index */
-void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
-
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
-
-/* Load the table from RDB */
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }

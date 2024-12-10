@@ -56,13 +56,10 @@ typedef struct InvertedIndex {
  * a pointer or an integer. It is intended to relay along any kind of additional
  * configuration information to help the decoder determine whether to filter
  * the entry */
-typedef struct {
-  void *ptr;
-  t_fieldMask num;
-
-  // used by profile
-  double rangeMin;
-  double rangeMax;
+typedef union {
+  uint32_t mask;
+  t_fieldMask wideMask;
+  const NumericFilter *filter;
 } IndexDecoderCtx;
 
 /**
@@ -122,7 +119,8 @@ void InvertedIndex_Free(void *idx);
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef int (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
+typedef bool (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res,
+                             t_docId offset);
 
 struct IndexReader;
 /**
@@ -132,8 +130,8 @@ struct IndexReader;
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
  */
-typedef int (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
-                           t_docId to, RSIndexResult *res);
+typedef bool (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
+                            t_docId to, RSIndexResult *res);
 
 typedef struct {
   IndexDecoder decoder;
@@ -156,9 +154,13 @@ typedef struct IndexReader {
   t_docId lastId;
   // same docId, used for detecting same doc (with multi values)
   t_docId sameId;
-  // Whether to skip multi values from the same doc
-  int skipMulti;
-  uint32_t currentBlock;
+
+  union {
+    struct {
+      double rangeMin;
+      double rangeMax;
+    } numeric;
+  } profileCtx;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for
    * filtering field masks, the pointer for numeric filtering */
@@ -172,11 +174,14 @@ typedef struct IndexReader {
   /* The record we are decoding into */
   RSIndexResult *record;
 
-  int atEnd_;
-
   // If present, this pointer is updated when the end has been reached. This is
   // an optimization to avoid calling IR_HasNext() each time
-  uint8_t *isValidP;
+  bool *isValidP;
+
+  bool atEnd_;
+  // Whether to skip multi values from the same doc
+  bool skipMulti;
+  uint32_t currentBlock;
 
   /* This marker lets us know whether the garbage collector has visited this index while the reading
    * thread was asleep, and reset the state in a deeper way
@@ -211,7 +216,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
  * is
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, int skipMulti,
+                              double rangeMin, double rangeMax, bool skipMulti,
                               const FieldFilterContext* filterCtx);
 
 IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti);
