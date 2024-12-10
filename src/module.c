@@ -2932,6 +2932,9 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   // Validate ACL key permissions if needed (for commands that access an index)
   int indexNamePos;
   if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+    if (indexNamePos >= argc) {
+      return RedisModule_WrongArity(ctx);
+    }
     VERIFY_ACL(ctx, argv[indexNamePos])
   }
 
@@ -2966,6 +2969,9 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Validate ACL key permissions if needed (for commands that access an index)
   int indexNamePos;
   if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+    if (indexNamePos >= argc) {
+      return RedisModule_WrongArity(ctx);
+    }
     VERIFY_ACL(ctx, argv[indexNamePos])
   }
 
