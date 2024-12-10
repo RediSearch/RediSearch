@@ -867,7 +867,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
     sp->monitorDocumentExpiration = options.docs && !options.notDocs;
   }
   if (options.fields || options.notFields) {
-    sp->monitorFieldExpiration = options.fields && !options.notFields;
+    sp->monitorFieldExpiration = options.fields && !options.notFields && RedisModule_HashFieldMinExpire != NULL;
   }
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;

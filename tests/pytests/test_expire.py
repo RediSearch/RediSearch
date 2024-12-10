@@ -416,7 +416,7 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -438,7 +438,7 @@ def testLazyTextFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyGeoshapeFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -455,7 +455,7 @@ def testLazyGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyVectorFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
