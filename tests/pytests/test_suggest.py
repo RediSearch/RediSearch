@@ -225,3 +225,35 @@ def testEmptySuggestionDict(env):
     env.assertEqual(res, [])
     res = conn.execute_command('ft.sugdel', 'sug', 'hello world')
     env.assertEqual(res, 0)
+
+def testWrongType(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    errMsg = 'WRONGTYPE Operation against a key holding the wrong kind of value'
+
+    # Test on wrong type
+    conn.execute_command('set', 'sug', 'hello')
+    try:
+        conn.execute_command('ft.sugadd', 'sug', 'hello world', '1')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.suglen', 'sug')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.sugget', 'sug', 'hello')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.sugdel', 'sug', 'hello world')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
