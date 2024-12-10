@@ -70,7 +70,7 @@ class DialectEnv(Env):
                 message = f'Dialect {self.dialect}'
             else:
                 message = f'Dialect {self.dialect}, {message}'
-        super().assertEqual(first, second, depth=depth, message=message)
+        super().assertEqual(first, second, depth=depth+1, message=message)
 
 def getConnectionByEnv(env):
     conn = None
@@ -654,16 +654,26 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Use FT.* command to make sure that the module is loaded and initialized
+# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
 def verify_shard_init(shard):
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.SEARCH', 'non-existing', '*')
-                raise Exception('Expected FT.SEARCH to fail')
+                shard.execute_command('FT.CREATE', 'init_shard_idx' ,'SCHEMA', 't', 'TEXT')
+                shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
+                break
             except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
-                    break
+                # One of the following errors can be raised (timing), yet they
+                # mean the same thing in this case - the command was dispatched
+                # to the shards before the connections were ready. Continue to
+                # try until success\timeout.
+                possible_errors = [
+                    'ERRCLUSTER Uninitialized cluster state, could not perform command',
+                    'Could not distribute command'
+                ]
+                if any([err in str(e) for err in possible_errors]):
+                    continue
+                raise
 
 def cmd_assert(env, cmd, res, message=None):
     db_res = env.cmd(*cmd)
