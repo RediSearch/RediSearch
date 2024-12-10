@@ -35,7 +35,7 @@ def testDeleteIndex(env):
         env.assertEqual(res, 1)
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
-    r.expect('ft.drop', 'idx').ok()
+    r.expect('ft.dropindex', 'idx').ok()
     r.expect('ft.info', 'idx').equal('Unknown index name')
     # time.sleep(1)
 

@@ -427,7 +427,7 @@ def testInfo(env):
                     'indexes_all', 'false']
     env.assertEqual(res_actual[5], res_expected)
 
-    env.expect('ft.drop test').ok()
+    env.expect('ft.dropindex test').ok()
 
     env.expect('FT.CREATE', 'test', 'SCHEMA', 't', 'TEXT').ok()
     res_actual = env.cmd('FT.INFO test')
