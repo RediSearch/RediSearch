@@ -3033,6 +3033,13 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
+
+  int32_t dbnum = ((RedisModuleFlushInfo *)data)->dbnum;
+
+  if (dbnum > 0) {
+    return;
+  }
+
   Indexes_Free(specDict_g);
   workersThreadPool_Drain(ctx, 0);
   Dictionary_Clear();
