@@ -40,6 +40,7 @@ static timespec getTimespecCb(void *) {
 }
 
 typedef struct {
+  RedisModuleCtx *ctx;
   void *fgc;
   IndexSpec *sp;
   volatile bool runGc;
@@ -58,8 +59,9 @@ void *cbWrapper(void *args) {
       break;
     }
 
-  // run ForkGC
-  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+    // run ForkGC
+    fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  }
   return NULL;
 }
 
@@ -83,7 +85,7 @@ class FGCTest : public ::testing::Test {
     Spec_AddToDict(sp);
     fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
     thread = {0};
-    args = {.fgc = fgc, .sp = sp, .runGc = true};
+    args = {.ctx = ctx, .fgc = fgc, .sp = sp, .runGc = true};
 
     pthread_create(&thread, NULL, cbWrapper, &args);
   }
