@@ -90,7 +90,7 @@ def testAofRewriteTags():
     env.assertEqual(info_a['attributes'], info_b['attributes'])
 
     # Try to drop the schema
-    env.cmd('FT.DROP', 'idx')
+    env.cmd('FT.DROPINDEX', 'idx')
 
     conn.execute_command('del', '1')
     conn.execute_command('del', '2')
