@@ -1790,7 +1790,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->monitorDocumentExpiration = true;
-  sp->monitorFieldExpiration = true;
+  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));

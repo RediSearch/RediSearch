@@ -459,7 +459,7 @@ def test_background_index_no_lazy_expiration_json(env):
     env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -481,7 +481,7 @@ def testLazyTextFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyGeoshapeFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -498,7 +498,7 @@ def testLazyGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyVectorFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
