@@ -92,7 +92,11 @@ def generate_command_info_definition(name, info, file):
     file.write(f'// Info for {name}\n')
     with Scope(signature + ' ', '\n', file) as function:
         generate_redis_module_command_info(info, file)
-        function.write(f'return RedisModule_SetCommandInfo(cmd, &info);\n')
+        # If RedisModule_SetCommandInfo is not available, quietly return REDISMODULE_OK
+        with Scope('if (RedisModule_SetCommandInfo == NULL)', '', file) as no_set_command_info:
+            no_set_command_info.write('return REDISMODULE_OK;\n')
+        function.write('return RedisModule_SetCommandInfo(cmd, &info);\n')
+
 
 def generate_c_file(file_name, commands):
     with open(file_name + '.c', 'w') as c_file:

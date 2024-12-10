@@ -254,6 +254,9 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -3,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -273,6 +276,9 @@ int SetFtInfoInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -303,6 +309,9 @@ int SetFtExplainInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -333,6 +342,9 @@ int SetFtExplaincliInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -376,6 +388,9 @@ int SetFtAlterInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -5,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -408,6 +423,9 @@ int SetFtDropindexInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "2.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -431,6 +449,9 @@ int SetFtAliasaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -454,6 +475,9 @@ int SetFtAliasupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -473,6 +497,9 @@ int SetFtAliasdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -496,6 +523,9 @@ int SetFtTagvalsInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -546,6 +576,9 @@ int SetFtSugaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -3,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -597,6 +630,9 @@ int SetFtSuggetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -620,6 +656,9 @@ int SetFtSugdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -639,6 +678,9 @@ int SetFtSuglenInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -673,6 +715,9 @@ int SetFtSynupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -3,
     .since = "1.2.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -692,6 +737,9 @@ int SetFtSyndumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.2.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -763,6 +811,9 @@ int SetFtSpellcheckInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.4.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -787,6 +838,9 @@ int SetFtDictaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.4.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -811,6 +865,9 @@ int SetFtDictdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.4.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -830,6 +887,9 @@ int SetFtDictdumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.4.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -841,6 +901,9 @@ int SetFt_ListInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .complexity = "O(1)",
     .since = "2.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -864,6 +927,9 @@ int SetFtConfigSetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -883,6 +949,9 @@ int SetFtConfigGetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -902,6 +971,9 @@ int SetFtConfigHelpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -1,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -1346,6 +1418,9 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.0.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -1609,6 +1684,9 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.1.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -1660,6 +1738,9 @@ int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -4,
     .since = "2.2.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -1689,6 +1770,9 @@ int SetFtCursorReadInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.1.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
@@ -1712,6 +1796,9 @@ int SetFtCursorDelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .arity = -2,
     .since = "1.1.0",
   };
+  if (RedisModule_SetCommandInfo == NULL){
+    return REDISMODULE_OK;
+  }
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 

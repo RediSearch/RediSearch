@@ -1214,6 +1214,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  if (RedisModule_SetCommandInfo == NULL) {
+    RedisModule_Log(ctx, "warning",
+                    "RedisModule_SetCommandInfo is not available, search commands will have limited information");
+  }
+
   SearchCommand commands[] = {
       RS_COMMANDS(DEFINE_COMMAND)
   };
