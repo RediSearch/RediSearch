@@ -453,11 +453,9 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       while (fm) {
         if (fm & bit_mask) {
           const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit_mask);
-          if (fs) {
-            if(!FieldSpec_IsNoStem(fs)) {
-              expand = 1;
-              break;
-            }
+          if (fs && !FieldSpec_IsNoStem(fs)) {
+            expand = 1;
+            break;
           }
         }
         fm &= ~bit_mask;
