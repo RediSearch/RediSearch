@@ -26,6 +26,7 @@ class MyEnvironment : public ::testing::Environment {
     const char *arguments[] = {"SAFEMODE", "NOGC"};
     // No arguments..
     RMCK_Bootstrap(my_OnLoad, arguments, 2);
+    RSGlobalConfig.freeResourcesThread = false;
   }
 
   virtual void TearDown() {
