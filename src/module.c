@@ -1119,12 +1119,6 @@ static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *curso
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
-static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  RedisModuleCmdFunc func = SafeCmd(RSCursorCommand);
-  CURSOR_SUBCOMMANDS("FT.CURSOR", func);
-  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
-}
-
 static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *debugCommand) {
   int rc = RegisterDebugCommands(debugCommand);
   if (rc != REDISMODULE_OK) {
@@ -2941,6 +2935,12 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
+}
+
+static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  RedisModuleCmdFunc func = SafeCmd(CursorCommand);
+  CURSOR_SUBCOMMANDS("FT.CURSOR", func);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
