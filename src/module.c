@@ -108,11 +108,13 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     prefix = RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i]));
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
       RedisModule_FreeString(ctx, prefix);
+      RedisModule_FreeModuleUser(user);
       return false;
     }
     RedisModule_FreeString(ctx, prefix);
   }
 
+  RedisModule_FreeModuleUser(user);
   return true;
 }
 
