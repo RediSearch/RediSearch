@@ -923,7 +923,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
     env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
-
 @skip(cluster=True)
 def test_mod5910(env):
     con = getConnectionByEnv(env)

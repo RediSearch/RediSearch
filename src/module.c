@@ -145,7 +145,6 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
-    // TODO: Consider having an assertion instead - when could this happen?
     RedisModule_Log(ctx, "warning", "No user found");
     return false;
   }
