@@ -22,7 +22,7 @@ void GeometryQuery_Free(GeometryQuery *geomq);
 
 GeometryIndex *OpenGeometryIndex(IndexSpec *spec, const FieldSpec *fs, bool create_if_missing);
 
-RedisModuleString *fmtRedisGeometryIndexKey(RedisSearchCtx *ctx, const char *field);
+RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const char *field);
 
 // Remove indexed data for the given document ID
 void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id);

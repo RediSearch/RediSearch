@@ -155,8 +155,6 @@ typedef struct AREQ {
   /** Flags indicating current execution state */
   uint32_t stateflags;
 
-  struct timespec timeoutTime;
-
   int protocol; // RESP2/3
 
   /*

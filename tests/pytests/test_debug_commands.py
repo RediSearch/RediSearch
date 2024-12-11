@@ -45,6 +45,7 @@ class TestDebugCommands(object):
             "GC_CONTINUE_SCHEDULE",
             "GC_WAIT_FOR_JOBS",
             "GIT_SHA",
+            "SET_MONITOR_EXPIRATION",
             "TTL",
             "TTL_PAUSE",
             "TTL_EXPIRE",

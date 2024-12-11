@@ -10,6 +10,9 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
+#define MILLISECOND_IN_ONE_SECOND 1000
+#define NANOSECOND_IN_ONE_MILLISECOND 1000000
+
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type) {
   doc->docKey = docKey;
   doc->score = (float)score;
@@ -108,7 +111,29 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
+static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
+  timespec result = {.tv_sec = 0, .tv_nsec = 0};
+  if (totalMilliseconds > 0) {
+    result.tv_sec = totalMilliseconds / MILLISECOND_IN_ONE_SECOND;
+    result.tv_nsec = (totalMilliseconds % MILLISECOND_IN_ONE_SECOND) * NANOSECOND_IN_ONE_MILLISECOND;
+  }
+  return result;
+}
+
+static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
+  t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
+  mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
+  if (totalMilliseconds == REDISMODULE_NO_EXPIRE) {
+    return zero;
+  }
+
+  t_expirationTimePoint result = timespecFromMilliseconds(totalMilliseconds);
+  return result;
+}
+
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
+  // must happen before opening the key, in case the call will cause a lazy expiration
+  IndexSpec *spec = sctx->spec;
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
@@ -118,7 +143,6 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   }
 
   size_t nitems = sctx->spec->numFields;
-  IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   assert(rule);
   RedisModuleString *payload_rms = NULL;
@@ -135,6 +159,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
+  const bool hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -144,6 +169,16 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     if (v == NULL) {
       continue;
     }
+
+    if (hasExpireTimeOnFields) {
+      mstime_t expireAt = REDISMODULE_NO_EXPIRE;
+      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, field->path, &expireAt, NULL);
+      if (expireAt != REDISMODULE_NO_EXPIRE) {
+        FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
+        array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
+      }
+    }
+
     size_t oix = doc->numFields++;
     doc->fields[oix].path = rm_strdup(field->path);
     doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
@@ -153,8 +188,11 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
     RedisModule_FreeString(sctx->redisCtx, v);
   }
-  rv = REDISMODULE_OK;
 
+  if (spec->monitorDocumentExpiration) {
+    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+  }
+  rv = REDISMODULE_OK;
 done:
   if (k) {
     RedisModule_CloseKey(k);
@@ -174,6 +212,18 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   RedisModuleCtx *ctx = sctx->redisCtx;
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
+
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  if (!k) {
+    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
+    goto done;
+  }
+
+  if (spec->monitorDocumentExpiration) {
+    doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);
+  }
+
+  RedisModule_CloseKey(k);
 
   RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
   if (!jsonRoot) {

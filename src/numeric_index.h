@@ -93,11 +93,13 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti);
+struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
+                                              const NumericFilter *f, int skipMulti,
+                                              const FieldFilterContext* filterCtx);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config);
+struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx, FieldType forType,
+                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.

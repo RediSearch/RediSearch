@@ -105,7 +105,7 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
+static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
   auto tix = TagIndex_Open(sctx, fmtkey, CREATE_INDEX);
@@ -296,6 +296,7 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
 
   // Now add documents until we have new blocks added.
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   while (iv->size < 3) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
@@ -334,6 +335,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+sctx.spec->monitorDocumentExpiration = false;
 
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
@@ -402,6 +404,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   unsigned curId = 1;
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
@@ -477,6 +480,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
@@ -518,6 +522,7 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (iv->size < 3) {
     char buf[1024];
@@ -558,6 +563,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   // Delete the first block:
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
   InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
 
   while (iv->size < 2) {
