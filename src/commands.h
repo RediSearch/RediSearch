@@ -209,7 +209,6 @@
     OP("FT._ALIASDELIFX",   SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
     OP("FT.ALIASUPDATE",    SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtAliasupdateInfo, "",                     __VA_ARGS__) \
     OP("FT.SYNUPDATE",      SafeCmd(MastersFanoutCommandHandler), "readonly", SetFtSynupdateInfo,   "",                     __VA_ARGS__) \
-    OP("FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", NULL,                 "",                     __VA_ARGS__) \
     OP("FT.GET",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "read admin",           __VA_ARGS__) \
     OP("FT.ADD",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__) \
     OP("FT.DEL",            SafeCmd(SingleShardCommandHandler),   "readonly", NULL,                 "write admin",          __VA_ARGS__) \
