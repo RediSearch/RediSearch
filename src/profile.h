@@ -37,6 +37,7 @@ typedef struct {
   AREQ *req;
   bool timedout;
   bool reachedMaxPrefixExpansions;
+  bool obfuscate;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
 typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);

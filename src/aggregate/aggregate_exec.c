@@ -186,7 +186,8 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = &rsv;
       }
       if (need_map) {
-        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
+        const char* key = HiddenString_GetUnsafe(req->requiredFields[currentField], NULL);
+        RedisModule_Reply_CString(reply, key); // key name
       }
       reeval_key(reply, v);
     }
@@ -222,7 +223,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
           RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
-          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+          size_t nameLen = 0;
+          const char *unsafeName = HiddenString_GetUnsafe(kk->name, &nameLen);
+          RedisModule_Reply_StringBuffer(reply, unsafeName, nameLen);
 
           SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
           flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
@@ -429,7 +432,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err, false));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -539,7 +542,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err, false));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -622,7 +625,7 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err, false));
     } else if (req->qiter.err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
@@ -730,7 +733,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
+    QueryError_ReplyAndClear(outctx, &status, false);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -765,7 +768,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  QueryError_ReplyAndClear(outctx, &status);
+  QueryError_ReplyAndClear(outctx, &status, false);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
@@ -853,7 +856,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "No index exists with provided name", " %s", indexname);
     goto done;
   }
 
@@ -965,7 +968,7 @@ error:
   if (r) {
     AREQ_Free(r);
   }
-  return QueryError_ReplyAndClear(ctx, &status);
+  return QueryError_ReplyAndClear(ctx, &status, false);
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
