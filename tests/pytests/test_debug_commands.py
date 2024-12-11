@@ -193,13 +193,15 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'invidx_summary', 'idx1').error()
 
     def testNumericIdxIndexSummary(self):
-        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0,
-                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age').equal([
+            'numRanges', 1, 'numLeaves', 1, 'numEntries', 1, 'lastDocId', 1, 'revisionId', 0,
+            'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY,
+        ])
 
-        self.env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0,
-                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
+        self.env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'age').equal([
+            'numRanges', 1, 'numLeaves', 1, 'numEntries', 1, 'lastDocId', 1, 'revisionId', 0,
+            'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY
+        ])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age1').error()
