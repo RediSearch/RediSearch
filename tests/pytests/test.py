@@ -2542,6 +2542,16 @@ def testAlias(env):
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
 
     env.expect('ft.aliasAdd', 'myIndex').error()
+
+    pre_indices = env.cmd('ft._list')
+    env.cmd('ft.create', 'tmp_index_name', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
+    env.expect('ft.aliasAdd', 'tmp_index_name', 'idx').error()
+    env.cmd('ft.drop', 'tmp_index_name')
+    post_indices = env.cmd('ft._list')
+    env.assertEqual(set(pre_indices), set(post_indices))
+    env.cmd('ft.aliasAdd', 'tmp_index_name', 'idx')
+    env.cmd('ft.aliasDel', 'tmp_index_name')
+
     env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').error()
     env.cmd('ft.aliasAdd', 'myIndex', 'idx')
     env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
