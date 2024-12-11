@@ -1300,13 +1300,13 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},
                                {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
                                {"GIT_SHA", GitSha},
+                               {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"TTL", ttl},
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
-                               {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
                                {NULL, NULL}};
 
