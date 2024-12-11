@@ -485,13 +485,13 @@ def testCountArgValidation(env):
     # Query the cursor with bad subcommand
     env.expect(
         'FT.CURSOR', 'READS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'DELS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
     env.expect(
         'FT.CURSOR', 'GCS', 'idx', str(cid)
-    ).error().contains('Unknown subcommand')
+    ).error().contains('unknown subcommand')
 
     # Query the cursor with a bad value for the `COUNT` argument
     env.expect(
