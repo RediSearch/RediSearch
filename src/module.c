@@ -775,7 +775,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
   if (dictFetchValue(specDict_g, alias)) {
-    QueryError_SetCode(error, QUERY_EINDEXEXISTS);
+    QueryError_SetCode(error, QUERY_EALIASCONFLICT);
     return REDISMODULE_ERR;
   }
 
