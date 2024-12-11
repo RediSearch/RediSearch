@@ -8,7 +8,7 @@
 #include "redismodule.h"
 #include "circular_buffer.h"
 #include "src/rmalloc.h"
-#include "src/module.h"
+#include "src/util/likely.h"
 
 #include <stdatomic.h>
 
@@ -26,11 +26,7 @@ struct _CircularBuffer {
 };
 
 // Creates a new circular buffer, with `cap` items of size `item_size`
-CircularBuffer CircularBuffer_New
-(
-	size_t item_size,  // size of item in bytes
-	uint cap           // max number of items in buffer
-) {
+CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
 	CircularBuffer cb = rm_calloc(1, sizeof(_CircularBuffer) + item_size * cap);
 
 	cb->read       = cb->data;                      // initial read position
@@ -44,110 +40,42 @@ CircularBuffer CircularBuffer_New
 }
 
 // Returns the number of items in the buffer
-uint64_t CircularBuffer_ItemCount
-(
-	CircularBuffer cb  // buffer to inspect
-) {
+uint64_t CircularBuffer_ItemCount(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	return cb->item_count;
 }
 
 // Returns buffer capacity
-uint64_t CircularBuffer_Cap
-(
-	CircularBuffer cb // buffer
-) {
+uint64_t CircularBuffer_Cap(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	return cb->item_cap;
 }
 
 // Returns the size of each item in the buffer
-uint CircularBuffer_ItemSize
-(
-	const CircularBuffer cb  // buffer
-) {
+uint CircularBuffer_ItemSize(const CircularBuffer cb) {
 	return cb->item_size;
 }
 
 // Returns true if buffer is empty
-inline bool CircularBuffer_Empty
-(
-	const CircularBuffer cb  // buffer
-) {
+inline bool CircularBuffer_Empty(const CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	return cb->item_count == 0;
 }
 
 // Returns true if buffer is full
-inline bool CircularBuffer_Full
-(
-	const CircularBuffer cb  // buffer
-) {
+inline bool CircularBuffer_Full(const CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	return cb->item_count == cb->item_cap;
 }
 
-// Sets the read pointer to the beginning of the buffer.
-// assuming the buffer looks like this:
-//
-// [., ., ., A, B, C, ., ., .]
-//                    ^
-//                    W
-//
-// CircularBuffer_ResetReader will set 'read' to A
-//
-// [., ., ., A, B, C, ., ., .]
-//           ^        ^
-//           R        W
-//
-void CircularBuffer_ResetReader
-(
-	CircularBuffer cb  // circular buffer
-) {
-	// compensate for circularity
-	uint64_t write = cb->write;
-
-	// compute newest item index, e.g. newest item is at index k
-	uint idx = write / cb->item_size;
-
-	// compute offset to oldest item
-	// oldest item is n elements before newest item
-	//
-	// example:
-	//
-	// [C, ., ., ., ., ., ., A, B]
-	//
-	// idx = 1, item_count = 3
-	// offset is 1 - 3 = -2
-	//
-	// [C, ., ., ., ., ., ., A, B]
-	//     ^                 ^
-	//     W                 R
-
-	int offset = idx - cb->item_count;
-	offset *= cb->item_size;
-
-	if (offset >= 0) {
-		// offset is positive, read from beginning of buffer
-		cb->read = cb->data + offset;
-	} else {
-		// offset is negative, read from end of buffer
-		cb->read = cb->end_marker + offset;
-	}
-}
-
 // Adds an item to buffer.
 // Returns 1 on success, 0 otherwise
 // This function is thread-safe and lock-free
-int CircularBuffer_Add
-(
-	CircularBuffer cb,   // buffer to populate
-	void *item           // item to add
-) {
+int CircularBuffer_Add(CircularBuffer cb, void *item) {
 	RedisModule_Assert(cb   != NULL);
 	RedisModule_Assert(item != NULL);
 
@@ -197,10 +125,7 @@ int CircularBuffer_Add
 // Reserve a slot within buffer.
 // Returns a pointer to a 'item size' slot within the buffer.
 // This function is thread-safe and lock-free.
-void *CircularBuffer_Reserve
-(
-	CircularBuffer cb  // buffer to populate
-) {
+void *CircularBuffer_Reserve(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	// atomic update buffer item count
@@ -245,11 +170,7 @@ void *CircularBuffer_Reserve
 // Read oldest item from buffer.
 // This function is not thread-safe.
 // This function pops the oldest item from the buffer.
-void *CircularBuffer_Read
-(
-	CircularBuffer cb,  // buffer to read item from
-	void *item          // [optional] pointer populated with removed item
-) {
+void *CircularBuffer_Read(CircularBuffer cb, void *item) {
 	RedisModule_Assert(cb != NULL);
 
 	// make sure there's data to return
@@ -278,11 +199,54 @@ void *CircularBuffer_Read
 	return read;
 }
 
+// Sets the read pointer to the beginning of the buffer.
+// assuming the buffer looks like this:
+//
+// [., ., ., A, B, C, ., ., .]
+//                    ^
+//                    W
+//
+// CircularBuffer_ResetReader will set 'read' to A
+//
+// [., ., ., A, B, C, ., ., .]
+//           ^        ^
+//           R        W
+//
+void CircularBuffer_ResetReader(CircularBuffer cb) {
+	// compensate for circularity
+	uint64_t write = cb->write;
+
+	// compute newest item index, e.g. newest item is at index k
+	uint idx = write / cb->item_size;
+
+	// compute offset to oldest item
+	// oldest item is n elements before newest item
+	//
+	// example:
+	//
+	// [C, ., ., ., ., ., ., A, B]
+	//
+	// idx = 1, item_count = 3
+	// offset is 1 - 3 = -2
+	//
+	// [C, ., ., ., ., ., ., A, B]
+	//     ^                 ^
+	//     W                 R
+
+	int offset = idx - cb->item_count;
+	offset *= cb->item_size;
+
+	if (offset >= 0) {
+		// offset is positive, read from beginning of buffer
+		cb->read = cb->data + offset;
+	} else {
+		// offset is negative, read from end of buffer
+		cb->read = cb->end_marker + offset;
+	}
+}
+
 // Frees buffer (does not free its elements if its free callback is NULL)
-void CircularBuffer_Free
-(
-	CircularBuffer cb  // buffer to free
-) {
+void CircularBuffer_Free(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	rm_free(cb);
