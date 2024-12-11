@@ -77,54 +77,6 @@
     }                                                                          \
   } while(0);
 
-typedef struct {
-  const char *cmdName;
-  int indexNamePos;
-} CommandIndexNamePos;
-
-// Array containing commands names and the index of the index name in the
-// command arguments.
-static CommandIndexNamePos commandIndexPositions[] = {
-  {"FT.CURSOR",         1},
-  {"FT.SEARCH",         1},
-  {"FT.AGGREGATE",      1},
-  {"FT.INFO",           1},
-  {"FT.SPELLCHECK",     1},
-  {"FT.ALIASADD",       2},
-  {"FT.ALIASUPDATE",    2},
-  {"FT.PROFILE",        1},
-  {"FT.SYNUPDATE",      1},
-  {"FT.SYNDUMP",        1},
-  {"FT.ALTER",          1},
-  {"FT.DROPINDEX",      1},
-  {"FT.EXPLAIN",        1},
-  {"FT.EXPLAINCLI",     1},
-  {"FT.TAGVALS",        1},
-  {"FT.ADD",            1},
-  {"FT.GET",            1},
-  {"FT.DEL",            1},
-  {"FT.DROP",           1},
-  {"FT.TAGVALS",        1},
-  {"FT.MGET",           1},
-  {"FT.CREATE",        -1},  // Since this index does not exist.
-  {"FT.ALIASDEL",      -1},
-  {"FT.CONFIG",        -1},
-  {"FT.DICTADD",       -1},
-  {"FT.DICTDEL",       -1},
-  {"FT.DICTDUMP",      -1},
-  {"FT.SUGADD",        -1},
-  {"FT.SUGDEL",        -1},
-  {"FT.SUGGET",        -1},
-  {"FT.SUGLEN",        -1},
-  // Do not validate replication commands
-  {"FT._ALTERIFNX",    -1},
-  {"FT._ALIASADDIFNX", -1},
-  {"FT._ALIASDELIFX",  -1},
-  {"FT._DROPIFX",      -1},
-  {"FT._DROPINDEXIFX", -1},
-  {"FT._CREATEIFNX",   -1}
-};
-
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
@@ -140,23 +92,25 @@ static inline bool SearchCluster_Ready() {
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
-    // Running against a Redis version that does not support module ACL protection
-    RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
-    RedisModule_Log(ctx, "warning", "No user found");
+    RedisModule_Log(ctx, "verbose", "No user found");
     return false;
   }
 
   sds *prefixes = sp->rule->prefixes;
+  RedisModuleString *prefix;
   for (uint i = 0; i < array_len(prefixes); i++) {
-    if (RedisModule_ACLCheckKeyPrefixPermissions(user, RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i])), REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
+    prefix = RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i]));
+    if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
+      RedisModule_FreeString(ctx, prefix);
       return false;
     }
+    RedisModule_FreeString(ctx, prefix);
   }
 
   return true;
@@ -2911,18 +2865,8 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-static int CommandIndexPos(RedisModuleString *cmd) {
-  const char *cmdStr = RedisModule_StringPtrLen(cmd, NULL);
-  size_t n_commands = sizeof(commandIndexPositions) / sizeof(commandIndexPositions[0]);
-  for (size_t i = 0; i < n_commands; i++) {
-    if (strcasecmp(cmdStr, commandIndexPositions[i].cmdName) == 0) {
-      return commandIndexPositions[i].indexNamePos;
-    }
-  }
-  return -1;
-}
-
-static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc, int indexNamePos) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -2932,8 +2876,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   RS_AutoMemory(ctx);
 
   // Validate ACL key permissions if needed (for commands that access an index)
-  int indexNamePos;
-  if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+  if (indexNamePos != -1) {
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
@@ -2957,10 +2900,26 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx, RedisModuleString **
   return REDISMODULE_OK;
 }
 
+static int FanoutCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc) {
+  MastersFanoutCommandHandler(ctx, argv, argc, 1);
+}
+
+static int FanoutCommandHandlerWithIndexAtSecondArg(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc) {
+  MastersFanoutCommandHandler(ctx, argv, argc, 2);
+}
+
+static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc) {
+  MastersFanoutCommandHandler(ctx, argv, argc, -1);
+}
+
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
 // If needed for more commands, make sure `MRCommand_GetShardingKey` is implemented for them.
 // Notice that only OSS cluster should deal with such redirections.
-int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int SingleShardCommandHandler(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc, int indexNamePos) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -2969,8 +2928,7 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   RS_AutoMemory(ctx);
 
   // Validate ACL key permissions if needed (for commands that access an index)
-  int indexNamePos;
-  if ((indexNamePos = CommandIndexPos(argv[0])) != -1) {
+  if (indexNamePos != -1) {
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
@@ -2992,6 +2950,11 @@ int SingleShardCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int
   MR_MapSingle(MR_CreateCtx(ctx, 0, NULL, NumShards), singleReplyReducer, cmd);
 
   return REDISMODULE_OK;
+}
+
+static int SingleShardCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
+  RedisModuleString **argv, int argc) {
+  SingleShardCommandHandler(ctx, argv, argc, 1);
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3537,6 +3500,11 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   Initialize_CoordKeyspaceNotifications(ctx);
 
+  if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
+    // Running against a Redis version that does not support module ACL protection
+    RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
+  }
+
   // read commands
   if (clusterConfig.type == ClusterType_RedisLabs) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read"))
@@ -3563,29 +3531,29 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly",0, 0, -1, "write slow dangerous"))
     // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(MastersFanoutCommandHandler), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(MastersFanoutCommandHandler),"readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNFORCEUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"readonly", 0, 0, -1, ""))
 
     // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "read admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandler), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(MastersFanoutCommandHandler), "readonly",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly",0, 0, -1, "write admin"))
 #endif
 
   // cluster set commands
