@@ -220,7 +220,7 @@ def test_internal_commands(env):
     # `_FT.DEBUG` has only subcommands, so we check it separately.
     internal_commands = copy.deepcopy(INTERNAL_SEARCH_COMMANDS)
     internal_commands.pop('_FT.DEBUG')
-    for command, args in internal_commands:
+    for command, args in internal_commands.items():
         arg_list = args.split(' ')
         env.expect(command, *arg_list).error().contains("User test has no permissions to run")
 
