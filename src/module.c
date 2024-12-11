@@ -1130,10 +1130,7 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
   if (rc != REDISMODULE_OK) {
     return rc;
   }
-  rc = RegisterCoordDebugCommands(debugCommand);
-  if (rc != REDISMODULE_OK) {
-    return rc;
-  }
+  return RegisterCoordDebugCommands(debugCommand);
 }
 
 static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
