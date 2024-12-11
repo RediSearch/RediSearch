@@ -122,9 +122,7 @@ static CommandIndexNamePos commandIndexPositions[] = {
   {"FT._ALIASDELIFX",  -1},
   {"FT._DROPIFX",      -1},
   {"FT._DROPINDEXIFX", -1},
-  {"FT._CREATEIFNX",   -1},
-  // What is this?
-  {"FT.SYNFORCEUPDATE", -1},
+  {"FT._CREATEIFNX",   -1}
 };
 
 extern RSConfig RSGlobalConfig;
@@ -141,6 +139,11 @@ static inline bool SearchCluster_Ready() {
 }
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
+  if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
+    // Running against a Redis version that does not support module ACL protection
+    RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
+    return true;
+  }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
