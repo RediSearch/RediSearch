@@ -131,7 +131,7 @@ void CircularBuffer_ResetReader
 	int offset = idx - cb->item_count;
 	offset *= cb->item_size;
 
-	if(offset >= 0) {
+	if (offset >= 0) {
 		// offset is positive, read from beginning of buffer
 		cb->read = cb->data + offset;
 	} else {
@@ -154,7 +154,7 @@ int CircularBuffer_Add
 	// atomic update buffer item count
 	// do not add item if buffer is full
 	uint64_t item_count = atomic_fetch_add(&cb->item_count, 1);
-	if(unlikely(item_count >= cb->item_cap)) {
+	if (unlikely(item_count >= cb->item_cap)) {
 		cb->item_count = cb->item_cap;
 		return 0;
 	}
@@ -163,7 +163,7 @@ int CircularBuffer_Add
 	uint64_t offset = atomic_fetch_add(&cb->write, cb->item_size);
 
 	// check for buffer overflow
-	if(unlikely(cb->data + offset >= cb->end_marker)) {
+	if (unlikely(cb->data + offset >= cb->end_marker)) {
 		// write need to circle back
 		// [., ., ., ., ., ., A, B, C]
 		//                           ^  ^
@@ -206,7 +206,7 @@ void *CircularBuffer_Reserve
 	// atomic update buffer item count
 	// an item will be overwritten if buffer is full
 	uint64_t item_count = atomic_fetch_add(&cb->item_count, 1);
-	if(unlikely(item_count >= cb->item_cap)) {
+	if (unlikely(item_count >= cb->item_cap)) {
 		cb->item_count = cb->item_cap;
 	}
 
@@ -214,7 +214,7 @@ void *CircularBuffer_Reserve
 	uint64_t offset = atomic_fetch_add(&cb->write, cb->item_size);
 
 	// check for buffer overflow
-	if(unlikely(cb->data + offset >= cb->end_marker)) {
+	if (unlikely(cb->data + offset >= cb->end_marker)) {
 		// write need to circle back
 		// [., ., ., ., ., ., A, B, C]
 		//                           ^  ^
@@ -253,7 +253,7 @@ void *CircularBuffer_Read
 	RedisModule_Assert(cb != NULL);
 
 	// make sure there's data to return
-	if(unlikely(CircularBuffer_Empty(cb))) {
+	if (unlikely(CircularBuffer_Empty(cb))) {
 		return NULL;
 	}
 
@@ -263,14 +263,14 @@ void *CircularBuffer_Read
 	cb->item_count--;
 
 	// copy item from buffer to output
-	if(item != NULL) {
+	if (item != NULL) {
 		memcpy(item, cb->read, cb->item_size);
 	}
 
 	// advance read position
 	// circle back if read reached the end of the buffer
 	cb->read += cb->item_size;
-	if(unlikely(cb->read >= cb->end_marker)) {
+	if (unlikely(cb->read >= cb->end_marker)) {
 		cb->read = cb->data;
 	}
 

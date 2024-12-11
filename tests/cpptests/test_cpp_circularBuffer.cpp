@@ -33,7 +33,7 @@ TEST_F(CircularBufferTest, test_CircularBufferPopulation) {
 	//--------------------------------------------------------------------------
 	// fill buffer
 	//--------------------------------------------------------------------------
-	for(int i = 0; i < cap; i++) {
+	for (int i = 0; i < cap; i++) {
 		// make sure item was added
 		ASSERT_EQ(CircularBuffer_Add(buff, &i), 1);
 		// validate buffer's item count
@@ -42,14 +42,14 @@ TEST_F(CircularBufferTest, test_CircularBufferPopulation) {
 	ASSERT_EQ(CircularBuffer_Full(buff), true);
 
 	// forcefully try to overflow buffer
-	for(int i = 0; i < 10; i++) {
+	for (int i = 0; i < 10; i++) {
 		ASSERT_EQ(CircularBuffer_Add(buff, &n), 0);
 	}
 
 	//--------------------------------------------------------------------------
 	// empty buffer
 	//--------------------------------------------------------------------------
-	for(int i = 0; i < cap; i++) {
+	for (int i = 0; i < cap; i++) {
 		// get item from buffer
 		ASSERT_TRUE(CircularBuffer_Read(buff, &n) != NULL);
 
@@ -59,7 +59,7 @@ TEST_F(CircularBufferTest, test_CircularBufferPopulation) {
 	ASSERT_EQ(CircularBuffer_Empty(buff), true);
 
 	// forcefully try to read an item from an empty buffer
-	for(int i = 0; i < 10; i++) {
+	for (int i = 0; i < 10; i++) {
 		ASSERT_TRUE(CircularBuffer_Read(buff, &n) == NULL);
 	}
 
@@ -75,7 +75,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Circularity) {
 	//--------------------------------------------------------------------------
 	// fill buffer
 	//--------------------------------------------------------------------------
-	for(int i = 0; i < cap; i++) {
+	for (int i = 0; i < cap; i++) {
 		// make sure item was added
 		ASSERT_EQ(CircularBuffer_Add(buff, &i), 1);
 	}
@@ -92,12 +92,12 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Circularity) {
 	// clear buffer
 	//--------------------------------------------------------------------------
 
-	while(CircularBuffer_Empty(buff) == false) {
+	while (CircularBuffer_Empty(buff) == false) {
 		CircularBuffer_Read(buff, &n);
 	}
 
 	// add/remove elements cycling through the buffer multiple times
-	for(int i = 0; i < cap * 4; i++) {
+	for (int i = 0; i < cap * 4; i++) {
 		ASSERT_EQ(CircularBuffer_Add(buff, &i), 1);
 		ASSERT_TRUE(CircularBuffer_Read(buff, &n) != NULL);
 		ASSERT_EQ(n, i);
@@ -115,7 +115,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_free) {
 
 	uint cap = 16;
 	CircularBuffer buff = CircularBuffer_New(sizeof(int64_t *), cap);
-	for(int i = 0; i < cap; i++) {
+	for (int i = 0; i < cap; i++) {
 		int64_t *j = (int64_t *)malloc(sizeof(int64_t));
 		CircularBuffer_Add(buff, (void*)&j);
 	}
@@ -124,7 +124,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_free) {
 	// free the buffer
 	//--------------------------------------------------------------------------
 
-	for(int i = 0; i < cap; i++) {
+	for (int i = 0; i < cap; i++) {
 		int64_t *item;
 		CircularBuffer_Read(buff, &item);
 		free(item);
@@ -141,7 +141,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
 
 	uint cap = 16;
 	CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
-	for(int i = 0; i < 2 * cap; i++) {
+	for (int i = 0; i < 2 * cap; i++) {
 		int *item = (int *)CircularBuffer_Reserve(buff);
 		*item = i;
 	}
@@ -153,7 +153,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
 	// assert override correctness
 	// -------------------------------------------------------------------------
 
-	for(uint i = 0; i < 16; i++) {
+	for (uint i = 0; i < 16; i++) {
 		int item;
 		void *res = CircularBuffer_Read(buff, &item);
 		ASSERT_TRUE(res != NULL);
