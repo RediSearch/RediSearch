@@ -1089,8 +1089,8 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
   return f;
 }
 
-#define CONFIG_SUBCOMMANDS(command, func) \
-  SubCommand subcommands[] = { \
+#define CONFIG_SUBCOMMANDS(command, func)                                                                                                                           \
+  SubCommand subcommands[] = {                                                                                                                                      \
     {.name = "GET", .fullName = command "|GET", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigGetInfo, .position = {INDEX_ONLY_CMD_ARGS}},    \
     {.name = "SET", .fullName = command "|SET", .flags = "write", .callback = func, .setCommandInfo = SetFtConfigSetInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
     {.name = "HELP", .fullName = command "|HELP", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigHelpInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
@@ -1107,8 +1107,8 @@ static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleComman
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
-#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                                             \
-  SubCommand subcommands[] = {                                                                                                                                                  \
+#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
+  SubCommand subcommands[] = {                                                                                                                                      \
     {.name = "READ", .fullName = command "|READ", .flags = "readonly", .callback = func, .setCommandInfo = SetFtCursorReadInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
     {.name = "DEL", .fullName = command "|DEL", .flags = "write", .callback = func, .setCommandInfo = SetFtCursorDelInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
     {.name = "GC", .fullName = command "|GC", .flags = "write", .callback = func, .setCommandInfo = NULL, .position = {INDEX_ONLY_CMD_ARGS}},                       \

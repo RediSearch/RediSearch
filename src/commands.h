@@ -175,7 +175,7 @@
 // RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
 // RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "admin"))
 // RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
-#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly" PROXY_FILTERED : "readonly"
+#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly"
 #define RS_READ_ONLY_COMMANDS(OP, ...)                                                                                                               \
   OP(RS_INFO_CMD,      IndexInfoCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtInfoInfo,             "",                     __VA_ARGS__) \
   OP(RS_SEARCH_CMD,    RSSearchCommand,          RS_READ_ONLY_FLAGS_DEFAULT, SetFtSearchInfo,           "read",                 __VA_ARGS__) \
