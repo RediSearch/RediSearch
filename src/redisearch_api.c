@@ -165,7 +165,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
+    fs->sortIdx = sp->numSortableFields++;
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;

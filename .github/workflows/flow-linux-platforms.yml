@@ -35,15 +35,15 @@ on:
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
-          # - ubuntu:bionic
+          - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
           - debian:bookworm
-          # - amazonlinux:2
+          - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
-          # - alpine:3
+          - alpine:3
         description: 'Platform to build on. Use "all" to build on all'
         default: all
       architecture:

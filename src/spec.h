@@ -270,7 +270,8 @@ typedef struct IndexSpec {
   HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -279,8 +280,6 @@ typedef struct IndexSpec {
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 

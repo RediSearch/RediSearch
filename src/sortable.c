@@ -28,15 +28,6 @@ RSSortingVector *NewSortingVector(int len) {
   return ret;
 }
 
-/* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
-                        QueryError *qerr) {
-  RSValue *v1 = self->values[sk->index];
-  RSValue *v2 = other->values[sk->index];
-  int rc = RSValue_Cmp(v1, v2, qerr);
-  return sk->ascending ? rc : -rc;
-}
-
 /* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
  * allocated return string needs to be freed later */
 char *normalizeStr(const char *str) {
@@ -69,30 +60,29 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type, int unf) {
-  if (idx > RS_SORTABLES_MAX) {
+void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf) {
+  if (idx > vec->len) {
     return;
   }
-  if (tbl->values[idx]) {
-    RSValue_Decref(tbl->values[idx]);
-    tbl->values[idx] = NULL;
+  if (vec->values[idx]) {
+    RSValue_Decref(vec->values[idx]);
   }
   switch (type) {
     case RS_SORTABLE_NUM:
-      tbl->values[idx] = RS_NumVal(*(double *)p);
+      vec->values[idx] = RS_NumVal(*(double *)p);
 
       break;
     case RS_SORTABLE_STR: {
       char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
-      tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
+      vec->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_RSVAL:
-      tbl->values[idx] = (RSValue*)p;
+      vec->values[idx] = (RSValue*)p;
       break;
     case RS_SORTABLE_NIL:
     default:
-      tbl->values[idx] = RS_NullVal();
+      vec->values[idx] = RS_NullVal();
       break;
   }
 }
@@ -103,37 +93,6 @@ void SortingVector_Free(RSSortingVector *v) {
     RSValue_Decref(v->values[i]);
   }
   rm_free(v);
-}
-
-/* Save a sorting vector to rdb. This is called from the doc table */
-void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
-  if (!v) {
-    RedisModule_SaveUnsigned(rdb, 0);
-    return;
-  }
-  RedisModule_SaveUnsigned(rdb, v->len);
-  for (int i = 0; i < v->len; i++) {
-    RSValue *val = v->values[i];
-    if (!val) {
-      RedisModule_SaveUnsigned(rdb, RSValue_Null);
-      continue;
-    }
-    RedisModule_SaveUnsigned(rdb, val->t);
-    switch (val->t) {
-      case RSValue_String:
-        // save string - one extra byte for null terminator
-        RedisModule_SaveStringBuffer(rdb, val->strval.str, val->strval.len + 1);
-        break;
-
-      case RSValue_Number:
-        // save numeric value
-        RedisModule_SaveDouble(rdb, val->numval);
-        break;
-      // for nil we write nothing
-      default:
-        break;
-    }
-  }
 }
 
 /* Load a sorting vector from RDB */
@@ -176,51 +135,15 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 
   size_t sum = v->len * sizeof(RSValue *);
   for (int i = 0; i < v->len; i++) {
-    if (!v->values[i]) continue;
+    if (!v->values[i] || v->values[i] == RS_NullVal()) continue;
     sum += sizeof(RSValue);
 
     RSValue *val = RSValue_Dereference(v->values[i]);
-    if (val && RSValue_IsString(val)) {
+    if (RSValue_IsString(val)) {
       size_t sz;
       RSValue_StringPtrLen(val, &sz);
       sum += sz;
     }
   }
   return sum;
-}
-
-/* Create a new sorting table of a given length */
-RSSortingTable *NewSortingTable(void) {
-  RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
-  tbl->cap = 1;
-  return tbl;
-}
-
-void SortingTable_Free(RSSortingTable *t) {
-  rm_free(t);
-}
-
-int RSSortingTable_AddC(RSSortingTable **tbl, const char *name, RSValueType t) {
-  if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
-
-  if ((*tbl)->len == (*tbl)->cap) {
-    (*tbl)->cap += 8;
-    *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
-  }
-
-  (*tbl)->fields[(*tbl)->len].name = name;
-  (*tbl)->fields[(*tbl)->len].type = t;
-  return (*tbl)->len++;
-}
-
-/* Get the field index by name from the sorting table. Returns -1 if the field was not found */
-int RSSortingTable_GetFieldIdxC(RSSortingTable *tbl, const char *field) {
-
-  if (!tbl) return -1;
-  for (int i = 0; i < tbl->len; i++) {
-    if (!strcasecmp(tbl->fields[i].name, field)) {
-      return i;
-    }
-  }
-  return -1;
 }

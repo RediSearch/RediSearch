@@ -33,11 +33,11 @@ def test_acl_search_commands(env):
         'FT.DICTDUMP', 'FT.EXPLAIN', 'FT.AGGREGATE', 'FT.SUGLEN',
         'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', 'FT.DICTDEL', 'FT.CURSOR',
         'FT.ALIASDEL', 'FT.SUGADD', 'FT.SYNDUMP', 'FT.CREATE', 'FT.DICTADD',
-        'FT.SYNFORCEUPDATE', 'FT._ALIASDELIFX', 'FT._CREATEIFNX',
-        'search.CLUSTERREFRESH', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
-        'search.CLUSTERSET', 'search.CLUSTERINFO', 'FT._DROPINDEXIFX',
-        'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX', 'FT.DROP', 'FT.GET',
-        'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL'
+        'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'search.CLUSTERREFRESH',
+        'FT._ALIASADDIFNX', 'FT._ALTERIFNX', 'search.CLUSTERSET',
+        'search.CLUSTERINFO', 'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS',
+        'FT._DROPIFX', 'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET',
+        'FT.DEL'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
