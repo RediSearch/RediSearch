@@ -169,7 +169,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
 
     if (hasExpireTimeOnFields) {
       mstime_t expireAt = REDISMODULE_NO_EXPIRE;
-      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, field->path, &expireAt, NULL);
+      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
       if (expireAt != REDISMODULE_NO_EXPIRE) {
         FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
         array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
