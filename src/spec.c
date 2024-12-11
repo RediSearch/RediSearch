@@ -1097,7 +1097,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   }
 
   const size_t prevNumFields = sp->numFields;
-  const size_t prevSortLen = sp->sortables->len;
+  const size_t prevSortLen = sp->numSortableFields;
   const IndexFlags prevFlags = sp->flags;
 
   while (!AC_IsAtEnd(ac)) {
@@ -1200,7 +1200,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         goto reset;
       }
 
-      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
+      fs->sortIdx = sp->numSortableFields++;
       if (fs->sortIdx == -1) {
         QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited", " to %d Sortable fields",
                                SPEC_MAX_FIELDS);
@@ -1237,7 +1237,7 @@ reset:
   }
 
   sp->numFields = prevNumFields;
-  sp->sortables->len = prevSortLen;
+  sp->numSortableFields = prevSortLen;
   // TODO: Why is this masking performed?
   sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
   return 0;
@@ -1557,11 +1557,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->obfuscatedName) {
     rm_free(spec->obfuscatedName);
   }
-  // Free sortable list
-  if (spec->sortables) {
-    SortingTable_Free(spec->sortables);
-    spec->sortables = NULL;
-  }
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -1801,7 +1796,6 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 IndexSpec *NewIndexSpec(HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
-  sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
@@ -1822,9 +1816,7 @@ IndexSpec *NewIndexSpec(HiddenString *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->monitorDocumentExpiration = true;
-  // Todo: this is now disabled by default, since otherwise we call HPEXPIRETIME on every indexing
-  // of a document, which causes performance regressions and lazy expiration even if not inteded.
-  sp->monitorFieldExpiration = false;
+  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -2576,7 +2568,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->stats.indexError = IndexError_Init();
 
   IndexSpec_MakeKeyless(sp);
-  sp->sortables = NewSortingTable();
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->specName = specName;
@@ -2601,7 +2592,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       *array_ensure_at(&sp->fieldIdToIndex, fs->ftId, t_fieldIndex) = fs->index;
     }
     if (FieldSpec_IsSortable(fs)) {
-      RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
+      sp->numSortableFields++;
     }
     if (FieldSpec_HasSuffixTrie(fs) && FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
       sp->flags |= Index_HasSuffixTrie;
@@ -2689,7 +2680,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
-  sp->sortables = NewSortingTable();
+  sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
@@ -2709,7 +2700,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      RSSortingTable_Add(&sp->sortables, fs->fieldName, fieldTypeToValueType(fs->types));
+      sp->numSortableFields++;
     }
   }
   // After loading all the fields, we can build the spec cache

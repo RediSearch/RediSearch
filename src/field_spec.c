@@ -12,24 +12,6 @@
 #include "global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 
-RSValueType fieldTypeToValueType(FieldType ft) {
-  switch (ft) {
-    case INDEXFLD_T_NUMERIC:
-      return RSValue_Number;
-
-    case INDEXFLD_T_FULLTEXT:
-    case INDEXFLD_T_TAG:
-    case INDEXFLD_T_GEO:
-      return RSValue_String;
-
-    // Currently not supported
-    case INDEXFLD_T_VECTOR:
-    case INDEXFLD_T_GEOMETRY:
-      return RSValue_Null;
-  }
-  return RSValue_Null;
-}
-
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
