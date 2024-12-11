@@ -12,6 +12,9 @@ TEST_F(CircularBufferTest, testEmpty) {
 	// item count of an empty circular buffer should be 0
 	ASSERT_EQ(CircularBuffer_ItemCount(buff), 0);
 
+	// item size should be 4
+	ASSERT_EQ(CircularBuffer_ItemSize(buff), 4);
+
 	// buffer should have available slots in it i.e. not full
 	ASSERT_EQ(CircularBuffer_Full(buff), false);
 
