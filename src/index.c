@@ -20,6 +20,7 @@
 #include "hybrid_reader.h"
 #include "metric_iterator.h"
 #include "optimizer_reader.h"
+#include "util/units.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -1064,7 +1065,7 @@ int NI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     wcii_rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, hit);
     if (wcii_rc == INDEXREAD_EOF) {
       IITER_SET_EOF(&nc->base);
-    } 
+    }
       // Note: If this is the last block in the child index and not in the wildcard
       // index, we may have a docId in the child that does not exist in the
       // wildcard index

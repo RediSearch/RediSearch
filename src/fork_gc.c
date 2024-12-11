@@ -25,7 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0

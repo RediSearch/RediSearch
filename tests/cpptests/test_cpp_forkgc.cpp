@@ -9,7 +9,7 @@
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "rwlock.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
 extern "C" {
