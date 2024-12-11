@@ -60,6 +60,10 @@ endif()
 
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
+include(${root}/build/boost/boost.cmake)
+set(BOOST_ROOT ${BOOST_DIR})
+set(Boost_NO_WARN_NEW_VERSIONS ON)
+
 
 include_directories(
     ${root}/src
@@ -81,6 +85,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/hash)
 add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------
@@ -100,6 +105,7 @@ file(GLOB SOURCES
     "src/info/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
+    "src/obfuscation/*.cpp"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -128,7 +134,7 @@ if (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -140,6 +146,7 @@ else() # OSS RediSearch
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch
             redisearch-geometry
+            redisearch-hash
             VectorSimilarity
             redisearch-coord
             ${LIBUV_LIBS}
