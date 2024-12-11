@@ -167,3 +167,39 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
 
 	CircularBuffer_Free(buff);
 }
+
+TEST_F(CircularBufferTest, test_CircularBuffer_ResetReader) {
+
+	// -------------------------------------------------------------------------
+	// fill a buffer of size 16 with 18 integers
+	// -------------------------------------------------------------------------
+
+	uint cap = 16;
+	CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
+	for (int i = 0; i < cap + 2; i++) {
+		int *item = (int *)CircularBuffer_Reserve(buff);
+		*item = i;
+	}
+
+	// -------------------------------------------------------------------------
+	// reset reader
+	// -------------------------------------------------------------------------
+	CircularBuffer_ResetReader(buff);
+
+	// -------------------------------------------------------------------------
+	// assert pointer correctness (should start from 2)
+	// -------------------------------------------------------------------------
+	for (uint i = 0; i < 16; i++) {
+		int item;
+		void *res = CircularBuffer_Read(buff, &item);
+		ASSERT_TRUE(res != NULL);
+		ASSERT_EQ(item, i + 2);
+		ASSERT_EQ(CircularBuffer_ItemCount(buff), 16-i-1);
+	}
+
+	// -------------------------------------------------------------------------
+	// free the buffer
+	// -------------------------------------------------------------------------
+
+	CircularBuffer_Free(buff);
+}
