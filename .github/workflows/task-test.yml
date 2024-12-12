@@ -94,19 +94,24 @@ jobs:
                   ;;
               esac
 
-              # Checkout the REF
-              REPO_URL="https://github.com/${{ github.repository }}.git"
-              DEST_DIR="RediSearch"  # Directory to clone into
-
-              # Clone the repository to the current directory
-              git clone $REPO_URL .
-
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
 
-              # Checkout the REF and its submodules
-              git fetch origin ${{ env.REF }}
-              git checkout ${{ env.REF }}
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
               git submodule update --init --recursive
               ;;
             *)
@@ -157,8 +162,8 @@ jobs:
             cd $DEST_DIR
 
             # Checkout the REF
-            git fetch origin ${{ inputs.redis-ref }}
-            git checkout ${{ inputs.redis-ref }}
+            git fetch origin ${{ inputs.get-redis }}
+            git checkout ${{ inputs.get-redis }}
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
