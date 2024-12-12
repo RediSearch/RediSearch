@@ -165,12 +165,23 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RS_NullVal();
   RSValue *v = NULL;
+  size_t l;
   switch (MRReply_Type(r)) {
-    case MR_REPLY_STATUS:
-    case MR_REPLY_STRING: {
-      size_t l;
+    case MR_REPLY_STATUS: {
       const char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
+      break;
+    }
+    case MR_REPLY_STRING: {
+      double d = 0;
+      // Try to convert to double because RedisModule_Reply_Double() uses
+      // RedisModule_ReplyWithDouble() which converts double into string
+      if (MRReply_ToDouble(r, &d)) {
+        v = RS_NumVal(d);
+      } else {
+        const char *s = MRReply_String(r, &l);
+        v = RS_NewCopiedString(s, l);
+      }
       break;
     }
     case MR_REPLY_ERROR: {

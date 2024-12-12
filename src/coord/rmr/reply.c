@@ -182,7 +182,7 @@ int _parseFloat(const char *str, size_t len, double *d) {
   double val = strtod(str, &endptr);
 
   /* Check for various possible errors */
-  if (errno != 0 || (endptr == str && val == 0)) {
+  if (errno != 0 || (endptr == str && val == 0) || (endptr != (str + len ))) {
     return 0;
   }
   *d = val;
