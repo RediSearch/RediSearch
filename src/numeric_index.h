@@ -79,6 +79,8 @@ typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
+  size_t invertedIndexesSize;
+
   t_docId lastDocId;
 
   uint32_t revisionId;
@@ -104,16 +106,8 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
  * No deduplication is done */
 size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
 
-/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
-                          NRN_AddRv *rv);
-
 /* Create a new range node with the given capacity, minimum and maximum values */
 NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
-
-/* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
- * Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value);
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */
@@ -145,8 +139,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey);
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);

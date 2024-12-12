@@ -27,7 +27,7 @@ typedef struct MRWorkQueue {
   size_t sz;
   struct {
     struct queueItem *head;
-    size_t hitCount;
+    size_t warnSize;
   } pendingInfo;
   uv_mutex_t lock;
   uv_async_t async;
@@ -181,21 +181,19 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
-    const char *logLevel = "verbose";
-    if (q->head == q->pendingInfo.head) {
-      // If we hit the same head multiple times, we may have a problem. Increase log level.
-      if (++q->pendingInfo.hitCount > 100) logLevel = "notice";
+    if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
+      // If we hit the same head multiple times, we may have a problem. Log it once.
+      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     } else {
       q->pendingInfo.head = q->head;
-      q->pendingInfo.hitCount = 1;
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     }
-    RedisModule_Log(RSDummyContext, logLevel, "MRWorkQueue: Max pending requests reached");
-    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
 
     return NULL;
   } else {
     q->pendingInfo.head = NULL;
-    q->pendingInfo.hitCount = 0;
+    q->pendingInfo.warnSize = 0;
   }
 
   struct queueItem *r = q->head;
@@ -236,7 +234,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   q->pendingInfo.head = NULL;
-  q->pendingInfo.hitCount = 0;
+  q->pendingInfo.warnSize = 0;
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;

@@ -21,7 +21,7 @@ extern "C" {
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
 typedef struct NumericFilter {
-  char *fieldName;          // name of numeric field
+  const FieldSpec *field;   // the numeric field
   double min;               // beginning of range
   double max;               // end of range
   int inclusiveMin;         // range includes min value
@@ -38,11 +38,10 @@ typedef struct NumericFilter {
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc);
-NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
-int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
+int parseDoubleRange(const char *s, double *target, int isMin,
                      int sign, QueryError *status);
 
 /*

@@ -212,7 +212,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 // DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
   IndexLoadOptions loadOpts = {.nameC = indexName};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &loadOpts);
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return NULL;
@@ -283,8 +283,7 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
   return kdv->p;
 }
 
-InvertedIndex *Redis_OpenInvertedIndexEx(const RedisSearchCtx *ctx, const char *term, size_t len,
-                                         int write, bool *outIsNew, RedisModuleKey **keyp) {
+InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
   InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
   RedisModule_FreeString(ctx->redisCtx, termKey);

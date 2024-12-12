@@ -90,7 +90,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -150,9 +150,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(ctx, sp, NULL, fs);
-      const GeometryApi *api = GeometryApi_Get(idx);
-      geom_idx_sz += api->report(idx);
+      const GeometryIndex *idx = OpenGeometryIndex(sp, fs, DONT_CREATE_INDEX);
+      if (idx) {
+        const GeometryApi *api = GeometryApi_Get(idx);
+        geom_idx_sz += api->report(idx);
+      }
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
@@ -257,7 +259,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
   REPLY_KVINT("number_of_uses", sp->counter);
