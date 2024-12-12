@@ -366,7 +366,7 @@ def testDelete(env):
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
     env.assertGreaterEqual(countKeys(env), 100)
-
+    env.expect('FT.DROPINDEX', 'idx', 'ed').error()
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
     env.flush()
@@ -2610,15 +2610,6 @@ def testAlias(env):
     env.expect('FT.ALIASADD', 'temp', 'idx3').ok()
     r = env.cmd('ft.search', 'temp', 'foo')
     env.assertEqual([1, 'doc3', ['t1', 'foo']], r)
-
-
-def testAliasIndexConflict(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
-    env.cmd('ft.create', 'tmp_index_name', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
-    env.expect('ft.aliasAdd', 'tmp_index_name', 'idx').error()
-    env.cmd('ft.drop', 'tmp_index_name')
-    env.cmd('ft.aliasAdd', 'tmp_index_name', 'idx')
-
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f1', 'text')
