@@ -12,6 +12,9 @@
 #include "query_error.h"
 #include "param.h"
 
+struct FieldSpec; // forward declaration
+
+
 struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
@@ -89,8 +92,7 @@ typedef struct {
 } QueryNullNode;
 
 typedef struct {
-  const char *fieldName;
-  size_t len;
+  const struct FieldSpec *fs;
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -115,7 +117,7 @@ typedef struct {
 } QueryNumericNode;
 
 typedef struct {
-  const struct GeoFilter *gf;
+  struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {
@@ -143,8 +145,7 @@ typedef struct {
 } QueryVerbatimNode;
 
 typedef struct {
-  const char *fieldName;
-  size_t len;
+  const struct FieldSpec *field;
 } QueryMissingNode;
 
 typedef enum {

@@ -8,11 +8,11 @@
 #include "geometry/geometry_api.h"
 #include "rmalloc.h"
 #include "field_spec.h"
+#include "redis_index.h"
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
     rm_free((void *)geomq->str);
-    rm_free((void *)geomq->attr);
   }
   rm_free(geomq);
 }
@@ -25,15 +25,15 @@ RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const cha
 }
 
 static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleString *keyName,
-                                           int write, const FieldSpec *fs) {
+                                           bool create_if_missing, const FieldSpec *fs) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!create_if_missing) {
     return NULL;
   }
-  
+
   GeometryIndex *idx = GeometryIndexFactory(fs->geometryOpts.geometryCoords);
   const GeometryApi *api = GeometryApi_Get(idx);
 
@@ -46,39 +46,16 @@ static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleStr
   return idx;
 }
 
-GeometryIndex *OpenGeometryIndex(RedisModuleCtx *redisCtx, IndexSpec *spec, RedisModuleKey **idxKey,
-                                 const FieldSpec *fs) {
+GeometryIndex *OpenGeometryIndex(IndexSpec *spec, const FieldSpec *fs, bool create_if_missing) {
   RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_GEOMETRY);
-  if (!keyName) {
-    return NULL;
-  }
-  if (spec->keysDict) {
-    return openGeometryKeysDict(spec, keyName, 1, fs);
-  }
-
-  RedisModuleKey *key_s = NULL;
-  if (!idxKey) {
-    idxKey = &key_s;
-  }
-  *idxKey = RedisModule_OpenKey(redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-  /* Create an empty value object if the key is currently empty. */
-  if (RedisModule_KeyType(*idxKey) == REDISMODULE_KEYTYPE_EMPTY) {
-    GeometryIndex *idx = GeometryIndexFactory(fs->geometryOpts.geometryCoords);
-    RedisModule_ModuleTypeSetValue(*idxKey, GeometryIndexType, idx);
-    return idx;
-  } 
-  if (RedisModule_ModuleTypeGetType(*idxKey) == GeometryIndexType) {
-    return RedisModule_ModuleTypeGetValue(*idxKey);
-  }
-  return NULL;
+  return openGeometryKeysDict(spec, keyName, create_if_missing, fs);
 }
 
-void GeometryIndex_RemoveId(RedisModuleCtx *ctx, IndexSpec *spec, t_docId id) {
+void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id) {
   for (int i = 0; i < spec->numFields; ++i) {
     if (spec->fields[i].types & INDEXFLD_T_GEOMETRY) {
       const FieldSpec *fs = spec->fields + i;
-      GeometryIndex *idx = OpenGeometryIndex(ctx, spec, NULL, fs);
+      GeometryIndex *idx = OpenGeometryIndex(spec, fs, CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         api->delGeom(idx, id);

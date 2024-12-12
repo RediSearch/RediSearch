@@ -38,13 +38,11 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   return valuesAdded;
 }
 
-int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
-                   char **err) {
+int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesDeleted = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
-    *err = "could not open dict key";
-    return -1;
+    return 0;
   }
 
   for (int i = 0; i < len; ++i) {
@@ -53,14 +51,20 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
     valuesDeleted += Trie_Delete(t, (char *)val, valLen);
   }
 
+  // Delete the dictionary if it's empty
+  if (t->size == 0) {
+    dictDelete(spellCheckDicts, dictName);
+    TrieType_Free(t);
+  }
+
   return valuesDeleted;
 }
 
-int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
+void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
-    *err = "could not open dict key";
-    return -1;
+    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    return;
   }
 
   rune *rstr = NULL;
@@ -78,8 +82,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     rm_free(res);
   }
   TrieIterator_Free(it);
-
-  return 1;
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -89,11 +91,7 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char *error;
-  int retVal = Dictionary_Dump(ctx, dictName, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  }
+  Dictionary_Dump(ctx, dictName);
 
   return REDISMODULE_OK;
 }
@@ -106,13 +104,8 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char *error;
-  int retVal = Dictionary_Del(ctx, dictName, argv + 2, argc - 2, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  } else {
-    RedisModule_ReplyWithLongLong(ctx, retVal);
-  }
+  int retVal = Dictionary_Del(ctx, dictName, argv + 2, argc - 2);
+  RedisModule_ReplyWithLongLong(ctx, retVal);
 
   RedisModule_ReplicateVerbatim(ctx);
   return REDISMODULE_OK;

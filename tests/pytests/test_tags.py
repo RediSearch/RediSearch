@@ -90,14 +90,13 @@ def testTagFieldCase(env):
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR').ok()
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
-        env.assertEqual([0], env.cmd(
-            'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
         env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{HELLO WORLD}', 'NOCONTENT'))
         env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
-        env.assertEqual([0], env.cmd(
-            'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
+
+        env.expect('FT.SEARCH', 'idx', '@tags:{HELLO WORLD}').error().contains('Unknown field')
+        env.expect('FT.SEARCH', 'idx', '@TAGS:{foo bar}').error().contains('Unknown field')
 
 def testInvalidSyntax(env):
     # invalid syntax
@@ -161,6 +160,30 @@ def testIssue1305(env):
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
+
+@skip(cluster=True)
+def testTagIndex_OnReopen(env:Env): # issue MOD-8011
+    n_docs_per_tag_block = 1000
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    # Add a first tag
+    env.cmd('HSET', 'first', 't', 'bar')
+    # Add 2 blocks of documents with the same tag
+    for i in range(n_docs_per_tag_block * 2):
+        env.cmd('HSET', f'doc{i}', 't', 'foo')
+
+    # Search for both tags, read first + more than 1 block of the second
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '*', 'WITHCURSOR', 'COUNT', int(1 + n_docs_per_tag_block * 1.5))
+    env.assertEqual(res[1], ['t', 'bar']) # First tag
+    env.assertNotEqual(cursor, 0) # Not done, we have more results to read from the second block of the second tag
+
+    # Delete the first tag + first block of the second tag
+    env.expect('DEL', 'first').equal(1)
+    for i in range(n_docs_per_tag_block):
+        env.expect('DEL', f'doc{i}').equal(1)
+    forceInvokeGC(env) # Trigger GC to remove the inverted index of `bar` and the first block of `foo`
+
+    # Read from the cursor, should not crash
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
 
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
@@ -530,7 +553,7 @@ def testDialect2TagExact():
     env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
     res = env.cmd('FT.SEARCH', 'idx',
-                  '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
+                  '(@tag:{"xyz:2"}  @tag:{"abc:1"}) => { $weight:0.2 }',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:3'])
 
@@ -620,14 +643,14 @@ def testDialect2TagExact():
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'-@??'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{-@??}\n}\n")
 
-    res = env.cmd('FT.EXPLAIN', 'idx', "@tag1:{w'$param'}",
+    res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'$param'}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{hello world}\n}\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{hello world}\n}\n")
 
     res = env.cmd('FT.EXPLAIN', 'idx',
-                  "@tag1:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
+                  "@tag:{w'foo*:-;bar?'}=>{$weight:3.4; $inorder: true;}",
                   'PARAMS', '2', 'param', 'hello world')
-    env.assertEqual(res, "TAG:@tag1 {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
+    env.assertEqual(res, "TAG:@tag {\n  WILDCARD{foo*:-;bar?}\n} => { $weight: 3.4; $inorder: true; }\n")
 
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*:1?xyz:*'}=>{$weight:3.4;}",
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
@@ -760,7 +783,7 @@ def testDialect2InvalidSyntax():
 
     # Create index
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
-               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'id',
+               'SCHEMA', 'tag', 'TAG', 'SORTABLE', 't1', 'TEXT', 'id',
                'NUMERIC', 'SORTABLE').ok()
 
     with env.assertResponseError(contained='Syntax error'):

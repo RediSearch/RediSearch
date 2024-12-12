@@ -48,13 +48,13 @@ def testMissingValidations():
     # when `field` does not index missing values.
     env.expect('FT.SEARCH', 'idx', 'ismissing(@tag)').error().contains(
         #'`INDEXMISSING` applied to field `tag`, which does not index missing values'
-        "'ismissing' requires field 'tag' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
         )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@text)').error().contains(
-        "'ismissing' requires field 'text' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
     )
     env.expect('FT.SEARCH', 'idx', 'ismissing(@numeric)').error().contains(
-        "'ismissing' requires field 'numeric' to be defined with 'INDEXMISSING'"
+        "'ismissing' requires defining the field with 'INDEXMISSING'"
     )
 
     # Tests that we get an error in case of a user tries to use "ismissing(@field)"
@@ -481,7 +481,7 @@ def testMissingHash():
         # Test missing fields indexing on hash documents
         HashMissingTest(env, conn)
 
-@skip(no_json=True)        
+@skip(no_json=True)
 def testMissingJSON():
     """Tests the missing values indexing feature thoroughly."""
 
@@ -512,22 +512,6 @@ def testMissingWithExists():
     ismissing = env.cmd('FT.SEARCH', 'idx', 'ismissing(@foo)')
     exists = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD',  '2', 'foo', 'goo', 'FILTER', '!EXISTS(@foo)')
     env.assertEqual(ismissing[2], exists[1])
-
-def testFilterOnMissingValues():
-    """Tests the missing values indexing feature with the `exists` operator"""
-
-    env = Env(moduleArgs="DEFAULT_DIALECT 2")
-    conn = getConnectionByEnv(env)
-
-    # Create an index with a TAG field that indexes missing values
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TAG', 'goo', 'NUMERIC').ok()
-
-    # Add some documents, with\without the indexed fields.
-    conn.execute_command('HSET', 'doc1', 'foo', 'val')
-    conn.execute_command('HSET', 'doc2', 'foo', 'val', 'goo', '3')
-
-    # Search for the documents with the indexed fields (sanity)
-    env.expect('FT.SEARCH', 'idx', '@foo:{val}', 'FILTER', 'goo', '0', '10').equal([1, 'doc2', ['foo', 'val', 'goo', '3']])
 
 @skip(cluster=True)
 def testMissingGC():

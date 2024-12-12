@@ -6,6 +6,8 @@
 
 #include "conn.h"
 #include "reply.h"
+#include "src/coord/config.h"
+#include "module.h"
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
@@ -423,7 +425,7 @@ static int MRConn_SendAuth(MRConn *conn) {
   CONN_LOG(conn, "Authenticating...");
 
   // if we failed to send the auth command, start a reconnect loop
-  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s", conn->ep.auth) ==
+  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s %s", clusterConfig.aclUsername, conn->ep.password) ==
       REDIS_ERR) {
     MRConn_SwitchState(conn, MRConn_ReAuth);
     return REDIS_ERR;
@@ -625,11 +627,8 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
-
-
-  // If this is an authenticated connection, we need to atu
-
-  if (conn->ep.auth) {
+  // If this is an authenticated connection, we need to authenticate
+  if (conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);

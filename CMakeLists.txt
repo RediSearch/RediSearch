@@ -155,9 +155,9 @@ else() # OSS RediSearch
 endif()
 
 if (${COORD_TYPE} STREQUAL "oss")
-    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_OSS)
+    add_compile_definitions(PRIVATE)
 elseif (${COORD_TYPE} STREQUAL "rlec")
-    target_compile_definitions(redisearch-coord PRIVATE RS_CLUSTER_ENTERPRISE)
+    add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
     # TODO: why calling it module and not redisearch???
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
 else()

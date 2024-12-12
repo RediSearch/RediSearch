@@ -271,7 +271,8 @@ typedef struct IndexSpec {
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
-  int numFields;                  // Number of fields
+  int16_t numFields;              // Number of fields
+  int16_t numSortableFields;      // Number of sortable fields
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -280,8 +281,6 @@ typedef struct IndexSpec {
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
-
-  RSSortingTable *sortables;      // Contains sortable data of documents
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -424,7 +423,8 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
@@ -559,6 +559,7 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
 } IndexLoadOptionsFlags;
 
 typedef struct {
@@ -576,14 +577,15 @@ typedef struct {
  * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
  * If an owned reference is needed, use StrongRef API to create one.
  */
-StrongRef IndexSpec_LoadUnsafe(RedisModuleCtx *ctx, const char *name);
+// TODO: Remove the context from this function!
+StrongRef IndexSpec_LoadUnsafe(const char *name);
 
 /**
  * Find and load the index using the specified parameters. The call does not increase the spec reference counter
  * (only the weak reference counter).
  * @return the index spec, or NULL if the index does not exist
  */
-StrongRef IndexSpec_LoadUnsafeEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -633,10 +635,10 @@ typedef struct IndexesScanner {
   bool cancelled;
   WeakRef spec_ref;
   char *spec_name;
-  size_t scannedKeys, totalKeys;
+  size_t scannedKeys;
 } IndexesScanner;
 
-double IndexesScanner_IndexedPercent(IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
@@ -649,6 +651,12 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
  * sp->terms and sp->suffix Tries.
  */
 size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+
+/**
+ * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
+ * numeric tree structs.
+ */
+size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.

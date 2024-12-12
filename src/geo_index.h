@@ -38,7 +38,7 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const char *property;
+  const FieldSpec *field;
   double lat;
   double lon;
   double radius;
@@ -61,9 +61,8 @@ GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
 int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
-int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config, t_fieldIndex fieldIndex);
+IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config);
 
 /*****************************************************************************/
 

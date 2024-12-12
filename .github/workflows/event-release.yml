@@ -1,5 +1,10 @@
 name: Release a Version
 
+# Added these to use JWT token to connect with AWS
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
 on:
   release:
     types: [published]
