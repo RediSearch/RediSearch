@@ -317,7 +317,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
   HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr, true);
+  HiddenString_Free(expr, false);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
