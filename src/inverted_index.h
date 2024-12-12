@@ -82,12 +82,14 @@ typedef struct {
 } IndexRepairParams;
 
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
-  int useFieldMask = flags & Index_StoreFieldFlags;
-  int useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask & useNumEntries));
+  bool useFieldMask = flags & Index_StoreFieldFlags;
+  bool useNumEntries = flags & Index_StoreNumeric;
+  RedisModule_Assert(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
-  return (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
+  if (useFieldMask) return base + sizeof(t_fieldMask);
+  if (useNumEntries) return base + sizeof(uint64_t);
+  return base;
 }
 
 // Create a new inverted index object, with the given flag.
@@ -199,7 +201,7 @@ void IndexReader_OnReopen(IndexReader *ir);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
-typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, RSIndexResult *record);
+typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */

@@ -146,7 +146,7 @@ void IndexReader_OnReopen(IndexReader *ir) {
  *
  ******************************************************************************/
 
-#define ENCODER(f) static size_t f(BufferWriter *bw, uint32_t delta, RSIndexResult *res)
+#define ENCODER(f) static size_t f(BufferWriter *bw, t_docId delta, RSIndexResult *res)
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
@@ -295,32 +295,6 @@ typedef union {
   NumEncodingFloat encFloat;
 } EncodingHeader;
 
-#define NUM_TINY_MAX 0xF  // Mask/Limit for 'Tiny' value
-static void dumpBits(uint64_t value, size_t numBits, FILE *fp) {
-  while (numBits) {
-    fprintf(fp, "%d", !!(value & (1 << (numBits - 1))));
-    numBits--;
-  }
-}
-
-static void dumpEncoding(EncodingHeader header, FILE *fp) {
-  fprintf(fp, "DeltaBytes: %u\n", header.encCommon.deltaEncoding);
-  fprintf(fp, "Type: ");
-  if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_FLOAT) {
-    fprintf(fp, " FLOAT\n");
-    fprintf(fp, "  SubType: %s\n", header.encFloat.isDouble ? "Double" : "Float");
-    fprintf(fp, "  INF: %s\n", header.encFloat.isInf ? "Yes" : "No");
-    fprintf(fp, "  Sign: %c\n", header.encFloat.sign ? '-' : '+');
-  } else if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_TINY) {
-    fprintf(fp, " TINY\n");
-    fprintf(fp, "  Value: %u\n", header.encTiny.tinyValue);
-  } else {
-    fprintf(fp, " INT\n");
-    fprintf(fp, "  Size: %u\n", header.encInt.valueByteCount + 1);
-    fprintf(fp, "  Sign: %c\n", header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT ? '-' : '+');
-  }
-}
-
 #ifdef _DEBUG
 void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
   PRINT_INDENT(indent);
@@ -360,7 +334,7 @@ ENCODER(encodeNumeric) {
   const double realVal = res->num.value;
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
-  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
+  const uint8_t tinyNum = u64Num & NUM_TINYENC_MASK;
 
   EncodingHeader header = {.storage = 0};
 
@@ -383,9 +357,8 @@ ENCODER(encodeNumeric) {
     header.encTiny.tinyValue = tinyNum;
     header.encCommon.type = NUM_ENCODING_COMMON_TYPE_TINY;
 
-  } else if ((double)(uint64_t)absVal == absVal) {
+  } else if ((double)u64Num == absVal) {
     // Is a whole number
-    uint64_t wholeNum = absVal;
     NumEncodingInt *encInt = &header.encInt;
 
     if (realVal < 0) {
@@ -532,9 +505,9 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   }
 
   // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
-  //
-  // For numeric encoder the maximal delta is practically not a limit (see structs `EncodingHeader` and `NumEncodingCommon`)
-  if (delta > UINT32_MAX && encoder != encodeNumeric) {
+  // For numeric encoder the maximal delta has to fit in 7 bytes (since it is encoded with 0-7 bytes)
+  if ((encoder != encodeNumeric && delta > UINT32_MAX) ||
+      (encoder == encodeNumeric && delta >= (1ULL << (7 * 8)))) {
     blk = InvertedIndex_AddBlock(idx, docId, &sz);
     delta = 0;
   }
