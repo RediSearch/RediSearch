@@ -238,7 +238,7 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
+        printf("  EXPR:%s\n", FormatHiddenText(((PLN_MapFilterStep *)stp)->expr, obfuscate));
         if (stp->alias) {
           printf("  AS:%s\n", FormatHiddenText(stp->alias, obfuscate));
         }
