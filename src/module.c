@@ -518,7 +518,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       } else {
         return RedisModule_ReplyWithError(ctx, "Unknown option");
       }
-    } else {
+    } else { // FT.DROPINDEX
       if (RMUtil_StringEqualsCaseC(argv[2], "DD")) {
         delDocs = 1;
       } else {
