@@ -40,13 +40,13 @@ def runTestWithSeed(env, s=None):
 
     # Expected inverted index size total: 606 bytes
     # 2 * (buffer size + inverted index structure size)
-    # 2 * (207 + 96) = 606
+    # 2 * (207 + 80) = 590
 
     # 207 is the buffer size after writing 4 bytes 50 times.
     # The buffer grows according to Buffer_Grow() in buffer.c
-    # 96 is the size of the inverted index structure without counting the
+    # 80 is the size of the inverted index structure without counting the
     # buffer capacity.
-    expected_inv_idx_size = 606 / (1024 * 1024)
+    expected_inv_idx_size = 590 / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
