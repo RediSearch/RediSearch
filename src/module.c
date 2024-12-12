@@ -513,20 +513,25 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       keepDocs = 1;
     } else if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-        if (RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-          delDocs = 0;
-        } else {
-          return RedisModule_ReplyWithError(ctx, "Unknown option");
-        }
-    // FT.DROPINDEX
+      if (RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+        delDocs = 0;
+      } else {
+        return RedisModule_ReplyWithError(ctx, "Unknown option");
+      }
     } else {
       if (RMUtil_StringEqualsCaseC(argv[2], "DD")) {
         delDocs = 1;
       } else {
         return RedisModule_ReplyWithError(ctx, "Unknown option");
       }
+    }
+  } else {
+    delDocs = 0;
+    if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+        RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
+      delDocs = 1;
+    }
   }
-}
 
 
   if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {

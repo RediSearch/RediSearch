@@ -360,16 +360,56 @@ def testDrop(env):
 def testDelete(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+   
+    env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
+    env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
+    # validate optional argument
+    env.expect('FT.DROPINDEX', 'idx', 'DE').error()
+    env.expect('FT.DROP', 'idx', 'Invalid').error()
 
     for i in range(100):
         res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
     env.assertGreaterEqual(countKeys(env), 100)
-    env.expect('FT.DROPINDEX', 'idx', 'ed').error()
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
     env.flush()
+
+    # test _FORCEKEEPDOCS
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    for i in range(100):
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(env), 100)
+    keys = countKeys(env)
+    env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
+    env.assertEqual(keys, countKeys(env))
+    env.flush()
+
+    # test default behavior - FT.DROP
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    for i in range(100):
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    env.assertGreaterEqual(countKeys(env), 100)
+    env.expect('FT.DROP', 'idx').ok()
+    env.assertEqual(0, countKeys(env))
+    env.flush()
+
+    # test default behavior - FT.DROPINDEX
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    for i in range(100):
+        res = conn.execute_command('hset', 'doc%d' % i,
+                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        env.assertEqual(4, res)
+    keys = countKeys(env)
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(keys, countKeys(env))
+    env.flush()
+
 
     # Now do the same with KEEPDOCS
     env.expect('ft.create', 'idx', 'ON', 'HASH',
