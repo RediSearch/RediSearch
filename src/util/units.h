@@ -7,4 +7,4 @@
 #pragma once
 
 #define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
-#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
+#define MEMORY_MB(x) ((x) / (double)(1024 * 1024))

@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "INFO_MODULES.h"
+#include "info_redis.h"
 #include "version.h"
 #include "global_stats.h"
 #include "cursor.h"
@@ -180,13 +180,13 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 
 	// Total
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info->total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info->total_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_MB(total_info->total_mem));
 	// Min
   RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index", total_info->min_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index_human", MEMORY_HUMAN(total_info->min_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "smallest_memory_index_human", MEMORY_MB(total_info->min_mem));
 	// Max
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index", total_info->max_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_HUMAN(total_info->max_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
 	// Indexing time
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
