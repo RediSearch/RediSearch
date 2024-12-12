@@ -1,6 +1,5 @@
 from common import *
 
-
 def testDictAdd(env):
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term3').equal(3)
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term4').equal(1)
@@ -32,7 +31,7 @@ def testDictDump(env):
     env.expect('ft.dictdump', 'dict').equal(['term1', 'term2', 'term3'])
 
 def testDictDumpWrongArity(env):
-    env.expect('ft.dictdump').error()
+    env.expect('ft.dictdump').error().contains('wrong number of arguments')
 
 def testDictDumpOnNoneExistingKey(env):
     env.expect('ft.dictdump', 'dict').equal([])
@@ -43,7 +42,6 @@ def testBasicSpellCheck(env):
         r.execute_command('hset', 'doc1', 'name', 'name1', 'body', 'body1')
         r.execute_command('hset', 'doc2', 'name', 'name2', 'body', 'body2')
         r.execute_command('hset', 'doc3', 'name', 'name2', 'body', 'name2')
-    waitForIndex(env, 'idx')
     res = env.cmd('ft.spellcheck', 'idx', 'name')
     exp = [['TERM', 'name', [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1']]]]
     compare_lists(env, res, exp)

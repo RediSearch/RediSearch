@@ -654,25 +654,36 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
+# Dispatch a command to make sure that the module is loaded and initialized
+# We need to dispatch a command that will activate the topology updater, by
+# sending a command to the shards. Otherwise the cluster.refresh command will
+# not be effective, due to lazy initialization of the topology updater.
+# Thus we dispatch a command that does not have an index, as it is not stopped
+# in the coordinator level.
 def verify_shard_init(shard):
+    # One of the following errors can be raised (timing), yet they
+    # mean the same thing in this case - the command was dispatched
+    # to the shards before the connections were ready. Continue to
+    # try until success\timeout.
+    uninitialized_errors = [
+        'ERRCLUSTER Uninitialized cluster state, could not perform command',
+        'Could not distribute command'
+    ]
+    # The following error means that the cluster is initialized, as it was
+    # returned from the shards.
+    initialized_error = 'Alias does not exist'
+
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.CREATE', 'init_shard_idx' ,'SCHEMA', 't', 'TEXT')
-                shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
+                shard.execute_command('FT.ALIASDEL', 'non-existing-alias')
                 break
             except redis_exceptions.ResponseError as e:
-                # One of the following errors can be raised (timing), yet they
-                # mean the same thing in this case - the command was dispatched
-                # to the shards before the connections were ready. Continue to
-                # try until success\timeout.
-                possible_errors = [
-                    'ERRCLUSTER Uninitialized cluster state, could not perform command',
-                    'Could not distribute command'
-                ]
-                if any([err in str(e) for err in possible_errors]):
+                if any([err in str(e) for err in uninitialized_errors]):
                     continue
+                elif initialized_error in str(e):
+                    break
+                # Unexpected error, raise it.
                 raise
 
 def cmd_assert(env, cmd, res, message=None):

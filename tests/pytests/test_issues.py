@@ -839,10 +839,10 @@ def test_mod_6276(env):
   # Actual Test
   env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
-  env.expect('MULTI').ok()                                 # Start an atomic transaction:
+  env.expect('MULTI').ok()                                  # Start an atomic transaction:
   env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
-  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
-  env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
+  env.cmd('FT.DROPINDEX', 'idx')                            # 2. Drop the index while the gc is running/queued
+  env.expect('EXEC').equal(['OK', 'OK'])                    # Execute the transaction
   env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
 def test_mod5791(env):
@@ -865,11 +865,9 @@ def test_mod5791(env):
                   'WITHSCORES', 'DIALECT', '2', 'params', '2', 'blob', 'abcdefgh')
     env.assertEqual(res[:2], [1, 'doc1'])
 
-
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster(env):
     mod5778_add_new_shard_to_cluster(env)
-
 
 @skip(asan=True, cluster=False)
 def test_mod5778_add_new_shard_to_cluster_TLS():
@@ -925,7 +923,6 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     shards_with_slot_0 = [shard for shard in cluster_info[9:] if shard[0] == 0]
     env.assertEqual(len(shards_with_slot_0), 1, message=f"cluster info is {cluster_info}")
     env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
-
 
 @skip(cluster=True)
 def test_mod5910(env):
