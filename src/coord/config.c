@@ -112,12 +112,14 @@ CONFIG_GETTER(getSearchThreads) {
 // search-threads
 int set_search_threads(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
-  *(long long *)privdata = val;
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  realConfig->coordinatorPoolSize = (size_t)val;
   return REDISMODULE_OK;
 }
 
 long long get_search_threads(const char *name, void *privdata) {
-  return (*(long long *)privdata);
+  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  return (long long)realConfig->coordinatorPoolSize;
 }
 
 // TOPOLOGY_VALIDATION_TIMEOUT
@@ -145,7 +147,7 @@ CONFIG_SETTER(setOSSACLUsername) {
 }
 
 // topology-validation-timeout
-int set_topology_validation_timeout(const char *set_topology_validation_timeout,
+int set_topology_validation_timeout(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   realConfig->topologyValidationTimeoutMS = val;
@@ -153,7 +155,7 @@ int set_topology_validation_timeout(const char *set_topology_validation_timeout,
 }
 
 long long get_topology_validation_timeout(
-                const char *get_topology_validation_timeout, void *privdata) {
+                const char *name, void *privdata) {
   SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
   return realConfig->topologyValidationTimeoutMS;
 }
@@ -246,7 +248,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
         ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
         REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
         LLONG_MAX, get_search_threads, set_search_threads, NULL,
-        (void*)&(clusterConfig.coordinatorPoolSize)) == REDISMODULE_ERR) {
+        (void*)&clusterConfig) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
