@@ -12,6 +12,7 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "hiredis/hiredis.h"
+#include "../module.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -244,21 +245,23 @@ void ClusterConfig_RegisterTriggers(void) {
 }
 
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
-  if (RedisModule_RegisterNumericConfig(
-        ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
-        LLONG_MAX, get_search_threads, set_search_threads, NULL,
-        (void*)&clusterConfig) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  }
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_search_threads, set_search_threads, NULL,
+      (void*)&clusterConfig
+    )
+  )
 
-  if (RedisModule_RegisterNumericConfig (
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
         ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
         REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
         get_topology_validation_timeout, set_topology_validation_timeout, NULL,
-        (void*)&clusterConfig) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  }
+      (void*)&clusterConfig
+    )
+  )
 
   return REDISMODULE_OK;
 }

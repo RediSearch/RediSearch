@@ -58,15 +58,6 @@ RedisModuleString * getfn(const char *name, void *privdata) {            \
   return str ? RedisModule_CreateString(NULL, str, strlen(str)) : NULL; \
 }
 
-#define CONFIG_API_BOOL_GETTER(getfn, var, invert)   \
-static int getfn(const char *name, void *privdata) { \
-  if (invert) {                                     \
-    return !RSGlobalConfig.var;                     \
-  } else {                                          \
-  return RSGlobalConfig.var;                        \
-  }                                                 \
-}
-
 #define CONFIG_API_ENUM_SETTER(setfn) int setfn(const char *name, int val, void *privdata, RedisModuleString **err)
 
 #define CONFIG_API_STRING_SETTER(setfn) int setfn(const char *name,            \
@@ -81,19 +72,5 @@ static int getfn(const char *name, void *privdata) { \
   }                                                                            \
   return REDISMODULE_OK;                                                       \
 }
-
-#define CONFIG_API_BOOL_SETTER(setfn, var)                  \
-static int setfn(const char *name, int val, void *privdata, \
-                RedisModuleString **err) {                 \
-  RSGlobalConfig.var = val;                                \
-  return REDISMODULE_OK;                                   \
-}
-
-#define CONFIG_API_REGISTER_BOOL_CONFIG(ctx, name, getfn, setfn, default_val, flags) \
-  if(RedisModule_RegisterBoolConfig(                                           \
-        ctx, name, default_val, flags,                                         \
-        getfn, setfn, NULL, NULL) == REDISMODULE_ERR) {                        \
-        return REDISMODULE_ERR;                                                \
-  }
 
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)

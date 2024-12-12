@@ -585,7 +585,7 @@ def testModuleLoadexNumericParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-# Skip on ASAN since RedisModule_Unload is not fully implemented
+# Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 @skip(redis_less_than='8.1', asan=True)
 def testConfigAPILoadTimeNumericParams():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
