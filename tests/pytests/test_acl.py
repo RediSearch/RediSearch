@@ -20,7 +20,7 @@ def test_acl_category(env):
     for category in ['search', '_search_internal']:
         env.assertContains(category, res)
 
-@skip(redis_less_than="7.9.0")
+@skip(redis_less_than="8.0")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
@@ -204,3 +204,92 @@ def test_internal_commands(env):
     # Authenticate as `default`, and run the internal debug command
     env.expect('AUTH', 'default', 'nopass').true()
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
+
+@skip(redis_less_than="8.0")
+def test_acl_key_permissions_validation(env):
+    """Tests that the key permission validation works properly"""
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Create an ACL user with partial key-space permissions
+    env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~h:*', '&*', '+@all').ok()
+
+    # Create an index on the key the user does not have permissions to access
+    # and one that it can access
+    no_perm_index = 'noPermIdx'
+    perm_index = 'permIdx'
+    env.expect('FT.CREATE', no_perm_index, 'SCHEMA', 'n', 'NUMERIC')
+    env.expect('FT.CREATE', perm_index, 'PREFIXES', 1, 'h:','SCHEMA', 'n', 'NUMERIC')
+
+    # Create another index an alias for it, that will soon be dropped.
+    env.expect('FT.CREATE', 'index_to_drop', 'SCHEMA', 'n', 'NUMERIC')
+
+    # Authenticate as the user
+    env.expect('AUTH', 'test', '123').true()
+
+    # The `test` user should not be able to access the index, with any of the
+    # following commands:
+    index_commands = [
+        ['FT.AGGREGATE', no_perm_index, '*'],
+        ['FT.INFO', no_perm_index],
+        ['FT.SEARCH', no_perm_index, '*'],
+        ['FT.PROFILE', no_perm_index, 'AGGREGATE', 'QUERY', '*'],
+        ['FT.PROFILE', no_perm_index, 'SEARCH', 'QUERY', '*'],
+        ['FT.CURSOR', 'READ', no_perm_index, '555'],
+        ['FT.CURSOR', 'DEL', no_perm_index, '555'],
+        ['FT.CURSOR', 'GC', no_perm_index, '555'],
+        ['FT.SPELLCHECK', no_perm_index, 'name'],
+        ['FT.ALIASADD', 'myAlias', no_perm_index],
+        ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
+        ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
+        ['FT.EXPLAIN', no_perm_index, '*'],
+        ['FT.EXPLAINCLI', no_perm_index, '*'],
+        ['FT.INFO', no_perm_index],
+        ['FT.DROPINDEX', 'index_to_drop'],
+    ]
+    for command in index_commands:
+        env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
+
+    # the `test` user should be able to execute all commands that do not refer to a
+    # specific index
+    non_index_commands = [
+        [config_cmd(), 'GET', 'TIMEOUT'],
+        [config_cmd(), 'SET', 'TIMEOUT', '1000'],
+        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating ACL key permissions
+        ['FT.DICTADD', 'dict', 'hello'],
+        ['FT.DICTDEL', 'dict', 'hello'],
+        ['FT.DICTDUMP', 'dict'],
+        ['FT.ALIASDEL', 'myAlias'],
+        ['FT.SUGADD', 'h:sug', 'hello', '1'],
+        ['FT.SUGDEL', 'h:sug', 'hello'],
+        ['FT.SUGGET', 'h:sug', 'hello'],
+        ['FT.SUGLEN', 'h:sug']
+    ]
+    for command in non_index_commands:
+        try:
+            conn.execute_command(*command)
+        except Exception as e:
+            # Should not fail on permissions
+            env.assertNotContains("User does not have the required permissions", str(e))
+
+    # The `test` user should also be able to access the index it has permissions
+    # to access.
+    # Modify the `DROPINDEX` command that does not have the same index
+    index_commands[-1][1] = perm_index
+    for command in index_commands:
+        # Switch the index name to the one the user has permissions to access
+        if no_perm_index in command:
+            command[command.index(no_perm_index)] = perm_index
+        try:
+            env.execute_command(*command)
+        except Exception as e:
+            env.assertNotContains("User does not have the required permissions", str(e))
+
+    # For completeness, we verify that the default user, which has permissions
+    # to access all keys, can access the index
+    env.expect('AUTH', 'default', 'nopass').true()
+    for command in index_commands + non_index_commands:
+        try:
+            env.execute_command(*command)
+        except Exception as e:
+            env.assertNotContains("User does not have the required permissions", str(e))
