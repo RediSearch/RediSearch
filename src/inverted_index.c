@@ -657,7 +657,7 @@ DECODER(readNumeric) {
   Buffer_Read(br, &header, 1);
 
   // Read the delta (if not zero)
-  uint32_t delta = 0;
+  t_docId delta = 0;
   Buffer_Read(br, &delta, header.encCommon.deltaEncoding);
   res->docId = offset + delta;
 
