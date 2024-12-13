@@ -28,42 +28,69 @@ RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
 int set_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
   *(long long *)privdata = val;
   return REDISMODULE_OK;
 }
 
 long long get_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   return (*(long long *)privdata);
 }
 
 int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
   *(unsigned int *)privdata = (unsigned int) val;
   return REDISMODULE_OK;
 }
 
 long long get_uint_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
 }
 
 int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
   *(int *)privdata = val;
   return REDISMODULE_OK;
 }
 
 int set_inverted_bool_config(const char *name, int val, void *privdata,
-                           RedisModuleString **err) {
+                             RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
   *(int *)privdata = (val == 0);
   return REDISMODULE_OK;
 }
 
 int get_bool_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   return *(int *)privdata;
 }
 
 int get_inverted_bool_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   return !*(int *)privdata;
+}
+
+int set_string_config(const char *name, RedisModuleString *val, void *privdata,
+                      RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  char **ptr = (char **)privdata;
+  if (val) {
+    size_t len;
+    const char *ret = RedisModule_StringPtrLen(val, &len);
+    if (len > 0) {
+      *ptr = rm_strndup(ret, len);
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 // EXTLOAD
@@ -81,9 +108,8 @@ CONFIG_GETTER(getExtLoad) {
 }
 
 // ext-load
-CONFIG_API_STRING_SETTER(set_ext_load);
-
 RedisModuleString* get_ext_load(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   char *str = *(char **)privdata;
   if (str) {
     if (config_ext_load) {
@@ -304,6 +330,8 @@ CONFIG_GETTER(getMinOperationWorkers) {
 // min-operation-workers
 int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
@@ -312,6 +340,7 @@ int set_min_operation_workers(const char *name,
 }
 
 long long get_min_operation_workers(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
 }
 
@@ -438,8 +467,6 @@ CONFIG_GETTER(getFrisoINI) {
 }
 
 // friso-ini
-CONFIG_API_STRING_SETTER(set_friso_ini);
-
 RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   if (str) {
@@ -472,13 +499,17 @@ CONFIG_GETTER(getOnTimeout) {
 }
 
 // on-timeout
-CONFIG_API_ENUM_SETTER(set_on_timeout) {
-  RSGlobalConfig.requestConfigParams.timeoutPolicy = val;
+int set_on_timeout(const char *name, int val, void *privdata,
+                   RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *((RSTimeoutPolicy *)privdata) = (RSTimeoutPolicy)val;
   return REDISMODULE_OK;
 }
 
-CONFIG_API_ENUM_GETTER(get_on_timeout) {
-  return RSGlobalConfig.requestConfigParams.timeoutPolicy;
+int get_on_timeout(const char *name, void *privdata){
+  REDISMODULE_NOT_USED(name);
+  return *((RSTimeoutPolicy *)privdata);
 }
 
 // GC_SCANSIZE
@@ -1531,7 +1562,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-ext-load", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_ext_load, set_ext_load, NULL,
+      get_ext_load, set_string_config, NULL,
       (void *)&(RSGlobalConfig.extLoad)
     )
   )
@@ -1540,7 +1571,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-friso-ini", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_friso_ini, set_friso_ini, NULL,
+      get_friso_ini, set_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
     )
   )
@@ -1551,7 +1582,8 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, int_on_timeout_vals, 2,
-      get_on_timeout, set_on_timeout, NULL, NULL
+      get_on_timeout, set_on_timeout, NULL,
+      (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )
   )
 

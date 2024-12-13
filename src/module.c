@@ -3597,7 +3597,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
-    REDISMODULE_NOT_USED(ctx);
     if (config_ext_load) {
         RedisModule_FreeString(ctx, config_ext_load);
         config_ext_load = NULL;
