@@ -884,7 +884,7 @@ def testConfigAPIRunTimeOssACLUser():
     env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
         .equal(['search-oss-acl-username', 'default'])
 
-    # Test fails since `search-oss-global-password` is immutable, it can only
+    # Test fails since `search-oss-acl-username` is immutable, it can only
     # be set at load time
     env.expect('CONFIG', 'SET', 'search-oss-acl-username', 'myUser')\
         .error().contains('CONFIG SET failed')
