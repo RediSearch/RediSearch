@@ -113,13 +113,15 @@ CONFIG_GETTER(getSearchThreads) {
 // search-threads
 int set_search_threads(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   realConfig->coordinatorPoolSize = (size_t)val;
   return REDISMODULE_OK;
 }
 
 long long get_search_threads(const char *name, void *privdata) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   return (long long)realConfig->coordinatorPoolSize;
 }
 
@@ -150,14 +152,16 @@ CONFIG_SETTER(setOSSACLUsername) {
 // topology-validation-timeout
 int set_topology_validation_timeout(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   realConfig->topologyValidationTimeoutMS = val;
   return REDISMODULE_OK;
 }
 
 long long get_topology_validation_timeout(
                 const char *name, void *privdata) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   return realConfig->topologyValidationTimeoutMS;
 }
 
@@ -250,16 +254,16 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_search_threads, set_search_threads, NULL,
-      (void*)&clusterConfig
+      (void*)&RSGlobalConfig
     )
   )
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-        ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
-        get_topology_validation_timeout, set_topology_validation_timeout, NULL,
-      (void*)&clusterConfig
+      ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+      (void*)&RSGlobalConfig
     )
   )
 
