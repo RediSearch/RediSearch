@@ -15,18 +15,18 @@
 static inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, int offset) {
   size_t ret = 0;
   // byte size counter
-  int n = 0;
+  char n = -1;
   do {
     // write one byte into the buffer and advance the byte count
     ret += Buffer_Write(bw, (unsigned char *)&i, 1);
     n++;
     // shift right until we have no more bigger bytes that are non zero
-    i = i >> 8;
-  } while (i && n < 4);
+    i >>= 8;
+  } while (i);
   // encode the bit length of our integer into the leading byte.
   // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - 4 bytes.
   // we encode it at the i*2th place in the leading byte
-  *leading |= ((n - 1) & 0x03) << (offset * 2);
+  *leading |= n << (offset * 2);
   return ret;
 }
 
