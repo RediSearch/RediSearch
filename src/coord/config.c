@@ -12,6 +12,7 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "hiredis/hiredis.h"
+#include "../module.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -124,12 +125,16 @@ CONFIG_GETTER(getSearchThreads) {
 // search-threads
 int set_search_threads(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
-  *(long long *)privdata = val;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->coordinatorPoolSize = (size_t)val;
   return REDISMODULE_OK;
 }
 
 long long get_search_threads(const char *name, void *privdata) {
-  return (*(long long *)privdata);
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->coordinatorPoolSize;
 }
 
 // TOPOLOGY_VALIDATION_TIMEOUT
@@ -161,16 +166,18 @@ CONFIG_API_STRING_SETTER(set_oss_acl_username);
 CONFIG_API_STRING_GETTER(get_oss_acl_username);
 
 // topology-validation-timeout
-int set_topology_validation_timeout(const char *set_topology_validation_timeout,
+int set_topology_validation_timeout(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   realConfig->topologyValidationTimeoutMS = val;
   return REDISMODULE_OK;
 }
 
 long long get_topology_validation_timeout(
-                const char *get_topology_validation_timeout, void *privdata) {
-  SearchClusterConfig *realConfig = (SearchClusterConfig *)privdata;
+                const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   return realConfig->topologyValidationTimeoutMS;
 }
 
@@ -258,21 +265,23 @@ void ClusterConfig_RegisterTriggers(void) {
 }
 
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
-  if (RedisModule_RegisterNumericConfig(
-        ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
-        REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
-        LLONG_MAX, get_search_threads, set_search_threads, NULL,
-        (void*)&(clusterConfig.coordinatorPoolSize)) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  }
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_search_threads, set_search_threads, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
 
-  if (RedisModule_RegisterNumericConfig (
-        ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-        REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
-        get_topology_validation_timeout, set_topology_validation_timeout, NULL,
-        (void*)&clusterConfig) == REDISMODULE_ERR) {
-    return REDISMODULE_ERR;
-  }
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
