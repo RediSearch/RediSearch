@@ -24,20 +24,9 @@ static inline size_t __qint_encode(char *leading, BufferWriter *bw, uint32_t i, 
     i = i >> 8;
   } while (i && n < 4);
   // encode the bit length of our integer into the leading byte.
-  // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - bytes.
+  // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - 4 bytes.
   // we encode it at the i*2th place in the leading byte
   *leading |= ((n - 1) & 0x03) << (offset * 2);
-  return ret;
-}
-
-/* Encode one number ... */
-QINT_API size_t qint_encode1(BufferWriter *bw, uint32_t i) {
-  size_t ret = 0;
-  char leading = 0;
-  size_t pos = Buffer_Offset(bw->buf);
-  ret += Buffer_Write(bw, "\0", 1);
-  ret += __qint_encode(&leading, bw, i, 0);
-  ret += Buffer_WriteAt(bw, pos, &leading, 1);
   return ret;
 }
 
@@ -105,14 +94,6 @@ QINT_API size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_
 
 #define QINT_DECODE_MULTI(lval, pos, p, total) \
   QINT_DECODE_VALUE(lval, ((*p >> (pos * 2)) & 0x03), (p + total + 1), total)
-
-QINT_API size_t qint_decode1(BufferReader *br, uint32_t *i) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
-  size_t total = 0;
-  QINT_DECODE_MULTI(*i, 0, p, total);
-  Buffer_Skip(br, total + 1);
-  return total + 1;
-}
 
 QINT_API size_t qint_decode2(BufferReader *br, uint32_t *i, uint32_t *i2) {
   const uint8_t *p = (uint8_t *)BufferReader_Current(br);

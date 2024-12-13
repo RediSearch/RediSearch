@@ -470,7 +470,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
   size_t sz = 0;
-  int same_doc = 0;
+  bool same_doc = 0;
   if (idx->lastId && idx->lastId == docId) {
     if (encoder != encodeNumeric) {
       // do not allow the same document to be written to the same index twice.
@@ -506,8 +506,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 
   // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
   // For numeric encoder the maximal delta has to fit in 7 bytes (since it is encoded with 0-7 bytes)
-  if ((encoder != encodeNumeric && delta > UINT32_MAX) ||
-      (encoder == encodeNumeric && delta >= (1ULL << (7 * 8)))) {
+  const t_docId maxDelta = encoder == encodeNumeric ? (UINT64_MAX >> 8) : UINT32_MAX;
+  if (delta > maxDelta) {
     blk = InvertedIndex_AddBlock(idx, docId, &sz);
     delta = 0;
   }
