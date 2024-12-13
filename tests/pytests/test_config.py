@@ -586,7 +586,7 @@ def testModuleLoadexNumericParams():
         os.unlink(rdbFilePath)
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(redis_less_than='8.1', asan=True)
+@skip(redis_less_than='8.0', asan=True)
 def testConfigAPILoadTimeNumericParams():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
@@ -860,7 +860,7 @@ def testConfigAPIRunTimeStringParams():
                                    testValue)
 
 
-@skip(cluster=False, redis_less_than='8.1.0')
+@skip(cluster=False, redis_less_than='8.0')
 def testConfigAPIRunTimeOssGlobalPassword():
     env = Env(noDefaultModuleArgs=True)
     if env.env != 'oss-cluster':
@@ -869,11 +869,13 @@ def testConfigAPIRunTimeOssGlobalPassword():
     env.expect('CONFIG', 'GET', 'search-oss-global-password')\
         .equal(['search-oss-global-password', 'Password: *******'])
 
+    # Test fails since `search-oss-global-password` is immutable, it can only
+    # be set at load time
     env.expect('CONFIG', 'SET', 'search-oss-global-password', '123')\
         .error().contains('CONFIG SET failed')
 
 
-@skip(cluster=False, redis_less_than='8.1.0')
+@skip(cluster=False, redis_less_than='8.0')
 def testConfigAPIRunTimeOssACLUser():
     env = Env(noDefaultModuleArgs=True)
     if env.env != 'oss-cluster':
@@ -882,11 +884,13 @@ def testConfigAPIRunTimeOssACLUser():
     env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
         .equal(['search-oss-acl-username', 'default'])
 
+    # Test fails since `search-oss-global-password` is immutable, it can only
+    # be set at load time
     env.expect('CONFIG', 'SET', 'search-oss-acl-username', 'myUser')\
         .error().contains('CONFIG SET failed')
 
 
-@skip(cluster=False, redis_less_than='8.1.0')
+@skip(cluster=False, redis_less_than='8.0')
 def testClusterConfigFileOssGlobalPassword():
     # Test using only redis config file
     redisConfigFile = '/tmp/testClusterConfigFileOssGlobalPassword.conf'
@@ -906,7 +910,7 @@ def testClusterConfigFileOssGlobalPassword():
         .equal(['search-oss-global-password', 'Password: *******'])
 
 
-@skip(cluster=False, redis_less_than='8.1.0')
+@skip(cluster=False, redis_less_than='8.0')
 def testClusterConfigFileOssACLUser():
     # Test using only redis config file
     redisConfigFile = '/tmp/testClusterConfigFileOssACLUser.conf'
