@@ -68,6 +68,7 @@ include_directories(
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+    ${root}/deps/fast_float
     ${BOOST_DIR}
     ${root})
 
