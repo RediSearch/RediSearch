@@ -1,0 +1,1 @@
+ADD_LIBRARY(fast_float_strtod OBJECT fast_float_strtod.cpp)

@@ -9,6 +9,7 @@
 
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
+#include "fast_float/fast_float_strtod.h"
 
 #include <string.h>
 #include <errno.h>
@@ -179,10 +180,10 @@ int _parseInt(const char *str, size_t len, long long *i) {
 int _parseFloat(const char *str, size_t len, double *d) {
   errno = 0; /* To distinguish success/failure after call */
   char *endptr = (char *)str + len;
-  double val = strtod(str, &endptr);
+  double val = fast_float_strtod(str, &endptr);
 
   /* Check for various possible errors */
-  if (errno != 0 || (endptr == str && val == 0)) {
+  if (errno != 0 || (endptr == str && val == 0) || (endptr != (str + len ))) {
     return 0;
   }
   *d = val;

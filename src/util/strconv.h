@@ -48,6 +48,7 @@ static int ParseDouble(const char *arg, double *d, int sign) {
   }
   #endif
 
+  // TODO: use fast_float here?
   *d = strtod(arg, &e);
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
