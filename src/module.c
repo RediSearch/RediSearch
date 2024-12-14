@@ -57,6 +57,7 @@
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
 #include "global_stats.h"
+#include "fast_float/fast_float_strtod.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
@@ -1897,7 +1898,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
       char *endptr;
-      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
       RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -1968,7 +1969,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
           char *endptr;
-          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
           RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -2074,7 +2075,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 static double parseNumeric(const char *str, const char *sortKey) {
     RedisModule_Assert(str[0] == '#');
     char *eptr;
-    double d = strtod(str + 1, &eptr);
+    double d = fast_float_strtod(str + 1, &eptr);
     RedisModule_Assert(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }

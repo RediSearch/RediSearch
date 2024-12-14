@@ -5,6 +5,7 @@
  */
 
 #include "rs_geo.h"
+#include "fast_float/fast_float_strtod.h"
 
 int encodeGeo(double lon, double lat, double *bits) {
   GeoHashBits hash;
@@ -123,6 +124,7 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
   pos++;
 
   char *end1 = NULL, *end2 = NULL;
+  // TODO: can we use fast_float here? fast_float_strtod does not skip leading spaces
   *lon = strtod(str, &end1);
   *lat = strtod(pos, &end2);
   if (*end1 || *end2) {
