@@ -297,7 +297,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   if (p) {
     char *e;
     errno = 0;
-    *d = fast_float_strtod(p, &e);
+    *d = strtod(p, &e); // fast_float? test cluster test_sortby:testSortby
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
       return 0;
