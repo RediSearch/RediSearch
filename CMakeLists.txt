@@ -76,6 +76,7 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+add_subdirectory(deps/fast_float)
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -106,6 +107,7 @@ file(GLOB SOURCES
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/base64/*.c"
+    "deps/fast_float/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
     "deps/geohash/*.c")
@@ -118,6 +120,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
+    $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
 )
 
