@@ -33,7 +33,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/workers.h"
 #include "global_stats.h"
-#include "hash/hash.h"
+#include "util/hash/hash.h"
 #include "reply_macros.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -679,7 +679,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_FMT(status, "Expected", " %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {

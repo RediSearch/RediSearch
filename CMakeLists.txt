@@ -85,7 +85,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
-add_subdirectory(src/hash)
+add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------

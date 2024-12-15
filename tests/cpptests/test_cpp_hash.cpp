@@ -1,5 +1,5 @@
 #include "gtest/gtest.h"
-#include "hash/hash.h"
+#include "util/hash/hash.h"
 
 #include <stdlib.h>
 #include <string.h>

@@ -7,7 +7,7 @@
 #ifndef OBFUSCATION_API_H
 #define OBFUSCATION_API_H
 #include "redisearch.h"
-#include "hash/hash.h"
+#include "util/hash/hash.h"
 
 // Length definitions fo the required buffer sizes for obfuscation
 #define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + SHA1_TEXT_MAX_LENGTH + 1/*null terminator*/

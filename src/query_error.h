@@ -115,8 +115,8 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char*
 void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
 /** Convenience macro to set an error of a 'bad argument' with the name of the argument */
-#define QERR_MKBADARGS_FMT(status, fmt, ...) \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
+#define QERR_MKBADARGS_FMT(status, message, fmt, ...) \
+  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
 
 #define QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, fmt, ...) \
   QueryError_SetDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
@@ -129,7 +129,7 @@ void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code,
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
                          AC_Strerror(rv))
 
-#define QERR_MKSYNTAXERR(status, ...) QueryError_SetError(status, QUERY_ESYNTAX, ##__VA_ARGS__)
+#define QERR_MKSYNTAXERR(status, message) QueryError_SetError(status, QUERY_ESYNTAX, message)
 
 /**
  * Convenience macro to reply the error string to redis and clear the error code.

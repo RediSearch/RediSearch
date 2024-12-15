@@ -117,7 +117,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
 
   rule->prefixes = array_new(HiddenString*, args->nprefixes);
   for (int i = 0; i < args->nprefixes; ++i) {
-    HiddenString* p = NewHiddenString(args->prefixes[i], strlen(args->prefixes[i]), true);
+    HiddenString* p = NewHiddenString(args->prefixes[i], sdslen(args->prefixes[i]), true);
     array_append(rule->prefixes, p);
   }
 
