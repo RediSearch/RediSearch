@@ -58,13 +58,15 @@ def generate_arguments(file, member, arguments):
                     if string_arg in arg:
                         arg_scope.write(f'.{string_arg} = "{arg[string_arg]}",\n')
                 if 'type' in arg:
-                    arg_scope.write(f'.type = REDISMODULE_ARG_TYPE_{arg['type'].replace('-', '_').upper()},\n')
+                    type_text = arg['type'].replace('-', '_').upper()
+                    arg_scope.write(f'.type = REDISMODULE_ARG_TYPE_{type_text},\n')
                 flags = []
                 if 'optional' not in arg:
                     min_arity += 1
                 for flag in ['optional', 'multiple', 'multiple-token']:
                     if flag in arg:
-                        flags.append(f'REDISMODULE_CMD_ARG_{flag.replace('-', '_').upper()}')
+                        flag_text = flag.replace('-', '_').upper()
+                        flags.append(f'REDISMODULE_CMD_ARG_{flag_text}')
                 if len(flags) > 0:
                     arg_scope.write(f'.flags = {' | '.join(flags)},\n')
                 if 'arguments' in arg:
