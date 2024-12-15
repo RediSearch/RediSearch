@@ -429,7 +429,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err, false));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -539,7 +539,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err, false));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -622,7 +622,7 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err, false));
+      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
     } else if (req->qiter.err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
@@ -730,7 +730,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status, false);
+    QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -765,7 +765,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  QueryError_ReplyAndClear(outctx, &status, false);
+  QueryError_ReplyAndClear(outctx, &status);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
@@ -965,7 +965,7 @@ error:
   if (r) {
     AREQ_Free(r);
   }
-  return QueryError_ReplyAndClear(ctx, &status, false);
+  return QueryError_ReplyAndClear(ctx, &status);
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

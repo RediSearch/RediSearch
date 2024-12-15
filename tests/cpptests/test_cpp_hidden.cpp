@@ -79,7 +79,7 @@ TEST_F(HiddenTest, testHiddenClone) {
 TEST_F(HiddenTest, testHiddenCreateString) {
     const char *expected = "Text";
     HiddenString *name = NewHiddenString(expected, strlen(expected), true);
-    RedisModuleString* string = HiddenString_CreateString(name, NULL);
+    RedisModuleString* string = HiddenString_CreateRedisModuleString(name, NULL);
     const char *text = RedisModule_StringPtrLen(string, NULL);
     ASSERT_EQ(strlen(expected), strlen(text));
     ASSERT_EQ(strncmp(text, expected, strlen(expected)), 0);

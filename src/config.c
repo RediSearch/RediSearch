@@ -690,7 +690,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     // If we don't have a coordinator or this configuration has no trigger, this value
     // is meaningless and should be ignored
     if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-      *err = rm_strdup(QueryError_GetError(&status, false));
+      *err = rm_strdup(QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }

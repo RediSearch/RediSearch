@@ -112,7 +112,11 @@ void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   status->code = code;
 }
 
-const char *QueryError_GetError(const QueryError *status, bool obfuscate) {
+const char *QueryError_GetUserError(const QueryError *status) {
+  return status->detail ? status->detail : QueryError_Strerror(status->code);
+}
+
+const char *QueryError_GetDisplayableError(const QueryError *status, bool obfuscate) {
   if (status->detail == NULL || obfuscate) {
     return status->message ? status->message : QueryError_Strerror(status->code);
   } else {

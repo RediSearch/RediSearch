@@ -224,8 +224,8 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       }
 
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
-        ADD_QUERY_ERROR(IndexError, &cur->spec->stats.indexError, &cur->status, doc->docKey);
-        ADD_QUERY_ERROR(FieldSpec, &cur->spec->fields[fs->index], &cur->status, doc->docKey);
+        IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
+        FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
         QueryError_ClearError(&cur->status);
         cur->stateFlags |= ACTX_F_ERRORED;
       }

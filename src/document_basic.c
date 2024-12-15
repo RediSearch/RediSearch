@@ -177,7 +177,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    HiddenString_Clone(field->fieldName, &doc->fields[oix].docFieldName);
+    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -255,7 +255,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status, true), QueryError_GetError(status, false), doc->docKey);
+      FieldSpec_AddError(field, QueryError_GetDisplayableError(status, true), QueryError_GetDisplayableError(status, false), doc->docKey);
       char* path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog, false);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", path);
       rm_free(path);

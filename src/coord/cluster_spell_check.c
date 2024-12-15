@@ -279,7 +279,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   QueryError qerr = {0};
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp2(replies[i], &totalDocNum, &qerr)) {
-      QueryError_ReplyAndClear(ctx, &qerr, false);
+      QueryError_ReplyAndClear(ctx, &qerr);
       return REDISMODULE_OK;
     }
   }
@@ -328,7 +328,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   QueryError qerr = {0};
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp3(replies[i], &totalDocNum, &qerr)) {
-      QueryError_ReplyAndClear(ctx, &qerr, false);
+      QueryError_ReplyAndClear(ctx, &qerr);
       return REDISMODULE_OK;
     }
   }

@@ -224,7 +224,7 @@ void ExprAST_Print(const RSExpr *e) {
   RSExpr_Print(e);
 }
 
-RSExpr *ExprAST_Parse(HiddenString* expr, QueryError *status) {
+RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!QueryError_HasError(status), "Query has error")
 

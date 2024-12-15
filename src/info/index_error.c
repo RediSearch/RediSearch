@@ -77,8 +77,14 @@ void IndexError_Clear(IndexError error) {
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error, obfuscate));
-    RedisModuleString *lastError = IndexError_LastErrorKey(error, obfuscate);
+    RedisModuleString *lastError = NULL;
+    if (obfuscate) {
+      lastError = IndexError_LastErrorKeyObfuscated(error);
+      REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastErrorObfuscated(error));
+    } else {
+      lastError = IndexError_LastErrorKey(error);
+      REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
+    }
     REPLY_KVRSTR(IndexingErrorKey_String, lastError);
     RedisModule_FreeString(RSDummyContext, lastError);
     if (withTimestamp) {
@@ -97,24 +103,31 @@ size_t IndexError_ErrorCount(const IndexError *error) {
 }
 
 // Returns the last error message in the IndexError.
-const char *IndexError_LastError(const IndexError *error, bool obfuscate) {
-    return obfuscate ? error->short_last_error : error->detailed_last_error;
+const char *IndexError_LastError(const IndexError *error) {
+    return error->detailed_last_error;
+}
+
+const char *IndexError_LastErrorObfuscated(const IndexError *error) {
+  return error->short_last_error;
 }
 
 // Returns the key of the document that caused the error.
-RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate) {
-    // if there is no obfuscation or the key is NA_rstr then return the key as is
-    if (!obfuscate || error->key == NA_rstr) {
-      // We use hold string so the caller can always call free string regardless which clause of the if was reached
-      return RedisModule_HoldString(RSDummyContext, error->key);
-    } else {
-      char documentName[MAX_OBFUSCATED_KEY_NAME];
-      // When a document indexing error occurs we will not assign the document with an id
-      // There is nothing for us to pass around between the shard and the coordinator
-      // We use the last error time to obfuscate the document name
-      Obfuscate_KeyWithTime(error->last_error_time, documentName);
-      return RedisModule_CreateString(RSDummyContext, documentName, strlen(documentName));
-    }
+RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
+  // We use hold string so the caller can always call free string regardless which clause of the if was reached
+  return RedisModule_HoldString(RSDummyContext, error->key);
+}
+
+RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error) {
+  if (error->key == NA_rstr) {
+    return RedisModule_HoldString(RSDummyContext, error->key);
+  } else {
+    char documentName[MAX_OBFUSCATED_KEY_NAME];
+    // When a document indexing error occurs we will not assign the document with an id
+    // There is nothing for us to pass around between the shard and the coordinator
+    // We use the last error time to obfuscate the document name
+    Obfuscate_KeyWithTime(error->last_error_time, documentName);
+    return RedisModule_CreateString(RSDummyContext, documentName, strlen(documentName));
+  }
 }
 
 // Returns the last error time in the IndexError.

@@ -54,7 +54,7 @@ int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, .
 int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val);
 int RedisModule_Reply_Null(RedisModule_Reply *reply);
 int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error);
-void RedisModule_Reply_QueryError(RedisModule_Reply *reply, struct QueryError *error, bool obfuscate);
+void RedisModule_Reply_QueryError(RedisModule_Reply *reply, struct QueryError *error);
 int RedisModule_Reply_Array(RedisModule_Reply *reply);
 int RedisModule_Reply_ArrayEnd(RedisModule_Reply *reply);
 int RedisModule_Reply_Map(RedisModule_Reply *reply);

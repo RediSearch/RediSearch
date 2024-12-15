@@ -165,6 +165,10 @@ char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNee
  */
 void FieldSpec_AddError(FieldSpec *, const char *shortError, const char *detailedError, RedisModuleString *key);
 
+static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
+  FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
+
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
 #endif /* SRC_FIELD_SPEC_H_ */

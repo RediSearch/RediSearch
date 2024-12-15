@@ -17,24 +17,34 @@ typedef struct HiddenString HiddenString;
 
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
+// This is a security measure to prevent leaking user data
+// The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
+// HiddenString_Free must be called for the object do release it
 HiddenString *NewHiddenString(const char *name, uint64_t length, bool takeOwnership);
+// Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(HiddenString *value, bool tookOwnership);
 
-// comparison
+// Comparison functions
+// CompareC overloads receive a const char* right argument for the comparison for backward compatability with existing code
+// Eventually the hope is to remove them alltogether.
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
 int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right);
 int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length);
 
-// ownership managment
+// Wwnership managment
 HiddenString *HiddenString_Duplicate(const HiddenString *value);
 void HiddenString_TakeOwnership(HiddenString *hidden);
 void HiddenString_Clone(HiddenString *src, HiddenString **dst);
 
-// allowed actions
+// Allowed actions
+// Save a hidden string to an RDB file, e.g an index name
 void HiddenString_SaveToRdb(HiddenString* value, RedisModuleIO* rdb);
+// Remove a hidden string from the keyspace, e.g an index name
+// Used in legacy code, should be avoided in new code
 void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenString* value);
-RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx);
+// Creates a redis module string from a hidden string
+RedisModuleString *HiddenString_CreateRedisModuleString(HiddenString* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
 // Avoid outputing user data to:

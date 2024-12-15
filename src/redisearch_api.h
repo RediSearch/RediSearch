@@ -319,7 +319,7 @@ MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, 
 
 MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
 
-MODULE_API_FUNC(const char*, RediSearch_HiddenStringGet)(HiddenString* hs);
+MODULE_API_FUNC(const char*, RediSearch_HiddenStringGet)(const HiddenString* hs);
 
 /**
  * Return an iterator over the results of the specified query string

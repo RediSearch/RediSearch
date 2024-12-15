@@ -10,6 +10,7 @@
 #include "reply.h"
 #include <time.h>
 #include "redisearch.h"
+#include "query_error.h"
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
@@ -34,14 +35,25 @@ IndexError IndexError_Init();
 // Adds an error message to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 void IndexError_AddError(IndexError *error, const char *shortError, const char* detailedError, RedisModuleString *key);
 
+// Adds a query error to the index error using IndexError_AddError
+static inline void IndexError_AddQueryError(IndexError *error, const QueryError* queryError, RedisModuleString *key) {
+    IndexError_AddError(error, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
+
 // Returns the number of errors in the IndexError.
 size_t IndexError_ErrorCount(const IndexError *error);
 
 // Returns the last error message in the IndexError.
-const char *IndexError_LastError(const IndexError *error, bool obfuscate);
+const char *IndexError_LastError(const IndexError *error);
+
+// Returns the last error message in the IndexError, obfuscated.
+const char *IndexError_LastErrorObfuscated(const IndexError *error);
 
 // Returns the key of the document that caused the error.
-RedisModuleString *IndexError_LastErrorKey(const IndexError *error, bool obfuscate);
+RedisModuleString *IndexError_LastErrorKey(const IndexError *error);
+
+// Returns the key of the document that caused the error, obfuscated.
+RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error);
 
 // Returns the time of the last error.
 struct timespec IndexError_LastErrorTime(const IndexError *error);

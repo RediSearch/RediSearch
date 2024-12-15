@@ -158,7 +158,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
     QueryError status = {0};
     if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_OK;
     }
@@ -177,7 +177,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
 
@@ -258,7 +258,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = {0};
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
   if (!explainRoot) {
-    return QueryError_ReplyAndClear(ctx, &status, false);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
   if (newlinesAsElements) {
     size_t numElems = 0;
@@ -408,7 +408,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
@@ -692,7 +692,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
-    return QueryError_ReplyAndClear(ctx, &status, false);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
@@ -744,7 +744,7 @@ static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, 
   }
   QueryError e = {0};
   if (aliasAddCommon(ctx, argv, argc, &e, ifNx) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &e, false);
+    return QueryError_ReplyAndClear(ctx, &e);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASADD_IF_NX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -779,7 +779,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   const int rc = IndexAlias_Del(alias, ref, 0, &status);
   HiddenString_Free(alias, false);
   if (rc != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status, false);
+    return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -814,7 +814,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (spOrig && IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
     HiddenString_Free(alias, false);
-    return QueryError_ReplyAndClear(ctx, &status, false);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
@@ -824,7 +824,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
-    rc = QueryError_ReplyAndClear(ctx, &status, false);
+    rc = QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
     rc = RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -855,7 +855,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
                                 &offset, &status);
     if (rc == REDISMODULE_ERR) {
-      RedisModule_Reply_QueryError(reply, &status, false);
+      RedisModule_Reply_QueryError(reply, &status);
       QueryError_ClearError(&status);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
@@ -3038,7 +3038,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status, false));
+    RedisModule_ReplyWithError(clientCtx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
@@ -3083,7 +3083,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(clientCtx, &status, false);
+    QueryError_ReplyAndClear(clientCtx, &status);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(clientCtx);

@@ -262,8 +262,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats
-    IndexError_AddError(&sctx->spec->stats.indexError, QueryError_GetError(&status, true),
-                        QueryError_GetError(&status, false), aCtx->doc->docKey);
+    IndexError_AddError(&sctx->spec->stats.indexError, QueryError_GetDisplayableError(&status, true),
+                        QueryError_GetDisplayableError(&status, false), aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     QueryError_ClearError(&status);
@@ -804,8 +804,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, sctx, ff, fs, fdata, &aCtx->status) != 0) {
-        ADD_QUERY_ERROR(IndexError, &aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
-        ADD_QUERY_ERROR(FieldSpec, &aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
+        IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
+        FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
@@ -843,7 +843,7 @@ cleanup:
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, HiddenString *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;

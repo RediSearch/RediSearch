@@ -285,7 +285,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 parse_error:
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }

@@ -205,7 +205,7 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status, false));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&aCtx->status));
     }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -235,7 +235,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto cleanup;
   }
 
@@ -252,7 +252,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status, false));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     }
   } else {
     // Replicate *here*

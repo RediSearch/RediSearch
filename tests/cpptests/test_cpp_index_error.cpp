@@ -12,14 +12,14 @@ TEST_F(IndexErrorTest, testBasic) {
   IndexError_AddError(&error, "error", "error1", key);
   ASSERT_STREQ(error.detailed_last_error, "error1");
   ASSERT_STREQ(error.short_last_error, "error");
-  RedisModuleString *lastErrorKey = IndexError_LastErrorKey(&error, false);
+  RedisModuleString *lastErrorKey = IndexError_LastErrorKey(&error);
   ASSERT_EQ(key, lastErrorKey);
   const char* text = RedisModule_StringPtrLen(lastErrorKey, NULL);
   ASSERT_STREQ(text, expected);
   RedisModule_FreeString(NULL, lastErrorKey);
 
   error.last_error_time = {0};
-  lastErrorKey = IndexError_LastErrorKey(&error, true);
+  lastErrorKey = IndexError_LastErrorKeyObfuscated(&error);
   text = RedisModule_StringPtrLen(lastErrorKey, NULL);
   ASSERT_NE(key, lastErrorKey);
   ASSERT_STREQ("Key@0", text);

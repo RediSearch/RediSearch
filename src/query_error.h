@@ -79,7 +79,9 @@ typedef enum {
 
 typedef struct QueryError {
   QueryErrorCode code;
+  // The error message which we can expose in the logs, does not contain user data
   const char* message;
+  // The formatted error message in its entirety, can be shown only to the user
   char *detail;
 
   // warnings
@@ -116,6 +118,9 @@ void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code,
 #define QERR_MKBADARGS_FMT(status, fmt, ...) \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
+#define QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, fmt, ...) \
+  QueryError_SetDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
+
 #define QERR_MKBADARGS(status, message) \
   QueryError_SetError(status, QUERY_EPARSEARGS, message)
 
@@ -130,11 +135,11 @@ void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code,
  * Convenience macro to reply the error string to redis and clear the error code.
  * I'm making this into a macro so I don't need to include redismodule.h
  */
-#define QueryError_ReplyAndClear(rctx, qerr, obfuscate)                     \
-  ({                                                                        \
-    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr, obfuscate)); \
-    QueryError_ClearError(qerr);                                            \
-    REDISMODULE_OK;                                                         \
+#define QueryError_ReplyAndClear(rctx, qerr)                         \
+  ({                                                                 \
+    RedisModule_ReplyWithError(rctx, QueryError_GetUserError(qerr)); \
+    QueryError_ClearError(qerr);                                     \
+    REDISMODULE_OK;                                                  \
   })
 
 /**
@@ -158,7 +163,14 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
  * built-in error string for the given code, or the custom string within the
  * object.
  */
-const char *QueryError_GetError(const QueryError *status, bool obfuscate);
+const char *QueryError_GetUserError(const QueryError *status);
+
+/**
+* Retrieve the error suitable for being displayed.
+* If obfuscate is true, the error message will only contain the error without any user data.
+* If obfuscate is false, the error message will contain the error and the user data, equivalent to QueryError_GetUserError
+*/
+const char *QueryError_GetDisplayableError(const QueryError *status, bool obfuscate);
 
 /**
  * Retrieve the error code.
@@ -180,7 +192,7 @@ static inline int QueryError_HasError(const QueryError *status) {
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
 #define ADD_QUERY_ERROR(name, err, query_ptr, key) \
-name ## _AddError(err, QueryError_GetError(query_ptr, true), QueryError_GetError(query_ptr, false), key);
+name ## _AddError(err, QueryError_GetDisplayableError(query_ptr, true), QueryError_GetDisplayableError(query_ptr, false), key);
 
 #ifdef __cplusplus
 }

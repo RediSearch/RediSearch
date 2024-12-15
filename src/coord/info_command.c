@@ -188,7 +188,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
 
 static void handleIndexError(InfoFields *fields, MRReply *src) {
   // Check if indexError is initialized
-  if (!IndexError_LastError(&fields->indexError, false)) {
+  if (!IndexError_LastError(&fields->indexError)) {
     fields->indexError = IndexError_Init();
   }
   IndexError indexError = IndexError_Deserialize(src);

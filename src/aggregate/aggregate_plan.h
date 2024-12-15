@@ -141,7 +141,7 @@ PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status);
 
-PLN_MapFilterStep *PLNMapFilterStep_New(HiddenString *expr, int mode);
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;

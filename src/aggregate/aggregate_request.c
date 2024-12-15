@@ -407,7 +407,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QERR_MKBADARGS_FMT(status, "Cannot sort by more", " than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
@@ -763,7 +763,7 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(HiddenString* expr, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;

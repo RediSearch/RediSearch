@@ -839,7 +839,7 @@ TEST_F(IndexTest, testHybridVector) {
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   RSIndexResult *h = NULL;
   size_t count = 0;
@@ -866,7 +866,7 @@ TEST_F(IndexTest, testHybridVector) {
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
@@ -917,7 +917,7 @@ TEST_F(IndexTest, testHybridVector) {
   hParams.ignoreDocScore = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -996,7 +996,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);
@@ -1247,7 +1247,7 @@ TEST_F(IndexTest, testIndexSpec) {
   const char* spec_name = "idx";
   StrongRef ref = IndexSpec_Parse(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
@@ -1320,7 +1320,7 @@ TEST_F(IndexTest, testIndexSpec) {
   };
   ref = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
@@ -1333,7 +1333,7 @@ TEST_F(IndexTest, testIndexSpec) {
   QueryError_ClearError(&err);
   ref = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
   IndexSpec_RemoveFromGlobals(ref);
@@ -1381,7 +1381,7 @@ TEST_F(IndexTest, testHugeSpec) {
   QueryError err = {QUERY_OK};
   StrongRef ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err, false);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
   IndexSpec_RemoveFromGlobals(ref);
@@ -1397,9 +1397,9 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err, false));
+  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetError(&err, false));
+  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);

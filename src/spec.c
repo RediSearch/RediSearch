@@ -417,7 +417,7 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
   Sha1 sha1;
   size_t len;
   const char* value = HiddenString_GetUnsafe(specName, &len);
-  Sha1_Compute(&sha1, value, len);
+  Sha1_Compute(value, len, &sha1);
   char buffer[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(&sha1, buffer);
   return rm_strdup(buffer);
@@ -622,7 +622,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QERR_MKBADARGS_FMT(status, "Bad number of arguments for vector similarity index", ": got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
+    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ESYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;
@@ -1756,7 +1756,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = TagIndex_FormatName(sctx.spec, fs->fieldName);
         break;
       case INDEXFLD_T_VECTOR:
-        ret = HiddenString_CreateString(fs->fieldName, sctx.redisCtx);
+        ret = HiddenString_CreateRedisModuleString(fs->fieldName, sctx.redisCtx);
         break;
       case INDEXFLD_T_GEOMETRY:
         ret = fmtRedisGeometryIndexKey(&sctx, fs->fieldName);
@@ -2763,7 +2763,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
-                           name, QueryError_GetError(&status, RSGlobalConfig.hideUserDataFromLog));
+                           name, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     StrongRef_Release(spec_ref);
     return NULL;
   }
@@ -2792,7 +2792,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetError(&status, RSGlobalConfig.hideUserDataFromLog));
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       return REDISMODULE_ERR;
     }
   }
@@ -2968,7 +2968,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   if (rv != REDISMODULE_OK) {
     // we already unlocked the spec but we can increase this value atomically
-    ADD_QUERY_ERROR(IndexError, &spec->stats.indexError, &status, doc.docKey);
+    IndexError_AddQueryError(&spec->stats.indexError, &status, doc.docKey);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash

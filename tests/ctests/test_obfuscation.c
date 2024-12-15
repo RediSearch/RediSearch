@@ -33,7 +33,7 @@ DEFINE_OBJECT_OBFUSCATION_TESTS(Document)
 
 int testSimpleIndexObfuscation() {
   Sha1 sha;
-  Sha1_Compute(&sha, "idx", 3);
+  Sha1_Compute("idx", 3, &sha);
   char buffer[MAX_OBFUSCATED_INDEX_NAME];
   Obfuscate_Index(&sha, buffer);
   return strcmp(buffer, "Index@4e7f626df794f6491574a236f22c100c34ed804f");

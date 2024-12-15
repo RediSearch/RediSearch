@@ -55,7 +55,7 @@ typedef enum {
 } FieldVarType;
 
 typedef struct DocumentField {
-  HiddenString *docFieldName;
+  const HiddenString *docFieldName;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -344,7 +344,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, HiddenString *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *err);
 
 // Don't create document if it does not exist. Replace only

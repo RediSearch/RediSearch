@@ -4,8 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef HASH_H
-#define HASH_H
+#pragma once
 #include <stdint.h>
 #include "obfuscation/hidden.h"
 
@@ -20,18 +19,11 @@ typedef struct {
 
 #define SHA1_TEXT_MAX_LENGTH 40
 
-void Sha1_Compute(Sha1* output, const char *value, size_t len);
-char* Sha1_Format(const Sha1* sha1);
+// Computes the sha1 hash for the given buffer
+void Sha1_Compute(const char *value, size_t len, Sha1* output);
+// Prints to buffer the hash, the buffer's length is assumed to be at least SHA1_TEXT_MAX_LENGTH + 1
 void Sha1_FormatIntoBuffer(const Sha1 *sha1, char *buffer);
-
-inline char* Sha1_InlineFormat(const char *value, size_t len) {
-  Sha1 sha1;
-  Sha1_Compute(&sha1, value, len);
-  return Sha1_Format(&sha1);
-}
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif //HASH_H

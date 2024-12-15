@@ -256,8 +256,8 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
   return REDISMODULE_OK;
 }
 
-void RedisModule_Reply_QueryError(RedisModule_Reply *reply, QueryError *error, bool obfuscate) {
-  RedisModule_Reply_Error(reply, QueryError_GetError(error, obfuscate));
+void RedisModule_Reply_QueryError(RedisModule_Reply *reply, QueryError *error) {
+  RedisModule_Reply_Error(reply, QueryError_GetUserError(error));
 }
 
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {

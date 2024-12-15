@@ -118,7 +118,7 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
   return text->user;
 }
 
-RedisModuleString *HiddenString_CreateString(HiddenString* value, RedisModuleCtx* ctx) {
+RedisModuleString *HiddenString_CreateRedisModuleString(HiddenString* value, RedisModuleCtx* ctx) {
   UserString* text = (UserString*)value;
   return RedisModule_CreateString(ctx, text->user, text->length);
 }
