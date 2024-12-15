@@ -1038,20 +1038,13 @@ eof:
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
+// Assumes there is a valid block to skip to (maching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
 
-  if (bottom == idx->size || idx->blocks[top].lastId < docId) {
-    // the current block doesn't match and it's the last one - no point in searching
-    IR_SetAtEnd(ir, 1);
-    ir->currentBlock = top;
-    ir->lastId = idx->lastId;
-    ir->br = NewBufferReader(&idx->blocks[top].buf);
-    ir->br.pos = Buffer_Offset(&idx->blocks[top].buf); // set to the end of the buffer
-    return;
-  } else if (docId <= idx->blocks[bottom].lastId) {
+  if (docId <= idx->blocks[bottom].lastId) {
     // the next block is the one we're looking for, although it might not contain the docId
     ir->currentBlock = bottom;
     goto new_block;
@@ -1073,10 +1066,11 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
     }
   }
 
+  // We didn't find a matching block. According to the assumptions, there must be a block past the
+  // requested docId, and the binary search brought us to it or the one before it.
   ir->currentBlock = i;
   if (IR_CURRENT_BLOCK(ir).lastId < docId) {
-    // We checked that the last block should have relevant data, so we can advance in this case
-    ir->currentBlock++;
+    ir->currentBlock++; // It's not the current block. Advance
   }
 
 new_block:
@@ -1099,6 +1093,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   if (IR_CURRENT_BLOCK(ir).lastId < docId) {
+    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
+    // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
   } else if (BufferReader_AtEnd(&ir->br)) {
     // Current block, but there's nothing here
