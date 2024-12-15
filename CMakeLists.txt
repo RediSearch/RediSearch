@@ -21,6 +21,26 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+# Define paths for the script and output files
+set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
+set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
+set(COMMAND_OUTPUT_H "${CMAKE_SOURCE_DIR}/src/command_info/command_info.h")
+set(COMMAND_OUTPUT_C "${CMAKE_SOURCE_DIR}/src/command_info/command_info.c")
+
+# Add custom command to run the Python script
+add_custom_command(
+        OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C}
+        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${CMAKE_SOURCE_DIR}/src/command_info
+        DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
+        COMMENT "Generating command_info.h and command_info.c"
+        VERBATIM
+)
+
+# Create a custom target that relies on the generated files
+add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C})
+
+#----------------------------------------------------------------------------------------------
+
 setup_cc_options()
 
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
@@ -132,6 +152,7 @@ if (BUILD_STATIC)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+    add_dependencies(redisearch generate_command_info)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS})
@@ -150,7 +171,7 @@ else() # OSS RediSearch
 
     extract_debug_symbols(redisearch)
 
-    add_dependencies(redisearch VectorSimilarity)
+    add_dependencies(redisearch VectorSimilarity generate_command_info)
 
 endif()
 

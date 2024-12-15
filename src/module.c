@@ -977,24 +977,24 @@ typedef struct {
   int firstkey, lastkey, keystep;
 } CommandKeys;
 
-typedef int (*SetCommandInfo)(RedisModuleCtx *, RedisModuleCommand *);
+typedef int (*RegisteredCallback)(RedisModuleCtx *, RedisModuleCommand *);
 typedef struct {
   const char *name;
   const char *flags;
   const char *aclCategories;
   RedisModuleCmdFunc callback;
-  SetCommandInfo setCommandInfo;
+  RegisteredCallback registered;
   CommandKeys position;
 } SearchCommand;
 
-  typedef struct {
-    const char *name;
-    const char *fullName;
-    const char *flags;
-    RedisModuleCmdFunc callback;
-    SetCommandInfo setCommandInfo;
-    CommandKeys position;
-  } SubCommand;
+typedef struct {
+  const char *name;
+  const char *fullName;
+  const char *flags;
+  RedisModuleCmdFunc callback;
+  RegisteredCallback setCommandInfo;
+  CommandKeys position;
+} SubCommand;
 
 int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const SubCommand* subcommands, size_t count) {
   for (size_t i = 0; i < count; i++) {
@@ -1018,7 +1018,7 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
 
 // Creates a command and registers it to its corresponding ACL categories
 // Also sets the command info if setCommandInfo is not NULL
-static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc callback, SetCommandInfo setCommandInfo,
+static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc callback, RegisteredCallback registered,
                                  const char *flags, CommandKeys position, const char *aclCategories) {
   if (RedisModule_CreateCommand(ctx, name, callback, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
@@ -1031,7 +1031,7 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisMod
     return REDISMODULE_ERR;
   }
 
-  if (setCommandInfo && setCommandInfo(ctx, command) != REDISMODULE_OK) {
+  if (registered && registered(ctx, command) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not set command info for command: %s", name);
     return REDISMODULE_ERR;
   }
@@ -1060,7 +1060,7 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisMod
 }
 
 static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details) {
-  return RMCreateSearchCommand(ctx, details->name, details->callback, details->setCommandInfo, details->flags, details->position, details->aclCategories);
+  return RMCreateSearchCommand(ctx, details->name, details->callback, details->registered, details->flags, details->position, details->aclCategories);
 }
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
@@ -1138,9 +1138,14 @@ static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *comman
   return REDISMODULE_OK;
 }
 
-#define DEFINE_COMMAND(name_, callback_, flags_, setCommandInfo_, aclCategories_, firstkey_, lastkey_, keystep_) \
-  (SearchCommand){ .name = name_, .flags = flags_, .aclCategories = aclCategories_, .callback = callback_,       \
-  .setCommandInfo = setCommandInfo_, .position = (CommandKeys){.firstkey = firstkey_, .lastkey = lastkey_, .keystep = keystep_}},
+#define DEFINE_COMMAND(name_, func_, flags_, reg_, acl_, fstkey_, lstkey_, keystp_) \
+  (SearchCommand){ .name = name_, .flags = flags_,                                  \
+                   .aclCategories = acl_, .callback = func_, .registered = reg_,    \
+                   .position = (CommandKeys){                                       \
+                     .firstkey = fstkey_,                                           \
+                     .lastkey = lstkey_,                                            \
+                     .keystep = keystp_                                             \
+                   }},
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;

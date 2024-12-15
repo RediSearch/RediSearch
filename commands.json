@@ -1,22 +1,22 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": 
-      "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
-      "history": [        
-        [
-          "2.0.0",
-          "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
-        ],
-        [
-          "2.0.0",
-          "Deprecated `PAYLOAD_FIELD` argument"
-        ]
+    "complexity": "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
+    "history": [
+      [
+        "2.0.0",
+        "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
       ],
+      [
+        "2.0.0",
+        "Deprecated `PAYLOAD_FIELD` argument"
+      ]
+    ],
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "data_type",
@@ -24,17 +24,18 @@
         "type": "oneof",
         "arguments": [
           {
-              "name": "hash",
-              "type": "pure-token",
-              "token": "HASH"
+            "name": "hash",
+            "type": "pure-token",
+            "token": "HASH"
           },
           {
-              "name": "json",
-              "type": "pure-token",
-              "token": "JSON"
+            "name": "json",
+            "type": "pure-token",
+            "token": "JSON"
           }
         ],
-        "optional": true
+        "optional": true,
+        "summary": "Specifies the type of data to index, such as HASH or JSON."
       },
       {
         "name": "prefix",
@@ -44,92 +45,106 @@
           {
             "name": "count",
             "type": "integer",
-            "token":"PREFIX"
+            "token": "PREFIX"
           },
           {
             "name": "prefix",
             "type": "string",
-            "multiple": true
+            "multiple": true,
+            "summary": "Filters indexed documents to include only keys that start with the specified prefix."
           }
-        ]
+        ],
+        "summary": "Filters indexed documents to include only keys that start with the specified prefix."
       },
       {
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token": "FILTER"
+        "token": "FILTER",
+        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
       },
       {
         "name": "default_lang",
         "type": "string",
-        "token":"LANGUAGE",
-        "optional": true
+        "token": "LANGUAGE",
+        "optional": true,
+        "summary": "Defines the default language for the index."
       },
       {
         "name": "lang_attribute",
         "type": "string",
-        "token":"LANGUAGE_FIELD",
-        "optional": true
+        "token": "LANGUAGE_FIELD",
+        "optional": true,
+        "summary": "Specifies the attribute from which the language is determined."
       },
       {
         "name": "default_score",
         "type": "double",
-        "token":"SCORE",
-        "optional": true
+        "token": "SCORE",
+        "optional": true,
+        "summary": "Sets the default score for documents in the index."
       },
       {
         "name": "score_attribute",
         "type": "string",
-        "token":"SCORE_FIELD",
-        "optional": true
+        "token": "SCORE_FIELD",
+        "optional": true,
+        "summary": "Specifies the attribute from which the score is derived."
       },
       {
         "name": "payload_attribute",
         "type": "string",
-        "token":"PAYLOAD_FIELD",
-        "optional": true
+        "token": "PAYLOAD_FIELD",
+        "optional": true,
+        "summary": "Defines the attribute used for payloads in the index."
       },
       {
-          "name": "maxtextfields",
-          "type": "pure-token",
-          "token": "MAXTEXTFIELDS",
-          "optional": true
+        "name": "maxtextfields",
+        "type": "pure-token",
+        "token": "MAXTEXTFIELDS",
+        "optional": true,
+        "summary": "Increases the maximum number of text fields allowed in the schema."
       },
       {
         "name": "seconds",
         "type": "double",
-        "token":"TEMPORARY",
-        "optional": true
+        "token": "TEMPORARY",
+        "optional": true,
+        "summary": "Specifies the duration (in seconds) for which the index remains active (temporary index)."
       },
       {
         "name": "nooffsets",
         "type": "pure-token",
         "token": "NOOFFSETS",
-        "optional": true
+        "optional": true,
+        "summary": "Disables storage of term offsets for index entries."
       },
       {
         "name": "nohl",
         "type": "pure-token",
         "token": "NOHL",
-        "optional": true
+        "optional": true,
+        "summary": "Disables support for highlighting in search results."
       },
       {
         "name": "nofields",
         "type": "pure-token",
         "token": "NOFIELDS",
-        "optional": true
+        "optional": true,
+        "summary": "Omits returning fields from search results."
       },
       {
         "name": "nofreqs",
         "type": "pure-token",
         "token": "NOFREQS",
-        "optional": true
+        "optional": true,
+        "summary": "Disables storage of term frequencies in the index."
       },
       {
         "name": "stopwords",
         "type": "block",
         "optional": true,
-        "token":"STOPWORDS",
+        "token": "STOPWORDS",
         "arguments": [
           {
             "name": "count",
@@ -141,18 +156,21 @@
             "multiple": true,
             "optional": true
           }
-        ]
+        ],
+        "summary": "Defines custom stop words for the index, which will be ignored during full-text search."
       },
       {
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true
+        "optional": true,
+        "summary": "Skips the initial scan of the database when creating the index."
       },
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA"
+        "token": "SCHEMA",
+        "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
       },
       {
         "name": "field",
@@ -242,7 +260,8 @@
             "token": "NOINDEX",
             "optional": true
           }
-        ]
+        ],
+        "summary": "Specifies a field in the index schema with its properties."
       }
     ],
     "since": "1.0.0",
@@ -254,7 +273,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       }
     ],
     "since": "1.0.0",
@@ -266,18 +286,21 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       },
       {
         "name": "dialect",
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3"
+        "since": "2.4.3",
+        "summary": "Sets the query dialect version to be used."
       }
     ],
     "since": "1.0.0",
@@ -289,18 +312,21 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       },
       {
         "name": "dialect",
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3"
+        "since": "2.4.3",
+        "summary": "Sets the query dialect version to be used."
       }
     ],
     "since": "1.0.0",
@@ -312,18 +338,21 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true
+        "optional": true,
+        "summary": "Skips the initial scan of the database when creating the index."
       },
       {
         "name": "schema",
         "type": "pure-token",
-        "token": "SCHEMA"
+        "token": "SCHEMA",
+        "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
       },
       {
         "name": "add",
@@ -332,7 +361,8 @@
       },
       {
         "name": "field",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies a field in the index schema with its properties."
       },
       {
         "name": "options",
@@ -348,7 +378,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "delete docs",
@@ -357,7 +388,7 @@
           {
             "name": "delete docs",
             "type": "pure-token",
-            "token":"DD"
+            "token": "DD"
           }
         ],
         "optional": true
@@ -376,7 +407,8 @@
       },
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       }
     ],
     "since": "1.0.0",
@@ -392,7 +424,8 @@
       },
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       }
     ],
     "since": "1.0.0",
@@ -416,7 +449,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "field_name",
@@ -431,8 +465,8 @@
     "complexity": "O(1)",
     "history": [
       [
-          "2.0.0",
-          "Deprecated `PAYLOAD` argument"
+        "2.0.0",
+        "Deprecated `PAYLOAD` argument"
       ]
     ],
     "arguments": [
@@ -456,16 +490,16 @@
           {
             "name": "incr",
             "type": "pure-token",
-            "token":"INCR"
+            "token": "INCR"
           }
         ],
         "optional": true
       },
       {
-          "name": "payload",
-          "token": "PAYLOAD",
-          "type": "string",
-          "optional": true
+        "name": "payload",
+        "token": "PAYLOAD",
+        "type": "string",
+        "optional": true
       }
     ],
     "since": "1.0.0",
@@ -476,8 +510,8 @@
     "complexity": "O(1)",
     "history": [
       [
-          "2.0.0",
-          "Deprecated `WITHPAYLOADS` argument"
+        "2.0.0",
+        "Deprecated `WITHPAYLOADS` argument"
       ]
     ],
     "arguments": [
@@ -488,7 +522,8 @@
       },
       {
         "name": "prefix",
-        "type": "string"
+        "type": "string",
+        "summary": "Filters indexed documents to include only keys that start with the specified prefix."
       },
       {
         "name": "fuzzy",
@@ -500,7 +535,8 @@
         "name": "withscores",
         "type": "pure-token",
         "token": "WITHSCORES",
-        "optional": true
+        "optional": true,
+        "summary": "Includes the relative scores of each document in the search results."
       },
       {
         "name": "withpayloads",
@@ -509,10 +545,10 @@
         "optional": true
       },
       {
-          "name": "max",
-          "token": "MAX",
-          "type": "integer",
-          "optional": true
+        "name": "max",
+        "token": "MAX",
+        "type": "integer",
+        "optional": true
       }
     ],
     "since": "1.0.0",
@@ -554,7 +590,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "synonym_group_id",
@@ -564,7 +601,8 @@
         "name": "skipinitialscan",
         "type": "pure-token",
         "token": "SKIPINITIALSCAN",
-        "optional": true
+        "optional": true,
+        "summary": "Skips the initial scan of the database when creating the index."
       },
       {
         "name": "term",
@@ -581,7 +619,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       }
     ],
     "since": "1.2.0",
@@ -593,17 +632,19 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       },
       {
-          "name": "distance",
-          "token": "DISTANCE",
-          "type": "integer",
-          "optional": true
+        "name": "distance",
+        "token": "DISTANCE",
+        "type": "integer",
+        "optional": true
       },
       {
         "name": "terms",
@@ -644,7 +685,8 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3"
+        "since": "2.4.3",
+        "summary": "Sets the query dialect version to be used."
       }
     ],
     "since": "1.4.0",
@@ -747,30 +789,34 @@
     "complexity": "O(N)",
     "history": [
       [
-          "2.0.0",
-          "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
+        "2.0.0",
+        "Deprecated `WITHPAYLOADS` and `PAYLOAD` arguments"
       ]
     ],
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       },
       {
         "name": "nocontent",
         "type": "pure-token",
         "token": "NOCONTENT",
-        "optional": true
+        "optional": true,
+        "summary": "Returns only the document IDs in the search results, excluding the content."
       },
       {
         "name": "verbatim",
         "type": "pure-token",
-        "token":"VERBATIM",
-        "optional": true
+        "token": "VERBATIM",
+        "optional": true,
+        "summary": "Searches using the exact query terms without stemming or synonym expansion."
       },
       {
         "name": "nostopwords",
@@ -782,7 +828,8 @@
         "name": "withscores",
         "type": "pure-token",
         "token": "WITHSCORES",
-        "optional": true
+        "optional": true,
+        "summary": "Includes the relative scores of each document in the search results."
       },
       {
         "name": "withpayloads",
@@ -794,7 +841,8 @@
         "name": "withsortkeys",
         "type": "pure-token",
         "token": "WITHSORTKEYS",
-        "optional": true
+        "optional": true,
+        "summary": "Returns the sorting key value alongside the document ID."
       },
       {
         "name": "filter",
@@ -805,7 +853,7 @@
           {
             "name": "numeric_field",
             "type": "string",
-            "token":"FILTER"
+            "token": "FILTER"
           },
           {
             "name": "min",
@@ -815,7 +863,8 @@
             "name": "max",
             "type": "double"
           }
-        ]
+        ],
+        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
       },
       {
         "name": "geo_filter",
@@ -826,7 +875,7 @@
           {
             "name": "geo_field",
             "type": "string",
-            "token":"GEOFILTER"
+            "token": "GEOFILTER"
           },
           {
             "name": "lon",
@@ -876,7 +925,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"INKEYS"
+            "token": "INKEYS"
           },
           {
             "name": "key",
@@ -893,12 +942,13 @@
           {
             "name": "count",
             "type": "string",
-            "token":"INFIELDS"
+            "token": "INFIELDS"
           },
           {
             "name": "field",
             "type": "string",
-            "multiple": true
+            "multiple": true,
+            "summary": "Specifies a field in the index schema with its properties."
           }
         ]
       },
@@ -910,7 +960,7 @@
           {
             "name": "count",
             "type": "string",
-            "token":"RETURN"
+            "token": "RETURN"
           },
           {
             "name": "identifiers",
@@ -954,26 +1004,27 @@
               {
                 "name": "field",
                 "type": "string",
-                "multiple": true
+                "multiple": true,
+                "summary": "Specifies a field in the index schema with its properties."
               }
             ]
           },
           {
             "name": "num",
             "type": "integer",
-            "token":"FRAGS",
+            "token": "FRAGS",
             "optional": true
           },
           {
             "name": "fragsize",
             "type": "integer",
-            "token":"LEN",
+            "token": "LEN",
             "optional": true
           },
           {
             "name": "separator",
             "type": "string",
-            "token":"SEPARATOR",
+            "token": "SEPARATOR",
             "optional": true
           }
         ]
@@ -986,7 +1037,8 @@
           {
             "name": "highlight",
             "type": "pure-token",
-            "token": "HIGHLIGHT"
+            "token": "HIGHLIGHT",
+            "summary": "Highlights terms in the search results, with customizable tags for emphasis."
           },
           {
             "name": "fields",
@@ -1001,7 +1053,8 @@
               {
                 "name": "field",
                 "type": "string",
-                "multiple": true
+                "multiple": true,
+                "summary": "Specifies a field in the index schema with its properties."
               }
             ]
           },
@@ -1025,19 +1078,21 @@
               }
             ]
           }
-        ]
+        ],
+        "summary": "Highlights terms in the search results, with customizable tags for emphasis."
       },
       {
         "name": "slop",
         "type": "integer",
         "optional": true,
-        "token":"SLOP"
+        "token": "SLOP"
       },
       {
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token":"TIMEOUT"
+        "token": "TIMEOUT",
+        "summary": "Sets a time limit for query execution, specified in milliseconds."
       },
       {
         "name": "inorder",
@@ -1049,19 +1104,20 @@
         "name": "language",
         "type": "string",
         "optional": true,
-        "token":"LANGUAGE"
+        "token": "LANGUAGE",
+        "summary": "Specifies the default language for full-text search, influencing stemming and stop-word behavior."
       },
       {
         "name": "expander",
         "type": "string",
         "optional": true,
-        "token":"EXPANDER"
+        "token": "EXPANDER"
       },
       {
         "name": "scorer",
         "type": "string",
         "optional": true,
-        "token":"SCORER"
+        "token": "SCORER"
       },
       {
         "name": "explainscore",
@@ -1073,7 +1129,7 @@
         "name": "payload",
         "type": "string",
         "optional": true,
-        "token":"PAYLOAD"
+        "token": "PAYLOAD"
       },
       {
         "name": "sortby",
@@ -1083,7 +1139,7 @@
           {
             "name": "sortby",
             "type": "string",
-            "token":"SORTBY"
+            "token": "SORTBY"
           },
           {
             "name": "order",
@@ -1128,7 +1184,7 @@
         "name": "params",
         "type": "block",
         "optional": true,
-        "arguments": [          
+        "arguments": [
           {
             "name": "params",
             "type": "pure-token",
@@ -1160,30 +1216,33 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3"
+        "since": "2.4.3",
+        "summary": "Sets the query dialect version to be used."
       }
     ],
     "since": "1.0.0",
     "group": "search"
   },
-
   "FT.AGGREGATE": {
     "summary": "Run a search query on an index and perform aggregate transformations on the results",
     "complexity": "O(1)",
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       },
       {
         "name": "verbatim",
         "type": "pure-token",
         "token": "VERBATIM",
-        "optional": true
+        "optional": true,
+        "summary": "Searches using the exact query terms without stemming or synonym expansion."
       },
       {
         "name": "load",
@@ -1198,7 +1257,8 @@
           {
             "name": "field",
             "type": "string",
-            "multiple": true
+            "multiple": true,
+            "summary": "Specifies a field in the index schema with its properties."
           }
         ]
       },
@@ -1206,7 +1266,8 @@
         "name": "timeout",
         "type": "integer",
         "optional": true,
-        "token": "TIMEOUT"
+        "token": "TIMEOUT",
+        "summary": "Sets a time limit for query execution, specified in milliseconds."
       },
       {
         "name": "loadall",
@@ -1256,9 +1317,11 @@
                 "token": "AS",
                 "optional": true
               }
-            ]
+            ],
+            "summary": "Applies a reducer function, like `SUM` or `COUNT`, on grouped results."
           }
-        ]
+        ],
+        "summary": "Groups results by specified fields, often used for aggregations."
       },
       {
         "name": "sortby",
@@ -1348,7 +1411,8 @@
         "name": "filter",
         "type": "string",
         "optional": true,
-        "token": "FILTER"
+        "token": "FILTER",
+        "summary": "Applies a numeric range filter to restrict results to documents with field values within the specified range."
       },
       {
         "name": "cursor",
@@ -1410,20 +1474,21 @@
         "type": "integer",
         "optional": true,
         "token": "DIALECT",
-        "since": "2.4.3"
+        "since": "2.4.3",
+        "summary": "Sets the query dialect version to be used."
       }
     ],
     "since": "1.1.0",
     "group": "search"
   },
-
   "FT.PROFILE": {
     "summary": "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
     "complexity": "O(N)",
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "querytype",
@@ -1445,7 +1510,8 @@
         "name": "limited",
         "type": "pure-token",
         "token": "LIMITED",
-        "optional": true
+        "optional": true,
+        "summary": "Restricts profiling to the initial phase of the query execution."
       },
       {
         "name": "queryword",
@@ -1454,20 +1520,21 @@
       },
       {
         "name": "query",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the query to profile and analyze performance."
       }
     ],
     "since": "2.2.0",
     "group": "search"
   },
-
   "FT.CURSOR READ": {
     "summary": "Reads from a cursor",
     "complexity": "O(1)",
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "cursor_id",
@@ -1477,7 +1544,7 @@
         "name": "read size",
         "type": "integer",
         "optional": true,
-        "token":"COUNT"
+        "token": "COUNT"
       }
     ],
     "since": "1.1.0",
@@ -1489,7 +1556,8 @@
     "arguments": [
       {
         "name": "index",
-        "type": "string"
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
         "name": "cursor_id",

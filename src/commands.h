@@ -44,9 +44,6 @@
 
 
 #define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " PROXY_FILTERED : flags
-
-// RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, IsEnterprise() ? "write deny-oom " PROXY_FILTERED : "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand, IsEnterprise() ? "write " PROXY_FILTERED : "write", INDEX_DOC_CMD_ARGS, "write admin"))
 #ifdef RS_CLUSTER_ENTERPRISE
   // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
   // to be able to replicate from an old RediSearch version.
@@ -59,37 +56,12 @@
   #define SAFE_LEGACY_RS_COMMAND(OP, ...)
 #endif
 
-
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
-// Safe legacy commands
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DEL_CMD, DeleteCommand, IsEnterprise() ? "write " PROXY_FILTERED : "write", INDEX_DOC_CMD_ARGS, "write admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom", INDEX_DOC_CMD_ARGS, "write admin"))
 #define RS_WRITE_DOC_COMMANDS(OP, ...) \
   OP(RS_ADD_CMD,     RSAddDocumentCommand, "write deny-oom",                NULL, "write admin", __VA_ARGS__) \
   SAFE_LEGACY_RS_COMMAND(OP, __VA_ARGS__)                                                                     \
   OP(RS_DEL_CMD,     DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"), NULL, "write admin", __VA_ARGS__) \
   OP(RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",                NULL, "write admin", __VA_ARGS__)
 
-
-
-// RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand, "write deny-oom", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0, ""))
-// Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
-// Cluster is managed outside of module lets trust it and not raise cross slot error.
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0, 0, ""))
 #define RS_WRITE_COMMANDS(OP, ...)                                                                                                           \
   OP(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom", SetFtCreateInfo,    "",                           __VA_ARGS__) \
   OP(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom", NULL,               "write",                      __VA_ARGS__) \
@@ -114,10 +86,6 @@
 #define RS_SUGDEL_CMD "FT.SUGDEL"
 #define RS_SUGLEN_CMD "FT.SUGLEN"
 
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1, 1, "write"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1, "read"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", 1, 1, 1, "write"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", 1, 1, 1, "read"))
 // Suggestion commands key specs should be 1, 1, 1
 #define RS_SUG_COMMANDS(OP, ...) \
     OP(RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", SetFtSugaddInfo, "write", __VA_ARGS__) \
@@ -134,12 +102,6 @@
 #define RS_INDEX_LIST_CMD "FT._LIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
 
-// RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0, "slow admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write", INDEX_ONLY_CMD_ARGS, "admin"))
 #define RS_LOCAL_COMMANDS(OP, ...) \
 	OP(RS_EXPLAIN_CMD,    QueryExplainCommand,    "readonly", SetFtExplainInfo,    "",           __VA_ARGS__) \
 	OP(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", SetFtExplaincliInfo, "",           __VA_ARGS__) \
@@ -162,19 +124,6 @@
 #define RS_SPELL_CHECK RS_CMD_READ_PREFIX ".SPELLCHECK"
 #define RS_CONFIG RS_CMD_READ_PREFIX ".CONFIG"
 
-// RM_TRY(RMCreateSearchCommand(ctx, RS_INFO_CMD, IndexInfoCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_PROFILE_CMD, RSProfileCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", INDEX_DOC_CMD_ARGS, "read admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read admin"))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_TAGVALS_CMD, TagValsCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, "read admin dangerous"))
-// Do not force cross slot validation since coordinator will handle it.
-// RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read"));
-// RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
-// RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "admin"))
-// RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
 #define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly"
 #define RS_READ_ONLY_COMMANDS(OP, ...)                                                                                                               \
   OP(RS_INFO_CMD,      IndexInfoCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtInfoInfo,             "",                     __VA_ARGS__) \

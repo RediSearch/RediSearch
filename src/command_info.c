@@ -16,11 +16,13 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "data_type",
         .token = "ON",
+        .summary = "Specifies the type of data to index, such as HASH or JSON.",
         .type = REDISMODULE_ARG_TYPE_ONEOF,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -39,6 +41,7 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "prefix",
+        .summary = "Filters indexed documents to include only keys that start with the specified prefix.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -49,6 +52,7 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
           },
           {
             .name = "prefix",
+            .summary = "Filters indexed documents to include only keys that start with the specified prefix.",
             .type = REDISMODULE_ARG_TYPE_STRING,
             .flags = REDISMODULE_CMD_ARG_MULTIPLE,
           },
@@ -58,78 +62,91 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "filter",
         .token = "FILTER",
+        .summary = "Applies a numeric range filter to restrict results to documents with field values within the specified range.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "default_lang",
         .token = "LANGUAGE",
+        .summary = "Defines the default language for the index.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "lang_attribute",
         .token = "LANGUAGE_FIELD",
+        .summary = "Specifies the attribute from which the language is determined.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "default_score",
         .token = "SCORE",
+        .summary = "Sets the default score for documents in the index.",
         .type = REDISMODULE_ARG_TYPE_DOUBLE,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "score_attribute",
         .token = "SCORE_FIELD",
+        .summary = "Specifies the attribute from which the score is derived.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "payload_attribute",
         .token = "PAYLOAD_FIELD",
+        .summary = "Defines the attribute used for payloads in the index.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "maxtextfields",
         .token = "MAXTEXTFIELDS",
+        .summary = "Increases the maximum number of text fields allowed in the schema.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "seconds",
         .token = "TEMPORARY",
+        .summary = "Specifies the duration (in seconds) for which the index remains active (temporary index).",
         .type = REDISMODULE_ARG_TYPE_DOUBLE,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "nooffsets",
         .token = "NOOFFSETS",
+        .summary = "Disables storage of term offsets for index entries.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "nohl",
         .token = "NOHL",
+        .summary = "Disables support for highlighting in search results.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "nofields",
         .token = "NOFIELDS",
+        .summary = "Omits returning fields from search results.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "nofreqs",
         .token = "NOFREQS",
+        .summary = "Disables storage of term frequencies in the index.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "stopwords",
         .token = "STOPWORDS",
+        .summary = "Defines custom stop words for the index, which will be ignored during full-text search.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -148,16 +165,19 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "skipinitialscan",
         .token = "SKIPINITIALSCAN",
+        .summary = "Skips the initial scan of the database when creating the index.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "schema",
         .token = "SCHEMA",
+        .summary = "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.).",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
       },
       {
         .name = "field",
+        .summary = "Specifies a field in the index schema with its properties.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_MULTIPLE,
         .subargs = (RedisModuleCommandArg[]){
@@ -269,6 +289,7 @@ int SetFtInfoInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {0}
@@ -291,15 +312,18 @@ int SetFtExplainInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "dialect",
         .token = "DIALECT",
+        .summary = "Sets the query dialect version to be used.",
         .since = "2.4.3",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -324,15 +348,18 @@ int SetFtExplaincliInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "dialect",
         .token = "DIALECT",
+        .summary = "Sets the query dialect version to be used.",
         .since = "2.4.3",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -357,17 +384,20 @@ int SetFtAlterInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "skipinitialscan",
         .token = "SKIPINITIALSCAN",
+        .summary = "Skips the initial scan of the database when creating the index.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "schema",
         .token = "SCHEMA",
+        .summary = "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.).",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
       },
       {
@@ -377,6 +407,7 @@ int SetFtAlterInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "field",
+        .summary = "Specifies a field in the index schema with its properties.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -403,6 +434,7 @@ int SetFtDropindexInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -442,6 +474,7 @@ int SetFtAliasaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {0}
@@ -468,6 +501,7 @@ int SetFtAliasupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {0}
@@ -512,6 +546,7 @@ int SetFtTagvalsInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -599,6 +634,7 @@ int SetFtSuggetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "prefix",
+        .summary = "Filters indexed documents to include only keys that start with the specified prefix.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -610,6 +646,7 @@ int SetFtSuggetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "withscores",
         .token = "WITHSCORES",
+        .summary = "Includes the relative scores of each document in the search results.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -693,6 +730,7 @@ int SetFtSynupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -702,6 +740,7 @@ int SetFtSynupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "skipinitialscan",
         .token = "SKIPINITIALSCAN",
+        .summary = "Skips the initial scan of the database when creating the index.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -730,6 +769,7 @@ int SetFtSyndumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {0}
@@ -752,10 +792,12 @@ int SetFtSpellcheckInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -802,6 +844,7 @@ int SetFtSpellcheckInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "dialect",
         .token = "DIALECT",
+        .summary = "Sets the query dialect version to be used.",
         .since = "2.4.3",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -990,21 +1033,25 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "nocontent",
         .token = "NOCONTENT",
+        .summary = "Returns only the document IDs in the search results, excluding the content.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "verbatim",
         .token = "VERBATIM",
+        .summary = "Searches using the exact query terms without stemming or synonym expansion.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1017,6 +1064,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "withscores",
         .token = "WITHSCORES",
+        .summary = "Includes the relative scores of each document in the search results.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1029,11 +1077,13 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "withsortkeys",
         .token = "WITHSORTKEYS",
+        .summary = "Returns the sorting key value alongside the document ID.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
       {
         .name = "filter",
+        .summary = "Applies a numeric range filter to restrict results to documents with field values within the specified range.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
         .subargs = (RedisModuleCommandArg[]){
@@ -1135,6 +1185,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
           },
           {
             .name = "field",
+            .summary = "Specifies a field in the index schema with its properties.",
             .type = REDISMODULE_ARG_TYPE_STRING,
             .flags = REDISMODULE_CMD_ARG_MULTIPLE,
           },
@@ -1194,6 +1245,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
               },
               {
                 .name = "field",
+                .summary = "Specifies a field in the index schema with its properties.",
                 .type = REDISMODULE_ARG_TYPE_STRING,
                 .flags = REDISMODULE_CMD_ARG_MULTIPLE,
               },
@@ -1223,12 +1275,14 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "highlight",
+        .summary = "Highlights terms in the search results, with customizable tags for emphasis.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
           {
             .name = "highlight",
             .token = "HIGHLIGHT",
+            .summary = "Highlights terms in the search results, with customizable tags for emphasis.",
             .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
           },
           {
@@ -1243,6 +1297,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
               },
               {
                 .name = "field",
+                .summary = "Specifies a field in the index schema with its properties.",
                 .type = REDISMODULE_ARG_TYPE_STRING,
                 .flags = REDISMODULE_CMD_ARG_MULTIPLE,
               },
@@ -1282,6 +1337,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "timeout",
         .token = "TIMEOUT",
+        .summary = "Sets a time limit for query execution, specified in milliseconds.",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1294,6 +1350,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "language",
         .token = "LANGUAGE",
+        .summary = "Specifies the default language for full-text search, influencing stemming and stop-word behavior.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1409,6 +1466,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "dialect",
         .token = "DIALECT",
+        .summary = "Sets the query dialect version to be used.",
         .since = "2.4.3",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -1433,15 +1491,18 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
         .name = "verbatim",
         .token = "VERBATIM",
+        .summary = "Searches using the exact query terms without stemming or synonym expansion.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1457,6 +1518,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
           },
           {
             .name = "field",
+            .summary = "Specifies a field in the index schema with its properties.",
             .type = REDISMODULE_ARG_TYPE_STRING,
             .flags = REDISMODULE_CMD_ARG_MULTIPLE,
           },
@@ -1466,6 +1528,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "timeout",
         .token = "TIMEOUT",
+        .summary = "Sets a time limit for query execution, specified in milliseconds.",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1477,6 +1540,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "groupby",
+        .summary = "Groups results by specified fields, often used for aggregations.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
         .subargs = (RedisModuleCommandArg[]){
@@ -1492,6 +1556,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
           },
           {
             .name = "reduce",
+            .summary = "Applies a reducer function, like `SUM` or `COUNT`, on grouped results.",
             .type = REDISMODULE_ARG_TYPE_BLOCK,
             .flags = REDISMODULE_CMD_ARG_OPTIONAL | REDISMODULE_CMD_ARG_MULTIPLE,
             .subargs = (RedisModuleCommandArg[]){
@@ -1611,6 +1676,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "filter",
         .token = "FILTER",
+        .summary = "Applies a numeric range filter to restrict results to documents with field values within the specified range.",
         .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1675,6 +1741,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "dialect",
         .token = "DIALECT",
+        .summary = "Sets the query dialect version to be used.",
         .since = "2.4.3",
         .type = REDISMODULE_ARG_TYPE_INTEGER,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -1699,6 +1766,7 @@ int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -1721,6 +1789,7 @@ int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       {
         .name = "limited",
         .token = "LIMITED",
+        .summary = "Restricts profiling to the initial phase of the query execution.",
         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
       },
@@ -1731,6 +1800,7 @@ int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
       },
       {
         .name = "query",
+        .summary = "Specifies the query to profile and analyze performance.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {0}
@@ -1753,6 +1823,7 @@ int SetFtCursorReadInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
@@ -1785,6 +1856,7 @@ int SetFtCursorDelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
