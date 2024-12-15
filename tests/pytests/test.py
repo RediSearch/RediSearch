@@ -237,10 +237,11 @@ def testGet(env):
 
 
 def testDelete(env):
+    conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
 
     for i in range(100):
-        env.assertEqual(1, env.cmd('hset', 'doc%d' % i, 'f', 'hello world'))
+        env.assertEqual(1, conn.execute_command('hset', 'doc%d' % i, 'f', 'hello world'))
 
     env.expect('ft.del', 'fake_idx', 'doc1').error()
 
@@ -269,7 +270,7 @@ def testDelete(env):
         env.assertEqual(len(res), 100 - i)
 
         # test reinsertion
-        env.assertEqual(1, env.cmd('hset', f"doc{i}", 'f', 'hello world'))
+        env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 'f', 'hello world'))
         res = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertContains('doc%d' % i, res)
         env.assertEqual(1, env.cmd('ft.del', 'idx', 'doc%d' % i))
@@ -277,10 +278,10 @@ def testDelete(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         did = 'rrrr'
-        env.assertEqual(1, env.cmd('hset', did, 'f', 'hello world'))
+        env.assertEqual(1, conn.execute_command('hset', did, 'f', 'hello world'))
         env.assertEqual(1, env.cmd('ft.del', 'idx', did))
         env.assertEqual(0, env.cmd('ft.del', 'idx', did))
-        env.assertEqual(1, env.cmd('hset', did, 'f', 'hello world'))
+        env.assertEqual(1, conn.execute_command('hset', did, 'f', 'hello world'))
         env.assertEqual(1, env.cmd('ft.del', 'idx', did))
         env.assertEqual(0, env.cmd('ft.del', 'idx', did))
 
@@ -357,6 +358,7 @@ def testDrop(env):
     env.flush()
 
 def testDropIndex(env):
+    conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
     env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
@@ -365,7 +367,7 @@ def testDropIndex(env):
     env.expect('FT.DROP', 'idx', 'Invalid').error()
 
     for i in range(100):
-        res = env.cmd('hset', 'doc%d' % i,
+        res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
     env.assertEqual(100, countKeys(env))
@@ -379,7 +381,7 @@ def testDropIndex(env):
                'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        res = env.cmd('hset', 'doc%d' % i,
+        res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
     env.assertEqual(100, countKeys(env))
