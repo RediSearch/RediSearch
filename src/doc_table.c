@@ -83,7 +83,7 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   return dmd;
 }
 
-int DocTable_Exists(const DocTable *t, t_docId docId) {
+bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
     return 0;
   }

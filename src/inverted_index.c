@@ -772,9 +772,8 @@ DECODER(readFreqsOffsets) {
 SKIPPER(seekRawDocIdsOnly) {
   int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
-  uint32_t offset;
-  Buffer_Read(br, &offset, sizeof offset);
-  if (offset >= delta || delta < 0) {
+  Buffer_Read(br, &res->docId, 4);
+  if (res->docId >= delta || delta < 0) {
     goto final;
   }
 
@@ -813,11 +812,11 @@ SKIPPER(seekRawDocIdsOnly) {
   }
 
   // skip to position and read
-  Buffer_Seek(br, cur * sizeof offset);
-  Buffer_Read(br, &offset, sizeof offset);
+  Buffer_Seek(br, cur * 4);
+  Buffer_Read(br, &res->docId, 4);
 
 final:
-  res->docId = offset + IR_CURRENT_BLOCK(ir).firstId;
+  res->docId += IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
   return 1;
 }
@@ -1254,9 +1253,9 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
 /* Repair an index block by removing garbage - records pointing at deleted documents,
  * and write valid entries in their place.
  * Returns the number of docs collected, and puts the number of bytes collected in the given
- * pointer. If an error occurred - returns -1
+ * pointer.
  */
-int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   t_docId firstReadId = blk->firstId;
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
@@ -1268,7 +1267,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
   size_t frags = 0;
-  int isLastValid = 0;
+  bool isLastValid = false;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
@@ -1278,7 +1277,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   params->bytesBeforFix = blk->buf.cap;
 
-  int docExists;
+  bool docExists;
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
@@ -1290,12 +1289,14 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // Multi value documents are saved as individual entries that share the same docId.
     // Increment frags only when moving to the next doc
     // (do not increment when moving to the next entry in the same doc)
-    int fragsIncr = (isFirstRes || (lastReadId != res->docId)) ? 1 : 0;
+    unsigned fragsIncr = 0;
+    if (isFirstRes || (lastReadId != res->docId)) {
+      fragsIncr = 1;
+      // Lookup the doc (for the same doc use the previous result)
+      docExists = DocTable_Exists(dt, res->docId);
+    }
     isFirstRes = false;
     lastReadId = res->docId;
-
-    // Lookup the doc (for the same doc use the previous result)
-    docExists = fragsIncr ? DocTable_Exists(dt, res->docId) : docExists;
 
     // If we found a deleted document, we increment the number of found "frags",
     // and not write anything, so the reader will advance but the writer won't.
@@ -1309,7 +1310,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       frags += fragsIncr;
       params->bytesCollected += sz;
       ++params->entriesCollected;
-      isLastValid = 0;
+      isLastValid = false;
     } else { // the doc exist
       if (params->RepairCallback) {
         params->RepairCallback(res, blk, params->arg);
@@ -1343,7 +1344,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         blk->firstId = res->docId;
       }
       blk->lastId = res->docId;
-      isLastValid = 1;
+      isLastValid = true;
     }
   }
   if (frags) {
