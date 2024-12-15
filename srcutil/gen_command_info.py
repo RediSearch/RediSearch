@@ -68,7 +68,8 @@ def generate_arguments(file, member, arguments):
                         flag_text = flag.replace('-', '_').upper()
                         flags.append(f'REDISMODULE_CMD_ARG_{flag_text}')
                 if len(flags) > 0:
-                    arg_scope.write(f'.flags = {' | '.join(flags)},\n')
+                    flags_text = ' | '.join(flags)
+                    arg_scope.write(f'.flags = {flags_text},\n')
                 if 'arguments' in arg:
                     generate_arguments(file, 'subargs', arg['arguments'])
         args_scope.write('{0}\n')
