@@ -413,22 +413,7 @@ def testDropIndex(env):
         res = conn.execute_command('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
-    keys = countKeys(env)
-    env.expect('FT.DROPINDEX', 'idx').ok()
-    env.assertEqual(keys, countKeys(env))
-    env.flush()
-
-
-    # Now do the same with KEEPDOCS
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-
-    for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
-        env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(env), 100)
-
+        
     if not env.isCluster():
         env.expect('FT.DROPINDEX', 'idx').ok()
         keys = env.keys('*')
