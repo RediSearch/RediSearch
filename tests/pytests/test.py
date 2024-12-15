@@ -337,7 +337,7 @@ def testDrop(env):
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
-    env.assertEqual(countKeys(env), 100)
+    env.assertEqual(100, countKeys(env))
 
     if not env.isCluster():
         keys = env.keys('*')
@@ -353,7 +353,7 @@ def testDrop(env):
                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
     env.assertEqual(100, countKeys(env))
     env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
-    env.assertEqual(countKeys(env), 100)
+    env.assertEqual(100, countKeys(env))
     env.flush()
 
 def testDropIndex(env):
