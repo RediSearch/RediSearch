@@ -323,7 +323,7 @@ def testDrop(env):
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
-    env.assertGreaterEqual(countKeys(env), 100)
+    env.assertEqual(100, countKeys(env))
 
     env.expect('ft.drop', 'idx').ok()
 
@@ -337,30 +337,27 @@ def testDrop(env):
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
-    env.assertGreaterEqual(countKeys(env), 100)
+    env.assertEqual(countKeys(env), 100)
 
     if not env.isCluster():
-        env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
         keys = env.keys('*')
-        env.assertEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15',
-                             'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22',
-                             'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3',
-                             'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37',
-                             'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44',
-                             'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51',
-                             'doc52', 'doc53', 'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59',
-                             'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66',
-                             'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73',
-                             'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80',
-                             'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88',
-                             'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95',
-                             'doc96', 'doc97', 'doc98', 'doc99'],
-                             py2sorted(keys))
+        env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
+        env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
+    env.flush()
 
-def testDelete(env):
-    conn = getConnectionByEnv(env)
+    # test _FORCEKEEPDOCS
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    for i in range(100):
+        env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497').ok()
+    env.assertEqual(100, countKeys(env))
+    env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
+    env.assertEqual(countKeys(env), 100)
+    env.flush()
+
+def testDropIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-   
     env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
     # validate optional argument
@@ -368,63 +365,29 @@ def testDelete(env):
     env.expect('FT.DROP', 'idx', 'Invalid').error()
 
     for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
+        res = env.cmd('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(env), 100)
+    env.assertEqual(100, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
     env.flush()
 
-    # test _FORCEKEEPDOCS
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-    for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
-        env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(env), 100)
-    keys = countKeys(env)
-    env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
-    env.assertEqual(keys, countKeys(env))
-    env.flush()
-
-    # test default behavior - FT.DROP
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-    for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
-        env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(env), 100)
-    env.expect('FT.DROP', 'idx').ok()
-    env.assertEqual(0, countKeys(env))
-    env.flush()
-
+ 
     # test default behavior - FT.DROPINDEX
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
-    for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
-        env.assertEqual(4, res)
-    keys = countKeys(env)
-    env.expect('FT.DROPINDEX', 'idx').ok()
-    env.assertEqual(keys, countKeys(env))
-    env.flush()
-
-
-    # Now do the same with KEEPDOCS
     env.expect('ft.create', 'idx', 'ON', 'HASH',
                'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        res = conn.execute_command('hset', 'doc%d' % i,
+        res = env.cmd('hset', 'doc%d' % i,
                                    'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
         env.assertEqual(4, res)
-    env.assertGreaterEqual(countKeys(env), 100)
+    env.assertEqual(100, countKeys(env))
 
     if not env.isCluster():
-        env.expect('FT.DROPINDEX', 'idx').ok()
         keys = env.keys('*')
-        env.assertEqual(py2sorted("doc%d" %k for k in range(100)), py2sorted(keys))
+        env.expect('FT.DROPINDEX', 'idx').ok()
+        env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
 
 def testCustomStopwords(env):
     # Index with default stopwords
