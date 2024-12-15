@@ -260,7 +260,7 @@ def testDelete(env):
 
         # After del with DD the doc hash should not exist
         if i % 2 == 0:
-            env.assertFalse(r.exists('doc%d' % i))
+            env.assertFalse(env.exists('doc%d' % i))
         else:
             env.expect('ft.get', 'idx', 'doc%d' % i).noError()
         res = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
@@ -269,7 +269,7 @@ def testDelete(env):
         env.assertEqual(len(res), 100 - i)
 
         # test reinsertion
-        env.assertEqual(1, env.cmd('hset', 'doc%d' % i, 'f', 'hello world'))
+        env.assertEqual(1, env.cmd('hset', f"doc{i}", 'f', 'hello world'))
         res = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'limit', 0, 100)
         env.assertContains('doc%d' % i, res)
         env.assertEqual(1, env.cmd('ft.del', 'idx', 'doc%d' % i))
@@ -280,7 +280,7 @@ def testDelete(env):
         env.assertEqual(1, env.cmd('hset', did, 'f', 'hello world'))
         env.assertEqual(1, env.cmd('ft.del', 'idx', did))
         env.assertEqual(0, env.cmd('ft.del', 'idx', did))
-        env.assertEqual(1, env.cmd('hset', 'idx', did, 'f', 'hello world'))
+        env.assertEqual(1, env.cmd('hset', did, 'f', 'hello world'))
         env.assertEqual(1, env.cmd('ft.del', 'idx', did))
         env.assertEqual(0, env.cmd('ft.del', 'idx', did))
 
