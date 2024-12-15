@@ -3,7 +3,7 @@
 #include "command_info.h"
 
 // Info for FT.CREATE
-int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtCreateInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Creates an index with the given spec",
@@ -281,7 +281,7 @@ int SetFtCreateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.INFO
-int SetFtInfoInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtInfoInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns information and statistics on the index",
@@ -304,7 +304,7 @@ int SetFtInfoInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.EXPLAIN
-int SetFtExplainInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtExplainInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns the execution plan for a complex query",
@@ -340,7 +340,7 @@ int SetFtExplainInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.EXPLAINCLI
-int SetFtExplaincliInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtExplaincliInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns the execution plan for a complex query",
@@ -376,7 +376,7 @@ int SetFtExplaincliInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.ALTER
-int SetFtAlterInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtAlterInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Adds a new field to the index",
@@ -426,7 +426,7 @@ int SetFtAlterInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.DROPINDEX
-int SetFtDropindexInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtDropindexInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Deletes the index",
@@ -462,7 +462,7 @@ int SetFtDropindexInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.ALIASADD
-int SetFtAliasaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtAliasaddInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Adds an alias to the index",
@@ -489,7 +489,7 @@ int SetFtAliasaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.ALIASUPDATE
-int SetFtAliasupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtAliasupdateInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Adds or updates an alias to the index",
@@ -516,7 +516,7 @@ int SetFtAliasupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.ALIASDEL
-int SetFtAliasdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtAliasdelInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Deletes an alias from the index",
@@ -538,7 +538,7 @@ int SetFtAliasdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.TAGVALS
-int SetFtTagvalsInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtTagvalsInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns the distinct tags indexed in a Tag field",
@@ -565,7 +565,7 @@ int SetFtTagvalsInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SUGADD
-int SetFtSugaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSugaddInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Adds a suggestion string to an auto-complete suggestion dictionary",
@@ -618,7 +618,7 @@ int SetFtSugaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SUGGET
-int SetFtSuggetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSuggetInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Gets completion suggestions for a prefix",
@@ -674,7 +674,7 @@ int SetFtSuggetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SUGDEL
-int SetFtSugdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSugdelInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Deletes a string from a suggestion index",
@@ -700,7 +700,7 @@ int SetFtSugdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SUGLEN
-int SetFtSuglenInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSuglenInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Gets the size of an auto-complete suggestion dictionary",
@@ -722,7 +722,7 @@ int SetFtSuglenInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SYNUPDATE
-int SetFtSynupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSynupdateInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Creates or updates a synonym group with additional terms",
@@ -761,7 +761,7 @@ int SetFtSynupdateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SYNDUMP
-int SetFtSyndumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSyndumpInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Dumps the contents of a synonym group",
@@ -784,7 +784,7 @@ int SetFtSyndumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SPELLCHECK
-int SetFtSpellcheckInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSpellcheckInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Performs spelling correction on a query, returning suggestions for misspelled terms",
@@ -861,7 +861,7 @@ int SetFtSpellcheckInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.DICTADD
-int SetFtDictaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtDictaddInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Adds terms to a dictionary",
@@ -888,7 +888,7 @@ int SetFtDictaddInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.DICTDEL
-int SetFtDictdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtDictdelInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Deletes terms from a dictionary",
@@ -915,7 +915,7 @@ int SetFtDictdelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.DICTDUMP
-int SetFtDictdumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtDictdumpInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Dumps all terms in the given dictionary",
@@ -937,7 +937,7 @@ int SetFtDictdumpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT._LIST
-int SetFt_ListInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFt_ListInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns a list of all existing indexes",
@@ -951,7 +951,7 @@ int SetFt_ListInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.CONFIG SET
-int SetFtConfigSetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtConfigSetInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Sets runtime configuration options",
@@ -977,7 +977,7 @@ int SetFtConfigSetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.CONFIG GET
-int SetFtConfigGetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtConfigGetInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Retrieves runtime configuration options",
@@ -999,7 +999,7 @@ int SetFtConfigGetInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.CONFIG HELP
-int SetFtConfigHelpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtConfigHelpInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Help description of runtime configuration options",
@@ -1021,7 +1021,7 @@ int SetFtConfigHelpInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.SEARCH
-int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtSearchInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Searches the index with a textual query, returning either documents or just ids",
@@ -1483,7 +1483,7 @@ int SetFtSearchInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.AGGREGATE
-int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtAggregateInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Run a search query on an index and perform aggregate transformations on the results",
@@ -1758,7 +1758,7 @@ int SetFtAggregateInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.PROFILE
-int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtProfileInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
@@ -1815,7 +1815,7 @@ int SetFtProfileInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.CURSOR READ
-int SetFtCursorReadInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtCursorReadInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Reads from a cursor",
@@ -1848,7 +1848,7 @@ int SetFtCursorReadInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
 }
 
 // Info for FT.CURSOR DEL
-int SetFtCursorDelInfo(RedisModuleCtx *, RedisModuleCommand *cmd) {
+int SetFtCursorDelInfo(RedisModuleCtx *ctx, RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Deletes a cursor",

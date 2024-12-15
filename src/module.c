@@ -2921,17 +2921,17 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
 
 static int FanoutCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, 1);
+  return MastersFanoutCommandHandler(ctx, argv, argc, 1);
 }
 
 static int FanoutCommandHandlerWithIndexAtSecondArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, 2);
+  return MastersFanoutCommandHandler(ctx, argv, argc, 2);
 }
 
 static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, -1);
+  return MastersFanoutCommandHandler(ctx, argv, argc, -1);
 }
 
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
@@ -2973,7 +2973,7 @@ static int SingleShardCommandHandler(RedisModuleCtx *ctx,
 
 static int SingleShardCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  SingleShardCommandHandler(ctx, argv, argc, 1);
+  return SingleShardCommandHandler(ctx, argv, argc, 1);
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

@@ -28,7 +28,7 @@ Scope.indent = 0
 def get_function_signature(name):
     tokens = [token.title() for token in name.replace('.', ' ').split(' ')]
     value = ''.join(tokens)
-    return f'int Set{value}Info(RedisModuleCtx *, RedisModuleCommand *cmd)'
+    return f'int Set{value}Info(RedisModuleCtx *ctx, RedisModuleCommand *cmd)'
 
 def generate_header_file(file_name, command_names):
     license = '/*\n* Copyright Redis Ltd. 2016 - present\n'\
