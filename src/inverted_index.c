@@ -1131,15 +1131,6 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    */
 
   if (ir->decoders.seeker) {
-    // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&ir->br)) {
-      if (ir->currentBlock == ir->idx->size - 1) {
-        // We're at the end of the last block...
-        goto eof;
-      }
-      IndexReader_AdvanceBlock(ir);
-    }
-
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
