@@ -132,13 +132,11 @@ jobs:
         working-directory: setup/.install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          ./test_deps/install_rust.sh
       - name: Setup specific (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          ./test_deps/install_rust.sh
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: setup/.install
@@ -153,7 +151,9 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: echo "Done already earlier."
       - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
