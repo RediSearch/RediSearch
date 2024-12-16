@@ -1096,13 +1096,6 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
-  } else if (BufferReader_AtEnd(&ir->br)) {
-    // Current block, but there's nothing here
-    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      goto eof;
-    } else {
-      return INDEXREAD_NOTFOUND;
-    }
   }
 
   /**
