@@ -3,6 +3,7 @@
 #include "gtest/gtest.h"
 #include "common.h"
 #include "src/redis_index.h"
+#include "src/info/indexes_info.h"
 
 #include <set>
 #include <string>
@@ -1242,6 +1243,30 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_IndexInfoFree(&info);
 
   RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testIndexesInfo) {
+
+  // Create index and add some data
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  TotalIndexesInfo api_indexes_info = RediSearch_TotalInfo();
+  TotalIndexesInfo expected_indexes_info = IndexesInfo_TotalInfo();
+  bool is_equal = !memcmp(&api_indexes_info, &expected_indexes_info, sizeof(TotalIndexesInfo));
+
+  ASSERT_TRUE(is_equal);
+
   RediSearch_DropIndex(index);
 }
 
