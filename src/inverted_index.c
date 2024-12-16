@@ -1063,7 +1063,7 @@ static int IndexReader_ReadWithSeeker(IndexReader *ir, t_docId* inOutDocId) {
 
   if (!VerifyFieldMaskExpirationForDocId(ir, ir->record->docId)) {
     // If we get called again then progress to the next doc id
-    *inOutDocId = &ir->record->docId + 1;
+    *inOutDocId = ir->record->docId + 1;
     return 0;
   }
   return 1;
