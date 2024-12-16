@@ -20,17 +20,17 @@ typedef struct HiddenString HiddenString;
 // This is a security measure to prevent leaking user data
 // The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
 // HiddenString_Free must be called for the object do release it
-HiddenString *NewHiddenString(const char *name, uint64_t length, bool takeOwnership);
+HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
-void HiddenString_Free(HiddenString *value, bool tookOwnership);
+void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
 // Comparison functions
 // CompareC overloads receive a const char* right argument for the comparison for backward compatability with existing code
 // Eventually the hope is to remove them alltogether.
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
-int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right);
-int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length);
+int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
+int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length);
 
 // Wwnership managment
 HiddenString *HiddenString_Duplicate(const HiddenString *value);

@@ -10,7 +10,7 @@ typedef struct {
   size_t length;
 } UserString;
 
-HiddenString *NewHiddenString(const char* name, uint64_t length, bool takeOwnership) {
+HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
   UserString* value = rm_malloc(sizeof(*value));
   if (takeOwnership) {
     value->user = rm_strndup(name, length);
@@ -21,7 +21,7 @@ HiddenString *NewHiddenString(const char* name, uint64_t length, bool takeOwners
   return (HiddenString*)value;
 };
 
-void HiddenString_Free(HiddenString* hn, bool tookOwnership) {
+void HiddenString_Free(const HiddenString* hn, bool tookOwnership) {
   UserString* value = (UserString*)hn;
   if (tookOwnership) {
     rm_free((void*)value->user);
@@ -57,12 +57,12 @@ int HiddenString_Compare(const HiddenString* left, const HiddenString* right) {
   return HiddenString_CompareC(left, r->user, r->length);
 }
 
-int HiddenString_CaseInsensitiveCompare(HiddenString *left, HiddenString *right) {
+int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right) {
   UserString* r = (UserString*)right;
   return HiddenString_CaseInsensitiveCompareC(left, r->user, r->length);
 }
 
-int HiddenString_CaseInsensitiveCompareC(HiddenString *left, const char *right, size_t right_length) {
+int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length) {
   UserString* l = (UserString*)left;
   return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }

@@ -46,7 +46,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      REPLY_SIMPLE_SAFE(HiddenString_GetUnsafe(rule->prefixes[i], NULL));
+      REPLY_SIMPLE_SAFE(HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL));
     }
     RedisModule_Reply_ArrayEnd(reply);
   }

@@ -115,9 +115,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(HiddenString*, args->nprefixes);
+  rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
   for (int i = 0; i < args->nprefixes; ++i) {
-    HiddenString* p = NewHiddenString(args->prefixes[i], sdslen(args->prefixes[i]), true);
+    HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
     array_append(rule->prefixes, p);
   }
 
@@ -459,7 +459,7 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
-    HiddenString_SaveToRdb(rule->prefixes[i], rdb);
+    HiddenUnicodeString_SaveToRdb(rule->prefixes[i], rdb);
   }
   if (rule->filter_exp_str) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -500,11 +500,11 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
   // check prefixes (always found for an index with no prefixes)
   bool match = false;
-  HiddenString **prefixes = sp->rule->prefixes;
+  HiddenUnicodeString **prefixes = sp->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // Using `strncmp` to compare the prefix, since the key might be longer than the prefix
     size_t length = 0;
-    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &length);
+    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &length);
     if (!strncmp(keyCstr, prefix, length)) {
       match = true;
       break;
@@ -550,9 +550,9 @@ void SchemaPrefixes_Free(TrieMap *t) {
   TrieMap_Free(t, freePrefixNode);
 }
 
-void SchemaPrefixes_Add(HiddenString *prefix, StrongRef ref) {
+void SchemaPrefixes_Add(HiddenUnicodeString *prefix, StrongRef ref) {
   size_t len = 0;
-  const char *prefix_cstr = HiddenString_GetUnsafe(prefix, &len);
+  const char *prefix_cstr = HiddenUnicodeString_GetUnsafe(prefix, &len);
   void *p = TrieMap_Find(SchemaPrefixes_g, prefix_cstr, len);
   if (p == TRIEMAP_NOTFOUND) {
     SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix_cstr, ref);
@@ -567,11 +567,11 @@ void SchemaPrefixes_RemoveSpec(StrongRef ref) {
   IndexSpec *spec = StrongRef_Get(ref);
   if (!spec || !spec->rule || !spec->rule->prefixes) return;
 
-  HiddenString **prefixes = spec->rule->prefixes;
+  arrayof(HiddenUnicodeString *) prefixes = spec->rule->prefixes;
   for (int i = 0; i < array_len(prefixes); ++i) {
     // retrieve list of specs matching the prefix
     size_t len = 0;
-    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &len);
+    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     SchemaPrefixNode *node = TrieMap_Find(SchemaPrefixes_g, prefix, len);
     if (node == TRIEMAP_NOTFOUND) {
       continue;

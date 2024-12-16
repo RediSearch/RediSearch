@@ -103,10 +103,10 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  sds *prefixes = sp->rule->prefixes;
+  HiddenUnicodeString **prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
   for (uint i = 0; i < array_len(prefixes); i++) {
-    prefix = RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i]));
+    prefix = HiddenUnicodeString_CreateRedisModuleString(prefixes[i], ctx);
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
       RedisModule_FreeString(ctx, prefix);
       RedisModule_FreeModuleUser(user);
@@ -3195,7 +3195,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   uint16_t arg_pos = 3 + req->profileArgs;
   MRCommand_Insert(&cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
-  arrayof(HiddenString*) prefixes = sp->rule->prefixes;
+  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   MRCommand_Insert(&cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
@@ -3203,7 +3203,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   for (uint i = 0; i < array_len(prefixes); i++) {
     size_t len;
-    const char* prefix = HiddenString_GetUnsafe(prefixes[i], &len);
+    const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(&cmd, arg_pos++, prefix, len);
   }
 

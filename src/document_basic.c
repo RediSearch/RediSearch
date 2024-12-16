@@ -82,7 +82,7 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    HiddenString* oldName = f->docFieldName;
+    const HiddenString* oldName = f->docFieldName;
     f->docFieldName = HiddenString_Duplicate(f->docFieldName);
     HiddenString_Free(oldName, false);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
