@@ -27,7 +27,8 @@
 #include "profile.h"
 #include "resp3.h"
 #include "debug_commands.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 #include "libuv/include/uv.h"
 
