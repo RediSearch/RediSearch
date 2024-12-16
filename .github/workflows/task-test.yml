@@ -139,6 +139,11 @@ jobs:
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
           ./test_deps/install_rust.sh
+      - name: Install LLVM for sanitizer
+        if: inputs.san == 'address'
+        working-directory: setup/.install
+        run: |
+          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
