@@ -4,8 +4,7 @@ OS_TYPE=$(uname -s)
 
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-export PATH="$HOME/.cargo/bin:$PATH"
-source ~/.bashrc
+source $HOME/.cargo/env
 
 # Verify Cargo is in path
 echo $PATH
