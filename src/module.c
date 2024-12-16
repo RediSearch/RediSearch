@@ -39,7 +39,7 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
@@ -57,7 +57,8 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"

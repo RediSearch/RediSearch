@@ -18,7 +18,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 

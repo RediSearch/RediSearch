@@ -25,7 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
 #include "resp3.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
 

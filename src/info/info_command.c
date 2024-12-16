@@ -13,7 +13,8 @@
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "reply_macros.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 

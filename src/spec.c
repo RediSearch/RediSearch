@@ -32,7 +32,7 @@
 #include "commands.h"
 #include "obfuscation/obfuscation_api.h"
 #include "util/workers.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 

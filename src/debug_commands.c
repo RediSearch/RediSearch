@@ -23,6 +23,7 @@
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
+#include "info/info_command.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
