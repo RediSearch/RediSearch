@@ -320,11 +320,10 @@ def testReplace(env):
 
 def testDrop(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        conn.execute_command('hset', f"doc{i}",
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
     env.assertEqual(100, countKeys(env))
 
     env.expect('ft.drop', 'idx').ok()
@@ -332,12 +331,10 @@ def testDrop(env):
     env.assertEqual(0, countKeys(env))
 
     # Now do the same with KEEPDOCS
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        conn.execute_command('hset', f"doc{i}",
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
     env.assertEqual(100, countKeys(env))
 
     if not env.isCluster():
@@ -346,14 +343,13 @@ def testDrop(env):
         env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
 
     # test _FORCEKEEPDOCS
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
     env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
     env.assertEqual(100, countKeys(env))
 
 def testDropIndex(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
     env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
     # validate optional argument
@@ -361,19 +357,16 @@ def testDropIndex(env):
     env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Unknown argument")
 
     for i in range(100):
-        res = conn.execute_command('hset', f"doc{i}",
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        res = conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
     env.assertEqual(100, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
  
     # test default behavior - FT.DROPINDEX
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        res = conn.execute_command('hset', f"doc{i}",
-                                   'f', 'hello world', 'n', 666, 't', 'foo bar', 'g', '19.04,47.497')
+        res = conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
     env.assertEqual(100, countKeys(env))
 
     if not env.isCluster():
