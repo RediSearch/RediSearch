@@ -167,8 +167,8 @@ jobs:
             cd $DEST_DIR
 
             # Checkout the REF
-            git fetch origin ${{ inputs.redis-ref }}
-            git checkout ${{ inputs.redis-ref }}
+            git fetch origin ${{ inputs.get-redis }}
+            git checkout ${{ inputs.get-redis }}
       - name: Build Redis
         if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
