@@ -14,7 +14,8 @@
 #include "redismodule.h"
 #include "reply_macros.h"
 #include "redis_index.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
