@@ -83,7 +83,7 @@ int CircularBuffer_Add(CircularBuffer cb, void *item) {
 	// do not add item if buffer is full
 	uint64_t item_count = atomic_fetch_add(&cb->item_count, 1);
 	if (unlikely(item_count >= cb->item_cap)) {
-		cb->item_count = cb->item_cap;
+		atomic_fetch_sub(&cb->item_count, 1);
 		return 0;
 	}
 
@@ -106,7 +106,7 @@ int CircularBuffer_Add(CircularBuffer cb, void *item) {
 
 		// update write position
 		// multiple threads "competing" to update write position
-		// only the thread with the largest offset will succeed
+		// we ensure that the thread with the largest offset will succeed
 		// for the above example, W1 will succeed
 		//
 		// [., ., ., ., ., ., A, B, C]
@@ -132,7 +132,7 @@ void *CircularBuffer_Reserve(CircularBuffer cb) {
 	// an item will be overwritten if buffer is full
 	uint64_t item_count = atomic_fetch_add(&cb->item_count, 1);
 	if (unlikely(item_count >= cb->item_cap)) {
-		cb->item_count = cb->item_cap;
+		atomic_fetch_sub(&cb->item_count, 1);
 	}
 
 	// determine current and next write position
