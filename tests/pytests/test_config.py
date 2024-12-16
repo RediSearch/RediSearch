@@ -173,8 +173,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
 
+@skip(cluster=True)
 def testInitConfig():
-
     # Numeric arguments
     _test_config_num('MAXDOCTABLESIZE', 123456)
     _test_config_num('TIMEOUT', 0)
@@ -411,7 +411,7 @@ def testSetACLUsername():
     timeout = 3 # 3 seconds, more than enough for the an env to be up normally
     try:
         with TimeLimit(timeout):
-            env.cmd('FT.SEARCH', 'idx', '*')
+            env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
             # Client hangs.
             env.assertTrue(False)
     except Exception as e:

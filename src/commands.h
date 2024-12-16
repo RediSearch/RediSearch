@@ -10,7 +10,7 @@
 #ifdef RS_CLUSTER_ENTERPRISE
 #define RS_CMD_WRITE_PREFIX "FT"
 #define RS_CMD_READ_PREFIX "_FT"
-#else  // RS_CLUSTER_OSS
+#else  // OSS Cluster
 #define RS_CMD_WRITE_PREFIX "_FT"
 #define RS_CMD_READ_PREFIX "_FT"
 #endif

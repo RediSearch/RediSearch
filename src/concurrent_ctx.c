@@ -10,6 +10,7 @@
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
+#include "util/references.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -43,6 +44,7 @@ typedef struct ConcurrentCmdCtx {
   RedisModuleString **argv;
   int argc;
   int options;
+  WeakRef spec_ref;
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -80,12 +82,18 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
   cctx->options |= CMDCTX_KEEP_RCTX;
 }
 
-// Used by RSCordinator
+WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
+  return cctx->spec_ref;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
-                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+                                          RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                          WeakRef spec_ref) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
+
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
+  cmdCtx->spec_ref = spec_ref;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
@@ -104,7 +112,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
 
 int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handler,
                                         RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc);
+  return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc, (WeakRef){0});
 }
 
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx) {

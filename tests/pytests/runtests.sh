@@ -381,6 +381,8 @@ run_tests() {
 			printf "Running $title:\n\n"
 		fi
 	fi
+	# TODO:Remove this once RLTest progress bar is fixed
+	RLTEST_ARGS+=" --no-progress"
 
 	if [[ $EXT != 1 ]]; then
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")

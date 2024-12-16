@@ -2,7 +2,6 @@
 #include "redismodule.h"
 
 #include "module.h"
-#include "version.h"
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
@@ -21,9 +20,9 @@
 #include "util/array.h"
 #include "cursor.h"
 #include "fork_gc.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "profile.h"
-#include "global_stats.h"
+#include "info/info_redis.h"
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -84,92 +83,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
   RSGlobalConfig.iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH;
   return REDISMODULE_OK;
-}
-
-#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
-
-void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-  // Module version
-  RedisModule_InfoAddSection(ctx, "version");
-  char ver[64];
-  // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
-  RedisModule_InfoAddFieldCString(ctx, "version", ver);
-  // Redis version
-  GetFormattedRedisVersion(ver, sizeof(ver));
-  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
-  // Redis Enterprise version
-  if (IsEnterprise()) {
-    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
-    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
-  }
-
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
-
-  // Numer of indexes
-  RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info.num_active_indexes);
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info.num_active_indexes_querying);
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info.num_active_indexes_indexing);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_active_writes", total_info.total_active_writes);
-
-  // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx, &total_info.fields_stats);
-
-  // Memory
-  RedisModule_InfoAddSection(ctx, "memory");
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info.total_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index", total_info.min_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index_human", MEMORY_HUMAN(total_info.min_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index", total_info.max_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index_human", MEMORY_HUMAN(total_info.max_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
-
-  // Cursors
-  RedisModule_InfoAddSection(ctx, "cursors");
-  CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
-
-  // GC stats
-  RedisModule_InfoAddSection(ctx, "gc");
-  InfoGCStats stats = total_info.gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
-
-  // Query statistics
-  TotalGlobalStats_Queries_AddToInfo(ctx);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info.total_active_queries);
-
-  // Errors statistics
-  RedisModule_InfoAddSection(ctx, "errors");
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info.indexing_failures);
-  // highest number of failures out of all specs
-  RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures_max", total_info.max_indexing_failures);
-
-  // Dialect statistics
-  DialectsGlobalStats_AddToInfo(ctx);
-
-  // Run time configuration
-  RSConfig_AddToInfo(ctx);
-
-  #ifdef FTINFO_FOR_INFO_MODULES
-  // FT.INFO for some of the indexes
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  int count = 5;
-  while (count-- && (entry = dictNext(iter))) {
-    StrongRef ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(ref);
-    if (sp) {
-      IndexSpec_AddToInfo(ctx, sp);
-    }
-  }
-  dictReleaseIterator(iter);
-  #endif
 }
 
 static inline const char* RS_GetExtraVersion() {

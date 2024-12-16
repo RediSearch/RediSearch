@@ -328,10 +328,13 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     forceInvokeGC(env, idx)
 
     # Cleaned up
+    expected_info = { 'num_docs': 0,
+                     'total_inverted_index_blocks': 1, # 1 block might be left
+                     # an initialized numeric tree alawys contains a range in its root
+                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
+                    }
     info = index_info(env, idx)
-    env.assertEqual(int(info['num_docs']), 0)
-    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    env.assertEqual(float(info['inverted_sz_mb']), 0)
+    compare_index_info_dict(env, idx, expected_info)
 
 def printSeed(env):
     # Print the random seed for reproducibility

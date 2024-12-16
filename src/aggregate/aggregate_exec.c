@@ -18,7 +18,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -729,7 +729,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError_SetError(&status, QUERY_ENOINDEX, "The index was dropped before the query could be executed");
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
     QueryError_ReplyAndClear(outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
