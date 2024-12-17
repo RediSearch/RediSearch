@@ -217,8 +217,7 @@ void thread_AddFunc(CircularBuffer cb, int thread_id) {
 }
 
 TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
-	CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
-
+  CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
   std::thread threads[NUM_THREADS];
 
   for (int i = 0; i < NUM_THREADS; i++) {
@@ -254,8 +253,7 @@ void thread_ReserveFunc(CircularBuffer cb, int thread_id) {
 }
 
 TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
-	CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
-
+  CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
   std::thread threads[NUM_THREADS];
 
   for (int i = 0; i < NUM_THREADS; i++) {
