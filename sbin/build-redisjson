@@ -56,9 +56,14 @@ sed -i 's/# GOOD_NIGHTLY=.*/GOOD_NIGHTLY=nightly-2024-05-16/' ./deps/readies/bin
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
 
-runn BINROOT=$TARGET_DIR make SAN=$SAN
+	# for RedisJSON build with addess santizer if required
+	if [[ -n $SAN ]]; then
+		rustup component add rust-src --toolchain nightly
+	fi
+	BINROOT=$TARGET_DIR make SAN=$SAN
+	echo "Created ${TARGET_DIR}/rejson.so"
+fi
 
-echo "Created ${TARGET_DIR}/rejson.so"
 if [[ -n $MODULE_FILE ]]; then
 	echo "${TARGET_DIR}/rejson.so" > $MODULE_FILE
 fi
