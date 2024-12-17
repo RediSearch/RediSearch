@@ -3,8 +3,7 @@
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
+
 
 if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
@@ -25,47 +24,37 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	exit 0
 fi
 
-OP=
-[[ $NOP == 1 ]] && OP=echo
 
 if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 	echo "Invalid SAN setting: '$SAN'"
 	exit 1
 fi
 
-if [[ -z $BINROOT ]]; then
-	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
-fi
-TARGET_DIR=$BINROOT/RedisJSON
-echo Building into $TARGET_DIR ...
-
-if [[ $FORCE == 1 ]]; then
-	runn rm -rf $TARGET_DIR
-fi
 
 BRANCH=${BRANCH:-master}
 
-$OP cd $ROOT/deps
-if [[ ! -d RedisJSON ]]; then
-	runn git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+TARGET_DIR=$BINROOT/RedisJSON/${BRANCH}
+echo Building into $TARGET_DIR ...
+
+if [[ $FORCE == 1 ]]; then
+	rm -rf $TARGET_DIR
 fi
 
-$OP cd RedisJSON
-runn git checkout $BRANCH
-runn git pull --quiet --recurse-submodules
+cd $ROOT/deps
+if [[ ! -d RedisJSON ]]; then
+	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+fi
 
-# Temporary patch to use a fixed GOOD_NIGHTLY version because of a bug in the 
+cd RedisJSON
+git checkout $BRANCH
+git pull --quiet --recurse-submodules
+
+# Temporary patch to use a fixed GOOD_NIGHTLY version because of a bug in the
 # latest nightly https://github.com/rust-lang/rust/issues/125319
 sed -i 's/# GOOD_NIGHTLY=.*/GOOD_NIGHTLY=nightly-2024-05-16/' ./deps/readies/bin/getrust
 
-if is_command python3; then
-	runn python3 -m pip install virtualenv
-	runn python3 -m virtualenv venv
-	. venv/bin/activate
-fi
-runn $READIES/bin/getpy3
-runn ./sbin/system-setup.py
-$OP source /etc/profile.d/rust.sh
+# Install only rust, because the rest of the dependencies are already installed
+if [[ $NOP != 1 ]]; then
 
 runn BINROOT=$TARGET_DIR make SAN=$SAN
 
