@@ -505,15 +505,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  bool drop = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+  bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
-  bool delDocs = drop;
+  bool delDocs = dropCommand;
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
       delDocs = false;
-    } else if (drop && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+    } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
       delDocs = false;
-    } else if (!drop && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+    } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
     } else {
       return RedisModule_ReplyWithError(ctx, "Unknown argument");
