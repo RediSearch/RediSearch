@@ -27,7 +27,7 @@ typedef struct MRWorkQueue {
   size_t sz;
   struct {
     struct queueItem *head;
-    size_t hitCount;
+    size_t warnSize;
   } pendingInfo;
   uv_mutex_t lock;
   uv_async_t async;
@@ -111,7 +111,6 @@ static void topologyAsyncCB(uv_async_t *async) {
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
-  RedisModule_Assert(__atomic_load_n(&pendingTopo, __ATOMIC_ACQUIRE));
   // Mark the event loop thread as running before triggering the topology check.
   loop_th_running = true;
   uv_async_send(&topologyAsync); // start the topology check
@@ -124,7 +123,9 @@ static void verify_uv_thread() {
     uv_timer_init(uv_default_loop(), &topologyFailureTimer);
     uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
-    RedisModule_Assert(uv_thread_create(&loop_th, sideThread, NULL) == 0);
+    int uv_thread_create_status = uv_thread_create(&loop_th, sideThread, NULL);
+    RedisModule_Assert(uv_thread_create_status == 0);
+    REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
   }
 }
@@ -180,21 +181,19 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
-    const char *logLevel = "verbose";
-    if (q->head == q->pendingInfo.head) {
-      // If we hit the same head multiple times, we may have a problem. Increase log level.
-      if (++q->pendingInfo.hitCount > 100) logLevel = "notice";
+    if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
+      // If we hit the same head multiple times, we may have a problem. Log it once.
+      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     } else {
       q->pendingInfo.head = q->head;
-      q->pendingInfo.hitCount = 1;
+      q->pendingInfo.warnSize = q->sz + (1 << 10);
     }
-    RedisModule_Log(RSDummyContext, logLevel, "MRWorkQueue: Max pending requests reached");
-    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
 
     return NULL;
   } else {
     q->pendingInfo.head = NULL;
-    q->pendingInfo.hitCount = 0;
+    q->pendingInfo.warnSize = 0;
   }
 
   struct queueItem *r = q->head;
@@ -235,7 +234,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   q->pendingInfo.head = NULL;
-  q->pendingInfo.hitCount = 0;
+  q->pendingInfo.warnSize = 0;
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;
@@ -246,4 +245,12 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   uv_mutex_lock(&q->lock);
   q->maxPending = maxPending;
   uv_mutex_unlock(&q->lock);
+}
+
+void RQ_Debug_ClearPendingTopo() {
+  struct queueItem *topo = exchangePendingTopo(NULL);
+  if (topo) {
+    MRClusterTopology_Free(topo->privdata);
+    rm_free(topo);
+  }
 }

@@ -20,7 +20,7 @@ dbconfig:
     - '"FT.CREATE" "idx21" "PREFIX" "1" "idx21:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 64
+    - workers: 8
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5500K-docs-union-iterators/5500K-docs-union-iterators.idx21.commands.SETUP.csv"
   - dataset_load_timeout_secs: 180

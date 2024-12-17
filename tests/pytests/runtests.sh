@@ -12,8 +12,8 @@ export PYTHONUNBUFFERED=1
 
 VG_REDIS_VER=7.4
 VG_REDIS_SUFFIX=7.4
-SAN_REDIS_VER=7.4
-SAN_REDIS_SUFFIX=7.4
+SAN_REDIS_VER=8.0
+SAN_REDIS_SUFFIX=8.0
 
 cd $HERE
 
@@ -218,7 +218,7 @@ setup_clang_sanitizer() {
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
-			V="$VERBOSE" runn $READIES/bin/getredis --force -v $SAN_REDIS_VER --own-openssl --no-run \
+			V="$VERBOSE" runn $READIES/bin/getredis --force -b $SAN_REDIS_VER --own-openssl --no-run \
 				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
 		fi
 
@@ -388,6 +388,8 @@ run_tests() {
 			printf "Running $title:\n\n"
 		fi
 	fi
+	# TODO:Remove this once RLTest progress bar is fixed
+	RLTEST_ARGS+=" --no-progress"
 
 	if [[ $EXT != 1 ]]; then
 		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")

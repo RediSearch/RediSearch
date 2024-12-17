@@ -21,18 +21,46 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'DUMP_GEOMIDX',
-                     'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
-                     'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_WAIT_FOR_JOBS', 'GIT_SHA', 'TTL', 'TTL_PAUSE',
-                     'TTL_EXPIRE', 'VECSIM_INFO', 'DELETE_LOCAL_CURSORS', 'DUMP_HNSW', 'SET_MONITOR_EXPIRATION','WORKERS']
-        coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
+        help_list = [
+            "DUMP_INVIDX",
+            "DUMP_NUMIDX",
+            "DUMP_NUMIDXTREE",
+            "DUMP_TAGIDX",
+            "INFO_TAGIDX",
+            "DUMP_GEOMIDX",
+            "DUMP_PREFIX_TRIE",
+            "IDTODOCID",
+            "DOCIDTOID",
+            "DOCINFO",
+            "DUMP_PHONETIC_HASH",
+            "DUMP_SUFFIX_TRIE",
+            "DUMP_TERMS",
+            "INVIDX_SUMMARY",
+            "NUMIDX_SUMMARY",
+            "SPEC_INVIDXES_INFO",
+            "GC_FORCEINVOKE",
+            "GC_FORCEBGINVOKE",
+            "GC_CLEAN_NUMERIC",
+            "GC_STOP_SCHEDULE",
+            "GC_CONTINUE_SCHEDULE",
+            "GC_WAIT_FOR_JOBS",
+            "GIT_SHA",
+            "TTL",
+            "TTL_PAUSE",
+            "TTL_EXPIRE",
+            "VECSIM_INFO",
+            "DELETE_LOCAL_CURSORS",
+            "DUMP_HNSW",
+            "SET_MONITOR_EXPIRATION",
+            "WORKERS",
+        ]
+        coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -211,7 +239,6 @@ class TestDebugCommands(object):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
 
-
     def testStopAndResumeWorkersPool(self):
         self.env.expect(debug_cmd(), 'WORKERS').error().contains(
             f"wrong number of arguments for '{debug_cmd()}|WORKERS' command")
@@ -309,3 +336,24 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').error().contains('Topology updater is already paused')
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
+
+@skip(cluster=True)
+def testSpecIndexesInfo(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    expected_reply = {
+        "inverted_indexes_dict_size": 0,
+        "inverted_indexes_memory": 0,
+    }
+    # Sanity check - empty spec
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)
+
+    # Add a document
+    env.expect('HSET', 'doc1', 'n', 1).equal(1)
+    expected_reply["inverted_indexes_dict_size"] = 1
+
+    # assuming the document doesn't exceed the initial block size
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
+    debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
+    env.assertEqual(to_dict(debug_output), expected_reply)

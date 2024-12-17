@@ -600,6 +600,51 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
+static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  if (fmt[0] != 's' || fmt[1] != 's') {
+    return NULL;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  RedisModuleString *value = va_arg(ap, RedisModuleString *);
+  ctx->db->erase(*key);
+  StringValue* v = new StringValue(*key);
+  v->m_string = *value;
+  ctx->db->set(v);
+  v->decref();
+  return NULL;
+}
+
+static RedisModuleCallReply *RMCK_CallDel(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  RedisModuleCallReply* reply = new RedisModuleCallReply(ctx);
+  reply->type = REDISMODULE_REPLY_INTEGER;
+  reply->ll = 0;
+  if (fmt[0] != 's') {
+    return reply;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  const bool erased = ctx->db->erase(*key);
+  reply->ll += erased;
+  return reply;
+}
+
+static RedisModuleCallReply *RMCK_CallGet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  if (fmt[0] != 's') {
+    return NULL;
+  }
+  RedisModuleString *key = va_arg(ap, RedisModuleString *);
+  Value *v = ctx->db->get(key);
+  if (!dynamic_cast<StringValue *>(v)) {
+    return NULL;
+  }
+  RedisModuleCallReply *reply = new RedisModuleCallReply(ctx);
+  reply->type = REDISMODULE_REPLY_STRING;
+  reply->s = static_cast<StringValue *>(v)->m_string;
+  return reply;
+}
+
 static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                            va_list ap) {
   if (strcmp(fmt, "!v") != 0) {
@@ -658,21 +703,37 @@ static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *c
   return r;
 }
 
+static RedisModuleCallReply *RMCK_CallHashFieldExpireTime(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  // return an empty array of expire times
+  // the bare minimum to get the code to not issue an error
+  RedisModuleCallReply *r = new RedisModuleCallReply(ctx);
+  r->type = REDISMODULE_REPLY_ARRAY;
+  return r;
+}
+
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
-  // We only support HGETALL for now
   va_list ap;
   RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
+  errno = 0;
   if (strcasecmp(cmd, "HGETALL") == 0) {
     reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
-  }
-
-  if (strcasecmp(cmd, "HSET") == 0) {
+  } else if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "SET") == 0) {
+    reply = RMCK_CallSet(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "GET") == 0) {
+    reply = RMCK_CallGet(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "DEL") == 0) {
+    reply = RMCK_CallDel(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HPEXPIRETIME") == 0) {
+    reply = RMCK_CallHashFieldExpireTime(ctx, cmd, fmt, ap);
+  } else {
+    errno = ENOTSUP;
   }
 
   va_end(ap);
-
   return reply;
 }
 
@@ -716,6 +777,13 @@ const char *RMCK_CallReplyStringPtr(RedisModuleCallReply *r, size_t *n) {
   }
   *n = r->s.size();
   return r->s.c_str();
+}
+
+long long RMCK_CallReplyInteger(RedisModuleCallReply *r) {
+  if (r->type != REDISMODULE_REPLY_INTEGER) {
+    return 0;
+  }
+  return r->ll;
 }
 
 Module::ModuleMap Module::modules;
@@ -885,6 +953,7 @@ static void registerApis() {
   REGISTER_API(CreateStringFromCallReply);
   REGISTER_API(CallReplyArrayElement);
   REGISTER_API(CallReplyStringPtr);
+  REGISTER_API(CallReplyInteger);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(GetDetachedThreadSafeContext);

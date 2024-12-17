@@ -636,6 +636,16 @@ CONFIG_GETTER(getBGIndexSleepGap) {
 CONFIG_BOOLEAN_SETTER(set_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren)
 CONFIG_BOOLEAN_GETTER(get_PrioritizeIntersectUnionChildren, prioritizeIntersectUnionChildren, 0)
 
+CONFIG_SETTER(setIndexCursorLimit) {
+  int acrc = AC_GetLongLong(ac, &config->indexCursorLimit, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexCursorLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->indexCursorLimit);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -840,6 +850,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
+        {.name = "INDEX_CURSOR_LIMIT",
+         .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
+         .setValue = setIndexCursorLimit,
+         .getValue = getIndexCursorLimit},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
@@ -1083,41 +1097,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   int rc = var->setValue(config, &ac, var->triggerId, status);
   *offset += ac.offset;
   return rc;
-}
-
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "runtime_configurations");
-
-  if (RSGlobalConfig.extLoad != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
-  }
-  if (RSGlobalConfig.frisoIni != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
-  }
-  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_stem_length", RSGlobalConfig.iteratorsConfigParams.minStemLength);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
-
-  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
-}
-
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
-  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    char field[16] = {0};
-    snprintf(field, sizeof field, "dialect_%d", dialect);
-    // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
-  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

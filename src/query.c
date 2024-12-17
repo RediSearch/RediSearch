@@ -35,14 +35,15 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 
+#ifndef STRINGIFY
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+#endif
+
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
   if (tn->str) rm_free(tn->str);
-}
-
-static void QueryTagNode_Free(QueryTagNode *tag) {
-  rm_free((char *)tag->fieldName);
 }
 
 static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
@@ -62,10 +63,6 @@ static void QueryVectorNode_Free(QueryVectorNode *vn) {
     VectorQuery_Free(vn->vq);
     vn->vq = NULL;
   }
-}
-
-static void QueryMissingNode_Free(QueryMissingNode *missn) {
-  rm_free((char *)missn->fieldName);
 }
 
 void QueryNode_Free(QueryNode *n) {
@@ -117,18 +114,13 @@ void QueryNode_Free(QueryNode *n) {
     case QN_WILDCARD_QUERY:
       QueryTokenNode_Free(&n->verb.tok);
       break;
-    case QN_WILDCARD:
-    case QN_IDS:
-      break;
-    case QN_TAG:
-      QueryTagNode_Free(&n->tag);
-      break;
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_MISSING:
-      QueryMissingNode_Free(&n->miss);
-      break;
+    case QN_WILDCARD:
+    case QN_IDS:
+    case QN_TAG:
     case QN_UNION:
     case QN_NOT:
     case QN_OPTIONAL:
@@ -299,10 +291,9 @@ QueryNode *NewPhraseNode(int exact) {
   return ret;
 }
 
-QueryNode *NewTagNode(const char *field, size_t len) {
+QueryNode *NewTagNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_TAG);
-  ret->tag.fieldName = field;
-  ret->tag.len = len;
+  ret->tag.fs = field;
   return ret;
 }
 
@@ -329,10 +320,9 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewMissingNode(const char *field, size_t len) {
+QueryNode *NewMissingNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
-  ret->miss.fieldName = field;
-  ret->miss.len = len;
+  ret->miss.field = field;
   return ret;
 }
 
@@ -435,16 +425,6 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 }
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
-  if (options->numeric) {
-    QueryNode *n = NewQueryNode(QN_NUMERIC);
-    n->nn.nf = (NumericFilter *)options->numeric;
-    setFilterNode(ast, n);
-  }
-  if (options->geo) {
-    QueryNode *n = NewQueryNode(QN_GEO);
-    n->gn.gf = options->geo;
-    setFilterNode(ast, n);
-  }
   if (options->ids) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.ids = options->ids;
@@ -457,21 +437,40 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
                              QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
-  // Do not expand verbatim nodes
-  if (qn->opts.flags & QueryNode_Verbatim) {
+  if ((qn->opts.flags & QueryNode_Verbatim) ||    // Do not expand verbatim nodes
+      (qn->type == QN_PHRASE && qn->pn.exact) ||  // Do not expand exact phrases
+      (qn->type == QN_TAG)) {                     // Tag nodes are handles by their node evaluator
     return;
   }
 
-  int expandChildren = 0;
+  // Check that there is at least one stemmable field in the query
+  if (expCtx->handle && expCtx->handle->spec) {
+    const IndexSpec *spec = expCtx->handle->spec;
+    t_fieldMask fm = qn->opts.fieldMask;
+    if ( fm != RS_FIELDMASK_ALL) {
+      int expand = 0;
+      t_fieldMask bit_mask = 1;
+      while (fm) {
+        if (fm & bit_mask) {
+          const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit_mask);
+          if (fs && !FieldSpec_IsNoStem(fs)) {
+            expand = 1;
+            break;
+          }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+      if (!expand) {
+        return;
+      }
+    }
+  }
 
   if (qn->type == QN_TOKEN && qn->tn.len > 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
-  } else if (qn->type == QN_UNION ||
-             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
-    expandChildren = 1;
-  }
-  if (expandChildren) {
+  } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
@@ -581,6 +580,18 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
+static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
+  if (pfx->prefix && pfx->suffix) {
+    return "INFIX";
+  } else if (pfx->prefix) {
+    return "PREFIX";
+  } else {
+    return "SUFFIX";
+  }
+}
+
+#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
+
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
@@ -601,10 +612,11 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  rune *str = NULL;
   size_t nstr;
-  if (qn->pfx.tok.str) {
-    str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
+  rune *str = qn->pfx.tok.str ? strToFoldedRunes(qn->pfx.tok.str, &nstr) : NULL;
+  if (!str) {
+    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
+    return NULL;
   }
 
   ctx.cap = 8;
@@ -667,6 +679,10 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
+  if (!str) {
+    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
+    return NULL;
+  }
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
@@ -900,12 +916,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
-    return NULL;
-  }
-
+  const FieldSpec *fs = node->nn.nf->field;
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
@@ -918,26 +929,18 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
     return NULL;
   }
 
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
-    return NULL;
-  }
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config, fs->index);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config);
 }
 
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
-    return NULL;
-  }
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->redisCtx, q->sctx->spec, NULL, fs);
-  if (!index) {
-    return NULL;
-  }
+  const FieldSpec *fs = node->gmn.geomq->fs;
+
+  // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
+  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
+  // we return results as if the index was empty, instead of raising an error.
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
   const GeometryApi *api = GeometryApi_Get(index);
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
@@ -955,18 +958,12 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
 
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-    return NULL;
-  }
-
   if (qn->opts.distField) {
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      char default_score_field[strlen(qn->vn.vq->property) + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
+      char default_score_field[strlen(qn->vn.vq->field->name) + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", qn->vn.vq->field->name);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
         QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
@@ -986,6 +983,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->vn.vq->scoreField) {
     idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
+
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -995,7 +993,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       return NULL;
     }
   }
-  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it, fs->index);
+  IndexIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
   // If iterator was created successfully, and we have a metric to yield, update the
   // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
   if (it && qn->vn.vq->scoreField) {
@@ -1342,28 +1340,22 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-  RedisModuleKey *k = NULL;
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
-  if (!fs) {
-    return NULL;
-  }
-  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
+  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, node->fs, INDEXFLD_T_TAG);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, DONT_CREATE_INDEX);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
- 
+
   if (!idx) {
     // There are no documents to traverse.
     goto done;
   }
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, fs);
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, node->fs);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-        k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
       }
@@ -1376,7 +1368,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
-        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight, fs);
+        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight, node->fs);
     if (it) {
       iters[n++] = it;
     }
@@ -1389,7 +1381,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (total_its) {
     if (q->conc) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-      k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);
     }
@@ -1398,25 +1389,12 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
   return ret;
 }
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_MISSING, "query qn type should be missing")
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
-  if (!fs) {
-    // Field does not exist
-    return NULL;
-  }
-  if (!FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetErrorFmt(q->status, QUERY_EMISSING,
-                           "'ismissing' requires field '%s' to be defined with '" SPEC_INDEXMISSING_STR "'",
-                           qn->miss.fieldName);
-    return NULL;
-  }
+  const FieldSpec *fs = qn->miss.field;
 
   // Get the InvertedIndex corresponding to the queried field.
   InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
@@ -1695,7 +1673,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_TAG:
       {
         opts->flags |= QueryNode_IsTag;
-        const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
+        const FieldSpec *fs = n->tag.fs;
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
@@ -1711,7 +1689,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
       }
       break;
-    case QN_NUMERIC:
+    case QN_NUMERIC: {
+        if (n->nn.nf->min > n->nn.nf->max) {
+          QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max): @%s:[%f %f]",
+                                 n->nn.nf->field->name, n->nn.nf->min, n->nn.nf->max);
+          res = REDISMODULE_ERR;
+        }
+      }
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1867,13 +1852,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      if(qs->pfx.prefix && qs->pfx.suffix) {
-        s = sdscatprintf(s, "INFIX{*%s*}", (char *)qs->pfx.tok.str);
-      } else if (qs->pfx.suffix) {
-        s = sdscatprintf(s, "SUFFIX{*%s}", (char *)qs->pfx.tok.str);
-      } else {
-        s = sdscatprintf(s, "PREFIX{%s*}", (char *)qs->pfx.tok.str);
-      }
+      s = sdscatprintf(s, "%s{%s%s%s}", PrefixNode_GetTypeString(&qs->pfx),
+                                        qs->pfx.suffix ? "*" : "",
+                                        qs->pfx.tok.str,
+                                        qs->pfx.prefix ? "*" : "");
       break;
 
     case QN_LEXRANGE:
@@ -1898,7 +1880,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
+                       f->field->name, f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1907,14 +1889,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TAG:
-      s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
+      s = sdscatprintf(s, "TAG:@%s {\n", qs->tag.fs->name);
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
     case QN_GEO:
 
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->property, qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->field->name, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
@@ -1961,7 +1943,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
       } // switch (qs->vn.vq->type). Next is a common part for both types.
-      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
+      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->field->name);
       for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
         s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
         s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
@@ -1987,7 +1969,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
     case QN_MISSING:
-      s = sdscatprintf(s, "ISMISSING{%.*s}", (int)qs->miss.len, qs->miss.fieldName);
+      s = sdscatprintf(s, "ISMISSING{%s}", qs->miss.field->name);
       break;
   }
 

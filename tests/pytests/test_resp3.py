@@ -378,7 +378,7 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal({'idx2', 'idx1'})
+    env.expect('FT._LIST').equal(['idx2', 'idx1'])
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -500,7 +500,10 @@ def test_dictdump():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
-    env.expect("FT.DICTDUMP", "dict1").equal({'2', 'bar', 'foo', '1'})
+    def sort_dict(dict_list):
+        dict_list.sort()
+        return dict_list
+    env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -563,10 +566,9 @@ def test_tagvals():
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
                         "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
     waitForIndex(env, 'idx1')
-
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal({'3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
+    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(['3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(['2', '3'])
+    env.expect('FT.TAGVALS', 'idx1', 'f5').equal([])
 
 @skip(cluster=False)
 def test_clusterinfo():

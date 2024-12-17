@@ -416,13 +416,15 @@ def testExpireMultipleFieldsWhereOneIsSortable(env):
                           expiration_interval_to_fields={1: ['x'], 3: ['y', 'z']},
                           document_name_to_expire={'doc1': True, 'doc2': False})
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyTextFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     # We added not_text_field to make sure that the expandFieldMask function hits the continue clause
     # Meaning that at least one field ftid during the expiration check will be RS_INVALID_FIELD_ID
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')  # use shard connection for _FT.DEBUG
     conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
@@ -438,11 +440,13 @@ def testLazyTextFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyGeoshapeFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT', 'INDEXMISSING').ok()
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')  # use shard connection for _FT.DEBUG
     first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
     second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
     conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
@@ -455,11 +459,13 @@ def testLazyGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'ismissing(@geom)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
 
-@skip(redis_less_than='7.3')
+@skip(redis_less_than='8.0')
 def testLazyVectorFieldExpiration(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 INDEXMISSING t TEXT n NUMERIC').ok()
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')  # use shard connection for _FT.DEBUG
     conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
     conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
@@ -503,3 +509,47 @@ def testDocWithLongExpiration(env):
     # Set an expiration that will take a long time to expire
     conn.execute_command('EXPIRE', 'doc:1', '30000')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+
+# Verify that background indexing does not cause lazy expiration of expired documents.
+@skip(cluster=True)
+def test_background_index_no_lazy_expiration(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('HSET', 'doc:1', 't', 'bar').equal(1)
+    env.expect('HSET', 'doc:2', 't', 'arr').equal(1)
+    env.expect('EXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(1.5)
+
+    # Expect background indexing to take place after doc:1 has expired.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
+    waitForIndex(env, 'idx')
+
+    # Validate that doc:1 has expired but not evicted.
+    env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['t', 'arr']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('HGET', 'doc:1', 't').equal(None)
+    env.expect('DBSIZE').equal(1)
+
+
+# Same test as the above but for JSON documents.
+@skip(cluster=True, no_json=True)
+def test_background_index_no_lazy_expiration_json(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
+    env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
+    env.expect('EXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(1.5)
+
+    # Expect background indexing to take place after doc:1 has expired.
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
+    waitForIndex(env, 'idx')
+
+    # Validate that doc:1 has expired but not evicted.
+    env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['$', '{"t":"arr"}']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('JSON.GET', 'doc:1', "$").equal(None)
+    env.expect('DBSIZE').equal(1)

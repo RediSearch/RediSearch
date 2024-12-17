@@ -12,7 +12,6 @@
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
-#include "spec.h"
 #include "redisearch.h"
 #include "util/references.h"
 
