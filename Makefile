@@ -312,7 +312,8 @@ REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
 ifneq ($(REJSON),0)
 
 ifneq ($(SAN),)
-REJSON_SO=$(BINROOT)/RedisJSON/rejson.so
+REJSON_BRANCH ?= master
+REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
 REJSON_PATH=$(REJSON_SO)
 
 $(REJSON_SO):
