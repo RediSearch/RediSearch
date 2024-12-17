@@ -228,17 +228,17 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
     threads[i].join();
   }
 
-  // Verify the buffer contents (this is a simple example, you may need more complex verification)
+  // Verify the buffer contents
   int item;
   uint16_t n_items = CircularBuffer_ItemCount(cb);
-  uint16_t n_read = 0;
+  ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
+
   uint16_t old_item = -1;
   for (size_t i = 0; i < n_items; i++) {
     old_item = item;
     CircularBuffer_Read(cb, &item);
     // Make sure we read a new entry
-    ASSERT_TRUE(item != old_item);
-    n_read++;
+    ASSERT_NE(item, old_item);
   }
 
   CircularBuffer_Free(cb);
@@ -267,14 +267,14 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
   // Verify the buffer contents (this is a simple example, you may need more complex verification)
   int item;
   uint16_t n_items = CircularBuffer_ItemCount(cb);
-  uint16_t n_read = 0;
+  ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
+
   uint16_t old_item = -1;
   for (size_t i = 0; i < n_items; i++) {
     old_item = item;
     CircularBuffer_Read(cb, &item);
     // Make sure we read a new entry
-    ASSERT_TRUE(item != old_item);
-    n_read++;
+    ASSERT_NE(item, old_item);
   }
 
   CircularBuffer_Free(cb);
