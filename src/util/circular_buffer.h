@@ -23,16 +23,16 @@ CircularBuffer CircularBuffer_New(size_t item_size, uint cap);
 // Returns the number of items in the buffer
 uint64_t CircularBuffer_ItemCount(CircularBuffer cb);
 
-// Returns buffer capacity
+// Returns buffer capacity.
 uint64_t CircularBuffer_Cap(CircularBuffer cb);
 
 // Returns the size of each item in the buffer
 uint CircularBuffer_ItemSize(const CircularBuffer cb);
 
-// Returns true if buffer is empty
+// Returns true if buffer is empty. Thread-safe.
 bool CircularBuffer_Empty(const CircularBuffer cb);
 
-// Returns true if buffer is full
+// Returns true if buffer is full. Thread-safe.
 bool CircularBuffer_Full(const CircularBuffer cb);
 
 // Adds an item to buffer.
@@ -50,7 +50,7 @@ void *CircularBuffer_Reserve(CircularBuffer cb);
 // This function pops the oldest item from the buffer.
 void *CircularBuffer_Read(CircularBuffer cb, void *item);
 
-// Sets the read pointer to the beginning of the buffer.
+// Sets the read pointer to the beginning of the buffer. Not thread-safe.
 void CircularBuffer_ResetReader(CircularBuffer cb);
 
 // Frees buffer (does not free its elements if its free callback is NULL)

@@ -39,37 +39,39 @@ CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
 	return cb;
 }
 
-// Returns the number of items in the buffer
+// Returns the number of items in the buffer. Thread-safe.
 uint64_t CircularBuffer_ItemCount(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
-	return cb->item_count;
+	return atomic_load(&cb->item_count);
 }
 
-// Returns buffer capacity
+// Returns buffer capacity.
 uint64_t CircularBuffer_Cap(CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
 	return cb->item_cap;
 }
 
-// Returns the size of each item in the buffer
+// Returns the size of each item in the buffer.
 uint CircularBuffer_ItemSize(const CircularBuffer cb) {
 	return cb->item_size;
 }
 
-// Returns true if buffer is empty
+// Returns true if buffer is empty. Thread-safe.
 inline bool CircularBuffer_Empty(const CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
-	return cb->item_count == 0;
+  uint64_t item_count = atomic_load(&cb->item_count);
+	return item_count == 0;
 }
 
-// Returns true if buffer is full
+// Returns true if buffer is full. Thread-safe.
 inline bool CircularBuffer_Full(const CircularBuffer cb) {
 	RedisModule_Assert(cb != NULL);
 
-	return cb->item_count == cb->item_cap;
+  uint64_t item_count = atomic_load(&cb->item_count);
+	return item_count == cb->item_cap;
 }
 
 // Adds an item to buffer.
@@ -199,7 +201,7 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
 	return read;
 }
 
-// Sets the read pointer to the beginning of the buffer.
+// Sets the read pointer to the beginning of the buffer. Not thread-safe.
 // assuming the buffer looks like this:
 //
 // [., ., ., A, B, C, ., ., .]
@@ -247,7 +249,7 @@ void CircularBuffer_ResetReader(CircularBuffer cb) {
 
 // Frees buffer (does not free its elements if its free callback is NULL)
 void CircularBuffer_Free(CircularBuffer cb) {
-	RedisModule_Assert(cb != NULL);
+  RedisModule_Assert(cb != NULL);
 
 	rm_free(cb);
 }
