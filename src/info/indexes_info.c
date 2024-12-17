@@ -8,9 +8,15 @@
 #include "util/dict.h"
 #include "spec.h"
 
+// Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
   TotalIndexesInfo info = {0};
   info.min_mem = -1;  // Initialize to max value
+  // Since we are holding the GIL, we know the BG indexer is not currently running, but it might
+  // have been running before we acquired the GIL.
+  // We will set this flag to true if we find any index with a scan in progress, and then
+  // count it ONCE in the total_active_writes. Assumes there is only one BG indexer thread.
+  bool BGIndexerInProgress = false;
   // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry;
@@ -44,10 +50,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     size_t activeQueries = IndexSpec_GetActiveQueries(sp);
     size_t activeWrites = IndexSpec_GetActiveWrites(sp);
     if (activeQueries) info.num_active_indexes_querying++;
-    if (activeWrites) info.num_active_indexes_indexing++;
-    if (activeQueries || activeWrites) info.num_active_indexes++;
+    if (activeWrites || sp->scan_in_progress) info.num_active_indexes_indexing++;
+    if (activeQueries || activeWrites || sp->scan_in_progress) info.num_active_indexes++;
     info.total_active_queries += activeQueries;
     info.total_active_writes += activeWrites;
+    BGIndexerInProgress |= sp->scan_in_progress;
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
@@ -59,6 +66,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
-  if (info.min_mem == -1) info.min_mem = 0;  // No index found
+  if (info.min_mem == -1) info.min_mem = 0;             // No index found
+  if (BGIndexerInProgress) info.total_active_writes++;  // BG indexer is currently active
   return info;
 }
