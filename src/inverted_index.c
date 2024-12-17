@@ -461,7 +461,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 
     // invalid encoder - we will fail
     default:
-      RS_LOG_ASSERT(0, "Invalid encoder flags");
+      RS_LOG_ASSERT_FMT(0, "Invalid encoder flags: %d", flags);
       return NULL;
   }
 }
@@ -896,7 +896,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
       RETURN_DECODERS(readNumeric, NULL);
 
     default:
-      RS_LOG_ASSERT(0, "Invalid index flags");
+      RS_LOG_ASSERT_FMT(0, "Invalid index flags: %d", flags);
       RETURN_DECODERS(NULL, NULL);
   }
 }

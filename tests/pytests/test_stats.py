@@ -38,7 +38,7 @@ def runTestWithSeed(env, s=None):
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
 
-    # Expected inverted index size total: 606 bytes
+    # Expected inverted index size total: 590 bytes
     # 2 * (buffer size + inverted index structure size)
     # 2 * (207 + 80) = 590
 
