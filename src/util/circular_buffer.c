@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "redismodule.h"
 #include "circular_buffer.h"
 #include "src/rmalloc.h"
