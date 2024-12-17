@@ -357,7 +357,7 @@ def test_WriteCommandsOnReplica():
 
   write_commands = ['FT.CREATE', 'FT.SUGADD', 'FT.SUGDEL', 'FT.CREATE',
                     'FT._CREATEIFNX', 'FT.ALTER', 'FT._ALTERIFNX', 'FT.DROPINDEX',
-                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.SYNFORCEUPDATE', 'FT.DICTADD',
+                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.DICTADD',
                     'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
                     'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
 
