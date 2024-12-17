@@ -49,10 +49,6 @@ cd RedisJSON
 git checkout $BRANCH
 git pull --quiet --recurse-submodules
 
-# Temporary patch to use a fixed GOOD_NIGHTLY version because of a bug in the
-# latest nightly https://github.com/rust-lang/rust/issues/125319
-sed -i 's/# GOOD_NIGHTLY=.*/GOOD_NIGHTLY=nightly-2024-05-16/' ./deps/readies/bin/getrust
-
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
 
