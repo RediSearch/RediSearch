@@ -560,3 +560,25 @@ def test_indexes_logically_deleted_docs(env):
   # Run GC, expect that the deleted document will not be accounted anymore.
   forceInvokeGC(env, idx='idx2')
   env.assertEqual(get_logically_deleted_docs(), 0)
+
+@skip(cluster=True)
+def test_indexing_metrics(env: Env):
+  env.cmd('HSET', 'doc:1', 'text', 'hello world')
+  n_indexes = 3
+
+  # Create indexes in a transaction, and at the end of the transaction
+  # call `info` and verify we observe that all the indexes are currently indexing
+  with env.getConnection().pipeline(transaction=True) as pipe:
+    for i in range(n_indexes):
+      pipe.execute_command('FT.CREATE', f'idx{i}', 'SCHEMA', 'text', 'TEXT')
+    pipe.execute_command('INFO', 'MODULES')
+    res = pipe.execute()
+
+  # Verify that all the indexes are currently indexing
+  env.assertEqual(res[:n_indexes], ['OK'] * n_indexes)
+
+  # Verify that the INFO command returns the correct indexing status
+  env.assertEqual(res[-1]['search_number_of_indexes'], n_indexes)
+  env.assertEqual(res[-1]['search_number_of_active_indexes'], n_indexes)
+  env.assertEqual(res[-1]['search_number_of_active_indexes_indexing'], n_indexes)
+  env.assertEqual(res[-1]['search_total_active_writes'], 1) # 1 write operation by the BG indexer thread
