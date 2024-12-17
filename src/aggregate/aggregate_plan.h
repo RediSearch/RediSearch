@@ -83,7 +83,7 @@ typedef struct {
 
 typedef struct {
   PLN_BaseStep base;
-  HiddenString *expr;
+  const HiddenString *expr;
   RSExpr *parsedExpr;
   bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
