@@ -1034,8 +1034,10 @@ typedef int (*RegisteredCallback)(RedisModuleCtx *, RedisModuleCommand *);
 typedef struct {
   const char *name;
   const char *flags;
+  // if false, the command will not be registered as a module command
+  bool shouldRegister;
   const char *aclCategories;
-  RedisModuleCmdFunc callback;
+  RedisModuleCmdFunc handler;
   RegisteredCallback registered;
   CommandKeys position;
 } SearchCommand;
@@ -1044,7 +1046,7 @@ typedef struct {
   const char *name;
   const char *fullName;
   const char *flags;
-  RedisModuleCmdFunc callback;
+  RedisModuleCmdFunc handler;
   RegisteredCallback setCommandInfo;
   CommandKeys position;
 } SubCommand;
@@ -1052,7 +1054,7 @@ typedef struct {
 int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const SubCommand* subcommands, size_t count) {
   for (size_t i = 0; i < count; i++) {
     const SubCommand* subcommand = &subcommands[i];
-    if (RedisModule_CreateSubcommand(command, subcommand->name, subcommand->callback, subcommand->flags, subcommand->position.firstkey, subcommand->position.lastkey, subcommand->position.keystep) == REDISMODULE_ERR) {
+    if (RedisModule_CreateSubcommand(command, subcommand->name, subcommand->handler, subcommand->flags, subcommand->position.firstkey, subcommand->position.lastkey, subcommand->position.keystep) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not create subcommand %s, flags: %s", subcommand->fullName, subcommand->flags); \
       return REDISMODULE_ERR;
     }
@@ -1071,9 +1073,9 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
 
 // Creates a command and registers it to its corresponding ACL categories
 // Also sets the command info if setCommandInfo is not NULL
-static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc callback, RegisteredCallback registered,
+static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler, RegisteredCallback registered,
                                  const char *flags, CommandKeys position, const char *aclCategories) {
-  if (RedisModule_CreateCommand(ctx, name, callback, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
+  if (RedisModule_CreateCommand(ctx, name, handler, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
     return REDISMODULE_ERR;
   }
@@ -1085,7 +1087,7 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisMod
   }
 
   if (registered && registered(ctx, command) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not set command info for command: %s", name);
+    RedisModule_Log(ctx, "warning", "Could not call registration callback for command: %s", name);
     return REDISMODULE_ERR;
   }
 
@@ -1113,7 +1115,12 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisMod
 }
 
 static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details) {
-  return RMCreateSearchCommand(ctx, details->name, details->callback, details->registered, details->flags, details->position, details->aclCategories);
+  RedisModule_Log(ctx, "verbose", "Command %s, flags: %s, register: %d", details->name, details->flags, (int)details->shouldRegister);
+  if (!details->shouldRegister) {
+    return REDISMODULE_OK;
+  }
+
+  return RMCreateSearchCommand(ctx, details->name, details->handler, details->registered, details->flags, details->position, details->aclCategories);
 }
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
@@ -1142,29 +1149,29 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
   return f;
 }
 
-#define CONFIG_SUBCOMMANDS(command, func)                                                                                                                           \
+#define CONFIG_SUBCOMMANDS(command_, func_, readonly_)                                                                                                                           \
   SubCommand subcommands[] = {                                                                                                                                      \
-    {.name = "GET", .fullName = command "|GET", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigGetInfo, .position = {INDEX_ONLY_CMD_ARGS}},    \
-    {.name = "SET", .fullName = command "|SET", .flags = "write", .callback = func, .setCommandInfo = SetFtConfigSetInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
-    {.name = "HELP", .fullName = command "|HELP", .flags = "readonly", .callback = func, .setCommandInfo = SetFtConfigHelpInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
+    {.name = "GET", .fullName = command_ "|GET", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigGetInfo, .position = {INDEX_ONLY_CMD_ARGS}},    \
+    {.name = "SET", .fullName = command_ "|SET", .flags = "write", .handler = func_, .setCommandInfo = SetFtConfigSetInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
+    {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
   }
 
 static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
-  CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand);
+  CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand, RS_READ_ONLY_FLAGS_DEFAULT);
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
   RedisModuleCmdFunc func = SafeCmd(ConfigCommand);
-  CONFIG_SUBCOMMANDS("FT.CONFIG", func);
+  CONFIG_SUBCOMMANDS("FT.CONFIG", func, "readonly");
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 #define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
   SubCommand subcommands[] = {                                                                                                                                      \
-    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .callback = func, .setCommandInfo = SetFtCursorReadInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
-    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .callback = func, .setCommandInfo = SetFtCursorDelInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
-    {.name = "GC", .fullName = command "|GC", .flags = "write", .callback = func, .setCommandInfo = NULL, .position = {INDEX_ONLY_CMD_ARGS}},                       \
+    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
+    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
+    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {INDEX_ONLY_CMD_ARGS}},                       \
   }
 
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
@@ -1191,13 +1198,13 @@ static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *comman
   return REDISMODULE_OK;
 }
 
-#define DEFINE_COMMAND(name_, func_, flags_, reg_, acl_, fstkey_, lstkey_, keystp_) \
-  (SearchCommand){ .name = name_, .flags = flags_,                                  \
-                   .aclCategories = acl_, .callback = func_, .registered = reg_,    \
-                   .position = (CommandKeys){                                       \
-                     .firstkey = fstkey_,                                           \
-                     .lastkey = lstkey_,                                            \
-                     .keystep = keystp_                                             \
+#define DEFINE_COMMAND(name_, func_, flags_, reg_, acl_, register_condition_, fstkey_, lstkey_, keystp_) \
+  (SearchCommand){ .name = name_, .flags = flags_, .shouldRegister = register_condition_,                \
+                   .aclCategories = acl_, .handler = func_, .registered = reg_,                          \
+                   .position = (CommandKeys){                                                            \
+                     .firstkey = fstkey_,                                                                \
+                     .lastkey = lstkey_,                                                                 \
+                     .keystep = keystp_                                                                  \
                    }},
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -3524,23 +3531,15 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), SetFtSpellcheckInfo, "readonly", noKeys, ""))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
 
-// OSS commands (registered via proxy in Enterprise)
-#ifndef RS_CLUSTER_ENTERPRISE
-    if (!isClusterEnabled) {
-      const char *commandName = "FT.CONFIG";
-      // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-      CommandKeys configKeys = {0, 0, 0};
-      RM_TRY(RMCreateSearchCommand(ctx, commandName, NULL, RegisterCoordConfigSubCommands, "readonly", configKeys, "admin"));
-    }
-    RedisModule_Log(ctx, "notice", "Register write commands");
+  // OSS commands (registered via proxy in Enterprise)
 
-    SearchCommand commands[] = {
-      RS_OSS_COMMANDS(DEFINE_COMMAND)
-    };
-    if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
-#endif
+  SearchCommand commands[] = {
+    RS_OSS_COMMANDS(DEFINE_COMMAND)
+  };
+  if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
 
   // cluster set commands
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), NULL, "readonly allow-loading deny-script", noKeys, ""))
