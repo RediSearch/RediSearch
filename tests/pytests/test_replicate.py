@@ -336,6 +336,7 @@ def runUntil(conn, expected_result, callback, sleep_time=0.1, timeout=1):
         pass
       time.sleep(sleep_time)
 
+@skip(cluster=True)
 def test_WriteCommandsOnReplica():
   """Tests that the RediSearch write commands are not allowed on a readonly replica"""
 
