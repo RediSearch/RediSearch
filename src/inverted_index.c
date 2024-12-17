@@ -815,51 +815,46 @@ DECODER(readFreqsOffsets) {
 SKIPPER(seekRawDocIdsOnly) {
   int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
-  Buffer_Read(br, &res->docId, 4);
-  if (res->docId >= delta || delta < 0) {
+  uint32_t curVal;
+  Buffer_Read(br, &curVal, sizeof(curVal));
+  if (curVal >= delta || delta < 0) {
     goto final;
   }
 
   uint32_t *buf = (uint32_t *)br->buf->data;
   size_t start = br->pos / 4;
   size_t end = (br->buf->offset - 4) / 4;
-  size_t cur = start;
-  uint32_t curVal = buf[cur];
+  size_t cur;
 
   // perform binary search
-  while (start < end) {
+  while (start <= end) {
+    cur = (end + start) / 2;
+    curVal = buf[cur];
     if (curVal == delta) {
-      break;
+      goto found;
     }
     if (curVal > delta) {
       end = cur - 1;
     } else {
       start = cur + 1;
     }
-    cur = (end + start) / 2;
+  }
+
+  // we didn't find the value, so we need to return the first value that is greater than the delta.
+  // Assuming we are at the right block, such value must exist.
+  // if got here, curVal is either the last value smaller than delta, or the first value greater
+  // than delta. If it is the last value smaller than delta, we need to skip to the next value.
+  if (curVal < delta) {
+    cur++;
     curVal = buf[cur];
   }
 
-  // we cannot get out of range since we check in
-  if (curVal < delta) {
-    cur++;
-
-#if 1
-	// TODO: consider adding a fix
-    // Fixes test_optimizer:testCoordinator with raw DocID encoding
-    // TODO: explain why it is so
-    if (cur >= br->buf->offset / 4) {
-      return 0;
-    }
-#endif // 1
-  }
-
-  // skip to position and read
-  Buffer_Seek(br, cur * 4);
-  Buffer_Read(br, &res->docId, 4);
+found:
+  // skip to next position
+  Buffer_Seek(br, (cur + 1) * sizeof(uint32_t));
 
 final:
-  res->docId += IR_CURRENT_BLOCK(ir).firstId;
+  res->docId = curVal + IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
   return 1;
 }
