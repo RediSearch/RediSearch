@@ -30,7 +30,7 @@ void IndexAlias_DestroyGlobal(AliasTable **t) {
   *t = NULL;
 }
 
-static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRef spec_ref, int options, QueryError *error) {
+static int AliasTable_Add(AliasTable *table, HiddenString *alias, StrongRef spec_ref, int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   IndexSpec *spec = StrongRef_Get(spec_ref);
@@ -95,7 +95,7 @@ StrongRef AliasTable_Get(AliasTable *tbl, const HiddenString *alias) {
   return ret;
 }
 
-int IndexAlias_Add(const HiddenString *alias, StrongRef spec_ref, int options, QueryError *status) {
+int IndexAlias_Add(HiddenString *alias, StrongRef spec_ref, int options, QueryError *status) {
   return AliasTable_Add(AliasTable_g, alias, spec_ref, options, status);
 }
 
