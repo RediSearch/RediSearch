@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "src/util/circular_buffer.h"
 
+#include <thread>
+
 class CircularBufferTest : public ::testing::Test {};
 
 TEST_F(CircularBufferTest, testEmpty) {
@@ -202,4 +204,80 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ResetReader) {
 	// -------------------------------------------------------------------------
 
 	CircularBuffer_Free(buff);
+}
+
+#define NUM_THREADS 10
+#define NUM_ITEMS_PER_THREAD 100
+
+void thread_AddFunc(CircularBuffer cb, int thread_id) {
+  for (int i = 0; i < NUM_ITEMS_PER_THREAD; i++) {
+    int item = thread_id * NUM_ITEMS_PER_THREAD + i;
+    CircularBuffer_Add(cb, &item);
+  }
+}
+
+TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
+	CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
+
+  std::thread threads[NUM_THREADS];
+
+  for (int i = 0; i < NUM_THREADS; i++) {
+    threads[i] = std::thread(thread_AddFunc, cb, i);
+  }
+
+  for (int i = 0; i < NUM_THREADS; i++) {
+    threads[i].join();
+  }
+
+  // Verify the buffer contents (this is a simple example, you may need more complex verification)
+  int item;
+  uint16_t n_items = CircularBuffer_ItemCount(cb);
+  uint16_t n_read = 0;
+  uint16_t old_item = -1;
+  for (size_t i = 0; i < n_items; i++) {
+	old_item = item;
+    CircularBuffer_Read(cb, &item);
+	// Make sure we read a new entry
+	ASSERT_TRUE(item != old_item);
+	n_read++;
+  }
+
+  CircularBuffer_Free(cb);
+}
+
+void thread_ReserveFunc(CircularBuffer cb, int thread_id) {
+  for (int i = 0; i < NUM_ITEMS_PER_THREAD; i++) {
+    int item = thread_id * NUM_ITEMS_PER_THREAD + i;
+	void *slot = CircularBuffer_Reserve(cb);
+	*(int *)slot = item;
+  }
+}
+
+TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
+	CircularBuffer cb = CircularBuffer_New(sizeof(int), NUM_THREADS * NUM_ITEMS_PER_THREAD);
+
+  std::thread threads[NUM_THREADS];
+
+  for (int i = 0; i < NUM_THREADS; i++) {
+    threads[i] = std::thread(thread_ReserveFunc, cb, i);
+  }
+
+  for (int i = 0; i < NUM_THREADS; i++) {
+    threads[i].join();
+  }
+
+  // Verify the buffer contents (this is a simple example, you may need more complex verification)
+  int item;
+  uint16_t n_items = CircularBuffer_ItemCount(cb);
+  uint16_t n_read = 0;
+  uint16_t old_item = -1;
+  for (size_t i = 0; i < n_items; i++) {
+	old_item = item;
+    CircularBuffer_Read(cb, &item);
+	// Make sure we read a new entry
+	ASSERT_TRUE(item != old_item);
+	n_read++;
+  }
+
+  CircularBuffer_Free(cb);
 }
