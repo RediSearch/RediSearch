@@ -39,7 +39,7 @@ int testSimpleIndexObfuscation() {
 }
 
 int testTextObfuscation() {
-    const char *obfuscated = Obfuscate_Text();
+    const char *obfuscated = Obfuscate_Text("Hello");
     return strcmp(obfuscated, "Text");
 }
 

@@ -28,6 +28,7 @@
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
+#include "obfuscation/format.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -857,9 +858,12 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
 
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      HiddenString *hiddenTerm = NewHiddenString(term, len, false);
+      const char* nameForLogging = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      const char* termForLogging = FormatHiddenText(hiddenTerm, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
-                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text() : term, name);
+                      " trie in index '%s' failed", termForLogging, nameForLogging);
+      HiddenString_Free(hiddenTerm);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
