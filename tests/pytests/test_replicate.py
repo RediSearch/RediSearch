@@ -326,11 +326,11 @@ def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
 
-def runUntil(env, expected_result, callback, sleep_time=0.1, timeout=1):
+def runUntil(conn, expected_result, callback, sleep_time=0.1, timeout=1):
   with TimeLimit(timeout):
     while True:
       try:
-        if callback() == expected_result:
+        if callback(conn) == expected_result:
           break
       except Exception:
         pass
@@ -342,15 +342,15 @@ def test_WriteCommandsOnReplica():
   env = Env(useSlaves=True, forceTcp=True)
 
   # make sure all shards are in sync with their replica
-  def synchronize_replicas():
-    replication_info = con.execute_command('info', 'replication')
+  def synchronize_replicas(conn):
+    replication_info = conn.execute_command('info', 'replication')
     return replication_info['slave0']['state']
 
-  for con in shardsConnections(env):
+  for conn in shardsConnections(env):
     runUntil(env, 'online', synchronize_replicas, timeout=10)
-    res = con.execute_command('PING')
+    res = conn.execute_command('PING')
     env.assertTrue(res)
-    con.execute_command('WAIT', '1', '10000')
+    conn.execute_command('WAIT', '1', '10000')
 
   master = env.getConnection()
   slave = env.getSlaveConnection()
