@@ -168,7 +168,10 @@ export PACKAGE_NAME
 CC_C_STD=gnu11
 # CC_CXX_STD=c++20
 
-CC_STATIC_LIBSTDCXX ?= 1
+# Todo: currently we run sanitizer against latest stable redis version where libstd++ is NOT dynamically linked
+# Since we run against redis >= 8 where libstd++ is dynamicall linked to redis, we don't use static link.
+export CC_STATIC_LIBSTDCXX=0
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(VERBOSE_UTESTS),1)
@@ -193,7 +196,7 @@ endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
