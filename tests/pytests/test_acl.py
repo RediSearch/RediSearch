@@ -218,7 +218,7 @@ def test_internal_commands(env):
 
     # Now `test` should not be able to execute RediSearch internal commands
     # `_FT.DEBUG` has only subcommands, so we check it separately.
-    internal_commands = copy.deepcopy(INTERNAL_SEARCH_COMMANDS)
+    internal_commands = INTERNAL_SEARCH_COMMANDS.copy()
     internal_commands.pop('_FT.DEBUG')
     for command, args_or_args_list in internal_commands.items():
         args_list = args_or_args_list if isinstance(args_or_args_list, list) else [args_or_args_list]
