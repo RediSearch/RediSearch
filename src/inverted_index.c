@@ -840,7 +840,7 @@ SKIPPER(seekRawDocIdsOnly) {
     curVal = buf[cur];
   }
 
-  // we cannot get out of range since end and start are checked in loop and their values are detemined by cur
+  // we cannot get out of range since we check in
   if (curVal < delta) {
     cur++;
 
@@ -970,7 +970,7 @@ size_t IR_NumEstimated(void *ctx) {
 
 // Used to detemrmine if the field mask for the given doc id are valid based on their ttl:
 // ir->filterCtx.predicate
-static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId) {
+static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
   // If there isn't a ttl information then the doc fields are valid
   if (!ir->sctx || !ir->sctx->spec || !DocTable_HasExpiration(&ir->sctx->spec->docs, docId)) {
     return true;
@@ -982,8 +982,9 @@ static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId do
   t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
   t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
   if (ir->filterCtx.field.isFieldMask) {
+    const t_fieldMask relevantMask = docFieldMask & ir->filterCtx.field.value.mask;
     numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec,
-                                                            ir->filterCtx.field.value.mask,
+                                                            relevantMask,
                                                             fieldIndicesArray);
   } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
     sortedFieldIndices = &ir->filterCtx.field.value.index;
@@ -1040,7 +1041,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       ir->sameId = ir->lastId;
     }
 
-    if (!VerifyFieldMaskExpirationForDocId(ir, record->docId)) {
+    if (!VerifyFieldMaskExpirationForDocId(ir, record->docId, record->fieldMask)) {
       continue;
     }
 
@@ -1056,17 +1057,28 @@ eof:
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
-static int IndexReader_ReadWithSeeker(IndexReader *ir, t_docId* inOutDocId) {
-  if (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, *inOutDocId, ir->record)) {
-    return 0;
-  }
+static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
+  bool found = false;
+  while (!found) {
+    // try and find nextDocId using seeker
+    found = ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record);
+    // ensure the entry is valid
+    if (found && !VerifyFieldMaskExpirationForDocId(ir, ir->record->docId, ir->record->fieldMask)) {
+      found = false;
+      docId = ir->record->docId + 1;
+    }
 
-  if (!VerifyFieldMaskExpirationForDocId(ir, ir->record->docId)) {
-    // If we get called again then progress to the next doc id
-    *inOutDocId = ir->record->docId + 1;
-    return 0;
+    if (!found) {
+      if (BufferReader_AtEnd(&ir->br)) {
+        if (ir->currentBlock < ir->idx->size - 1) {
+          IndexReader_AdvanceBlock(ir);
+        } else {
+          break;
+        }
+      }
+    }
   }
-  return 1;
+  return found;
 }
 
 static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
@@ -1164,14 +1176,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
-    while (!IndexReader_ReadWithSeeker(ir, &docId)) {
-      if (BufferReader_AtEnd(&ir->br)) {
-        if (ir->currentBlock < ir->idx->size - 1) {
-          IndexReader_AdvanceBlock(ir);
-        } else {
-          return INDEXREAD_EOF;
-        }
-      }
+    if (!IndexReader_ReadWithSeeker(ir, &docId)) {
+      goto eof;
     }
     // Found a document that match the field mask and greater or equal the searched docid
     *hit = ir->record;
