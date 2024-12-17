@@ -1315,14 +1315,13 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
       if (params->RepairCallback) {
         params->RepairCallback(res, blk, params->arg);
       }
+      if (blk->firstId == 0) { // this is the first valid doc
+        blk->firstId = res->docId;
+        blk->lastId = res->docId;
+      }
+
       // Valid document, but we're rewriting the block:
       if (frags) {
-
-        // In this case we are already closing holes, so we need to write back the record at the
-        // writer's position. We also calculate the delta again
-        if (!blk->lastId) { // This is the first entry in this block, initialize the blk->lastId
-          blk->lastId = res->docId;
-        }
         if (encoder != encodeRawDocIdsOnly) {
           if (isLastValid) {
             // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
@@ -1331,18 +1330,10 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
             encoder(&bw, res->docId - blk->lastId, res);
           }
         } else { // encoder == encodeRawDocIdsOnly
-          if (!blk->firstId) {
-            blk->firstId = res->docId;
-          }
           encoder(&bw, res->docId - blk->firstId, res);
         }
       }
-
-      // Update these for every valid document, even for those which
-      // are not repaired
-      if (blk->firstId == 0) { // this is the first repair
-        blk->firstId = res->docId;
-      }
+      // Update the last seen valid doc id, even if we didn't write it (yet)
       blk->lastId = res->docId;
       isLastValid = true;
     }
