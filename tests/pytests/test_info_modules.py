@@ -1,6 +1,6 @@
 from common import *
 from RLTest import Env
-
+import redis
 
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
@@ -144,7 +144,12 @@ def test_redis_info():
   res = env.cmd('INFO', 'MODULES')
 
   env.assertEqual(res['search_number_of_indexes'], 1)
-  env.assertEqual(res['search_fields_text'], 'Text=1')
+  # amanzonlinux:2 install redis version '5.1.0a1' which has different output
+  if redis.__version__ >= '5.0.5' and redis.__version__ != '5.1.0a1':
+    env.assertEqual(res['search_fields_text']['Text'], 1)
+  else:
+    env.assertEqual(res['search_fields_text'], 'Text=1')
+  
   env.assertEqual(res['search_fields_tag']['Tag'], 1)
   env.assertEqual(res['search_fields_tag']['Sortable'], 1)
   env.assertGreater(res['search_used_memory_indexes'], 0)
