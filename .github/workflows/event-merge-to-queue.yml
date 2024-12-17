@@ -53,7 +53,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: '8.0'
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
