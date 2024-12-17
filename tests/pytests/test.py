@@ -323,7 +323,7 @@ def testDrop(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
+        env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
     env.assertEqual(100, countKeys(env))
 
     env.expect('ft.drop', 'idx').ok()
@@ -334,13 +334,11 @@ def testDrop(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
+        env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
     env.assertEqual(100, countKeys(env))
-
-    if not env.isCluster():
-        keys = env.keys('*')
-        env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
-        env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
+    keys = env.keys('*')
+    env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
+    env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
 
     # test _FORCEKEEPDOCS
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
@@ -357,7 +355,7 @@ def testDropIndex(env):
     env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Unknown argument")
 
     for i in range(100):
-        res = conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
+        env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
     env.assertEqual(100, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
@@ -366,7 +364,7 @@ def testDropIndex(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
     for i in range(100):
-        res = conn.execute_command('hset', f"doc{i}", 't1', 'foo bar')
+        env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
     env.assertEqual(100, countKeys(env))
 
     if not env.isCluster():
