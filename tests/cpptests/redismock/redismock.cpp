@@ -18,6 +18,7 @@
 #include <climits>
 #include <cassert>
 #include <mutex>
+#include <gcov.h>
 
 #define __ignore__(X) \
     do { \
