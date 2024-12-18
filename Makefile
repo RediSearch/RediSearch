@@ -34,6 +34,7 @@ make build          # compile and link
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
+  REDIS_VER=		  # Hint the redis version to run against so we choose the appopriate build params.
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -168,13 +169,16 @@ export PACKAGE_NAME
 CC_C_STD=gnu11
 # CC_CXX_STD=c++20
 
-# Todo: currently we run sanitizer against latest stable redis version where libstd++ is NOT dynamically linked
-# so we must use static with sanitizer. When we move to run sanitizer against redis >= 8 where libstd++ is dynamically
-# linked to redis, we will have to switch here as well
-ifeq ($(SAN),)
+# Todo: currently when we run sanitizer against latest stable redis version where libstd++ is NOT dynamically linked
+# we must use static with sanitizer. When we run sanitizer against redis unstable where libstd++ is dynamically
+# linked to redis, we have to use dynamic as well.
 export CC_STATIC_LIBSTDCXX=0
-else
+
+# Equivalent to: if we run on sanitizer AND version isn't unstable (
+ifneq ($(SAN),)
+ifneq ($(REDIS_VER), 'unstable')
 export CC_STATIC_LIBSTDCXX=1
+endif
 endif
 #----------------------------------------------------------------------------------------------
 
