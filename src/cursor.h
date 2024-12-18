@@ -183,6 +183,16 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
+typedef struct CursorsInfoStats {
+  size_t total;
+  size_t total_idle;
+} CursorsInfoStats;
+
+/**
+ * Return the stats for the `INFO` command
+*/
+CursorsInfoStats Cursors_GetInfoStats(void);
+
 /** Remove all cursors with the given lookup name */
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 

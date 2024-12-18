@@ -22,6 +22,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "cursor.h"
 
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
@@ -861,6 +862,38 @@ size_t RediSearch_MemUsage(RSIndex* sp) {
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
+}
+
+// Collect mem-usage, indexing time and gc statistics of all the currently
+// existing indexes
+TotalSpecsInfo RediSearch_TotalInfo(void) {
+  TotalSpecsInfo info = {0};
+  info.min_mem = -1; // Initialize to max value
+  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    if (!sp) {
+      continue;
+    }
+    // Lock for read
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)sp);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
+    info.indexing_time += sp->stats.totalIndexTime;
+
+    if (sp->gc) {
+      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+      info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
+      info.gc_stats.totalCycles += gcStats.numCycles;
+      info.gc_stats.totalTime += gcStats.totalMSRun;
+    }
+  }
+  dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
+  return info;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
