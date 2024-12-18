@@ -1467,8 +1467,8 @@ TEST_F(IndexTest, testDeltaSplits) {
 TEST_F(IndexTest, testRawDocId) {
   const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
-  size_t index_memsize = 0;
-  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
+  const size_t INDEX_BLOCK_SIZE = 100;
+  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1);
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
 
   // Add a few entries, all with an odd docId
@@ -1477,7 +1477,7 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  IndexReader *ir = NewTermIndexReader(idx);
+  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   RSIndexResult *cur;
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
     ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
