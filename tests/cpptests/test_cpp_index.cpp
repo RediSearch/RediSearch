@@ -1627,7 +1627,7 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  IndexReader *ir = NewTermIndexReader(idx);
+  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   RSIndexResult *cur;
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
     ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
