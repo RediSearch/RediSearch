@@ -246,7 +246,7 @@ void CircularBuffer_ResetReader(CircularBuffer cb) {
   }
 }
 
-// Frees buffer (does not free its elements if its free callback is NULL)
+// Frees buffer
 void CircularBuffer_Free(CircularBuffer cb) {
   RedisModule_Assert(cb != NULL);
 
