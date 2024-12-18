@@ -52,6 +52,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   } else {
     status->detail = rm_strdup(QueryError_Strerror(code));
   }
+  status->message = status->detail;
 }
 
 void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
@@ -94,6 +95,7 @@ void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code,
   rm_vasprintf(&status->detail, fmt, ap);
   va_end(ap);
   status->code = code;
+  status->message = status->detail;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {

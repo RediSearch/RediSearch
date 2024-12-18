@@ -10,20 +10,20 @@
 #include "reply.h"
 #include "obfuscation/hidden.h"
 
-// Same as FieldSpecInfo but local to a specific field inside a shard
-// strings must be freed in its dtor
+// Same as AggregatedFieldSpecInfo but local to a specific field inside a shard
+// Strings must be freed in its dtor
+// Strings can either obfuscated or not
 typedef struct {
   char *identifier; // The identifier of the field spec.
   char *attribute; // The attribute of the field spec.
   IndexError error; // Indexing error of the field spec.
 } FieldSpecInfo;
 
-
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
 typedef struct {
-  const char *identifier; // The identifier of the field spec.
-  const char *attribute; // The attribute of the field spec.
+  const char *identifier; // The identifier of the field spec, can already be obfuscated from the shard.
+  const char *attribute; // The attribute of the field spec, can already be obfuscated from the shard.
   IndexError error; // Indexing error of the field spec.
 } AggregatedFieldSpecInfo;
 
