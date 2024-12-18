@@ -89,6 +89,7 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
+RedisModuleString *config_oss_acl_username = NULL;
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -3604,6 +3605,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     if (config_friso_ini) {
         RedisModule_FreeString(ctx, config_friso_ini);
         config_friso_ini = NULL;
+    }
+    if (config_oss_acl_username) {
+        RedisModule_FreeString(ctx, config_oss_acl_username);
+        config_oss_acl_username = NULL;
     }
     return REDISMODULE_OK;
 }

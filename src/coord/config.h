@@ -28,6 +28,7 @@ typedef struct {
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
+extern RedisModuleString *config_oss_acl_username;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"
@@ -55,4 +56,5 @@ MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
+
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx);

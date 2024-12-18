@@ -52,13 +52,40 @@ CONFIG_GETTER(getClusterTimeout) {
 }
 
 CONFIG_SETTER(setGlobalPass) {
+  RedisModule_Log(RSDummyContext, "warning",
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET search-oss-global-password <password>` instead");
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGlobalPass) {
+  RedisModule_Log(RSDummyContext, "warning",
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET search-oss-global-password` instead");
   return sdsnew("Password: *******");
+}
+
+// global-password
+int set_immutable_cluster_string_config(const char *name, RedisModuleString *val,
+                                      void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  char **ptr = (char **)privdata;
+  if (val) {
+    size_t len;
+    const char *ret = RedisModule_StringPtrLen(val, &len);
+    if (len > 0) {
+      *ptr = rm_strndup(ret, len);
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+RedisModuleString * get_oss_global_password(const char *get_oss_global_password,
+                                            void *privdata) {
+  return RedisModule_CreateString(NULL, "Password: *******", 17);
 }
 
 // CONN_PER_SHARD
@@ -147,6 +174,13 @@ CONFIG_SETTER(setOSSACLUsername) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
   RETURN_STATUS(acrc);
+}
+
+// acl-username
+RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
+  char *str = *(char **)privdata;  
+  config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_oss_acl_username;
 }
 
 // topology-validation-timeout
@@ -266,6 +300,26 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       (void*)&RSGlobalConfig
     )
   )
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "search-oss-global-password", "",
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
+          get_oss_global_password, set_immutable_cluster_string_config, NULL,
+          (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+          get_oss_acl_username, set_immutable_cluster_string_config, NULL,
+          (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
 
   return REDISMODULE_OK;
 }
