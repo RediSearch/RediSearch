@@ -84,6 +84,15 @@ extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
+// Array of thread-to-index mappings. Basically, each thread will "register"
+// itself with a query that it is working on, and then pop that query upon
+// completion.
+typedef struct {
+  uv_mutex_t lock;
+  // uv_cond_t cond;
+  dict *threadToId;   // Maps thread id to index
+} ThreadToIndex;
+
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
