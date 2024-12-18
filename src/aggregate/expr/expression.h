@@ -97,7 +97,7 @@ typedef struct {
 } RSFunctionExpr;
 
 typedef struct {
-  const char *key;
+  HiddenString *key;
   const RLookupKey *lookupObj;
 } RSLookupExpr;
 
@@ -148,11 +148,11 @@ typedef struct EvalCtx {
 
 EvalCtx *EvalCtx_Create();
 EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
-EvalCtx *EvalCtx_FromString(const char *exprstr);
+EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
-int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
+int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *exprstr);
 
 /**
  * Scan through the expression and generate any required lookups for the keys.
@@ -165,8 +165,8 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(const RSExpr *expr);
-RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
+void ExprAST_Print(const RSExpr *expr, bool obfuscate);
+RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax
  * err, etc) we set and error in err, and return NULL */
@@ -213,7 +213,7 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
 /**
  * Reply with a string which describes the result processor.
  */
-void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp);
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp, bool obfuscate);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "common.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -32,7 +33,9 @@ struct TEvalCtx : ExprEval {
 
     memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
 
-    root = ExprAST_Parse(s, strlen(s), &status_s);
+    HiddenString* hidden = NewHiddenString(s, strlen(s), false);
+    root = ExprAST_Parse(hidden, &status_s);
+    HiddenString_Free(hidden);
     if (!root) {
       assert(QueryError_HasError(&status_s));
     }
@@ -56,7 +59,7 @@ struct TEvalCtx : ExprEval {
   }
 
   const char *error() const {
-    return QueryError_GetError(&status_s);
+    return QueryError_GetUserError(&status_s);
   }
 
   operator bool() const {
@@ -96,7 +99,9 @@ TEST_F(ExprTest, testExpr) {
 TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
-  RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
+  HiddenString *hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, &status);
+  HiddenString_Free(hidden);
   if (!root) {
     FAIL() << "Could not parse expression";
   }
@@ -114,14 +119,19 @@ TEST_F(ExprTest, testParser) {
 TEST_F(ExprTest, testGetFields) {
   const char *e = "@foo + sqrt(@bar) / @baz + ' '";
   QueryError status = {QueryErrorCode(0)};
-  RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetError(&status);
+  HiddenString *hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, &status);
+  HiddenString_Free(hidden);
+  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbaz = RLookup_GetKey(&lk, "baz", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenString("foo");
+  auto bar = RS::MakeHiddenString("bar");
+  auto baz = RS::MakeHiddenString("baz");
+  auto *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbaz = RLookup_GetKey(&lk, baz.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   int rc = ExprAST_GetLookupKeys(root, &lk, &status);
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   RLookup_Cleanup(&lk);
@@ -146,7 +156,7 @@ struct EvalResult {
   std::string errmsg;
 
   static EvalResult failure(const QueryError *status = NULL) {
-    return EvalResult{0, false, status ? QueryError_GetError(status) : ""};
+    return EvalResult{0, false, status ? QueryError_GetUserError(status) : ""};
   }
 
   static EvalResult ok(double rv) {
@@ -155,7 +165,9 @@ struct EvalResult {
 };
 
 static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryError *status) {
-  RSExpr *root = ExprAST_Parse(e, strlen(e), status);
+  HiddenString* hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, status);
+  HiddenString_Free(hidden);
   if (root == NULL) {
     assert(QueryError_HasError(status));
     return EvalResult::failure(status);
@@ -176,8 +188,10 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
 TEST_F(ExprTest, testPredicate) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenString("foo");
+  auto bar = RS::MakeHiddenString("bar");
+  auto *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
@@ -245,8 +259,10 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookup lk;
   RLookup_Init(&lk, NULL);
   RLookupRow rr = {0};
-  RLookupKey *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto foo = RS::MakeHiddenString("foo");
+  auto bar = RS::MakeHiddenString("bar");
+  RLookupKey *kfoo = RLookup_GetKey(&lk, foo.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *kbar = RLookup_GetKey(&lk, bar.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(10));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
 

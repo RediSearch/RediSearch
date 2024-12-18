@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from common import *
 import redis
-from hotels import hotels
 import random
 import time
 import unittest
+from common import *
+from hotels import hotels
 
 def testAddErrors(env):
     env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
@@ -3990,7 +3990,7 @@ def test_missing_schema(env):
     # make sure the index succeecfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No index exists with provided name idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster
