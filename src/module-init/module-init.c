@@ -22,7 +22,6 @@
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/array.h"
-//#include "cursor.h"
 #include "fork_gc.h"
 #include "info_command.h"
 #include "profile.h"
