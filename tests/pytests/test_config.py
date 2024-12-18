@@ -420,6 +420,23 @@ def testSetACLUsername():
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
+
+def _removeModuleArgs(env: Env):
+    """Remove modules and args from the environment"""
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.modulePath.pop()
+    env.envRunner.moduleArgs.pop()
+    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+
+def _getRDBFilePath(env: Env):
+    """Returns the RDB file path"""
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    return os.path.join(dbDir, dbFileName)
+
 LLONG_MAX = (1 << 63) - 1
 UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
@@ -516,21 +533,13 @@ def testConfigAPIRunTimeNumericParams():
 def testModuleLoadexNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Remove modules and args
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
 
     for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
         if configName in ['search-threads',
@@ -719,21 +728,13 @@ def testConfigAPIRunTimeEnumParams():
 def testModuleLoadexEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Remove modules and args
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
 
     # Test search-on-timeout
     configName = 'search-on-timeout'
@@ -863,21 +864,13 @@ def testConfigAPIRunTimeStringParams():
 def testModuleLoadexStringParams():
     env = Env(noDefaultModuleArgs=True)
 
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Remove modules and args
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
 
     for configName, argName, ftDefault, testValue in stringConfigs:
         if configName == 'search-ext-load':
@@ -931,9 +924,7 @@ def testConfigFileStringParams():
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
 
     # stop the server and remove the rdb file
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
@@ -941,7 +932,6 @@ def testConfigFileStringParams():
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    # env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
@@ -973,9 +963,7 @@ def testConfigFileAndArgsStringParams():
     env = Env(redisConfigFile=redisConfigFile)
 
     # stop the server and remove the rdb file
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
@@ -1080,24 +1068,21 @@ def testConfigAPIRunTimeBooleanParams():
 def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    rdbFilePath = os.path.join(dbDir, dbFileName)
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Remove modules and args
-    env.assertEqual(len(env.envRunner.modulePath), 2)
-    env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.modulePath.pop()
-    env.envRunner.moduleArgs.pop()
-    env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
+    _removeModuleArgs(env)
 
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # Load module using CONFIG
+        # `search-partial-indexed-docs` is tested later because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search-partial-indexed-docs':
+            continue
+
+        # Load module using only CONFIG parameters
         env.start()
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
@@ -1111,11 +1096,6 @@ def testModuleLoadexBooleanParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
-
-        # `search-partial-indexed-docs` is tested later because
-        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
-        if configName == 'search-partial-indexed-docs':
-            continue
 
         # Load module using module arguments
         env.start()
@@ -1164,7 +1144,39 @@ def testModuleLoadexBooleanParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-    # test `search-partial-indexed-docs`
+@skip(cluster=True, redis_less_than='8.0')
+def testModuleLoadexSearchPartialIndexedDocs():
+    """ Test `search-partial-indexed-docs` because
+    `PARTIAL_INDEXED_DOCS` is set using a number but it returns a boolean"""
+    env = Env(noDefaultModuleArgs=True)
+
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    redisearch_module_path = env.envRunner.modulePath[0]
+    _removeModuleArgs(env)
+
+    configName = 'search-partial-indexed-docs'
+    argName = 'PARTIAL_INDEXED_DOCS'
+    # defaultValue = 'no', so use non-default value as config value
+    configValue = 'yes'
+    expected = 'true'
+    
+    # Load module using only CONFIG parameter
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, [])
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, configValue, 
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, expected]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using only module ARGS
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
@@ -1179,13 +1191,13 @@ def testModuleLoadexBooleanParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Load module using CONFIG and module arguments, the CONFIG values should
+    # Load module using CONFIG and module ARGS, the CONFIG values should
     # take precedence
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                'CONFIG', 'search-partial-indexed-docs', 'yes',
+                'CONFIG', 'search-partial-indexed-docs', configValue,
                 'ARGS', 'PARTIAL_INDEXED_DOCS', '0'
     )
     env.expect(config_cmd(), 'GET', 'PARTIAL_INDEXED_DOCS')\

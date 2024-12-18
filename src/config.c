@@ -78,7 +78,7 @@ int get_inverted_bool_config(const char *name, void *privdata) {
   return !*(int *)privdata;
 }
 
-int set_string_config(const char *name, RedisModuleString *val, void *privdata,
+int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
                       RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -1304,18 +1304,18 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
   switch (policy) {
     case TimeoutPolicy_Return:
-      return "return";
+      return on_timeout_vals[TimeoutPolicy_Return];
     case TimeoutPolicy_Fail:
-      return "fail";
+      return on_timeout_vals[TimeoutPolicy_Fail];
     default:
       return "huh?";
   }
 }
 
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
-  if (STR_EQCASE(s, n, "RETURN")) {
+  if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Return])) {
     return TimeoutPolicy_Return;
-  } else if (STR_EQCASE(s, n, "FAIL")) {
+  } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Fail])) {
     return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;
@@ -1562,7 +1562,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-ext-load", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_ext_load, set_string_config, NULL,
+      get_ext_load, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.extLoad)
     )
   )
@@ -1571,7 +1571,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-friso-ini", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_friso_ini, set_string_config, NULL,
+      get_friso_ini, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
     )
   )
@@ -1581,7 +1581,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
-      on_timeout_vals, int_on_timeout_vals, 2,
+      on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )
