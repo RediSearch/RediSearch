@@ -208,6 +208,8 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ResetReader) {
 
 #define NUM_THREADS 10
 #define NUM_ITEMS_PER_THREAD 100
+#define NUM_ITEMS (NUM_THREADS * NUM_ITEMS_PER_THREAD)
+#define SUM_ITEMS (NUM_ITEMS * (NUM_ITEMS - 1) / 2)
 
 void thread_AddFunc(CircularBuffer cb, int thread_id) {
   for (int i = 0; i < NUM_ITEMS_PER_THREAD; i++) {
@@ -234,13 +236,14 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
   ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
 
   uint16_t old_item;
+  size_t sum = 0;
   for (size_t i = 0; i < n_items; i++) {
-    old_item = item;
     CircularBuffer_Read(cb, &item);
-    // Make sure we read a new entry
-    ASSERT_NE(item, old_item);
+    sum += item;
   }
 
+  // Verify that all items have been read
+  ASSERT_EQ(sum, SUM_ITEMS);
   CircularBuffer_Free(cb);
 }
 
@@ -270,12 +273,13 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
   ASSERT_EQ(n_items, NUM_THREADS * NUM_ITEMS_PER_THREAD);
 
   uint16_t old_item;
+  size_t sum = 0;
   for (size_t i = 0; i < n_items; i++) {
-    old_item = item;
     CircularBuffer_Read(cb, &item);
-    // Make sure we read a new entry
-    ASSERT_NE(item, old_item);
+    sum += item;
   }
 
+  // Verify that all items have been read
+  ASSERT_EQ(sum, SUM_ITEMS);
   CircularBuffer_Free(cb);
 }
