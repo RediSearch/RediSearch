@@ -684,10 +684,8 @@ if [[ -z $COORD ]]; then
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
-			if [[ $COV != 1 ]]; then
-				{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-					run_tests "with raw DocID encoding"); (( E |= $? )); } || true
-			fi
+			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
 		fi
 
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
