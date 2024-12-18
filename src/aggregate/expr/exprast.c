@@ -224,11 +224,13 @@ void ExprAST_Print(const RSExpr *e) {
   RSExpr_Print(e);
 }
 
-RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
+RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!QueryError_HasError(status), "Query has error")
 
-  RSExpr *ret = RSExpr_Parse(e, n, &errtmp);
+  size_t len;
+  const char* raw = HiddenString_GetUnsafe(expr, &len);
+  RSExpr *ret = RSExpr_Parse(raw, len, &errtmp);
   if (!ret) {
     QueryError_SetError(status, QUERY_EEXPR, errtmp);
   }
