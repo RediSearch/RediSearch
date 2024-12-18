@@ -676,7 +676,7 @@ if [[ $REDIS_STANDALONE == 1 ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
 
-	# if [[ $QUICK != 1 ]]; then
+	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
@@ -687,7 +687,7 @@ if [[ $REDIS_STANDALONE == 1 ]]; then
 			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
 				run_tests "with Dialect v2"); (( E |= $? )); } || true
 		fi
-	# fi
+	fi
 
 elif [[ $REDIS_STANDALONE == 0 ]]; then
 	oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
