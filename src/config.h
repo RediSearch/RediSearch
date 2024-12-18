@@ -18,7 +18,7 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static const int int_on_timeout_vals[2] = {
+static const int on_timeout_enums[2] = {
   TimeoutPolicy_Return,
   TimeoutPolicy_Fail
 };
