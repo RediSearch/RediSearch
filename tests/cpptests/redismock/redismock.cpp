@@ -833,7 +833,8 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
 }
 
 static int RMCK_ExitFromChild(int retcode) {
-  exit(retcode);
+  __gcov_flush();
+  _exit(retcode);
 }
 
 static int RMCK_KillForkChild(int child_pid) {
