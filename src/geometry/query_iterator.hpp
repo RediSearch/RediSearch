@@ -22,6 +22,8 @@ struct QueryIterator {
   IndexIterator base_;
   container_type iter_;
   std::size_t index_;
+  const RedisSearchCtx *sctx_;
+  const FieldFilterContext filterCtx_;
 
   explicit QueryIterator() = delete;
 
@@ -29,10 +31,10 @@ struct QueryIterator {
   template <typename R, typename Proj = std::identity>
     requires std::ranges::input_range<R> &&
                  std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
-  explicit QueryIterator(R &&range, std::size_t &alloc, Proj proj = {})
+  explicit QueryIterator(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, R &&range, std::size_t &alloc, Proj proj = {})
       : base_{init_base(this)},
         iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
-        index_{0} {
+        index_{0}, sctx_(sctx), filterCtx_(*filterCtx) {
     std::ranges::sort(iter_, std::ranges::less{}, proj);
   }
 
@@ -54,6 +56,8 @@ struct QueryIterator {
   void rewind() noexcept;
 
   static IndexIterator init_base(QueryIterator *ctx);
+private:
+  int read_single(RSIndexResult *&hit) noexcept;
 };
 
 }  // namespace GeoShape

@@ -298,6 +298,26 @@ static int HR_HasNext(void *ctx) {
 
 // In KNN mode, the results will return sorted by ascending order of the distance
 // (better score first), while in hybrid mode, the results will return in descending order.
+static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  if (!HR_HasNext(hr)) {
+    return INDEXREAD_EOF;
+  }
+  if (hr->topResults->count == 0) {
+    hr->base.isValid = false;
+    return INDEXREAD_EOF;
+  }
+  *hit = mmh_pop_min(hr->topResults);
+
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
+      && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &fieldIndex, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+    return INDEXREAD_NOTFOUND;
+  }
+  array_append(hr->returnedResults, *hit);
+  hr->lastDocId = (*hit)->docId;
+  return INDEXREAD_OK;
+}
+
 static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
   HybridIterator *hr = ctx;
   if (!hr->resultsPrepared) {
@@ -306,16 +326,36 @@ static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
       return INDEXREAD_TIMEOUT;
     }
   }
-  if (!HR_HasNext(ctx)) {
+
+  int rc;
+  do {
+    rc = HR_ReadHybridUnsortedSingle(hr, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
+}
+
+static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
+  if (!HR_HasNext(hr)) {
     return INDEXREAD_EOF;
   }
-  if (hr->topResults->count == 0) {
+  *hit = hr->base.current;
+  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
     hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
-  *hit = mmh_pop_min(hr->topResults);
-  array_append(hr->returnedResults, *hit);
+
+  const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
+  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
+      && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &fieldIndex, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+    return INDEXREAD_NOTFOUND;
+  }
+
   hr->lastDocId = (*hit)->docId;
+  ResultMetrics_Reset(*hit);
+  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
 }
 
@@ -327,18 +367,15 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
       return INDEXREAD_TIMEOUT;
     }
   }
-  if (!HR_HasNext(ctx)) {
-    return INDEXREAD_EOF;
-  }
-  *hit = hr->base.current;
-  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
-    hr->base.isValid = false;
-    return INDEXREAD_EOF;
-  }
-  hr->lastDocId = (*hit)->docId;
-  ResultMetrics_Reset(*hit);
-  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
-  return INDEXREAD_OK;
+
+  int rc;
+  do {
+    rc = HR_ReadKnnUnsortedSingle(ctx, hit);
+    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+      return INDEXREAD_TIMEOUT;
+    }
+  } while (rc == INDEXREAD_NOTFOUND);
+  return rc;
 }
 
 static size_t HR_NumEstimated(void *ctx) {
@@ -430,6 +467,8 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->ignoreScores = hParams.ignoreDocScore;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
+  hi->sctx = hParams.sctx;
+  hi->filterCtx = *hParams.filterCtx;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.

@@ -20,7 +20,7 @@ void GeometryQuery_Free(GeometryQuery *geomq) {
 RedisModuleType *GeometryIndexType = NULL;
 #define GEOMETRYINDEX_KEY_FMT "gm:%s/%s"
 
-RedisModuleString *fmtRedisGeometryIndexKey(RedisSearchCtx *ctx, const char *field) {
+RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, ctx->spec->name, field);
 }
 

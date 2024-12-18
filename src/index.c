@@ -1587,7 +1587,7 @@ IndexIterator *NewWildcardIterator(QueryEvalCtx *q) {
   if (q->sctx->spec->rule->index_all == true) {
     if (q->sctx->spec->existingDocs) {
       IndexReader *ir = NewGenericIndexReader(q->sctx->spec->existingDocs,
-        q->sctx->spec, 1, 1);
+        q->sctx, 1, 1, RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT);
       ret = NewReadIterator(ir);
       ret->type = WILDCARD_ITERATOR;
     } else {
