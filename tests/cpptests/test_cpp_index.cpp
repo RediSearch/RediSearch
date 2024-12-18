@@ -1625,3 +1625,43 @@ TEST_F(IndexTest, testDeltaSplits) {
   IR_Free(ir);
   InvertedIndex_Free(idx);
 }
+
+TEST_F(IndexTest, testRawDocId) {
+  const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
+  RSGlobalConfig.invertedIndexRawDocidEncoding = true;
+  size_t index_memsize = 0;
+  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+
+  // Add a few entries, all with an odd docId
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+  }
+
+  // Test that we can read them back
+  IndexReader *ir = NewTermIndexReader(idx);
+  RSIndexResult *cur;
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+    ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
+    ASSERT_EQ(id, cur->docId);
+  }
+  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
+
+  // Test that we can skip to all the ids
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
+    IR_Rewind(ir);
+    int rc = IR_SkipTo(ir, id, &cur);
+    if (id % 2 == 0) {
+      ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
+    } else {
+      ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(id, cur->docId);
+    }
+  }
+
+  // Clean up
+  IR_Free(ir);
+  InvertedIndex_Free(idx);
+  RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
+}
