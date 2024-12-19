@@ -321,10 +321,11 @@ def testReplace(env):
 def testDrop(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
-
-    for i in range(100):
+    
+    docs_count = 100
+    for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
-    env.assertEqual(100, countKeys(env))
+    env.assertEqual(docs_count, countKeys(env))
 
     env.expect('ft.drop', 'idx').ok()
 
@@ -333,17 +334,16 @@ def testDrop(env):
     # Now do the same with KEEPDOCS
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
-    for i in range(100):
+    for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
-    env.assertEqual(100, countKeys(env))
-    keys = env.keys('*')
+    env.assertEqual(docs_count, countKeys(env))
     env.expect('ft.drop', 'idx', 'KEEPDOCS').ok()
-    env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
+    env.assertEqual(docs_count, countKeys(env))
 
     # test _FORCEKEEPDOCS
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
     env.expect('FT.DROP', 'idx', '_FORCEKEEPDOCS').ok()
-    env.assertEqual(100, countKeys(env))
+    env.assertEqual(docs_count, countKeys(env))
 
 def testDropIndex(env):
     conn = getConnectionByEnv(env)
@@ -354,23 +354,22 @@ def testDropIndex(env):
     env.expect('FT.DROPINDEX', 'idx', 'DE').error().contains("Unknown argument")
     env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Unknown argument")
 
-    for i in range(100):
+    docs_count = 100
+    for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
-    env.assertEqual(100, countKeys(env))
+    env.assertEqual(docs_count, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
  
     # test default behavior - FT.DROPINDEX
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
-    for i in range(100):
+    for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
-    env.assertEqual(100, countKeys(env))
+    env.assertEqual(docs_count, countKeys(env))
 
-    if not env.isCluster():
-        keys = env.keys('*')
-        env.expect('FT.DROPINDEX', 'idx').ok()
-        env.assertEqual(py2sorted(env.keys('*')), py2sorted(keys))
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(docs_count, countKeys(env))
 
 def testCustomStopwords(env):
     # Index with default stopwords
