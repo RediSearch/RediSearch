@@ -11,6 +11,10 @@
 #include "query_node.h"
 #include "query_ctx.h"
 
+// TODO: remove once VecSim lib is updated
+#define VecSimType_UINT8 6
+#define VecSimType_INT8 7
+
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
