@@ -1,7 +1,5 @@
 name: "ftsb-10K-multivalue-numeric-json"
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
