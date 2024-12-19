@@ -143,7 +143,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
 
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
-  bool wasFull;
+  bool wasFull = false;
   for (int i = 0; i < 2 * cap; i++) {
     int *item = (int *)CircularBuffer_Reserve(buff, &wasFull);
     ASSERT_EQ(wasFull, i < cap ? false : true);
