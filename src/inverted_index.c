@@ -295,39 +295,6 @@ typedef union {
   NumEncodingFloat encFloat;
 } EncodingHeader;
 
-#ifdef _DEBUG
-void InvertedIndex_Dump(InvertedIndex *idx, int indent) {
-  PRINT_INDENT(indent);
-  printf("InvertedIndex {\n");
-  ++indent;
-  PRINT_INDENT(indent);
-  printf("numDocs %u, lastId %lu, size %u\n", idx->numDocs, idx->lastId, idx->size);
-
-  RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(idx, false);
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    PRINT_INDENT(indent);
-    printf("value %f, docId %lu\n", res->num.value, res->docId);
-  }
-  IR_Free(ir);
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-
-
-void IndexBlock_Dump(IndexBlock *b, int indent) {
-  PRINT_INDENT(indent);
-  printf("IndexBlock {\n");
-  ++indent;
-  PRINT_INDENT(indent);
-  printf("numEntries %u, firstId %lu, lastId %lu, \n", b->numEntries, b->firstId, b->lastId);
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-#endif // #ifdef _DEBUG
-
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
   const double absVal = fabs(res->num.value);
@@ -772,51 +739,46 @@ DECODER(readFreqsOffsets) {
 SKIPPER(seekRawDocIdsOnly) {
   int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
-  Buffer_Read(br, &res->docId, 4);
-  if (res->docId >= delta || delta < 0) {
+  uint32_t curVal;
+  Buffer_Read(br, &curVal, sizeof(curVal));
+  if (curVal >= delta || delta < 0) {
     goto final;
   }
 
   uint32_t *buf = (uint32_t *)br->buf->data;
   size_t start = br->pos / 4;
   size_t end = (br->buf->offset - 4) / 4;
-  size_t cur = start;
-  uint32_t curVal = buf[cur];
+  size_t cur;
 
   // perform binary search
-  while (start < end) {
+  while (start <= end) {
+    cur = (end + start) / 2;
+    curVal = buf[cur];
     if (curVal == delta) {
-      break;
+      goto found;
     }
     if (curVal > delta) {
       end = cur - 1;
     } else {
       start = cur + 1;
     }
-    cur = (end + start) / 2;
+  }
+
+  // we didn't find the value, so we need to return the first value that is greater than the delta.
+  // Assuming we are at the right block, such value must exist.
+  // if got here, curVal is either the last value smaller than delta, or the first value greater
+  // than delta. If it is the last value smaller than delta, we need to skip to the next value.
+  if (curVal < delta) {
+    cur++;
     curVal = buf[cur];
   }
 
-  // we cannot get out of range since we check in
-  if (curVal < delta) {
-    cur++;
-
-#if 1
-	// TODO: consider adding a fix
-    // Fixes test_optimizer:testCoordinator with raw DocID encoding
-    // TODO: explain why it is so
-    if (cur >= br->buf->offset / 4) {
-      return 0;
-    }
-#endif // 1
-  }
-
-  // skip to position and read
-  Buffer_Seek(br, cur * 4);
-  Buffer_Read(br, &res->docId, 4);
+found:
+  // skip to next position
+  Buffer_Seek(br, (cur + 1) * sizeof(uint32_t));
 
 final:
-  res->docId += IR_CURRENT_BLOCK(ir).firstId;
+  res->docId = curVal + IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
   return 1;
 }
@@ -997,23 +959,24 @@ eof:
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
-static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
-  int rc = 0;
+// Assumes there is a valid block to skip to (maching or past the requested docId)
+static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
-
-  // the current block doesn't match and it's the last one - no point in searching
-  if (ir->currentBlock + 1 == idx->size) {
-    return 0;
-  }
-
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
-  uint32_t i = bottom;  //(bottom + top) / 2;
+
+  if (docId <= idx->blocks[bottom].lastId) {
+    // the next block is the one we're looking for, although it might not contain the docId
+    ir->currentBlock = bottom;
+    goto new_block;
+  }
+
+  uint32_t i;
   while (bottom <= top) {
+    i = (bottom + top) / 2;
     const IndexBlock *blk = idx->blocks + i;
     if (BLOCK_MATCHES(*blk, docId)) {
       ir->currentBlock = i;
-      rc = 1;
       goto new_block;
     }
 
@@ -1022,15 +985,18 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
     } else {
       bottom = i + 1;
     }
-    i = (bottom + top) / 2;
   }
 
+  // We didn't find a matching block. According to the assumptions, there must be a block past the
+  // requested docId, and the binary search brought us to it or the one before it.
   ir->currentBlock = i;
+  if (IR_CURRENT_BLOCK(ir).lastId < docId) {
+    ir->currentBlock++; // It's not the current block. Advance
+  }
 
 new_block:
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
-  return rc;
 }
 
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -1047,15 +1013,10 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (!BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) {
+  if (IR_CURRENT_BLOCK(ir).lastId < docId || BufferReader_AtEnd(&ir->br)) {
+    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
+    // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
-  } else if (BufferReader_AtEnd(&ir->br)) {
-    // Current block, but there's nothing here
-    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      goto eof;
-    } else {
-      return INDEXREAD_NOTFOUND;
-    }
   }
 
   /**
@@ -1080,25 +1041,14 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    */
 
   if (ir->decoders.seeker) {
-    // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&ir->br)) {
-      if (ir->currentBlock == ir->idx->size - 1) {
-        // We're at the end of the last block...
-        goto eof;
-      }
-      IndexReader_AdvanceBlock(ir);
-    }
-
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
     while (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record)) {
-      if (BufferReader_AtEnd(&ir->br)) {
-        if (ir->currentBlock < ir->idx->size - 1) {
-          IndexReader_AdvanceBlock(ir);
-        } else {
-          return INDEXREAD_EOF;
-        }
+      if (ir->currentBlock < ir->idx->size - 1) {
+        IndexReader_AdvanceBlock(ir);
+      } else {
+        goto eof;
       }
     }
     // Found a document that match the field mask and greater or equal the searched docid
