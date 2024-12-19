@@ -188,9 +188,9 @@ jobs:
         if: inputs.san == 'address'
         run: |
           echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CC=$(which clang-17)" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-clang-17)" >> $GITHUB_ENV
+          echo "LD=$(which clang-clang-17)" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |
