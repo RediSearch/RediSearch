@@ -139,6 +139,8 @@ void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull) {
     if (wasFull != NULL) {
       *wasFull = true;
     }
+  } else if (wasFull != NULL) {
+    *wasFull = false;
   }
 
   // determine current and next write position
