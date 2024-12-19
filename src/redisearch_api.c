@@ -23,6 +23,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
+#include "cursor.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -893,6 +894,41 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
   return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+}
+
+// Collect mem-usage, indexing time and gc statistics of all the currently
+// existing indexes
+TotalSpecsInfo RediSearch_TotalInfo(void) {
+  TotalSpecsInfo info = {0};
+  info.min_mem = -1; // Initialize to max value
+  // Traverse `specDict_g`, and aggregate the mem-usage and indexing time of each index
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
+    if (!sp) {
+      continue;
+    }
+    // Lock for read
+    pthread_rwlock_rdlock(&sp->rwlock);
+    size_t cur_mem = RediSearch_MemUsage((RSIndex *)ref.rm);
+    info.total_mem += cur_mem;
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
+    info.indexing_time += sp->stats.totalIndexTime;
+
+    if (sp->gc) {
+      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
+      info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
+      info.gc_stats.totalCycles += gcStats.numCycles;
+      info.gc_stats.totalTime += gcStats.totalMSRun;
+    }
+    pthread_rwlock_unlock(&sp->rwlock);
+  }
+  dictReleaseIterator(iter);
+  if (info.min_mem == -1) info.min_mem = 0; // No index found
+  return info;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {
