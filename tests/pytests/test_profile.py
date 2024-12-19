@@ -183,13 +183,10 @@ def testProfileNumeric(env):
     conn.execute_command('hset', i, 'n', 50 - float(i % 1000) / 10)
 
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 5010, 'Child iterators', [
-                    ['Type', 'NUMERIC', 'Term', '-2.9 - 14.4', 'Counter', 1450, 'Size', 1740],
-                    ['Type', 'NUMERIC', 'Term', '14.5 - 30.7', 'Counter', 1630, 'Size', 1630],
-                    ['Type', 'NUMERIC', 'Term', '30.8 - 38', 'Counter', 730, 'Size', 730],
-                    ['Type', 'NUMERIC', 'Term', '38.1 - 44.6', 'Counter', 660, 'Size', 660],
-                    ['Type', 'NUMERIC', 'Term', '44.7 - 46.7', 'Counter', 210, 'Size', 210],
-                    ['Type', 'NUMERIC', 'Term', '46.8 - 48.5', 'Counter', 180, 'Size', 180],
-                    ['Type', 'NUMERIC', 'Term', '48.6 - 50', 'Counter', 150, 'Size', 150]]]]
+                    ['Type', 'NUMERIC', 'Term', '-49.9 - 34.5', 'Counter', 3460, 'Size', 8450],
+                    ['Type', 'NUMERIC', 'Term', '34.6 - 46.1', 'Counter', 1160, 'Size', 1160],
+                    ['Type', 'NUMERIC', 'Term', '46.2 - 49', 'Counter', 290, 'Size', 290],
+                    ['Type', 'NUMERIC', 'Term', '49.1 - 50', 'Counter', 100, 'Size', 100]]]]
   # [1] (Profile data) -> [1] (`Shards` value) -> [0] (single shard/standalone) -> [2:4] (Iterators profile - key+value)
   env.expect('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent').apply(
     lambda x: x[1][1][0][2:4]).equal(expected_res)
