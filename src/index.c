@@ -1431,7 +1431,8 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // Promote the wildcard iterator to the requested docId
-  rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, NULL);
+  RSIndexResult *wcii_res = NULL;
+  rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);
   if (rc == INDEXREAD_EOF) {
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
@@ -1491,7 +1492,7 @@ static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-static int OI_ReadSorted_O(void *ctx, RSIndexRedus **hit) {
+static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   if (nc->lastDocId >= nc->maxDocId) {
     return INDEXREAD_EOF;
@@ -1499,8 +1500,8 @@ static int OI_ReadSorted_O(void *ctx, RSIndexRedus **hit) {
 
   // Get the next docId
   RSIndexResult *wcii_res = NULL;
-  int wcii_res = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
-  if (wcii_res == INDEXREAD_EOF) {
+  int wcii_rc = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
+  if (wcii_rc == INDEXREAD_EOF) {
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
@@ -1548,17 +1549,19 @@ static t_docId OI_LastDocId(void *ctx) {
   return nc->lastDocId;
 }
 
-// TODO: Change to:
-// IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight, bool optimized) {
-// and set the reader, skipper accordingly.
-IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
+IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double weight) {
   OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
+
+  bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  if (optimized) {
+    nc->wcii = NewWildcardIterator(q);
+  }
   nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   nc->virt->freq = 1;
   nc->base.current = nc->virt;
   nc->child = it ? it : NewEmptyIterator();
   nc->lastDocId = 0;
-  nc->maxDocId = maxDocId;
+  nc->maxDocId = q->docTable->maxDocId;
   nc->weight = weight;
   nc->nextRealId = 0;
 
@@ -1570,8 +1573,8 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   ret->HasNext = OI_HasNext;
   ret->LastDocId = OI_LastDocId;
   ret->Len = OI_Len;
-  ret->Read = OI_ReadSorted_NO;
-  ret->SkipTo = OI_SkipTo_NO;
+  ret->Read = optimized ? OI_ReadSorted_O : OI_ReadSorted_NO;
+  ret->SkipTo = optimized ? OI_SkipTo_O : OI_SkipTo_NO;
   ret->Abort = OI_Abort;
   ret->Rewind = OI_Rewind;
 
