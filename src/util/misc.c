@@ -24,6 +24,15 @@ char *strtolower(char *str) {
   return str;
 }
 
+bool isAlphabetic(const char *str, size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    if (!isalpha((unsigned char)str[i])) {
+      return false; 
+    }
+  }
+  return true;
+}
+
 int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;

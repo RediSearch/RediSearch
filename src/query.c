@@ -34,6 +34,7 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
+#include "util/misc.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
@@ -467,7 +468,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     }
   }
 
-  if (qn->type == QN_TOKEN && qn->tn.len > 0) {
+  if (qn->type == QN_TOKEN && qn->tn.len > 0 && isAlphabetic(qn->tn.str, qn->tn.len)) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
   } else {

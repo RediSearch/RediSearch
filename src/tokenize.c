@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include "phonetic_manager.h"
+#include "util/misc.h"
 
 typedef struct {
   RSTokenizer base;
@@ -115,7 +116,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&
-          normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength) {
+          normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength
+          && isAlphabetic(t->tok, t->tokLen)) {
       size_t sl;
       const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
       if (stem) {
