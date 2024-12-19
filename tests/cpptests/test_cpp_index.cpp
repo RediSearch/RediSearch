@@ -262,6 +262,44 @@ INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
     int(Index_DocIdsOnly)
 ));
 
+// Test we only get the right encoder and decoder for the right flags
+TEST_F(IndexTest, testGetEncoderAndDecoders) {
+  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
+    switch (curFlags & INDEX_STORAGE_MASK) {
+    // 1. Full encoding - docId, freq, flags, offset
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
+    // 2. (Frequency, Field)
+    case Index_StoreFreqs | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+    // 3. Frequencies only
+    case Index_StoreFreqs:
+    // 4. Field only
+    case Index_StoreFieldFlags:
+    case Index_StoreFieldFlags | Index_WideSchema:
+    // 5. (field, offset)
+    case Index_StoreFieldFlags | Index_StoreTermOffsets:
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+    // 6. (offset)
+    case Index_StoreTermOffsets:
+    // 7. (freq, offset) Store term offsets but not field flags
+    case Index_StoreFreqs | Index_StoreTermOffsets:
+    // 0. docid only
+    case Index_DocIdsOnly:
+    // 9. Numeric
+    case Index_StoreNumeric:
+      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
+      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      break;
+
+    // invalid flags combination
+    default:
+      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+    }
+  }
+}
+
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
 
