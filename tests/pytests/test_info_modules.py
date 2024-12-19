@@ -198,3 +198,4 @@ def test_redis_info():
   env.assertGreater(res['search_bytes_collected'], 0)
   env.assertGreater(res['search_total_cycles'], 0)
   env.assertGreater(res['search_total_ms_run'], 0)
+  
