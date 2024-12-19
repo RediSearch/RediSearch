@@ -109,19 +109,22 @@ static double NumericRange_GetMedian(IndexReader *ir) {
   return median;
 }
 
+static inline NumericRange *NumericRange_New() {
+  NumericRange *ret = rm_new(NumericRange);
+  ret->entries = NewInvertedIndex(Index_StoreNumeric, 1, &ret->invertedIndexSize);
+  ret->minVal = INFINITY;
+  ret->maxVal = -INFINITY;
+  hll_init(&ret->hll, NR_BIT_PRECISION);
+  return ret;
+}
+
 static NumericRangeNode *NewLeafNode() {
   NumericRangeNode *n = rm_new(NumericRangeNode);
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
   n->maxDepth = 0;
-
-  n->range = rm_new(NumericRange);
-  n->range->entries = NewInvertedIndex(Index_StoreNumeric, 1, &n->range->invertedIndexSize);
-  n->range->minVal = INFINITY;
-  n->range->maxVal = -INFINITY;
-  hll_init(&n->range->hll, NR_BIT_PRECISION);
-
+  n->range = NumericRange_New();
   return n;
 }
 

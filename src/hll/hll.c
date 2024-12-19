@@ -97,9 +97,12 @@ size_t hll_count(const struct HLL *hll) {
   if (estimate <= 5.0 / 2.0 * hll->size) {
     int zeros = 0;
 
-    for (uint32_t i = 0; i < hll->size; i++) if (hll->registers[i] == 0) zeros++;
+    for (uint32_t i = 0; i < hll->size; i++)
+      if (hll->registers[i] == 0)
+        zeros++;
 
-    if (zeros) estimate = hll->size * log((double)hll->size / zeros);
+    if (zeros)
+      estimate = hll->size * log((double)hll->size / zeros);
 
   } else if (estimate > (1.0 / 30.0) * 4294967296.0) {
     estimate = -4294967296.0 * log(1.0 - (estimate / 4294967296.0));
