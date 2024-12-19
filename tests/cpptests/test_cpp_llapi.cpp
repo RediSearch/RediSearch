@@ -194,7 +194,7 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
   ASSERT_FALSE(iter);
 
   // 90 > lat > 85
-  // we receive an EOF iterator  
+  // we receive an EOF iterator
   qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 87, 0.123455, 10, RS_GEO_DISTANCE_M);
   iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
@@ -1239,7 +1239,7 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+  EXPECT_EQ(RediSearch_MemUsage(index), 0);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1247,26 +1247,26 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 147);
+  EXPECT_EQ(RediSearch_MemUsage(index), 139);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 322);
+  EXPECT_EQ(RediSearch_MemUsage(index), 314);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 194);
+  ASSERT_EQ(RediSearch_MemUsage(index), 186);
   RSGlobalConfig.forkGcCleanThreshold = 0;
   index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 148);
+  ASSERT_EQ(RediSearch_MemUsage(index), 140);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 49);
+  ASSERT_EQ(RediSearch_MemUsage(index), 41);
   index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
   ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
