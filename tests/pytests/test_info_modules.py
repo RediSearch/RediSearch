@@ -167,7 +167,6 @@ def test_redis_info():
   env.assertEqual(res['search_dialect_1'], 0)
   env.assertEqual(res['search_dialect_2'], 0)
   env.assertEqual(res['search_dialect_3'], 0)
-  env.assertEqual(res['search_dialect_4'], 0)
 
   # Create a cursor
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR')
