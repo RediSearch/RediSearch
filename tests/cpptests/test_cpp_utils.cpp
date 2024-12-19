@@ -3,6 +3,8 @@
 #include <cmath>
 
 #include "src/util/heap_doubles.h"
+#include "src/hll/hll.h"
+
 
 class UtilsTest : public ::testing::Test {};
 
@@ -53,8 +55,6 @@ TEST_F(UtilsTest, testDoublesHeap) {
 
   double_heap_free(heap);
 }
-
-#include "src/hll/hll.h"
 
 TEST_F(UtilsTest, testHLL) {
   struct HLL hll, hll1, hll2;

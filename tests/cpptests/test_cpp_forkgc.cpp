@@ -658,8 +658,8 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   // Add a block worth of documents with the same value
   ASSERT_LT(++cur_cardinality, first_split_card);
   expected_total_blocks++;
-  for (size_t limit = cur_id + docs_per_block; cur_id < limit; cur_id++) {
-    this->addDocumentWrapper(numToDocStr(cur_id).c_str(), numeric_field_name, std::to_string(3.1416).c_str());
+  for (size_t i = 0; i < docs_per_block; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(3.1416).c_str());
   }
   NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
 
@@ -679,8 +679,8 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
   ASSERT_LT(++cur_cardinality, first_split_card);
   expected_total_blocks++;
-  for (size_t limit = cur_id + docs_per_block / 2; cur_id < limit; cur_id++) {
-    this->addDocumentWrapper(numToDocStr(cur_id).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
   }
 
   FGC_Apply(fgc);
@@ -707,15 +707,15 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
 
   // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
   ASSERT_LT(++cur_cardinality, first_split_card);
-  for (size_t limit = cur_id + docs_per_block / 2; cur_id < limit; cur_id++) {
-    this->addDocumentWrapper(numToDocStr(cur_id).c_str(), numeric_field_name, std::to_string(2.718).c_str());
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
   }
   EXPECT_EQ(TotalIIBlocks, expected_total_blocks) << "Number of blocks should not change";
   // Add another half block worth of documents to the index with a different value.
   ASSERT_LT(++cur_cardinality, first_split_card);
   expected_total_blocks++;
-  for (size_t limit = cur_id + docs_per_block / 2; cur_id < limit; cur_id++) {
-    this->addDocumentWrapper(numToDocStr(cur_id).c_str(), numeric_field_name, std::to_string(1.618).c_str());
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
   }
   EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
 
