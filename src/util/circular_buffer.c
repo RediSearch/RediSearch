@@ -26,7 +26,7 @@ struct _CircularBuffer {
 
 // Creates a new circular buffer, with `cap` items of size `item_size`
 CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
-  assert(cap > 0 && item_size > 0);
+  RedisModule_Assert(cap > 0 && item_size > 0);
   CircularBuffer cb = rm_calloc(1, sizeof(_CircularBuffer) + item_size * cap);
 
   cb->read       = cb->data;                      // initial read position
