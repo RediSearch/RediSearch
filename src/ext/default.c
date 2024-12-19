@@ -636,8 +636,8 @@ void DefaultExpanderFree(void *p) {
 /* Register the default extension */
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
-  /* TF-IDF scorer is the default scorer */
-  if (ctx->RegisterScoringFunction(DEFAULT_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
+  /* TF-IDF scorer */
+  if (ctx->RegisterScoringFunction(TFIDF_SCORER_NAME, TFIDFScorer, NULL, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
