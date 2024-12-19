@@ -287,11 +287,6 @@ static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
-#ifdef _DEBUG
-void InvertedIndex_Dump(InvertedIndex *idx, int indent);
-void IndexBlock_Dump(IndexBlock *b, int indent);
-#endif // #ifdef _DEBUG
-
 #ifdef __cplusplus
 }
 #endif
