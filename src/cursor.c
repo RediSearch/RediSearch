@@ -16,7 +16,6 @@
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
-
 static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
@@ -158,6 +157,18 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
+CursorsInfoStats Cursors_GetInfoStats(void) {
+  CursorsInfoStats stats = {0};
+  CursorList_Lock(&g_CursorsList);
+  CursorList_Lock(&g_CursorsListCoord);
+  stats.total = kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup);
+  stats.total_idle = ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) +
+                     ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **);
+  CursorList_Unlock(&g_CursorsListCoord);
+  CursorList_Unlock(&g_CursorsList);
+  return stats;
+}
+
 // The cursors list is assumed to be locked upon calling this function
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
@@ -293,6 +304,7 @@ int Cursor_Free(Cursor *cur) {
 
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
   CursorList_Lock(cl);
+  CursorList_Lock(cl_coord);
 
   RedisModule_ReplyKV_Map(reply, "cursor_stats");
 
@@ -304,6 +316,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, 
 
   RedisModule_Reply_MapEnd(reply);
 
+  CursorList_Unlock(cl_coord);
   CursorList_Unlock(cl);
 }
 

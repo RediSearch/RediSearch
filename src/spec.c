@@ -1472,7 +1472,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
 
-  // Nullify the spec's quick access to the strong ref. (doesn't decrements refrences count).
+  // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
   spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries

@@ -5,15 +5,15 @@ set -e
 $MODE dnf update -y
 
 # Development Tools includes python11 and config-manager
-$MODE dnf groupinstall "Development Tools" -yqq
+$MODE dnf groupinstall "Development Tools" -yqq --nobest --skip-broken
 # install pip
-$MODE dnf install python3.11-pip -y
+$MODE dnf install python3.11-pip -y --nobest --skip-broken
 
 # powertools is needed to install epel
-$MODE dnf config-manager --set-enabled powertools
+$MODE dnf config-manager --set-enabled powertools --nobest --skip-broken
 
 # get epel to install gcc13
-$MODE dnf install epel-release -yqq
+$MODE dnf install epel-release -yqq --nobest --skip-broken
 
 $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \

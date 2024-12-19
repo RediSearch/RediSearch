@@ -175,6 +175,16 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
+typedef struct CursorsInfoStats {
+  size_t total;
+  size_t total_idle;
+} CursorsInfoStats;
+
+/**
+ * Return the stats for the `INFO` command
+*/
+CursorsInfoStats Cursors_GetInfoStats(void);
+
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
  */
