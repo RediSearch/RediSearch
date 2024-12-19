@@ -43,7 +43,8 @@ int CircularBuffer_Add(CircularBuffer cb, void *item);
 // Reserve a slot within buffer.
 // Returns a pointer to a 'item size' slot within the buffer.
 // This function is thread-safe and lock-free.
-void *CircularBuffer_Reserve(CircularBuffer cb);
+// [OUTPUT] wasFull - set to true if buffer is full
+void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull);
 
 // Read oldest item from buffer.
 // This function is not thread-safe.

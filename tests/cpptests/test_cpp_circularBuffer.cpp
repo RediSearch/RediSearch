@@ -143,8 +143,10 @@ TEST_F(CircularBufferTest, test_CircularBuffer_Reserve) {
 
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
+  bool wasFull;
   for (int i = 0; i < 2 * cap; i++) {
-    int *item = (int *)CircularBuffer_Reserve(buff);
+    int *item = (int *)CircularBuffer_Reserve(buff, &wasFull);
+    ASSERT_EQ(wasFull, i < cap ? false : true);
     *item = i;
   }
 
@@ -179,7 +181,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ResetReader) {
   uint cap = 16;
   CircularBuffer buff = CircularBuffer_New(sizeof(int), cap);
   for (int i = 0; i < cap + 2; i++) {
-    int *item = (int *)CircularBuffer_Reserve(buff);
+    int *item = (int *)CircularBuffer_Reserve(buff, NULL);
     *item = i;
   }
 
@@ -250,7 +252,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiAdd) {
 void thread_ReserveFunc(CircularBuffer cb, int thread_id) {
   for (int i = 0; i < NUM_ITEMS_PER_THREAD; i++) {
     int item = thread_id * NUM_ITEMS_PER_THREAD + i;
-    void *slot = CircularBuffer_Reserve(cb);
+    void *slot = CircularBuffer_Reserve(cb, NULL);
     *(int *)slot = item;
   }
 }

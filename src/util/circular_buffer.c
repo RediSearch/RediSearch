@@ -127,7 +127,8 @@ int CircularBuffer_Add(CircularBuffer cb, void *item) {
 // Reserve a slot within buffer.
 // Returns a pointer to a 'item size' slot within the buffer.
 // This function is thread-safe and lock-free.
-void *CircularBuffer_Reserve(CircularBuffer cb) {
+// [OUTPUT] wasFull - set to true if buffer is full
+void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull) {
   RedisModule_Assert(cb != NULL);
 
   // atomic update buffer item count
@@ -135,6 +136,9 @@ void *CircularBuffer_Reserve(CircularBuffer cb) {
   uint64_t item_count = atomic_fetch_add(&cb->item_count, 1);
   if (unlikely(item_count >= cb->item_cap)) {
     atomic_fetch_sub(&cb->item_count, 1);
+    if (wasFull != NULL) {
+      *wasFull = true;
+    }
   }
 
   // determine current and next write position
