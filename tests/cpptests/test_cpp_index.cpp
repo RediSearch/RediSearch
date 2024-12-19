@@ -149,7 +149,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t index_memsize;
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
   int useFieldMask = indexFlags & Index_StoreFieldFlags;
-  int useNumEntries = indexFlags & Index_StoreNumeric;
 
   size_t t_fiedlMask_memsize = sizeof(t_fieldMask);
   size_t exp_t_fieldMask_memsize = 16;
@@ -173,7 +172,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
 
   size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
-  size_t exp_idx_no_block_memsize = (useFieldMask || useNumEntries) ?
+  size_t exp_idx_no_block_memsize = useFieldMask ?
                                     exp_ividx_memsize :
                                     exp_ividx_memsize - exp_t_fieldMask_memsize;
   ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
@@ -194,10 +193,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
-    // if (i % 10000 == 1) {
-    //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
-    //     w->ndocs);
-    // }
 
     ForwardIndexEntry h;
     h.docId = i;
@@ -225,7 +220,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(199, idx->lastId);
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewTermIndexReader(idx);  //
+    IndexReader *ir = NewTermIndexReader(idx);
     RSIndexResult *h = NULL;
 
     int n = 0;
