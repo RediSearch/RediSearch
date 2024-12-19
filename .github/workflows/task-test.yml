@@ -148,7 +148,7 @@ jobs:
         if: inputs.san == 'address'
         working-directory: setup/.install
         run: |
-          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
+          ./test_deps/install_llvm.sh 17 ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
