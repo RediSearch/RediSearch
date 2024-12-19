@@ -37,7 +37,7 @@ on:
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
-  LLVM_VERSION: ${{vars.LLVM_VERSION}}
+  LLVM_VERSION: 17
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -189,8 +189,8 @@ jobs:
         run: |
           echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
           echo "CC=$(which clang-17)" >> $GITHUB_ENV
-          echo "CXX=$(which clang++-clang-17)" >> $GITHUB_ENV
-          echo "LD=$(which clang-clang-17)" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-17)" >> $GITHUB_ENV
+          echo "LD=$(which clang-17)" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |
