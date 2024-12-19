@@ -974,18 +974,16 @@ static void NI_Rewind(void *ctx) {
 }
 
 static void NI_Free(IndexIterator *it) {
-
   NotContext *nc = it->ctx;
   nc->child->Free(nc->child);
   if (nc->wcii) {
     nc->wcii->Free(nc->wcii);
   }
   IndexResult_Free(nc->base.current);
-
   rm_free(it);
 }
 
-/* SkipTo for NOT iterator - Non-Optimized version. If we have a match - return
+/* SkipTo for NOT iterator - Non-optimized version. If we have a match - return
  * NOTFOUND. If we don't or we're at the end - return OK */
 static int NI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   NotContext *nc = ctx;
@@ -1066,9 +1064,9 @@ int NI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (wcii_rc == INDEXREAD_EOF) {
       IITER_SET_EOF(&nc->base);
     }
-      // Note: If this is the last block in the child index and not in the wildcard
-      // index, we may have a docId in the child that does not exist in the
-      // wildcard index
+    // Note: If this is the last block in the child index and not in the wildcard
+    // index, we may have a docId in the child that does not exist in the
+    // wildcard index
     nc->base.current->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
     *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
@@ -1241,7 +1239,6 @@ ok:
 /* We always have next, in case anyone asks... ;) */
 static int NI_HasNext(void *ctx) {
   NotContext *nc = ctx;
-
   return nc->lastDocId <= nc->maxDocId;
 }
 
@@ -1254,7 +1251,6 @@ static size_t NI_Len(void *ctx) {
 /* Last docId */
 static t_docId NI_LastDocId(void *ctx) {
   NotContext *nc = ctx;
-
   return nc->lastDocId;
 }
 
@@ -1298,8 +1294,9 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
  **********************************************************/
 
 typedef struct {
-  IndexIterator base;
-  IndexIterator *child;
+  IndexIterator base;     // base index iterator
+  IndexIterator *wcii;     // wildcard index iterator
+  IndexIterator *child;   // child index iterator
   RSIndexResult *virt;
   t_fieldMask fieldMask;
   t_docId lastDocId;
@@ -1308,21 +1305,48 @@ typedef struct {
   double weight;
 } OptionalMatchContext, OptionalIterator;
 
+static void OI_Abort(void *ctx) {
+  OptionalMatchContext *nc = ctx;
+  if (nc->wcii) {
+    nc->wcii->Abort(nc->wcii->ctx);
+  }
+  if (nc->child) {
+    nc->child->Abort(nc->child->ctx);
+  }
+}
+
+static void OI_Rewind(void *ctx) {
+  OptionalMatchContext *nc = ctx;
+  nc->lastDocId = 0;
+  if (nc->wcii) {
+    nc->wcii->Rewind(nc->wcii->ctx);
+  }
+  nc->virt->docId = 0;
+  nc->nextRealId = 0;
+  if (nc->child) {
+    nc->child->Rewind(nc->child->ctx);
+  }
+}
+
 static void OI_Free(IndexIterator *it) {
   OptionalMatchContext *nc = it->ctx;
   if (nc->child) {
     nc->child->Free(nc->child);
   }
+  if (nc->wcii) {
+    nc->wcii->Free(nc->wcii);
+  }
   IndexResult_Free(nc->virt);
   rm_free(it);
 }
 
-static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
+// SkipTo for OPTIONAL iterator - Non-optimized version.
+static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nc->nextRealId,
   //  nc->maxDocId, nc->lastDocId);
 
-  int found = 0;
+  bool found = false;
 
   // Set the current ID
   nc->lastDocId = docId;
@@ -1331,19 +1355,21 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  if (!nc->child) {
-    nc->virt->docId = docId;
-    nc->base.current = nc->virt;
-    return INDEXREAD_OK;
-  }
+  // Unreachable code, to be removed
+  // if (!nc->child) {
+  //   nc->virt->docId = docId;
+  //   nc->base.current = nc->virt;
+  //   return INDEXREAD_OK;
+  // }
 
   if (docId == 0) {
+    // TODO: Uncovered code - remove or test
     return nc->base.Read(ctx, hit);
   }
 
   if (docId == nc->nextRealId) {
     // Edge case -- match on the docid we just looked for
-    found = 1;
+    found = true;
     // reset current pointer since this might have been a prior
     // virt return
     nc->base.current = nc->child->current;
@@ -1351,7 +1377,7 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   } else if (docId > nc->nextRealId) {
     int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
     if (rc == INDEXREAD_OK) {
-      found = 1;
+      found = true;
     }
     if (nc->base.current) {
       nc->nextRealId = nc->base.current->docId;
@@ -1359,11 +1385,66 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   if (found) {
-    // Has a real hit
-    RSIndexResult *r = nc->base.current;
-    r->weight = nc->weight;
+    // Has a real hit on the child iterator
+    nc->base.current->weight = nc->weight;
   } else {
     nc->virt->docId = docId;
+    nc->virt->weight = 0;
+    nc->base.current = nc->virt;
+  }
+
+  *hit = nc->base.current;
+  return INDEXREAD_OK;
+}
+
+// SkipTo for OPTIONAL iterator - Non-optimized version.
+static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
+  OptionalMatchContext *nc = ctx;
+
+  bool found = false;
+
+  if (nc->lastDocId > nc->maxDocId) {
+    // TODO: Add the below to original version?
+    IITER_SET_EOF(nc->wcii);
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
+
+  // TODO: Uncovered code - remove or test
+  if (docId == 0) {
+    return nc->base.Read(ctx, hit);
+  }
+
+  int rc;
+
+  if (docId == nc->nextRealId) {
+    found = true;
+    nc->base.current = nc->child->current;
+  } else if (docId > nc->nextRealId) {
+    rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
+    if (rc == INDEXREAD_OK) {
+      found = true;
+    }
+    if (nc->base.current) {
+      nc->nextRealId = nc->base.current->docId;
+    }
+  }
+
+  // Promote the wildcard iterator to the requested docId
+  rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, NULL);
+  if (rc == INDEXREAD_EOF) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  } else if (rc == INDEXREAD_NOTFOUND) {
+    // This doc-id was deleted
+    return INDEXREAD_NOTFOUND;
+  }
+
+  if (found) {
+    // Has a real hit on the child iterator
+    nc->base.current->weight = nc->weight;
+  } else {
+    nc->virt->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
     nc->virt->weight = 0;
     nc->base.current = nc->virt;
   }
@@ -1379,7 +1460,7 @@ static size_t OI_NumEstimated(void *ctx) {
 
 /* Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
  * our child */
-static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
+static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   if (nc->lastDocId >= nc->maxDocId) {
     return INDEXREAD_EOF;
@@ -1410,17 +1491,49 @@ static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+static int OI_ReadSorted_O(void *ctx, RSIndexRedus **hit) {
+  OptionalMatchContext *nc = ctx;
+  if (nc->lastDocId >= nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
+
+  // Get the next docId
+  RSIndexResult *wcii_res = NULL;
+  int wcii_res = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
+  if (wcii_res == INDEXREAD_EOF) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
+
+  int rc;
+  while (wcii_res->docId > nc->nextRealId) {
+    rc = nc->child->Read(nc->child->ctx, &nc->base.current);
+    if (rc == INDEXREAD_EOF) {
+      nc->nextRealId = nc->maxDocId + 1;
+      break;
+    } else {
+      nc->nextRealId = nc->base.current->docId;
+    }
+  }
+
+  nc->lastDocId = nc->base.current->docId = wcii_res->docId;
+
+  if (nc->lastDocId != nc->nextRealId) {
+    nc->base.current = nc->virt;
+    nc->base.current->weight = 0;
+  } else {
+    nc->base.current = nc->child->current;
+    nc->base.current->weight = nc->weight;
+  }
+
+  *hit = nc->base.current;
+  return INDEXREAD_OK;
+}
+
 /* We always have next, in case anyone asks... ;) */
 static int OI_HasNext(void *ctx) {
   OptionalMatchContext *nc = ctx;
   return (nc->lastDocId <= nc->maxDocId);
-}
-
-static void OI_Abort(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  if (nc->child) {
-    nc->child->Abort(nc->child->ctx);
-  }
 }
 
 /* Our len is the child's len? TBD it might be better to just return 0 */
@@ -1432,20 +1545,12 @@ static size_t OI_Len(void *ctx) {
 /* Last docId */
 static t_docId OI_LastDocId(void *ctx) {
   OptionalMatchContext *nc = ctx;
-
   return nc->lastDocId;
 }
 
-static void OI_Rewind(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  nc->lastDocId = 0;
-  nc->virt->docId = 0;
-  nc->nextRealId = 0;
-  if (nc->child) {
-    nc->child->Rewind(nc->child->ctx);
-  }
-}
-
+// TODO: Change to:
+// IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight, bool optimized) {
+// and set the reader, skipper accordingly.
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
   OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
   nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
@@ -1465,8 +1570,8 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   ret->HasNext = OI_HasNext;
   ret->LastDocId = OI_LastDocId;
   ret->Len = OI_Len;
-  ret->Read = OI_ReadSorted;
-  ret->SkipTo = OI_SkipTo;
+  ret->Read = OI_ReadSorted_NO;
+  ret->SkipTo = OI_SkipTo_NO;
   ret->Abort = OI_Abort;
   ret->Rewind = OI_Rewind;
 
