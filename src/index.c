@@ -1064,9 +1064,9 @@ int NI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (wcii_rc == INDEXREAD_EOF) {
       IITER_SET_EOF(&nc->base);
     }
-      // Note: If this is the last block in the child index and not in the wildcard
-      // index, we may have a docId in the child that does not exist in the
-      // wildcard index
+    // Note: If this is the last block in the child index and not in the wildcard
+    // index, we may have a docId in the child that does not exist in the
+    // wildcard index
     nc->base.current->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
     *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
@@ -1348,8 +1348,8 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   bool found = false;
 
-  // // Set the current ID
-  // nc->lastDocId = docId;
+  // Set the current ID
+  nc->lastDocId = docId;
 
   if (nc->lastDocId > nc->maxDocId) {
     return INDEXREAD_EOF;
@@ -1385,9 +1385,8 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   if (found) {
-    // Has a real hit
-    RSIndexResult *r = nc->base.current;
-    r->weight = nc->weight;
+    // Has a real hit on the child iterator
+    nc->base.current->weight = nc->weight;
   } else {
     nc->virt->docId = docId;
     nc->virt->weight = 0;
@@ -1398,18 +1397,16 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+// SkipTo for OPTIONAL iterator - Non-optimized version.
 static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
 
   bool found = false;
 
-  // Set the current ID
-  nc->lastDocId = docId;
-
   if (nc->lastDocId > nc->maxDocId) {
-    // TODO: Add the below?
-    // IITER_SET_EOF(nc->wcii);
-    // IITER_SET_EOF(&nc->base);
+    // TODO: Add the below to original version?
+    IITER_SET_EOF(nc->wcii);
+    IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
 
@@ -1418,11 +1415,13 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     return nc->base.Read(ctx, hit);
   }
 
+  int rc;
+
   if (docId == nc->nextRealId) {
     found = true;
     nc->base.current = nc->child->current;
   } else if (docId > nc->nextRealId) {
-    int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
+    rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
     if (rc == INDEXREAD_OK) {
       found = true;
     }
@@ -1431,10 +1430,27 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
   }
 
-  if (found) {
-    // Has a real hit
-    // TBD
+  // Promote the wildcard iterator to the requested docId
+  rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, NULL);
+  if (rc == INDEXREAD_EOF) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  } else if (rc == INDEXREAD_NOTFOUND) {
+    // This doc-id was deleted
+    return INDEXREAD_NOTFOUND;
   }
+
+  if (found) {
+    // Has a real hit on the child iterator
+    nc->base.current->weight = nc->weight;
+  } else {
+    nc->virt->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
+    nc->virt->weight = 0;
+    nc->base.current = nc->virt;
+  }
+
+  *hit = nc->base.current;
+  return INDEXREAD_OK;
 }
 
 static size_t OI_NumEstimated(void *ctx) {
@@ -1471,6 +1487,45 @@ static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   }
 
   nc->base.current->docId = nc->lastDocId;
+  *hit = nc->base.current;
+  return INDEXREAD_OK;
+}
+
+static int OI_ReadSorted_O(void *ctx, RSIndexRedus **hit) {
+  OptionalMatchContext *nc = ctx;
+  if (nc->lastDocId >= nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
+
+  // Get the next docId
+  RSIndexResult *wcii_res = NULL;
+  int wcii_res = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
+  if (wcii_res == INDEXREAD_EOF) {
+    IITER_SET_EOF(&nc->base);
+    return INDEXREAD_EOF;
+  }
+
+  int rc;
+  while (wcii_res->docId > nc->nextRealId) {
+    rc = nc->child->Read(nc->child->ctx, &nc->base.current);
+    if (rc == INDEXREAD_EOF) {
+      nc->nextRealId = nc->maxDocId + 1;
+      break;
+    } else {
+      nc->nextRealId = nc->base.current->docId;
+    }
+  }
+
+  nc->lastDocId = nc->base.current->docId = wcii_res->docId;
+
+  if (nc->lastDocId != nc->nextRealId) {
+    nc->base.current = nc->virt;
+    nc->base.current->weight = 0;
+  } else {
+    nc->base.current = nc->child->current;
+    nc->base.current->weight = nc->weight;
+  }
+
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
