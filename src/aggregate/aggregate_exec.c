@@ -735,6 +735,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
+
+  // Register thread to the global active-threads
+    
+
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
     req->sctx->redisCtx = outctx;
