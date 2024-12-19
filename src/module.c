@@ -1030,7 +1030,21 @@ typedef struct {
   int firstkey, lastkey, keystep;
 } CommandKeys;
 
-typedef int (*RegisteredCallback)(RedisModuleCtx *, RedisModuleCommand *);
+typedef enum {
+  NONE,
+  SET_COMMAND_INFO,
+  SUBSCRIBE_SUBCOMMANDS
+} SelectedCallbackType;
+
+typedef int (*SetCommandInfo)(RedisModuleCommand *);
+typedef int (*SubscribeSubCommands)(RedisModuleCtx *, RedisModuleCommand *);
+
+typedef union {
+  void *ptr;
+  SetCommandInfo setCommandInfo;
+  SubscribeSubCommands subscribeSubCommands;
+} MutuallyExclusiveCommandCallbacks;
+
 typedef struct {
   const char *name;
   const char *flags;
@@ -1038,7 +1052,8 @@ typedef struct {
   bool shouldRegister;
   const char *aclCategories;
   RedisModuleCmdFunc handler;
-  RegisteredCallback registered;
+  MutuallyExclusiveCommandCallbacks callback;
+  SelectedCallbackType selectedCallbackType;
   CommandKeys position;
 } SearchCommand;
 
@@ -1047,7 +1062,7 @@ typedef struct {
   const char *fullName;
   const char *flags;
   RedisModuleCmdFunc handler;
-  RegisteredCallback setCommandInfo;
+  SetCommandInfo setCommandInfo;
   CommandKeys position;
 } SubCommand;
 
@@ -1063,7 +1078,7 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
       RedisModule_Log(ctx, "warning", "Could not find subcommand %s", subcommand->fullName);
       return REDISMODULE_ERR;
     }
-    if (subcommand->setCommandInfo && subcommand->setCommandInfo(ctx, subCommand) != REDISMODULE_OK) {
+    if (subcommand->setCommandInfo && subcommand->setCommandInfo(subCommand) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Could not set command info for subcommand %s", subcommand->fullName);
       return REDISMODULE_ERR;
     }
@@ -1073,25 +1088,19 @@ int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const Su
 
 // Creates a command and registers it to its corresponding ACL categories
 // Also sets the command info if setCommandInfo is not NULL
-static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler, RegisteredCallback registered,
-                                 const char *flags, CommandKeys position, const char *aclCategories) {
+static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler,
+                                                const char *flags, CommandKeys position, const char *aclCategories) {
   if (RedisModule_CreateCommand(ctx, name, handler, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
-    return REDISMODULE_ERR;
+    return NULL;
   }
 
   RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
   if (!command) {
     RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
-    return REDISMODULE_ERR;
+    return NULL;
   }
 
-  if (registered && registered(ctx, command) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not call registration callback for command: %s", name);
-    return REDISMODULE_ERR;
-  }
-
-  int rc = REDISMODULE_OK;
   char *categories;
   bool is_internal = false;
 
@@ -1105,13 +1114,13 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name, RedisMod
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command: %s. Got error code: %d", name, errno);
-    rc = REDISMODULE_ERR;
+    command = NULL;
   }
 
   if (!is_internal) {
     rm_free(categories);
   }
-  return rc;
+  return command;
 }
 
 static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details) {
@@ -1120,7 +1129,27 @@ static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details
     return REDISMODULE_OK;
   }
 
-  return RMCreateSearchCommand(ctx, details->name, details->handler, details->registered, details->flags, details->position, details->aclCategories);
+  RedisModuleCommand *cmd = CreateCommandWithAcl(ctx, details->name, details->handler, details->flags, details->position, details->aclCategories);
+  if (!cmd) {
+    return REDISMODULE_ERR;
+  }
+  switch(details->selectedCallbackType) {
+    case SET_COMMAND_INFO:
+        if (details->callback.setCommandInfo(cmd) != REDISMODULE_OK) {
+            RedisModule_Log(ctx, "warning", "Could not set command info for command %s", details->name);
+            return REDISMODULE_ERR;
+        }
+        break;
+    case SUBSCRIBE_SUBCOMMANDS:
+        if (details->callback.subscribeSubCommands(ctx, cmd) != REDISMODULE_OK) {
+            RedisModule_Log(ctx, "warning", "Could not subscribe subcommands for command %s", details->name);
+            return REDISMODULE_ERR;
+        }
+        break;
+    case NONE:
+      break;
+  }
+  return REDISMODULE_OK;
 }
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
@@ -1151,11 +1180,12 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 
 #define CONFIG_SUBCOMMANDS(command_, func_, readonly_)                                                                                                                           \
   SubCommand subcommands[] = {                                                                                                                                      \
-    {.name = "GET", .fullName = command_ "|GET", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigGetInfo, .position = {INDEX_ONLY_CMD_ARGS}},    \
-    {.name = "SET", .fullName = command_ "|SET", .flags = "write", .handler = func_, .setCommandInfo = SetFtConfigSetInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
-    {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
+    {.name = "GET", .fullName = command_ "|GET", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigGetInfo, .position = {0, 0, 0}},    \
+    {.name = "SET", .fullName = command_ "|SET", .flags = "write", .handler = func_, .setCommandInfo = SetFtConfigSetInfo, .position = {0, 0, 0}},       \
+    {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {0, 0, 0}}, \
   }
 
+#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly"
 static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
   CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand, RS_READ_ONLY_FLAGS_DEFAULT);
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
@@ -1169,9 +1199,9 @@ static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleComman
 
 #define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
   SubCommand subcommands[] = {                                                                                                                                      \
-    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {INDEX_ONLY_CMD_ARGS}}, \
-    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {INDEX_ONLY_CMD_ARGS}},       \
-    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {INDEX_ONLY_CMD_ARGS}},                       \
+    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
+    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
+    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
   }
 
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
@@ -1187,6 +1217,8 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
   return RegisterCoordDebugCommands(debugCommand);
 }
 
+#define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " PROXY_FILTERED : flags
+
 static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
   for (size_t i = 0; i < count; i++) {
     const SearchCommand *command = &commands[i];
@@ -1198,14 +1230,15 @@ static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *comman
   return REDISMODULE_OK;
 }
 
-#define DEFINE_COMMAND(name_, func_, flags_, reg_, acl_, register_condition_, fstkey_, lstkey_, keystp_) \
-  (SearchCommand){ .name = name_, .flags = flags_, .shouldRegister = register_condition_,                \
-                   .aclCategories = acl_, .handler = func_, .registered = reg_,                          \
-                   .position = (CommandKeys){                                                            \
-                     .firstkey = fstkey_,                                                                \
-                     .lastkey = lstkey_,                                                                 \
-                     .keystep = keystp_                                                                  \
-                   }},
+#define DEFINE_COMMAND_KEYS(firstkey_, lastkey_, keystep_) \
+  (CommandKeys){.firstkey = firstkey_, .lastkey = lastkey_, .keystep = keystep_}
+
+#define DEFINE_COMMAND(name_, func_, flags_, callback_, callback_type_, acl_, register_condition_, keys_) \
+  { .name = name_, .flags = flags_, .shouldRegister = register_condition_,                                \
+    .aclCategories = acl_, .handler = func_, .callback.ptr = callback_,                                   \
+    .selectedCallbackType = callback_type_,                                                               \
+    .position = keys_}
+
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
@@ -1275,8 +1308,63 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "RedisModule_SetCommandInfo is not available, search commands will have limited information");
   }
 
+  const CommandKeys indexOnlyCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
+  const CommandKeys indexDocCmdArgs = DEFINE_COMMAND_KEYS(2, 2, 1);
+  const CommandKeys indexSugCmdArgs = DEFINE_COMMAND_KEYS(1, 1, 1);
   SearchCommand commands[] = {
-      RS_COMMANDS(DEFINE_COMMAND)
+          // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
+    // to be able to replicate from an old RediSearch version.
+    // If this is the light version then the _ft.safeadd/_ft.del does not exist
+    // and we will get the normal ft.safeadd/ft.del command.
+    DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write admin", true,           indexDocCmdArgs),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, RS_WRITE_FLAGS_DEFAULT("write deny-oom"), NULL, NONE, "write admin", IsEnterprise(), indexDocCmdArgs),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write admin", IsEnterprise(), indexDocCmdArgs),
+    DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write admin", true,           indexDocCmdArgs),
+    DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write admin", true,           indexDocCmdArgs),
+
+    // write commands (on enterprise we do not define them, the dmc take care of them)
+    // search write slow dangerous
+    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom", SetFtCreateInfo,      SET_COMMAND_INFO, "",                           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom", NULL,                 NONE,             "write",                      true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous",       true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand,      "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,      "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous",       true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write",          SetFtSynupdateInfo,   SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write",          SetFtAlterInfo,       SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write",          SetFtAlterInfo,       SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_ADD,            DictAddCommand,                "readonly",       SetFtDictaddInfo,     SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_DEL,            DictDelCommand,                "readonly",       SetFtDictdelInfo,     SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASADD,            AliasAddCommand,               "readonly",       SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASADD_IF_NX,      AliasAddCommandIfNX,           "readonly",       SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "readonly",       SetFtAliasupdateInfo, SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "readonly",       SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "readonly",       SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+
+    // Suggestion commands key specs should be 1, 1, 1
+    DEFINE_COMMAND(RS_SUGADD_CMD,     RSSuggestAddCommand,    "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGGET_CMD,     RSSuggestGetCommand,    "readonly",       SetFtSuggetInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGDEL_CMD,     RSSuggestDelCommand,    "write",          SetFtSugdelInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGLEN_CMD,     RSSuggestLenCommand,    "readonly",       SetFtSuglenInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs),
+    // Local commands
+    DEFINE_COMMAND(RS_EXPLAIN_CMD,    QueryExplainCommand,    "readonly",       SetFtExplainInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_DUMP,      DictDumpCommand,        "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNDUMP_CMD,    SynDumpCommand,         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       NULL,                NONE,             "slow admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNADD_CMD,     SynAddCommand,          "write",          NULL,                NONE,             "admin",      true, indexOnlyCmdArgs),
+    // read only commands
+    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          RS_READ_ONLY_FLAGS_DEFAULT, SetFtSearchInfo,           SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       RS_READ_ONLY_FLAGS_DEFAULT, SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly",                 NULL,                      NONE,                  "read admin",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      RS_READ_ONLY_FLAGS_DEFAULT, NULL,                      NONE,                  "read admin",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           RS_READ_ONLY_FLAGS_DEFAULT, SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read admin dangerous", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        RS_READ_ONLY_FLAGS_DEFAULT, SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true, indexOnlyCmdArgs),
   };
 
   return CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand));
@@ -3511,44 +3599,59 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
   }
 
-  const CommandKeys noKeys = {0, 0, -1};
-  // read commands
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    const CommandKeys keys = {0, 1, -2};
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), SetFtAggregateInfo, "readonly", keys, "read"))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE", SafeCmd(DistAggregateCommand), SetFtAggregateInfo, "readonly", noKeys, "read"))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), SetFtInfoInfo, "readonly", noKeys, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), SetFtSearchInfo, "readonly", noKeys, "read"))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), SetFtProfileInfo, "readonly", noKeys, "read"))
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    const CommandKeys keys = {3, 1, -3};
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, RegisterCoordCursorCommands, "readonly", keys, "read"))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", NULL, RegisterCoordCursorCommands, "readonly", noKeys, "read"))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), SetFtSpellcheckInfo, "readonly", noKeys, ""))
-  // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
 
-  // OSS commands (registered via proxy in Enterprise)
+  const CommandKeys ossCmdArgs = DEFINE_COMMAND_KEYS(0, 0, -1);
+  const CommandKeys noCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
+  SearchCommand aggregate = DEFINE_COMMAND("FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, ossCmdArgs);
+  SearchCommand cursor =    DEFINE_COMMAND("FT.CURSOR",    NULL,                          "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, ossCmdArgs);
+  if (clusterConfig.type == ClusterType_RedisLabs) {
+    const CommandKeys aggregateKeys = {0, 1, -2};
+    const CommandKeys cursorKeys = {3, 1, -3};
+    aggregate.position = aggregateKeys;
+    cursor.position = cursorKeys;
+  }
 
   SearchCommand commands[] = {
-    RS_OSS_COMMANDS(DEFINE_COMMAND)
+    // read commands
+    DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,       SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,     SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,    SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", SetFtSpellcheckInfo, SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    aggregate,
+    cursor,
+    // oss commands
+    DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "readonly", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "readonly", SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DICTADD",        SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtDictaddInfo,               SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DICTDEL",        SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtDictdelInfo,               SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASADD",       SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "readonly", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALIASADDIFNX",  SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "readonly", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "readonly", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.GET",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "readonly", NULL,                           NONE,                  "read admin",           !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ADD",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "readonly", NULL,                           NONE,                  "write admin",          !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DEL",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "readonly", NULL,                           NONE,                  "write admin",          !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DROP",           SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "readonly", NULL,                           NONE,                  "write admin",          !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._DROPIFX",       SafeCmd(FanoutCommandHandlerIndexless),                  "readonly", NULL,                           NONE,                  "write admin",          !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly", RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !IsEnterprise() && !isClusterEnabled, noCmdArgs),
+
+    // cluster set commands
+    DEFINE_COMMAND("FT.CLUSTERSET",     SafeCmd(SetClusterCommand),     "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), "readonly deny-script",               NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+
+    // Deprecated commands. Grouped here for easy tracking
+    DEFINE_COMMAND("FT.MGET",           SafeCmd(MGetCommandHandler),    "readonly", NULL,             NONE,             "read admin",           true, ossCmdArgs),
+    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(TagValsCommandHandler), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read admin dangerous", true, ossCmdArgs)
   };
   if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-
-
-  // cluster set commands
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), NULL, "readonly allow-loading deny-script", noKeys, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), NULL, "readonly deny-script", noKeys, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), NULL, "readonly allow-loading deny-script", noKeys, ""))
-
-  // Deprecated commands. Grouped here for easy tracking
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), NULL, "readonly", noKeys, "read admin"))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), SetFtTagvalsInfo, "readonly", noKeys, "read admin dangerous"))
-
   return REDISMODULE_OK;
 }
