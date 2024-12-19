@@ -121,6 +121,12 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
  */
 void FGC_Apply(ForkGC *gc);
 
+typedef struct InfoGCStats {
+  size_t totalCollectedBytes; // Total bytes collected by the GCs
+  size_t totalCycles;         // Total number of cycles ran
+  size_t totalTime;           // In ms
+} InfoGCStats;
+
 #ifdef __cplusplus
 }
 #endif

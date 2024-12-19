@@ -9,6 +9,8 @@
 
 #include "redismodule.h"
 #include <limits.h>
+#include "fork_gc.h"
+#include "info_command.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -351,6 +353,12 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
 MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
+
+MODULE_API_FUNC(size_t, RediSearch_TotalMemUsage)(void);
+
+MODULE_API_FUNC(TotalSpecsInfo, RediSearch_TotalInfo)(void);
+
+MODULE_API_FUNC(InfoGCStats, RediSearch_GC_total)(void);
 
 /**
  * Return an info struct

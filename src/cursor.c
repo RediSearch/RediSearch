@@ -163,6 +163,18 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k) {
   }
 }
 
+CursorsInfoStats Cursors_GetInfoStats(void) {
+  CursorsInfoStats stats = {0};
+  CursorList_Lock(&RSCursors);
+  CursorList_Lock(&RSCursorsCoord);
+  stats.total = kh_size(RSCursors.lookup) + kh_size(RSCursorsCoord.lookup);
+  stats.total_idle = ARRAY_GETSIZE_AS(&RSCursors.idle, Cursor **) +
+                     ARRAY_GETSIZE_AS(&RSCursorsCoord.idle, Cursor **);
+  CursorList_Unlock(&RSCursorsCoord);
+  CursorList_Unlock(&RSCursors);
+  return stats;
+}
+
 static void CursorList_IncrCounter(CursorList *cl) {
   if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
     Cursors_GCInternal(cl, 0);
