@@ -43,7 +43,7 @@ static KHTableEntry *allocBucketEntry(void *ptr) {
 }
 
 static uint32_t hashKey(const void *s, size_t n) {
-  return rs_fnv_32a_buf((void *)s, n, 0);
+  return rs_fnv_32a_buf(s, n, 0);
 }
 
 #define CHARS_PER_TERM 5
@@ -63,9 +63,7 @@ static size_t estimtateTermCount(const Document *doc) {
 }
 
 static void *vvwAlloc(void) {
-  VarintVectorWriter *vvw = rm_calloc(1, sizeof(*vvw));
-  VVW_Init(vvw, 64);
-  return vvw;
+  return NewVarintVectorWriter(64);
 }
 
 static void vvwFree(void *p) {

@@ -212,11 +212,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
     void *bufptr = blk->buf.data;
-    int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
-    // We couldn't repair the block - return 0
-    if (nrepaired == -1) {
-      goto done;
-    } else if (nrepaired == 0) {
+    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
+    if (nrepaired == 0) {
       // unmodified block
       array_append(blocklist, *blk);
       continue;
