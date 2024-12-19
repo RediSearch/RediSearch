@@ -19,6 +19,7 @@
 #include "resp3.h"
 #include "query_error.h"
 #include "info/global_stats.h"
+#include "activeThreads.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -736,8 +737,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     return;
   }
 
-  // Register thread to the global active-threads
-    
+  // TODO: Register thread to the global active-threads
+  activeThreads_AddThread(pthread_self(), StrongRef_Demote(execution_ref));
 
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
