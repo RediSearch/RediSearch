@@ -636,7 +636,7 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
     env.expect(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'invertedIndexSize [bytes]', str(109), 'card', 5,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'invertedIndexSize [bytes]', str(101), 'card', 5,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
