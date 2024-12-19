@@ -6,6 +6,7 @@
 
 #include "coord/rmr/rmr.h"
 #include "coord/rmr/rq.h"
+#include "commands.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"

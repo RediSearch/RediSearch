@@ -4,6 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "commands.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"

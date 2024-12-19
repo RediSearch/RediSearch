@@ -15,15 +15,11 @@
 #define RS_CMD_READ_PREFIX "_FT"
 #endif
 
+#define PROXY_FILTERED "_proxy-filtered"
+
 // write commands
 #define RS_CREATE_CMD RS_CMD_WRITE_PREFIX ".CREATE"
 #define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"  // for replica of support
-#define RS_ADD_CMD RS_CMD_WRITE_PREFIX ".ADD"
-#define RS_SAFEADD_CMD RS_CMD_WRITE_PREFIX ".SAFEADD"
-#define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
-#define RS_SETPAYLOAD_CMD RS_CMD_WRITE_PREFIX ".SETPAYLOAD"
-#define RS_DEL_CMD RS_CMD_WRITE_PREFIX ".DEL"
-#define LEGACY_RS_DEL_CMD "_FT.DEL"
 #define RS_DROP_CMD RS_CMD_WRITE_PREFIX ".DROP"
 #define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"
 #define RS_DROP_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPIFX"             // for replica of support
@@ -38,6 +34,13 @@
 #define RS_ALIASDEL RS_CMD_WRITE_PREFIX ".ALIASDEL"
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"  // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
+
+// document write commands
+#define RS_ADD_CMD RS_CMD_WRITE_PREFIX ".ADD"
+#define RS_SAFEADD_CMD RS_CMD_WRITE_PREFIX ".SAFEADD"
+#define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
+#define RS_DEL_CMD RS_CMD_WRITE_PREFIX ".DEL"
+#define LEGACY_RS_DEL_CMD "_FT.DEL"
 
 // Suggestion commands are key-bounded, so they are already directed to the correct shard
 #define RS_SUGADD_CMD "FT.SUGADD"
