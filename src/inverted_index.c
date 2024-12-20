@@ -920,7 +920,7 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
   const sds externalId = DocTable_GetKey(&sp->docs, id, &len);
   for (int i = 0; i < sp->numFields; ++i) {
     FieldSpec *field = sp->fields + i;
-    if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
+    if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) && !(FIELD_BIT(field) & irct->tf.fieldMask)) {
       // field is not requested, we are not checking this field!!
       continue;
     }
