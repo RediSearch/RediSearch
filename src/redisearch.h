@@ -8,6 +8,7 @@
 #define REDISEARCH_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <limits.h>
 #include "util/dllist.h"

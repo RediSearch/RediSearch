@@ -133,22 +133,22 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 394
+    # idx1 contains 24 entries, expected size of inverted index = 391
     # the size is distributed in the left and right children ranges as follows:
 
-    # left range size = 187:
+    # left range size = 295:
     #     Size of NewInvertedIndex() structure = 88
     #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 207 bytes trying to store 23 entries 8 bytes each.
     #     See Buffer_Grow() in inverted_index.c
 
-    # right range size = 207:
+    # right range size = 96:
     #     Size of NewInvertedIndex() structure = 88
     #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
-    #     Buffer grows up to 119 bytes trying to store 13 entries 8 bytes each.
-    expected_info['inverted_sz_mb'] = 394 / (1024 * 1024)
+    #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
+    expected_info['inverted_sz_mb'] = 391 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
     # Expected size of inverted index for idx2 = 88 + 25 = 113
