@@ -67,8 +67,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
   int useNumEntries = flags & Index_StoreNumeric;
   RedisModule_Assert(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
-  size_t size = (useFieldMask || useNumEntries) ? sizeof(InvertedIndex) :
-                                                  sizeof(InvertedIndex) - sizeof(t_fieldMask);
+  size_t size = sizeof_InvertedIndex(flags);
 
   InvertedIndex *idx = rm_malloc(size);
   idx->blocks = NULL;
