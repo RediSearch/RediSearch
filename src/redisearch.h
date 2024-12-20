@@ -300,15 +300,15 @@ typedef struct RSIndexResult {
   /* The docId of the result */
   t_docId docId;
 
-  /* The aggregate field mask of all the records in this result */
-  t_fieldMask fieldMask;
-
   /* the total frequency of all the records in this result */
   uint32_t freq;
 
   /* For term records only. This is used as an optimization, allowing the result to be loaded
    * directly into memory */
   uint32_t offsetsSz;
+
+  /* The aggregate field mask of all the records in this result */
+  t_fieldMask fieldMask;
 
   union {
     // Aggregate record
