@@ -148,10 +148,9 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    // TODO: Nafraf - call uft only if it is needed ?
+    // TODO: Call DefaultNormalize_utf8 only if it is needed ?
     // char *normalized = DefaultNormalize(tok, normBuf, &normLen);
     char *normalized = DefaultNormalize_utf8(tok, normBuf, &normLen);
-    RedisModule_Log(NULL, "notice", "normalized: %s origLen:%lu normLen=%lu", normalized, origLen, normLen);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
