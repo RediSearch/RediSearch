@@ -196,6 +196,7 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     size_t len;
     if (qt->type == QT_TERM) {
       s = rm_strdupcase(qt->s, qt->len);
+      // s = rm_strdupcase_utf8(qt->s, qt->len);
       len = strlen(s);
     } else {
       s = rm_strndup(qt->s, qt->len);

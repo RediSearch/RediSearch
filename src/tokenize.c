@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <strings.h>
 #include "phonetic_manager.h"
+#include <wctype.h>
+#include <wchar.h>
+#include <locale.h>
 
 typedef struct {
   RSTokenizer base;
@@ -72,6 +75,57 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   return dst;
 }
 
+static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
+  setlocale(LC_ALL, "en_US.UTF-8"); // TODO: make this configurable
+
+  size_t origLen = *len;
+  char *realDest = s;
+  size_t dstLen = 0;
+
+#define SWITCH_DEST()        \
+  if (realDest != dst) {     \
+    realDest = dst;          \
+    memcpy(realDest, s, ii); \
+  }
+  // set to 1 if the previous character was a backslash escape
+  int escaped = 0;
+  mbstate_t state;
+  memset(&state, 0, sizeof(state));
+  wchar_t wc;
+  size_t len_wc;
+
+  for (size_t ii = 0; ii < origLen;) {
+    len_wc = mbrtowc(&wc, &s[ii], MB_CUR_MAX, &state);
+    if (len_wc == (size_t)-1 || len_wc == (size_t)-2) {
+      // Handle invalid multi-byte sequence
+      ii++;
+      continue;
+    }
+
+    if (iswupper(wc)) {
+      SWITCH_DEST();
+      wchar_t lower_wc = towlower(wc);
+      wcrtomb(&realDest[dstLen], lower_wc, &state);
+      dstLen += len_wc;
+    } else if ((iswblank(wc) && !escaped) || iswcntrl(wc)) {
+      SWITCH_DEST();
+    } else if (wc == L'\\' && !escaped) {
+      SWITCH_DEST();
+      escaped = 1;
+      ii += len_wc;
+      continue;
+    } else {
+      memcpy(&dst[dstLen], &s[ii], len_wc);
+      dstLen += len_wc;
+    }
+    ii += len_wc;
+    escaped = 0;
+  }
+
+  *len = dstLen;
+  return dst;
+}
+
 // tokenize the text in the context
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
@@ -93,7 +147,10 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    // TODO: Nafraf - call uft only if it is needed ?
+    // char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    char *normalized = DefaultNormalize_utf8(tok, normBuf, &normLen);
+    RedisModule_Log(NULL, "notice", "normalized: %s origLen:%lu normLen=%lu", normalized, origLen, normLen);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {

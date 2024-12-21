@@ -12,6 +12,9 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+#include <wctype.h>
+#include <wchar.h>
+#include <locale.h>
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -122,6 +125,53 @@ static char *rm_strdupcase(const char *s, size_t len) {
     ++src;
 
   }
+  *dst = '\0';
+
+  return ret;
+}
+
+static char *rm_strdupcase_utf8(const char *s, size_t len) {
+  setlocale(LC_ALL, "en_US.UTF-8");
+
+  // Allocate memory for the destination string
+  char *ret = rm_strndup(s, len);
+  if (!ret) {
+    return NULL;
+  }
+
+  char *dst = ret;
+  const char *src = s;
+  mbstate_t state;
+  memset(&state, 0, sizeof(state));
+  wchar_t wc;
+  size_t len_wc;
+
+  while (*src) {
+    len_wc = mbrtowc(&wc, src, MB_CUR_MAX, &state);
+    if (len_wc == (size_t)-1 || len_wc == (size_t)-2) {
+      // Handle invalid multi-byte sequence
+      src++;
+      continue;
+    }
+
+    // Unescape
+    if (wc == L'\\' && (iswpunct(*(src + len_wc)) || iswspace(*(src + len_wc)))) {
+      src++;
+      continue;
+    }
+
+    wc = towlower(wc);
+    len_wc = wcrtomb(dst, wc, &state);
+    if (len_wc == (size_t)-1) {
+      // Handle conversion error
+      src++;
+      continue;
+    }
+
+    dst += len_wc;
+    src += len_wc;
+  }
+
   *dst = '\0';
 
   return ret;
