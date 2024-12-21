@@ -50,25 +50,25 @@
 #include "query_node.h"
 
 // strndup + lowercase in one pass!
-static char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
+// static char *strdupcase(const char *s, size_t len) {
+//   char *ret = rm_strndup(s, len);
+//   char *dst = ret;
+//   char *src = dst;
+//   while (*src) {
+//       // unescape
+//       if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+//           ++src;
+//           continue;
+//       }
+//       *dst = tolower(*src);
+//       ++dst;
+//       ++src;
 
-  }
-  *dst = '\0';
+//   }
+//   *dst = '\0';
 
-  return ret;
-}
+//   return ret;
+// }
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -343,13 +343,13 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A = NewTokenNode(ctx, rm_strdupcase_utf8(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
 
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+   A = NewTokenNode(ctx, rm_strdupcase_utf8(B.s, B.len), -1);
 }
 
 expr(A) ::= affix(B) . [PREFIX]  {
@@ -366,13 +366,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase_utf8(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase_utf8(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase_utf8(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {

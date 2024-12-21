@@ -131,6 +131,7 @@ static char *rm_strdupcase(const char *s, size_t len) {
 }
 
 static char *rm_strdupcase_utf8(const char *s, size_t len) {
+  // TODO: set locale depending on the index language?
   setlocale(LC_ALL, "en_US.UTF-8");
 
   // Allocate memory for the destination string
@@ -140,7 +141,7 @@ static char *rm_strdupcase_utf8(const char *s, size_t len) {
   }
 
   char *dst = ret;
-  const char *src = s;
+  char *src = dst;
   mbstate_t state;
   memset(&state, 0, sizeof(state));
   wchar_t wc;

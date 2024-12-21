@@ -76,7 +76,8 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 }
 
 static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
-  setlocale(LC_ALL, "en_US.UTF-8"); // TODO: make this configurable
+  // TODO: set locale depending on the index language?
+  setlocale(LC_ALL, "en_US.UTF-8");
 
   size_t origLen = *len;
   char *realDest = s;
