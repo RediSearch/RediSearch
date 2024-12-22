@@ -468,7 +468,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     }
   }
 
-  if (qn->type == QN_TOKEN && qn->tn.len > 0 && isAlphabetic(qn->tn.str, qn->tn.len)) {
+  if (qn->type == QN_TOKEN && qn->tn.len > 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
   } else {

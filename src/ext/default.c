@@ -21,6 +21,7 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
+#include "util/misc.h"
 
 /******************************************************************************************
  *
@@ -465,9 +466,10 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   // No stemmer available for this language - just return the node so we won't
   // be called again
-  if (!sb) {
+  if (!sb || isAlphabetic(token->str, token->len) == false) {
     return REDISMODULE_OK;
   }
+
 
   const sb_symbol *b = (const sb_symbol *)token->str;
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
