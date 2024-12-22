@@ -106,12 +106,12 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: [docs-only, get-latest-6-2-redis-tag]
+    needs: [docs-only, get-latest-7-2-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+      get-redis: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
