@@ -63,7 +63,7 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-7-2-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
