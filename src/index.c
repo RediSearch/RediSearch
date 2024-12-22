@@ -1430,16 +1430,18 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
   }
 
-  // Promote the wildcard iterator to the requested docId
+  // Promote the wildcard iterator to the requested docId if the docId is larger
   RSIndexResult *wcii_res = NULL;
-  rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);
-  if (rc == INDEXREAD_EOF) {
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  } else if (rc == INDEXREAD_NOTFOUND) {
-    // This doc-id was deleted
-    return INDEXREAD_NOTFOUND;
-  }
+  // if (docId > nc->lastDocId) {
+    rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);
+    if (rc == INDEXREAD_EOF) {
+      IITER_SET_EOF(&nc->base);
+      return INDEXREAD_EOF;
+    } else if (rc == INDEXREAD_NOTFOUND) {
+      // This doc-id was deleted
+      return INDEXREAD_NOTFOUND;
+    }
+  // }
 
   if (found) {
     // Has a real hit on the child iterator
@@ -1507,6 +1509,7 @@ static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
   }
 
   int rc;
+  // We loop over this condition, since it reflects that the index is not up to date.
   while (wcii_res->docId > nc->nextRealId) {
     rc = nc->child->Read(nc->child->ctx, &nc->base.current);
     if (rc == INDEXREAD_EOF) {
