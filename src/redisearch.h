@@ -8,6 +8,7 @@
 #define REDISEARCH_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <limits.h>
 #include "util/dllist.h"
@@ -301,28 +302,19 @@ typedef struct RSYieldableMetric{
 
 typedef struct RSIndexResult {
 
-  /******************************************************************************
-   * IMPORTANT: The order of the following 4 variables must remain the same, and all
-   * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redundant memcpy
-   *******************************************************************************/
   /* The docId of the result */
   t_docId docId;
   const RSDocumentMetadata *dmd;
 
-  /* the total frequency of all the records in this result */
-  uint32_t freq;
-
   /* The aggregate field mask of all the records in this result */
   t_fieldMask fieldMask;
+
+  /* the total frequency of all the records in this result */
+  uint32_t freq;
 
   /* For term records only. This is used as an optimization, allowing the result to be loaded
    * directly into memory */
   uint32_t offsetsSz;
-
-  /*******************************************************************************
-   * END OF the "magic 4 uints" section
-   ********************************************************************************/
 
   union {
     // Aggregate record
@@ -337,12 +329,12 @@ typedef struct RSIndexResult {
 
   RSResultType type;
 
-  // Holds an array of metrics yielded by the different iterators in the AST
-  RSYieldableMetric *metrics;
-
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want
-  int isCopy;
+  bool isCopy;
+
+  // Holds an array of metrics yielded by the different iterators in the AST
+  RSYieldableMetric *metrics;
 
   /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
   double weight;

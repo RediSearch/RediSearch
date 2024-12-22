@@ -133,39 +133,39 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 407
+    # idx1 contains 24 entries, expected size of inverted index = 391
     # the size is distributed in the left and right children ranges as follows:
 
-    # left range size = 303
-    #     Size of NewInvertedIndex() structure = 96
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    # left range size = 295:
+    #     Size of NewInvertedIndex() structure = 88
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 207 bytes trying to store 23 entries 8 bytes each.
     #     See Buffer_Grow() in inverted_index.c
 
-    # right range size = 104:
-    #     Size of NewInvertedIndex() structure = 96
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    # right range size = 96:
+    #     Size of NewInvertedIndex() structure = 88
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
-    expected_info['inverted_sz_mb'] = 407 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 391 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
-    # Expected size of inverted index for idx2 = 96 + 25 = 121
-    #     Size of NewInvertedIndex() structure = 96
+    # Expected size of inverted index for idx2 = 88 + 25 = 113
+    #     Size of NewInvertedIndex() structure = 88
     #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
-    expected_info['inverted_sz_mb'] = 121 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 113 / (1024 * 1024)
     compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
 
-    # Expected size of inverted index for idx2 = 96 + 46 = 142
-    #     Size of NewInvertedIndex() structure = 96
+    # Expected size of inverted index for idx2 = 88 + 46 = 134
+    #     Size of NewInvertedIndex() structure = 88
     #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
-    expected_info['inverted_sz_mb'] = 142 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 134 / (1024 * 1024)
     compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
 
-    # idx4 contains two GEO fields, the expected size of inverted index is 
-    # equivalent to the sum of the size of idx2 and idx3 = 121 + 142 = 263
-    expected_info['inverted_sz_mb'] = 263 / (1024 * 1024)
+    # idx4 contains two GEO fields, the expected size of inverted index is
+    # equivalent to the sum of the size of idx2 and idx3 = 113 + 134 = 247
+    expected_info['inverted_sz_mb'] = 247 / (1024 * 1024)
     compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
 
     # Geo range and Not
