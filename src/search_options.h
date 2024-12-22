@@ -32,12 +32,12 @@ typedef enum {
 typedef struct {
   uint32_t contextLen;
   uint16_t numFrags;
-  char *separator;
+  HiddenString *separator;
 } SummarizeSettings;
 
 typedef struct {
-  char *openTag;
-  char *closeTag;
+  HiddenString *openTag;
+  HiddenString *closeTag;
 } HighlightSettings;
 
 typedef struct {
@@ -68,7 +68,7 @@ typedef struct {
 
 // "path AS name"
 // If `path` is NULL then `path` = `name`
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, HiddenString *name, HiddenString *path);
 void FieldList_Free(FieldList *fields);
 
 int ParseSummarize(ArgsCursor *ac, FieldList *fields);
