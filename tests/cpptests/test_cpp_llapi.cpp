@@ -1193,7 +1193,7 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+  EXPECT_EQ(RediSearch_MemUsage(index), 0);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1206,33 +1206,33 @@ TEST_F(LLApiTest, testInfoSize) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = sizeof(NumericRangeTree);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 343 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 612 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 604 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 484 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 476 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
-  ASSERT_EQ(RediSearch_MemUsage(index), 340 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 332 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  ASSERT_EQ(RediSearch_MemUsage(index), 241 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 233 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
   // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  additional_overhead += sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
-  ASSERT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
+  additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
 

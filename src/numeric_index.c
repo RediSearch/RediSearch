@@ -28,64 +28,6 @@ typedef struct {
 
 void NumericRangeIterator_OnReopen(void *privdata);
 
-#ifdef _DEBUG
-void NumericRangeTree_Dump(NumericRangeTree *t, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRangeTree {\n");
-  ++indent;
-
-  PRINT_INDENT(indent);
-  printf("numEntries %lu,  numRanges %lu, lastDocId %ld\n", t->numEntries, t->numRanges, t->lastDocId);
-  NumericRangeNode_Dump(t->root, indent + 1);
-
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-void NumericRangeNode_Dump(NumericRangeNode *n, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRangeNode {\n");
-  ++indent;
-
-  PRINT_INDENT(indent);
-  printf("value %f, maxDepath %i\n", n->value, n->maxDepth);
-
-  if (n->range) {
-    PRINT_INDENT(indent);
-    printf("range:\n");
-    NumericRange_Dump(n->range, indent + 1);
-  }
-
-  if (n->left) {
-    PRINT_INDENT(indent);
-    printf("left:\n");
-    NumericRangeNode_Dump(n->left, indent + 1);
-  }
-  if (n->right) {
-    PRINT_INDENT(indent);
-    printf("right:\n");
-    NumericRangeNode_Dump(n->right, indent + 1);
-  }
-
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-
-void NumericRange_Dump(NumericRange *r, int indent) {
-  PRINT_INDENT(indent);
-  printf("NumericRange {\n");
-  ++indent;
-  PRINT_INDENT(indent);
-  printf("minVal %f, maxVal %f, unique_sum %f, invertedIndexSize %zu, card %hu, cardCheck %hu, splitCard %u\n", r->minVal, r->maxVal, r->unique_sum, r->invertedIndexSize, r->card, r->cardCheck, r->splitCard);
-  InvertedIndex_Dump(r->entries, indent + 1);
-  --indent;
-  PRINT_INDENT(indent);
-  printf("}\n");
-}
-
-#endif // #ifdef _DEBUG
-
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
   if (!n) return 0;
