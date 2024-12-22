@@ -72,16 +72,16 @@ typedef enum {
 } searchRequestSpecialCase;
 
 typedef struct {
-  size_t k;               // K value
-  const char* fieldName;  // Field name
-  bool shouldSort;        // Should run presort before the coordinator sort
-  size_t offset;          // Reply offset
-  heap_t *pq;             // Priority queue
-  QueryNode* queryNode;   // Query node
+  size_t k;                // K value
+  HiddenString* fieldName; // Field name
+  bool shouldSort;         // Should run presort before the coordinator sort
+  size_t offset;           // Reply offset
+  heap_t *pq;              // Priority queue
+  QueryNode* queryNode;    // Query node
 } knnContext;
 
 typedef struct {
-  const char* sortKey;  // SortKey name;
+  HiddenString* sortKey;  // SortKey name;
   bool asc;             // Sort order ASC/DESC
   size_t offset;        // SortKey reply offset
 } sortbyContext;
@@ -111,7 +111,7 @@ typedef struct {
   uint32_t format; // QEXEC_FORMAT_EXPAND or QEXEC_FORMAT_DEFAULT (0 implies STRING)
 
   specialCaseCtx** specialCases;
-  const char** requiredFields;
+  HiddenString** requiredFields;
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;

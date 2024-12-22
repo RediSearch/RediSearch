@@ -137,6 +137,12 @@ static void addToIov(const char *s, size_t n, Array *b) {
   iov->iov_len = n;
 }
 
+static void addHiddenToIov(HiddenString *hidden, Array *b) {
+  size_t n;
+  const char *s = HiddenString_GetUnsafe(hidden, &n);
+    addToIov(s, n, b);
+}
+
 /**
  * Writes a complete fragment as a series of IOVs.
  * - fragment is the fragment to write
@@ -149,8 +155,8 @@ static void addToIov(const char *s, size_t n, Array *b) {
  *    used as the 'preamble' value for a subsequent call to this function, if the next
  *    fragment being written is after the current one.
  */
-static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, size_t openLen,
-                               const char *closeTag, size_t closeLen, Array *iovs,
+static void Fragment_WriteIovs(const Fragment *curFrag, HiddenString *openTag,
+                               HiddenString *closeTag, Array *iovs,
                                const char **preamble) {
 
   const TermLoc *locs = ARRAY_GETARRAY_AS(&curFrag->termLocs, const TermLoc *);
@@ -174,16 +180,16 @@ static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, siz
       addToIov(*preamble, preambleLen, iovs);
     }
 
-    if (openLen) {
-      addToIov(openTag, openLen, iovs);
+    if (openTag) {
+      addHiddenToIov(openTag, iovs);
     }
 
     // Add the token itself
     addToIov(curFrag->buf + curLoc->offset, curLoc->len, iovs);
 
     // Add close tag
-    if (closeLen) {
-      addToIov(closeTag, closeLen, iovs);
+    if (closeTag) {
+      addHiddenToIov(closeTag, iovs);
     }
 
     *preamble = curFrag->buf + curLoc->offset + curLoc->len;
@@ -201,12 +207,9 @@ void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const Highlig
   }
 
   const char *preamble = fragList->doc;
-  size_t openLen = strlen(tags->openTag);
-  size_t closeLen = strlen(tags->closeTag);
-
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
     const Fragment *curFrag = frags + ii;
-    Fragment_WriteIovs(curFrag, tags->openTag, openLen, tags->closeTag, closeLen, iovs, &preamble);
+    Fragment_WriteIovs(curFrag, tags->openTag, tags->closeTag, iovs, &preamble);
   }
 
   // Write the last preamble
@@ -374,9 +377,6 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
     }
   }
 
-  size_t openLen = tags->openTag ? strlen(tags->openTag) : 0;
-  size_t closeLen = tags->closeTag ? strlen(tags->closeTag) : 0;
-
   for (size_t ii = 0; ii < niovs; ++ii) {
     Array *curArr = iovArrList + ii;
 
@@ -396,7 +396,7 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
     FragmentList_FindContext(fragList, curFrag, beforeLimit, afterLimit, contextSize, &before,
                              &after);
     addToIov(before.iov_base, before.iov_len, curArr);
-    Fragment_WriteIovs(curFrag, tags->openTag, openLen, tags->closeTag, closeLen, curArr, NULL);
+    Fragment_WriteIovs(curFrag, tags->openTag, tags->closeTag, curArr, NULL);
     addToIov(after.iov_base, after.iov_len, curArr);
   }
 }

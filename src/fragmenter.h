@@ -15,6 +15,7 @@
 #include "redisearch.h"
 #include "stopwords.h"
 #include "byte_offsets.h"
+#include "obfuscation/hidden.h"
 
 /**
  *
@@ -179,8 +180,8 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
                                   FragmentTermIterator *iter, int options);
 
 typedef struct {
-  const char *openTag;
-  const char *closeTag;
+  HiddenString *openTag;
+  HiddenString *closeTag;
 } HighlightTags;
 
 void FragmentList_Free(FragmentList *frags);

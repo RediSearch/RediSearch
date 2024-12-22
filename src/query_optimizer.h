@@ -58,7 +58,6 @@ typedef struct QOptimizer {
     bool scorerReq;             // does the query require a scorer (WITHSCORES does not count)
     ScorerType scorerType;      // 
 
-    const char *fieldName;      // name of sortby field
     const FieldSpec *field;     // spec of sortby field
     QueryNode *sortbyNode;      // pointer to QueryNode
     NumericFilter *nf;          // filter with required parameters

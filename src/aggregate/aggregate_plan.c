@@ -139,7 +139,7 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   return NULL;
 }
 
-PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *distFieldName) {
+PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, HiddenString *distFieldName) {
   PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
   newStp->base.type = PLN_T_ARRANGE;
   newStp->base.dtor = arrangeDtor;
@@ -148,7 +148,7 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
 
   newStp->isLimited = true;
   newStp->limit = k;
-  newStp->sortKeys = array_new(const char *, 1);
+  newStp->sortKeys = array_new(HiddenString *, 1);
   array_append(newStp->sortKeys, distFieldName);
   newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
   newStp->runLocal = true;  // the distributed KNN step will run in shards via the hybrid iterator
@@ -253,7 +253,7 @@ void AGPLN_Dump(const AGGPlan *pln, bool obfuscate) {
           printf("  SORT:\n");
           for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
             const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";
-            printf("    %s:%s\n", astp->sortKeys[ii], dir);
+            printf("    %s:%s\n", FormatHiddenText(astp->sortKeys[ii], obfuscate), dir);
           }
         }
         break;
@@ -310,22 +310,21 @@ static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   }
 }
 
-static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
+static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp, bool obfuscate) {
   const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
   if (stp->type == PLN_T_APPLY) {
     append_string(arr, "APPLY");
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
+  append_string(arr, FormatHiddenText(mstp->expr, obfuscate));
   if (stp->alias) {
     append_string(arr, "AS");
-    const char* alias = HiddenString_GetUnsafe(stp->alias, NULL);
-    append_string(arr, alias);
+    append_string(arr, FormatHiddenText(stp->alias, obfuscate));
   }
 }
 
-static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
+static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp, bool obfuscate) {
   const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   if (astp->limit || astp->offset) {
     append_string(arr, "LIMIT");
@@ -338,7 +337,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_uint(arr, numsort * 2);
     for (size_t ii = 0; ii < numsort; ++ii) {
       char *stmp;
-      rm_asprintf(&stmp, "@%s", astp->sortKeys[ii]);
+      rm_asprintf(&stmp, "@%s", FormatHiddenText(astp->sortKeys[ii], obfuscate));
       array_append(*arr, stmp);
       if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
         append_string(arr, "ASC");
@@ -349,7 +348,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
+static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp, bool obfuscate) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
   if (lstp->args.argc) {
     append_string(arr, "LOAD");
@@ -361,13 +360,13 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
+static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp, bool obfuscate) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
   append_string(arr, "GROUPBY");
   append_uint(arr, array_len(gstp->properties));
   for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
     char *property;
-    rm_asprintf(&property, "@%s", HiddenString_GetUnsafe(gstp->properties[ii], NULL));
+    rm_asprintf(&property, "@%s", FormatHiddenText(gstp->properties[ii], obfuscate));
     array_append(*arr, property);
   }
   size_t nreducers = array_len(gstp->reducers);
@@ -379,28 +378,28 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_ac(arr, &r->args);
     if (r->alias) {
       append_string(arr, "AS");
-      append_string(arr, HiddenString_GetUnsafe(r->alias, NULL));
+      append_string(arr, FormatHiddenText(r->alias, obfuscate));
     }
   }
 }
 
-array_t AGPLN_Serialize(const AGGPlan *pln) {
+array_t AGPLN_Serialize(const AGGPlan *pln, bool obfuscate) {
   char **arr = array_new(char *, 1);
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        serializeMapFilter(&arr, stp);
+        serializeMapFilter(&arr, stp, obfuscate);
         break;
       case PLN_T_ARRANGE:
-        serializeArrange(&arr, stp);
+        serializeArrange(&arr, stp, obfuscate);
         break;
       case PLN_T_LOAD:
-        serializeLoad(&arr, stp);
+        serializeLoad(&arr, stp, obfuscate);
         break;
       case PLN_T_GROUP:
-        serializeGroup(&arr, stp);
+        serializeGroup(&arr, stp, obfuscate);
         break;
       case PLN_T_INVALID:
       case PLN_T_ROOT:

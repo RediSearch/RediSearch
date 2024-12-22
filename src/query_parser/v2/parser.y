@@ -487,18 +487,16 @@ text_expr(A) ::= LP text_expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char *value = rm_strndup(C.s, C.len);
-  size_t value_len = C.len;
+  HiddenString *value = NewHiddenString(C.s, C.len, true);
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, C.s, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
+      HiddenString_Free(value);
+      value = NewHiddenString(found_value, found_value_len, true);
     }
   }
-  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value};
 }
 
 attribute_list(A) ::= attribute(B) . {
