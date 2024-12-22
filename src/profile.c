@@ -19,19 +19,19 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
     REPLY_SIMPLE_SAFE(ctx, ir->record->term.term->str);
 
   } else if (ir->idx->flags & Index_StoreNumeric) {
-    NumericFilter *flt = ir->decoderCtx.ptr;
+    const NumericFilter *flt = ir->decoderCtx.filter;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_ReplyWithSimpleString(ctx, "Term");
-      RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);
 
     } else {
       printProfileType("GEO");
       RedisModule_ReplyWithSimpleString(ctx, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(ir->decoderCtx.rangeMin, se);
-      decodeGeo(ir->decoderCtx.rangeMax, nw);
+      decodeGeo(ir->profileCtx.numeric.rangeMin, se);
+      decodeGeo(ir->profileCtx.numeric.rangeMax, nw);
       RedisModule_ReplyWithPrintf(ctx, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
