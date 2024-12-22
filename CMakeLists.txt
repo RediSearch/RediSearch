@@ -105,7 +105,6 @@ file(GLOB SOURCES
     "src/info/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
-    "src/obfuscation/*.cpp"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
