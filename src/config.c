@@ -1396,7 +1396,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-gc-scan-size", DEFAULT_GC_SCANSIZE,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcScanSize)
     )
