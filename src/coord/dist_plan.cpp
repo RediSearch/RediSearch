@@ -459,7 +459,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           *newStp = *astp;
           AGPLN_AddStep(remote, &newStp->base);
           if (astp->sortKeys) {
-            newStp->sortKeys = array_new(const char *, array_len(astp->sortKeys));
+            newStp->sortKeys = array_new(HiddenString *, array_len(astp->sortKeys));
             for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
               array_append(newStp->sortKeys, astp->sortKeys[ii]);
             }
@@ -555,7 +555,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
   AGPLN_PopStep(local, &local->firstStep_s.base);
   AGPLN_Prepend(local, &dstp->base);
-  auto tmp = (char **)AGPLN_Serialize(dstp->plan);
+  auto tmp = (char **)AGPLN_Serialize(dstp->plan, false);
   auto &v = *dstp->serialized;
   for (size_t ii = 0; ii < array_len(tmp); ++ii) {
     v.push_back(tmp[ii]);

@@ -310,7 +310,7 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = NewHiddenString(C.s, C.len, true) };
 }
 
 attribute_list(A) ::= attribute(B) . {

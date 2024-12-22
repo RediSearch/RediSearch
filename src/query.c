@@ -975,7 +975,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       char default_score_field[len + 9];  // buffer for __<field>_score
       sprintf(default_score_field, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      if (HiddenString_CompareC(qn->vn.vq->scoreField, default_score_field, strlen(default_score_field)) != 0) {
+      if (HiddenString_CaseInsensitiveCompareC(qn->vn.vq->scoreField, default_score_field, strlen(default_score_field)) != 0) {
         QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
                                "Distance field was specified twice for vector query", ": %s and %s",
                                HiddenString_GetUnsafe(qn->vn.vq->scoreField, NULL), HiddenString_GetUnsafe(qn->opts.distField, NULL));
@@ -2105,10 +2105,11 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
       STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
+    size_t valLen;
+    const char *value = HiddenString_GetUnsafe(attr->value, &valLen);
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
                                             .nameLen = attr->namelen,
-                                            .value = attr->value,
-                                            .valLen = attr->vallen };
+                                            .value = rm_strndup(value, valLen), .valLen = valLen };
     attr->value = NULL;
     vq->params.params = array_ensure_append_1(vq->params.params, param);
     bool resolve_required = false;  // at this point, we have the actual value in hand, not the query param.
@@ -2134,7 +2135,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   // Apply slop: [-1 ... INF]
   if (STR_EQCASE(attr->name, attr->namelen, SLOP_ATTR)) {
     long long n;
-    if (!ParseInteger(attr->value, &n) || n < -1) {
+    if (!ParseInteger(HiddenString_GetUnsafe(attr->value, NULL), &n) || n < -1) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2144,7 +2145,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, INORDER_ATTR)) {
     // Apply inorder: true|false
     int b;
-    if (!ParseBoolean(attr->value, &b)) {
+    if (!ParseBoolean(HiddenString_GetUnsafe(attr->value, NULL), &b)) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2155,7 +2156,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
-    if (!ParseDouble(attr->value, &d, 1) || d < 0) {
+    if (!ParseDouble(HiddenString_GetUnsafe(attr->value, NULL), &d, 1) || d < 0) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2165,7 +2166,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
     // Apply phonetic: true|false
     int b;
-    if (!ParseBoolean(attr->value, &b)) {
+    if (!ParseBoolean(HiddenString_GetUnsafe(attr->value, NULL), &b)) {
       MK_INVALID_VALUE();
       return res;
     }

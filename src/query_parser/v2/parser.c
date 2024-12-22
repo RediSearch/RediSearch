@@ -1815,18 +1815,16 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 20: /* attribute ::= ATTRIBUTE COLON param_term */
 {
-  const char *value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-  size_t value_len = yymsp[0].minor.yy0.len;
+  HiddenString *value = NewHiddenString(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len, true);
   if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, yymsp[0].minor.yy0.s, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
+      HiddenString_Free(value);
+      value = NewHiddenString(found_value, found_value_len, true);
     }
   }
-  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value};
 }
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
         break;

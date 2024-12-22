@@ -162,7 +162,7 @@ typedef enum {
 typedef struct {
   const char *name;
   size_t namelen;
-  const char *value;
+  HiddenString *value;
   size_t vallen;
 } QueryAttribute;
 

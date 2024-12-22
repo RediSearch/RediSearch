@@ -22,7 +22,7 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
   }
 
   while (!AC_IsAtEnd(&fieldArgs)) {
-    const char *name = AC_GetStringNC(&fieldArgs, NULL);
+    HiddenString *name = AC_GetHiddenString(&fieldArgs);
     ReturnedField *fieldInfo = FieldList_GetCreateField(fields, name, NULL);
     size_t ix = (fieldInfo - fields->fields);
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
@@ -38,17 +38,17 @@ static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings
   tgt->closeTag = NULL;
   tgt->openTag = NULL;
   if (defaults->openTag) {
-    tgt->openTag = rm_strdup(defaults->openTag);
+    tgt->openTag = HiddenString_Retain(defaults->openTag);
   }
   if (defaults->closeTag) {
-    tgt->closeTag = rm_strdup(defaults->closeTag);
+    tgt->closeTag = HiddenString_Retain(defaults->closeTag);
   }
 }
 
 static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
   *tgt = *defaults;
   if (tgt->separator) {
-    tgt->separator = rm_strdup(tgt->separator);
+    HiddenString_TakeOwnership(tgt->separator);
   }
 }
 
@@ -68,9 +68,9 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
 
   ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGSIZE_DEFAULT,
                                                  .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT,
-                                                 .separator = SUMMARIZE_DEFAULT_SEPARATOR},
-                           .highlightSettings = {.openTag = SUMMARIZE_DEFAULT_OPEN_TAG,
-                                                 .closeTag = SUMMARIZE_DEFAULT_CLOSE_TAG}};
+                                                 .separator = NewHiddenString(SUMMARIZE_DEFAULT_SEPARATOR, strlen(SUMMARIZE_DEFAULT_SEPARATOR), false)},
+                           .highlightSettings = {.openTag = NewHiddenString(SUMMARIZE_DEFAULT_OPEN_TAG, strlen(SUMMARIZE_DEFAULT_OPEN_TAG), false),
+                                                 .closeTag = NewHiddenString(SUMMARIZE_DEFAULT_CLOSE_TAG, strlen(SUMMARIZE_DEFAULT_CLOSE_TAG), false)}};
 
   Array fieldPtrs;
   Array_Init(&fieldPtrs);
@@ -89,8 +89,8 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-      defOpts.highlightSettings.openTag = (char *)AC_GetStringNC(ac, NULL);
-      defOpts.highlightSettings.closeTag = (char *)AC_GetStringNC(ac, NULL);
+      defOpts.highlightSettings.openTag = AC_GetHiddenString(ac);
+      defOpts.highlightSettings.closeTag = AC_GetHiddenString(ac);
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
@@ -104,7 +104,8 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       }
       defOpts.summarizeSettings.numFrags = tmp;
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
-      if (AC_GetString(ac, (const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
+      defOpts.summarizeSettings.separator = AC_GetHiddenString(ac);
+      if (!defOpts.summarizeSettings.separator) {
         rc = REDISMODULE_ERR;
         goto done;
       }
@@ -126,6 +127,15 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
 
 done:
   Array_Free(&fieldPtrs);
+  if (defOpts.highlightSettings.openTag) {
+    HiddenString_Free(defOpts.highlightSettings.openTag);
+  }
+  if (defOpts.highlightSettings.closeTag) {
+    HiddenString_Free(defOpts.highlightSettings.closeTag);
+  }
+  if (defOpts.summarizeSettings.separator) {
+    HiddenString_Free(defOpts.summarizeSettings.separator);
+  }
   return rc;
 }
 
