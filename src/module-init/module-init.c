@@ -21,6 +21,10 @@
 #include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
+#include "util/array.h"
+#include "fork_gc.h"
+#include "info_command.h"
+#include "profile.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -109,6 +113,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
+
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Module version
   RedisModule_InfoAddSection(ctx, "version");
@@ -131,6 +137,30 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
+
+   // Memory
+  RedisModule_InfoAddSection(ctx, "memory");
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info.total_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index", total_info.min_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index_human", MEMORY_HUMAN(total_info.min_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index", total_info.max_mem);
+  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index_human", MEMORY_HUMAN(total_info.max_mem));
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
+
+  // Cursors
+  RedisModule_InfoAddSection(ctx, "cursors");
+  CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
+
+  // GC stats
+  RedisModule_InfoAddSection(ctx, "gc");
+  InfoGCStats stats = total_info.gc_stats;
+  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
 
   // Dialect statistics
   DialectsGlobalStats_AddToInfo(ctx);
