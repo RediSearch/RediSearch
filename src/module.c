@@ -3642,9 +3642,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly", RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !IsEnterprise() && !isClusterEnabled, noCmdArgs),
 
     // cluster set commands
-    DEFINE_COMMAND("FT.CLUSTERSET",     SafeCmd(SetClusterCommand),     "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
-    DEFINE_COMMAND("FT.CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), "readonly deny-script",               NULL, NONE, "", true, ossCmdArgs),
-    DEFINE_COMMAND("FT.CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), "readonly deny-script",               NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
 
     // Deprecated commands. Grouped here for easy tracking
     DEFINE_COMMAND("FT.MGET",           SafeCmd(MGetCommandHandler),    "readonly", NULL,             NONE,             "read admin",           true, ossCmdArgs),
