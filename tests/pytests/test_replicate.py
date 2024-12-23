@@ -9,32 +9,35 @@ class TimeoutException(Exception):
   pass
 
 class TimeLimit(object):
-    """
-    A context manager that fires a TimeExpired exception if it does not
-    return within the specified amount of time.
-    """
-    def __init__(self, timeout):
-        self.timeout = timeout
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handler)
-        signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
-    def __exit__(self, exc_type, exc_value, traceback):
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    def handler(self, signum, frame):
-        raise TimeoutException()
+  """
+  A context manager that fires a TimeExpired exception if it does not
+  return within the specified amount of time.
+  """
+
+  def __init__(self, timeout, env=None, msg=None):
+    self.timeout = timeout
+    self.env = env
+    self.msg = msg
+
+  def __enter__(self):
+    signal.signal(signal.SIGALRM, self.handler)
+    signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    signal.setitimer(signal.ITIMER_REAL, 0)
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
+  def handler(self, signum, frame):
+    if self.env is not None:
+      self.env.assertTrue(False, message='Timedout %s' % (str(self.msg) if self.msg is not None else 'Error'))
+    raise Exception('timeout')
 
 def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5, mapping=lambda x: x):
-  try:
-    with TimeLimit(time_out):
+  with TimeLimit(time_out, env, 'Failed waiting for command to be executed on slave'):
+    res = slaveConn.execute_command(*command)
+    while mapping(res) != expected_result:
+      time.sleep(0.1)
       res = slaveConn.execute_command(*command)
-      while mapping(res) != expected_result:
-        time.sleep(0.1)
-        res = slaveConn.execute_command(*command)
-  except TimeoutException:
-    env.assertTrue(False, message='Failed waiting for command to be executed on slave')
-  except Exception as e:
-    env.assertTrue(False, message=e.message)
 
 def initEnv():
   skipTest(cluster=True) # skip on cluster before creating the env
@@ -43,7 +46,7 @@ def initEnv():
   ## on existing env we can not get a slave connection
   ## so we can no test it
   if env.env == 'existing-env':
-        env.skip()
+    env.skip()
 
   master = env.getConnection()
   slave = env.getSlaveConnection()
@@ -318,3 +321,68 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         master.execute_command('FLUSHALL')
         res = master.execute_command('WAIT', '1', '10000')
         env.assertEqual(res, 1)
+
+def shardsConnections(env):
+  for s in range(1, env.shardsCount + 1):
+      yield env.getConnection(shardId=s)
+
+def runUntil(conn, expected_result, callback, sleep_time=0.1, timeout=1):
+  with TimeLimit(timeout):
+    while True:
+      try:
+        if callback(conn) == expected_result:
+          break
+      except Exception:
+        pass
+      time.sleep(sleep_time)
+
+@skip(cluster=True)
+def test_WriteCommandsOnReplica():
+  """Tests that the RediSearch write commands are not allowed on a readonly replica"""
+
+  env = Env(useSlaves=True, forceTcp=True)
+
+  # make sure all shards are in sync with their replica
+  def synchronize_replicas(conn):
+    replication_info = conn.execute_command('info', 'replication')
+    return replication_info['slave0']['state']
+
+  for conn in shardsConnections(env):
+    runUntil(env, 'online', synchronize_replicas, timeout=10)
+    res = conn.execute_command('PING')
+    env.assertTrue(res)
+    conn.execute_command('WAIT', '1', '10000')
+
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  write_commands = ['FT.CREATE', 'FT.SUGADD', 'FT.SUGDEL', 'FT.CREATE',
+                    'FT._CREATEIFNX', 'FT.ALTER', 'FT._ALTERIFNX', 'FT.DROPINDEX',
+                    'FT._DROPINDEXIFX', 'FT.SYNUPDATE', 'FT.DICTADD',
+                    'FT.DICTDEL', 'FT.ALIASADD', 'FT._ALIASADDIFNX', 'FT.ALIASDEL',
+                    'FT._ALIASDELIFX', 'FT.ALIASUPDATE']
+
+  read_commands = ['FT.AGGREGATE', 'FT.INFO', 'FT.SEARCH', 'FT.PROFILE', 'FT.CURSOR',
+                   'FT.SPELLCHECK', 'FT.SUGGET', 'FT.SUGLEN']
+
+  # Run read and write commands on the master - should not raise RO exception
+  for command in write_commands + read_commands:
+    try:
+      master.execute_command(command)
+    except Exception as e:
+      env.assertNotContains("You can't write against a read only replica.", str(e))
+
+  # Run read commands on the replica - should not raise RO exception
+  for command in read_commands:
+    try:
+      slave.execute_command(command)
+    except Exception as e:
+      env.assertNotContains("You can't write against a read only replica.", str(e))
+
+  # Run write commands on the replica - should raise RO exception
+  for command in write_commands:
+    try:
+      slave.execute_command(command)
+      env.assertTrue(False, message=f'Command {command} should have failed on the slave')
+    except Exception as e:
+      env.assertContains("You can't write against a read only replica.", str(e))
