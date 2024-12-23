@@ -112,14 +112,14 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char*
  * Set the error code using a custom-formatted string
  * Only use this function if you are certain that no user data is leaked in the format string
  */
-void QueryError_SetDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
 /** Convenience macro to set an error of a 'bad argument' with the name of the argument */
 #define QERR_MKBADARGS_FMT(status, message, fmt, ...) \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
 
 #define QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, fmt, ...) \
-  QueryError_SetDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
+  QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
 #define QERR_MKBADARGS(status, message) \
   QueryError_SetError(status, QUERY_EPARSEARGS, message)

@@ -196,7 +196,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }

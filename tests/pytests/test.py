@@ -3987,7 +3987,7 @@ def test_missing_schema(env):
 
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')
     env.expect('FT.CREATE', 'idx2', 'TEMPORARY', 1000, 'foo', 'bar').error().contains('Unknown argument `foo`')
-    # make sure the index succeecfully index new docs
+    # make sure the index successfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
     env.expect('FT.SEARCH', 'idx2', '*').error().equal('No index exists with provided name idx2')

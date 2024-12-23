@@ -622,7 +622,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
     return 0;
   } else if (expNumParam % 2) {
-    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ESYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
     return 0;
   } else {
     expNumParam /= 2;

@@ -77,8 +77,8 @@ void HiddenString_TakeOwnership(HiddenString *hidden) {
   userString->user = rm_strndup(userString->user, userString->length);
 }
 
-void HiddenString_Clone(HiddenString* src, HiddenString** dst) {
-  UserString* s = (UserString*)src;
+void HiddenString_Clone(const HiddenString* src, HiddenString** dst) {
+  const UserString* s = (const UserString*)src;
   if (*dst == NULL) {
     *dst = NewHiddenString(s->user, s->length, true);
   } else {
@@ -97,8 +97,8 @@ void HiddenString_Clone(HiddenString* src, HiddenString** dst) {
   }
 }
 
-void HiddenString_SaveToRdb(HiddenString* value, RedisModuleIO* rdb) {
-  UserString* text = (UserString*)value;
+void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {
+  const UserString* text = (const UserString*)value;
   RedisModule_SaveStringBuffer(rdb, text->user, text->length + 1);
 }
 
@@ -118,7 +118,7 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
   return text->user;
 }
 
-RedisModuleString *HiddenString_CreateRedisModuleString(HiddenString* value, RedisModuleCtx* ctx) {
-  UserString* text = (UserString*)value;
+RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx) {
+  const UserString* text = (const UserString*)value;
   return RedisModule_CreateString(ctx, text->user, text->length);
 }

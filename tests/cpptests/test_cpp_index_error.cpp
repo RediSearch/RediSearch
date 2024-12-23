@@ -10,8 +10,8 @@ TEST_F(IndexErrorTest, testBasic) {
   const char* expected = "secret";
   RedisModuleString *key = RedisModule_CreateString(NULL, expected, 6);
   IndexError_AddError(&error, "error", "error1", key);
-  ASSERT_STREQ(error.detailed_last_error, "error1");
-  ASSERT_STREQ(error.short_last_error, "error");
+  ASSERT_STREQ(error.last_error_with_user_data, "error1");
+  ASSERT_STREQ(error.last_error_without_user_data, "error");
   RedisModuleString *lastErrorKey = IndexError_LastErrorKey(&error);
   ASSERT_EQ(key, lastErrorKey);
   const char* text = RedisModule_StringPtrLen(lastErrorKey, NULL);

@@ -19,32 +19,32 @@ typedef struct HiddenString HiddenString;
 // Should discourage directly accessing the string and printing out user data
 // This is a security measure to prevent leaking user data
 // The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
-// HiddenString_Free must be called for the object do release it
+// HiddenString_Free must be called for the object to release it
 HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
 // Comparison functions
-// CompareC overloads receive a const char* right argument for the comparison for backward compatability with existing code
+// CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
 // Eventually the hope is to remove them alltogether.
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length);
 
-// Wwnership managment
+// Ownership managment
 HiddenString *HiddenString_Duplicate(const HiddenString *value);
 void HiddenString_TakeOwnership(HiddenString *hidden);
-void HiddenString_Clone(HiddenString *src, HiddenString **dst);
+void HiddenString_Clone(const HiddenString *src, HiddenString **dst);
 
 // Allowed actions
 // Save a hidden string to an RDB file, e.g an index name
-void HiddenString_SaveToRdb(HiddenString* value, RedisModuleIO* rdb);
-// Remove a hidden string from the keyspace, e.g an index name
+void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb);
+// Remove a key from the keyspace using the hidden string, e.g an index name that
 // Used in legacy code, should be avoided in new code
 void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenString* value);
 // Creates a redis module string from a hidden string
-RedisModuleString *HiddenString_CreateRedisModuleString(HiddenString* value, RedisModuleCtx* ctx);
+RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
 // Avoid outputing user data to:

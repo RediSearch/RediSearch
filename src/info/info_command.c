@@ -15,6 +15,7 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "obfuscation/obfuscation_api.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -36,24 +37,35 @@ static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
   RedisModule_Reply_ArrayEnd(reply);
 }
 
-static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp) {
+static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp, bool obfuscate) {
   SchemaRule *rule = sp->rule;
 
   RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
 
   REPLY_KVSTR("key_type", DocumentType_ToString(rule->type));
 
+
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      REPLY_SIMPLE_SAFE(HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL));
+      const char* prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+      if (obfuscate) {
+        REPLY_SIMPLE_SAFE(Obfuscate_Text(prefix));
+      } else {
+        REPLY_SIMPLE_SAFE(prefix);
+      }
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR_SAFE("filter", HiddenString_GetUnsafe(rule->filter_exp_str, NULL));
+    const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
+    if (obfuscate) {
+      REPLY_KVSTR_SAFE("filter", Obfuscate_Text(filter));
+    } else {
+      REPLY_KVSTR_SAFE("filter", filter);
+    }
   }
 
   if (rule->lang_default) {
@@ -96,7 +108,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVSTR_SAFE("index_name", specName);
 
   renderIndexOptions(reply, sp);
-  renderIndexDefinitions(reply, sp);
+  renderIndexDefinitions(reply, sp, obfuscate);
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
   size_t geom_idx_sz = 0;

@@ -30,27 +30,27 @@ static void initDefaultKey() {
 IndexError IndexError_Init() {
     if (!NA_rstr) initDefaultKey();
     IndexError error = {0}; // Initialize all fields to 0.
-    error.short_last_error = NA;  // Last error message set to NA.
-    error.detailed_last_error = NA;  // Last error message set to NA.
+    error.last_error_without_user_data = NA;  // Last error message set to NA.
+    error.last_error_with_user_data = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
     error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     return error;
 }
-void IndexError_AddError(IndexError *error, const char *shortError, const char* detailedError, RedisModuleString *key) {
+void IndexError_AddError(IndexError *error, ConstErrorMessage shortError, ConstErrorMessage detailedError, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
     if (!error) {
         RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
                         "Index error occurred but no index error message was set.");
     }
-    if (error->short_last_error != NA) {
-        rm_free(error->short_last_error);
+    if (error->last_error_without_user_data != NA) {
+        rm_free(error->last_error_without_user_data);
     }
-    if (error->detailed_last_error != NA) {
-        rm_free(error->detailed_last_error);
+    if (error->last_error_with_user_data != NA) {
+        rm_free(error->last_error_with_user_data);
     }
     RedisModule_FreeString(RSDummyContext, error->key);
-    error->short_last_error = shortError ? rm_strdup(shortError) : NA; // Don't strdup NULL.
-    error->detailed_last_error = detailedError ? rm_strdup(detailedError) : NA; // Don't strdup NULL.
+    error->last_error_without_user_data = shortError ? rm_strdup(shortError) : NA; // Don't strdup NULL.
+    error->last_error_with_user_data = detailedError ? rm_strdup(detailedError) : NA; // Don't strdup NULL.
     error->key = RedisModule_HoldString(RSDummyContext, key);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
@@ -60,13 +60,13 @@ void IndexError_AddError(IndexError *error, const char *shortError, const char* 
 
 void IndexError_Clear(IndexError error) {
     if (!NA_rstr) initDefaultKey();
-    if (error.short_last_error != NA && error.short_last_error != NULL) {
-        rm_free(error.short_last_error);
-        error.short_last_error = NA;
+    if (error.last_error_without_user_data != NA && error.last_error_without_user_data != NULL) {
+        rm_free(error.last_error_without_user_data);
+        error.last_error_without_user_data = NA;
     }
-    if (error.detailed_last_error != NA && error.detailed_last_error != NULL) {
-      rm_free(error.detailed_last_error);
-      error.detailed_last_error = NA;
+    if (error.last_error_with_user_data != NA && error.last_error_with_user_data != NULL) {
+      rm_free(error.last_error_with_user_data);
+      error.last_error_with_user_data = NA;
     }
     if (error.key != NA_rstr) {
         RedisModule_FreeString(RSDummyContext, error.key);
@@ -77,16 +77,16 @@ void IndexError_Clear(IndexError error) {
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    RedisModuleString *lastError = NULL;
+    RedisModuleString *lastErrorKey = NULL;
     if (obfuscate) {
-      lastError = IndexError_LastErrorKeyObfuscated(error);
+      lastErrorKey = IndexError_LastErrorKeyObfuscated(error);
       REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastErrorObfuscated(error));
     } else {
-      lastError = IndexError_LastErrorKey(error);
+      lastErrorKey = IndexError_LastErrorKey(error);
       REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
     }
-    REPLY_KVRSTR(IndexingErrorKey_String, lastError);
-    RedisModule_FreeString(RSDummyContext, lastError);
+    REPLY_KVRSTR(IndexingErrorKey_String, lastErrorKey);
+    RedisModule_FreeString(RSDummyContext, lastErrorKey);
     if (withTimestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
         REPLY_KVARRAY(IndexingErrorTime_String);
@@ -104,11 +104,11 @@ size_t IndexError_ErrorCount(const IndexError *error) {
 
 // Returns the last error message in the IndexError.
 const char *IndexError_LastError(const IndexError *error) {
-    return error->detailed_last_error;
+    return error->last_error_with_user_data;
 }
 
 const char *IndexError_LastErrorObfuscated(const IndexError *error) {
-  return error->short_last_error;
+  return error->last_error_without_user_data;
 }
 
 // Returns the key of the document that caused the error.
@@ -141,11 +141,11 @@ void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
         // copy/add error count later.
-        if (error->short_last_error != NA) rm_free(error->short_last_error);
-        if (error->detailed_last_error != NA) rm_free(error->detailed_last_error);
+        if (error->last_error_without_user_data != NA) rm_free(error->last_error_without_user_data);
+        if (error->last_error_with_user_data != NA) rm_free(error->last_error_with_user_data);
         RedisModule_FreeString(RSDummyContext, error->key);
-        error->short_last_error = rm_strdup(other->short_last_error);
-        error->detailed_last_error = rm_strdup(other->detailed_last_error);
+        error->last_error_without_user_data = rm_strdup(other->last_error_without_user_data);
+        error->last_error_with_user_data = rm_strdup(other->last_error_with_user_data);
         error->key = RedisModule_HoldString(RSDummyContext, other->key);
         error->last_error_time = other->last_error_time;
     }
@@ -161,15 +161,15 @@ void IndexError_SetErrorCount(IndexError *error, size_t error_count) {
 
 // Set the last_error of the IndexError.
 void IndexError_SetLastError(IndexError *error, const char *last_error) {
-    if (error->short_last_error != NA) {
-        rm_free(error->short_last_error);
+    if (error->last_error_without_user_data != NA) {
+        rm_free(error->last_error_without_user_data);
     }
-    if (error->detailed_last_error != NA) {
-        rm_free(error->detailed_last_error);
+    if (error->last_error_with_user_data != NA) {
+        rm_free(error->last_error_with_user_data);
     }
     // Don't strdup NULL.
-    error->short_last_error = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
-    error->detailed_last_error = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
+    error->last_error_without_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
+    error->last_error_with_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
 }
 
 // Set the key of the IndexError. The key should be owned by the error already.

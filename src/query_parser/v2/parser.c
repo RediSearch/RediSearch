@@ -112,13 +112,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %f", msg, tok->pos, tok->numval);
   } else {
-    QueryError_SetDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", msg, tok->pos);
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", msg, tok->pos);
   }
 }
 
@@ -2665,7 +2665,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
     "Syntax error at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
