@@ -132,7 +132,7 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor attribute { rm_free((char*)$$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -336,7 +336,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 

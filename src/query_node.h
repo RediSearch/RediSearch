@@ -163,7 +163,6 @@ typedef struct {
   const char *name;
   size_t namelen;
   HiddenString *value;
-  size_t vallen;
 } QueryAttribute;
 
 #define PHONETIC_ENABLED 1

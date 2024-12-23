@@ -120,6 +120,8 @@ int testFragmentize() {
   for (size_t ii = 0; ii < numFrags; ++ii) {
     Array_Free(contexts + ii);
   }
+  HiddenString_Free(tags.openTag);
+  HiddenString_Free(tags.closeTag);
   return 0;
 }
 
