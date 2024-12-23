@@ -191,19 +191,24 @@ uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 extern dictType dictTypeHeapStrings;
+extern dictType dictTypeHeapHiddenStrings;
 extern dictType dictTypeHeapRedisStrings;
 
 /* Dict type functions */
 uint64_t stringsHashFunction(const void *key);
+uint64_t hiddenNameHashFunction(const void *key);
 uint64_t redisStringsHashFunction(const void *key);
 
 int stringsKeyCompare(void *privdata, const void *key1, const void *key2);
+int hiddenNameKeyCompare(void *privdata, const void *key1, const void *key2);
 int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 void stringsKeyDestructor(void *privdata, void *key);
+void hiddenNameKeyDestructor(void *privdata, void *key);
 void redisStringsKeyDestructor(void *privdata, void *key);
 
 void* stringsKeyDup(void *privdata, const void *key);
+void* hiddenNameKeyDup(void *privdata, const void *key);
 void* redisStringsKeyDup(void *privdata, const void *key);
 
 
