@@ -231,8 +231,9 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
-    Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
-                strlen(fieldInfo->summarizeSettings.separator));
+    size_t length;
+    const char* separator = HiddenString_GetUnsafe(fieldInfo->summarizeSettings.separator, &length);
+    Array_Write(&bufTmp, separator, length);
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't

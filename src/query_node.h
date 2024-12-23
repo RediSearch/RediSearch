@@ -162,8 +162,7 @@ typedef enum {
 typedef struct {
   const char *name;
   size_t namelen;
-  const char *value;
-  size_t vallen;
+  HiddenString *value;
 } QueryAttribute;
 
 #define PHONETIC_ENABLED 1
@@ -187,7 +186,7 @@ typedef struct {
   int inOrder;
   double weight;
   int phonetic;
-  char *distField;
+  HiddenString *distField;
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;

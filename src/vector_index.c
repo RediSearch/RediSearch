@@ -102,7 +102,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .spaceMetric = metric,
                                       .query = vq->knn,
                                       .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
+                                      .vectorScoreField = HiddenString_GetUnsafe(vq->scoreField, NULL),
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
@@ -171,9 +171,8 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   if (!val) {
     return -1;
   }
-  rm_free((char *)params.params[index].value);
+  rm_free((char*)params.params[index].value);
   params.params[index].value = rm_strndup(val, val_len);
-  params.params[index].valLen = val_len;
   return 1;
 }
 
