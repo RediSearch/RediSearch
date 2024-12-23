@@ -464,11 +464,13 @@ def testNoStopwords(env):
     env.assertEqual(0, res[0])
 
 def testOptional(env):
+    conn = env.getClusterConnectionIfNeeded()
+
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
 
-    env.expect('HSET', 'doc1', 'foo', 'hello wat woot').equal(1)
-    env.expect('HSET', 'doc2', 'foo', 'hello world woot').equal(1)
-    env.expect('HSET', 'doc3', 'foo', 'hello world werld').equal(1)
+    env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
 
     expected = [3, 'doc1', 'doc2', 'doc3']
     res = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
@@ -489,11 +491,13 @@ def testOptional(env):
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testOptionalOptimized(env):
+    conn = env.getClusterConnectionIfNeeded()
+
     env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
 
-    env.expect('HSET', 'doc1', 'foo', 'hello wat woot').equal(1)
-    env.expect('HSET', 'doc2', 'foo', 'hello world woot').equal(1)
-    env.expect('HSET', 'doc3', 'foo', 'hello world werld').equal(1)
+    env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
 
     # expected = [3, 'doc1', 'doc2', 'doc3']
     # res = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
