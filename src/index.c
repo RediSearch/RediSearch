@@ -1355,6 +1355,7 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
+  RedisModule_Assert(nc->child);
   // Unreachable code, to be removed
   // if (!nc->child) {
   //   nc->virt->docId = docId;
@@ -1363,7 +1364,7 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   // }
 
   if (docId == 0) {
-    // TODO: Uncovered code - remove or test
+    // No doc was read yet - read the first doc
     return nc->base.Read(ctx, hit);
   }
 
@@ -1410,8 +1411,8 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  // TODO: Uncovered code - remove or test
   if (docId == 0) {
+    // No doc was read yet - read the first doc
     return nc->base.Read(ctx, hit);
   }
 
@@ -1430,7 +1431,7 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
   }
 
-  // Promote the wildcard iterator to the requested docId if the docId is larger
+  // Promote the wildcard iterator to the requested docId if the docId
   RSIndexResult *wcii_res = NULL;
   // if (docId > nc->lastDocId) {
     rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);

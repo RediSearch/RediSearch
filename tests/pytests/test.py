@@ -514,7 +514,6 @@ def testOptionalOptimized(env):
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
 def testExplain(env: Env):
-
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
