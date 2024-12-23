@@ -61,7 +61,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
   if (AC_GetString(ac, &s, NULL, 0) != AC_OK) {
-    QERR_MKBADARGS_FMT(options->status, "Missing arguments for %s", options->name);
+    QERR_MKBADARGS_FMT(options->status, "Missing arguments", " for %s", options->name);
     return 0;
   }
 
@@ -69,20 +69,23 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
+  HiddenString *name = NewHiddenString(s, strlen(s), false);
+  *out = RLookup_GetKey(options->srclookup, name, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
+  int rc = 1;
   if (!*out) {
     if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
+      *out = RLookup_GetKey_Load(options->srclookup, name, name, RLOOKUP_F_HIDDEN);
       *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
     }
     // We currently allow implicit loading only for known fields from the schema.
     // If we can't load keys, or the key we loaded is not in the schema, we fail.
     if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
-      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY, "Property `%s` not present in document or pipeline", s);
-      return 0;
+      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY, "Property is not preset in document or pipeline", ": `%s`", s);
+      rc = 0;
     }
   }
-  return 1;
+  HiddenString_Free(name);
+  return rc;
 }
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {

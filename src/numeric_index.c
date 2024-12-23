@@ -15,6 +15,7 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/heap_doubles.h"
+#include "obfuscation/obfuscation_api.h"
 
 #define NR_MINRANGE_CARD 16
 #define NR_MAXRANGE_CARD 2500
@@ -522,9 +523,8 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
-                                        field);
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, HiddenString_GetUnsafe(ctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,

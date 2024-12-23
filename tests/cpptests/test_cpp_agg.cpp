@@ -48,7 +48,7 @@ TEST_F(AggTest, testBasic) {
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
   ASSERT_FALSE(sctx == NULL);
@@ -56,7 +56,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
 
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
@@ -132,8 +132,10 @@ TEST_F(AggTest, testGroupBy) {
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
-  ctx.rkscore = RLookup_GetKey(&rk_in, "score", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  ctx.rkvalue = RLookup_GetKey(&rk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto score = RS::MakeHiddenString("score");
+  auto value = RS::MakeHiddenString("value");
+  ctx.rkscore = RLookup_GetKey(&rk_in, score.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  ctx.rkvalue = RLookup_GetKey(&rk_in, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   ctx.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     RPMock *p = (RPMock *)rp;
     if (p->counter >= NUM_RESULTS) {
@@ -152,9 +154,11 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, &ctx);
 
   RLookup rk_out = {0};
-  RLookupKey *v_out = RLookup_GetKey(&rk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *score_out = RLookup_GetKey(&rk_out, "SCORE", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&rk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *v_out = RLookup_GetKey(&rk_out, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto scoreInCaps = RS::MakeHiddenString("SCORE");
+  auto countInCaps = RS::MakeHiddenString("COUNT");
+  RLookupKey *score_out = RLookup_GetKey(&rk_out, scoreInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey(&rk_out, countInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
 
   Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
   ASSERT_TRUE(gr != NULL);
@@ -165,7 +169,7 @@ TEST_F(AggTest, testGroupBy) {
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
   auto sumReducer = RDCRSum_New(&sumOptions);
-  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
@@ -198,9 +202,11 @@ TEST_F(AggTest, testGroupSplit) {
   ArrayGenerator gen;
   RLookup lk_in = {0};
   RLookup lk_out = {0};
-  gen.kvalue = RLookup_GetKey(&lk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *val_out = RLookup_GetKey(&lk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto value = RS::MakeHiddenString("value");
+  auto countInCaps = RS::MakeHiddenString("COUNT");
+  gen.kvalue = RLookup_GetKey(&lk_in, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *val_out = RLookup_GetKey(&lk_out, value.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey(&lk_out, countInCaps.get(), RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
