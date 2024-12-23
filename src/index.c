@@ -1531,6 +1531,7 @@ static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
     nc->base.current->weight = nc->weight;
   }
 
+  nc->base.current->docId = nc->lastDocId;
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
