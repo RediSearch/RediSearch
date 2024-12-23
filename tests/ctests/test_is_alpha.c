@@ -1,7 +1,4 @@
-#include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <stdbool.h>
 #include <assert.h>
 #include "util/misc.h"
 #include "test_util.h"
