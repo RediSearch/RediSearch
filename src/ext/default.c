@@ -21,6 +21,7 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
+#include "util/misc.h"
 
 /******************************************************************************************
  *
@@ -440,7 +441,9 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-
+  if (!isAlphabetic(token->str, token->len)){
+    return REDISMODULE_OK;
+  }
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
   struct sb_stemmer *sb;
@@ -468,6 +471,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (!sb) {
     return REDISMODULE_OK;
   }
+
 
   const sb_symbol *b = (const sb_symbol *)token->str;
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
