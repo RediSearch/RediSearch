@@ -220,7 +220,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %destructor attribute { rm_free((char*)$$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -490,7 +490,7 @@ attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
   HiddenString *value = NewHiddenString(C.s, C.len, true);
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, C.s, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, HiddenString_GetUnsafe(value, NULL), &found_value_len, ctx->status);
     if (found_value) {
       HiddenString_Free(value);
       value = NewHiddenString(found_value, found_value_len, true);
@@ -521,7 +521,7 @@ expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
   A = B;
 }
 
@@ -529,7 +529,7 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
   A = B;
 }
 
@@ -1101,7 +1101,7 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
   if (A) {
     QueryNode_AddChild(B, A);
@@ -1117,7 +1117,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
 }
 

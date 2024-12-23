@@ -2120,14 +2120,16 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
 }
 
 static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
+  size_t valLen;
+  const char* value = HiddenString_GetUnsafe(attr->value, &valLen);
 
-#define MK_INVALID_VALUE()                                                             \
-  QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value", " (%.*s) for `%.*s`", \
-                         (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
+#define MK_INVALID_VALUE()                                                              \
+  QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value", " (%.*s) for `%.*s`",  \
+                         (int)valLen, value, (int)attr->namelen, attr->name)
 
   int res = 0;
 
-  if (attr->vallen == 0) {
+  if (valLen == 0) {
     MK_INVALID_VALUE();
     return res;
   }
@@ -2135,7 +2137,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   // Apply slop: [-1 ... INF]
   if (STR_EQCASE(attr->name, attr->namelen, SLOP_ATTR)) {
     long long n;
-    if (!ParseInteger(HiddenString_GetUnsafe(attr->value, NULL), &n) || n < -1) {
+    if (!ParseInteger(value, &n) || n < -1) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2145,7 +2147,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, INORDER_ATTR)) {
     // Apply inorder: true|false
     int b;
-    if (!ParseBoolean(HiddenString_GetUnsafe(attr->value, NULL), &b)) {
+    if (!ParseBoolean(value, &b)) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2156,7 +2158,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, WEIGHT_ATTR)) {
     // Apply weight: [0  ... INF]
     double d;
-    if (!ParseDouble(HiddenString_GetUnsafe(attr->value, NULL), &d, 1) || d < 0) {
+    if (!ParseDouble(value, &d, 1) || d < 0) {
       MK_INVALID_VALUE();
       return res;
     }
@@ -2166,7 +2168,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
     // Apply phonetic: true|false
     int b;
-    if (!ParseBoolean(HiddenString_GetUnsafe(attr->value, NULL), &b)) {
+    if (!ParseBoolean(value, &b)) {
       MK_INVALID_VALUE();
       return res;
     }

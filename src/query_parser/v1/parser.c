@@ -762,7 +762,7 @@ static void yy_destructor(
       break;
     case 31: /* attribute_list */
 {
- array_free_ex((yypminor->yy1), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy1), HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 37: /* geo_filter */
@@ -1384,7 +1384,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy75 && yymsp[-1].minor.yy1) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy75, yymsp[-1].minor.yy1, array_len(yymsp[-1].minor.yy1), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy1, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy1, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy75 = yymsp[-4].minor.yy75;
 }
   yymsp[-4].minor.yy75 = yylhsminor.yy75;
