@@ -463,11 +463,10 @@ def testNoStopwords(env):
     res = env.cmd('ft.search', 'idx', 'hello a world', 'NOSTOPWORDS')
     env.assertEqual(0, res[0])
 
-def testOptional(env):
+def utilTestOptional(env, optimized = False):
+    env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE' if optimized else 'DISABLE', 'schema', 'foo', 'text').ok()
+
     conn = env.getClusterConnectionIfNeeded()
-
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
-
     env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
     env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
@@ -490,32 +489,11 @@ def testOptional(env):
     # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
+def testOptional(env):
+    utilTestOptional(env)
+
 def testOptionalOptimized(env):
-    conn = env.getClusterConnectionIfNeeded()
-
-    env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
-
-    env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
-    env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
-
-    # expected = [3, 'doc1', 'doc2', 'doc3']
-    # res = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
-    # env.assertEqual(res, expected)
-    # res = env.cmd(
-    #     'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
-    # env.assertEqual([2, 'doc2', 'doc3'], res)
-    # res = env.cmd(
-    #     'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    # # Docs that contains the optional term would rank higher.
-    # env.assertEqual(res, [3, 'doc2', 'doc3', 'doc1'])
-    # res = env.cmd(
-    #     'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    # env.assertEqual(res, [3, 'doc3', 'doc2', 'doc1'])
-    res = env.cmd(
-        'ft.search', 'idx', '~world ~(werld hello)', 'withscores', 'nocontent', 'scorer', 'DISMAX')
-    # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
-    env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
+    utilTestOptional(env, optimized=True)
 
 def testExplain(env: Env):
     env.expect(

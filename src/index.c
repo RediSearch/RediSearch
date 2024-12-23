@@ -1352,16 +1352,9 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   nc->lastDocId = docId;
 
   if (nc->lastDocId > nc->maxDocId) {
+    IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
-
-  RedisModule_Assert(nc->child);
-  // Unreachable code, to be removed
-  // if (!nc->child) {
-  //   nc->virt->docId = docId;
-  //   nc->base.current = nc->virt;
-  //   return INDEXREAD_OK;
-  // }
 
   if (docId == 0) {
     // No doc was read yet - read the first doc
@@ -1405,7 +1398,6 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
   bool found = false;
 
   if (nc->lastDocId > nc->maxDocId) {
-    // TODO: Add the below to original version?
     IITER_SET_EOF(nc->wcii);
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
@@ -1433,7 +1425,7 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // Promote the wildcard iterator to the requested docId if the docId
   RSIndexResult *wcii_res = NULL;
-  // if (docId > nc->lastDocId) {
+  if (docId > nc->wcii->LastDocId(nc->wcii->ctx)) {
     rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);
     if (rc == INDEXREAD_EOF) {
       IITER_SET_EOF(&nc->base);
@@ -1442,7 +1434,7 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
       // This doc-id was deleted
       return INDEXREAD_NOTFOUND;
     }
-  // }
+  }
 
   if (found) {
     // Has a real hit on the child iterator
