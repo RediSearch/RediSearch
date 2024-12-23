@@ -441,7 +441,9 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-
+  if (!isAlphabetic(token->str, token->len)){
+    return REDISMODULE_OK;
+  }
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
   struct sb_stemmer *sb;
@@ -466,7 +468,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   // No stemmer available for this language - just return the node so we won't
   // be called again
-  if (!sb || isAlphabetic(token->str, token->len) == false) {
+  if (!sb) {
     return REDISMODULE_OK;
   }
 
