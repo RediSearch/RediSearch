@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "rdb.h"
 #include "resp3.h"
+#include "rmutil/rm_assert.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -165,7 +166,11 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    dictAdd(spellCheckDicts, key, val);
+    if (val->size) {
+      dictAdd(spellCheckDicts, key, val);
+    } else {
+      TrieType_Free(val);
+    }
     RedisModule_Free(key);
   }
   return REDISMODULE_OK;
@@ -184,11 +189,18 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
-    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     Trie *val = dictGetVal(entry);
+    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false);
   }
   dictReleaseIterator(iter);
+}
+
+static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
+  if (dictSize(spellCheckDicts)) {
+    SpellCheckDictAuxSave(rdb, when);
+  }
 }
 
 #define SPELL_CHECK_ENCVER_CURRENT 1
@@ -201,6 +213,7 @@ int DictRegister(RedisModuleCtx *ctx) {
       .aux_load = SpellCheckDictAuxLoad,
       .aux_save = SpellCheckDictAuxSave,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+      .aux_save2 = SpellCheckDictAuxSave2,
   };
   SpellCheckDictType =
       RedisModule_CreateDataType(ctx, "scdtype00", SPELL_CHECK_ENCVER_CURRENT, &spellCheckDictType);
