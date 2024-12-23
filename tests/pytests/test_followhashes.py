@@ -368,9 +368,9 @@ def testScoreDecimal(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx1')
         waitForIndex(env, 'idx2')
-        res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx1', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.5)
-        res = env.cmd('ft.search', 'idx2', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx2', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
 
 def testMultiFilters1(env):
