@@ -201,8 +201,8 @@ def testMultiNonGeo(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_geo_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         conn.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'GEO')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -229,13 +229,13 @@ def testMultiNonGeoNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr GEO
     for (i,v) in enumerate(non_geo_dict.values()):
-        conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'GEO')
+        conn.execute_command('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'GEO')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_geo_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_geo_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -263,7 +263,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
 
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     sortable_param = ['SORTABLE'] if is_sortable else []
-    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+    env.assertEqual(len(expected), 3, message=f'dialect {dialect_param}, sortable {is_sortable}')
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'GEO', *sortable_param).ok()
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'GEO', *sortable_param).ok()

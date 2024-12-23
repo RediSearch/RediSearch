@@ -309,7 +309,7 @@ class Connection(object):
             try:
                 args_count = int(line[1:])
             except ValueError:
-                raise Exception('Invalid mbulk header: %s' % line)
+                raise Exception(f'Invalid mbulk header: {line}')
         data = []
         for arg in range(args_count):
             data.append(self.read_response())
@@ -326,7 +326,7 @@ class Connection(object):
         try:
             args_count = int(line[1:])
         except ValueError:
-            raise Exception('Invalid mbulk request: %s' % line)
+            raise Exception(f'Invalid mbulk request: {line}')
         return self.read_mbulk(args_count)
 
     def read_request_and_reply_status(self, status):
@@ -364,14 +364,14 @@ class Connection(object):
             try:
                 return int(line[1:])
             except ValueError:
-                raise Exception('Invalid numeric value: %s' % line)
+                raise Exception(f'Invalid numeric value: {line}')
         elif line[0] == '-':
             return line.rstrip()
         elif line[0] == '$':
             try:
                 bulk_len = int(line[1:])
             except ValueError:
-                raise Exception('Invalid bulk response: %s' % line)
+                raise Exception(f'Invalid bulk response: {line}')
             if bulk_len == -1:
                 return None
             data = self.read(bulk_len + 2)
@@ -383,10 +383,10 @@ class Connection(object):
             try:
                 args_count = int(line[1:])
             except ValueError:
-                raise Exception('Invalid mbulk response: %s' % line)
+                raise Exception(f'Invalid mbulk response: {line}')
             return self.read_mbulk(args_count)
         else:
-            raise Exception('Invalid response: %s' % line)
+            raise Exception(f'Invalid response: {line}')
 
 
 class ShardMock:

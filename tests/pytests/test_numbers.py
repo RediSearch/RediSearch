@@ -64,7 +64,7 @@ def testCompression(env):
 
     for i in range(repeat):
         value = accuracy * i
-        env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
+        env.expect('ft.search', 'idx', (f'@n:[{value} {value}]')).equal([1, str(i), ['n', str(value)]])
 
 @skip(cluster=True)
 def testSanity(env):
@@ -88,7 +88,7 @@ def testCompressionConfig(env):
           env.cmd('hset', i, 'n', str(1 + i / 100.0))
     for i in range(100):
         num = str(1 + i / 100.0)
-        env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
+        env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([1, str(i), ['n', num]])
 
     # with compression. no exact number match.
     env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
@@ -103,7 +103,7 @@ def testCompressionConfig(env):
 
     for i in range(100):
         num = str(1 + i / 100.0)
-        env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0])
+        env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([0])
 
 @skip(cluster=True)
 def testRangeParentsConfig(env):
@@ -138,7 +138,7 @@ def testEmptyNumericLeakIncrease(env):
     for i in range(repeat):
         for j in range(docs):
             x = j + i * docs
-            conn.execute_command('HSET', 'doc{}'.format(j), 'n', format(x))
+            conn.execute_command('HSET', f'doc{j}', 'n', format(x))
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
@@ -170,12 +170,12 @@ def testEmptyNumericLeakCenter(env):
     docs = 10000
 
     for i in range(100):
-        conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
+        conn.execute_command('HSET', f'doc{i}', 'n', format(i))
 
     for i in range(repeat):
         for j in range(docs):
             x = j + i * docs
-            conn.execute_command('HSET', 'doc{}'.format(j % 100 + 100), 'n', format(x))
+            conn.execute_command('HSET', f'doc{j % 100 + 100}', 'n', format(x))
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 

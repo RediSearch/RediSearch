@@ -11,16 +11,16 @@ def testHammingScorer(env):
     waitForIndex(env, 'idx')
 
     for i in range(16):
-        res = conn.execute_command('hset', 'doc%d' % i, 'PAYLOAD', ('%x' % i) * 8, 'title', 'hello world')
+        res = conn.execute_command('hset', 'doc%d' % i, 'PAYLOAD', (f'{i:x}') * 8, 'title', 'hello world')
         env.assertEqual(res, 2)
 
     for i in range(16):
-        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
+        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', (f'{i:x}') * 8,
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[1], 'doc%d' % i)
         env.assertEqual(res[2], '1')
         # test with payload of different length
-        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 7,
+        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', (f'{i:x}') * 7,
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[2], '0')
         # test with no payload

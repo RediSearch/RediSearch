@@ -14,7 +14,7 @@ def test_dialect_config_get_set_from_default(env):
     env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '2']] )
     env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
     env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
 
 @skip(cluster=True)
 def test_dialect_config_get_set_from_config(env):
@@ -25,7 +25,7 @@ def test_dialect_config_get_set_from_config(env):
     env.expect(config_cmd() + " GET DEFAULT_DIALECT").equal([['DEFAULT_DIALECT', '1']] )
     env.expect(config_cmd() + " SET DEFAULT_DIALECT 0").error()
     env.expect(config_cmd() + " SET DEFAULT_DIALECT -1").error()
-    env.expect(config_cmd() + " SET DEFAULT_DIALECT {}".format(MAX_DIALECT + 1)).error()
+    env.expect(config_cmd() + f" SET DEFAULT_DIALECT {MAX_DIALECT + 1}").error()
 
 def test_dialect_query_errors(env):
     conn = getConnectionByEnv(env)
@@ -33,8 +33,8 @@ def test_dialect_query_errors(env):
     env.expect("FT.CREATE idx SCHEMA t TEXT").ok()
     conn.execute_command("HSET", "h", "t", "hello")
     env.expect("FT.SEARCH idx 'hello' DIALECT").error().contains("Need an argument for DIALECT")
-    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect("FT.SEARCH idx 'hello' DIALECT 0").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
+    env.expect("FT.SEARCH idx 'hello' DIALECT 6").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
 
 def test_v1_vs_v2(env):
     env.expect("FT.CREATE idx SCHEMA title TAG t1 TEXT t2 TEXT t3 TEXT num NUMERIC v VECTOR HNSW 6 TYPE FLOAT32 DIM 1 DISTANCE_METRIC COSINE").ok()
@@ -200,8 +200,8 @@ def test_spell_check_dialect_errors(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     MAX_DIALECT = set_max_dialect(env)
     env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT').error().contains("Need an argument for DIALECT")
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
-    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', "{}".format(MAX_DIALECT + 1)).error().contains("DIALECT requires a non negative integer >=1 and <= {}".format(MAX_DIALECT))
+    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', 0).error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
+    env.expect('FT.SPELLCHECK', 'idx', 'Tooni toque kerfuffle', 'DIALECT', f"{MAX_DIALECT + 1}").error().contains(f"DIALECT requires a non negative integer >=1 and <= {MAX_DIALECT}")
 
 def test_dialect_aggregate(env):
     conn = getConnectionByEnv(env)
