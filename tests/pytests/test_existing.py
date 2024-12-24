@@ -111,3 +111,7 @@ def testOptimized():
     # Test the optimized version of the NOT iterator
     env.expect('FT.SEARCH', 'idx', '-@t:world', 'NOCONTENT').equal(
         [5, 'doc1', 'doc3', 'doc5', 'doc7', 'doc9'])
+
+    # Reschedule the gc - add a job to the queue
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
