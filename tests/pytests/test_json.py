@@ -1357,6 +1357,7 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"  }')
     env.assertEqual(res, expected_result)
 
+@skip(no_json=True)
 def testLimitations(env):
     """ highlight/summarize is not supported with JSON indexes """
 
