@@ -1295,7 +1295,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
 
 typedef struct {
   IndexIterator base;     // base index iterator
-  IndexIterator *wcii;     // wildcard index iterator
+  IndexIterator *wcii;    // wildcard index iterator
   IndexIterator *child;   // child index iterator
   RSIndexResult *virt;
   t_fieldMask fieldMask;
