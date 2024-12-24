@@ -83,13 +83,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
-  if (val) {
-    size_t len;
-    const char *ret = RedisModule_StringPtrLen(val, &len);
-    if (len > 0) {
-      *ptr = rm_strndup(ret, len);
-    }
-  }
+  size_t len;
+  const char *ret = RedisModule_StringPtrLen(val, &len);
+  *ptr = rm_strndup(ret, len);
   return REDISMODULE_OK;
 }
 
@@ -459,7 +455,7 @@ CONFIG_SETTER(setFrisoINI) {
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
-  if (config->frisoIni && strlen(config->frisoIni) > 0) {
+  if (config->frisoIni /* && strlen(config->frisoIni) > 0*/ ) {
     return sdsnew(config->frisoIni);
   } else {
     return NULL;
@@ -828,6 +824,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
 
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
+  sds currValue = NULL;
+  sds currValueDefault = NULL;
   while (!AC_IsAtEnd(&ac)) {
     const char *name = AC_GetStringNC(&ac, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
@@ -843,26 +841,22 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     // if the value is different from default, we can't update it, because the
     // CONFIG SET has higher priority than the FT.CONFIG SET
     RSConfig RSDefaultConfig = RS_DEFAULT_CONFIG;
-    sds currValue = curVar->getValue(&RSGlobalConfig);
-    sds currValueDefault = curVar->getValue(&RSDefaultConfig);
-
-    if ((currValue != NULL && currValueDefault!= NULL
-          && sdscmp(currValue, currValueDefault) == 0 ) ||
-          (currValue == NULL && currValueDefault == NULL)) {
+    currValue = curVar->getValue(&RSGlobalConfig);
+    currValueDefault = curVar->getValue(&RSDefaultConfig);
+    bool isExistingEqual = (currValue != NULL && currValueDefault != NULL
+                            && sdscmp(currValue, currValueDefault) == 0);
+    if (isExistingEqual ||
+        (currValue == NULL && currValueDefault == NULL)) {
       // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
       // If we don't have a coordinator or this configuration has no trigger, this value
       // is meaningless and should be ignored
       if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-        *err = rm_strdup(QueryError_GetError(&status));
-        QueryError_ClearError(&status);
-        return REDISMODULE_ERR;
+        goto err;
       }
     } else {
-      // Consume the value
-      RedisModule_Log(NULL, "notice", "Can't set %s, because it was already set by CONFIG", curVar->name);
-      if (!(curVar->flags & RSCONFIGVAR_F_FLAG)) {
-        const char *value = AC_GetStringNC(&ac, NULL);
-      }
+      // Existing value and default value are different (was already set by CONFIG)
+      QueryError_SetErrorFmt(&status, QUERY_EDUPFIELD, "Can't set %s, because it was already set by CONFIG", curVar->name);
+      goto err;
     }
     sdsfree(currValue);
     sdsfree(currValueDefault);
@@ -871,6 +865,13 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   }
 
   return REDISMODULE_OK;
+
+err:
+  sdsfree(currValue);
+  sdsfree(currValueDefault);
+  *err = rm_strdup(QueryError_GetError(&status));
+  QueryError_ClearError(&status);
+  return REDISMODULE_ERR;
 }
 
 RSConfigOptions RSGlobalConfigOptions = {
@@ -1308,7 +1309,7 @@ const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
     case TimeoutPolicy_Fail:
       return on_timeout_vals[TimeoutPolicy_Fail];
     default:
-      return "huh?";
+      return "invalid";
   }
 }
 

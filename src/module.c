@@ -3491,8 +3491,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Register the module configuration parameters
   GetRedisVersion(ctx);
-  Version unstableRedis = {8, 1, 0};
-  bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
+  const Version unstableRedis = {8, 1, 0};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
   if (unprefixedConfigSupported) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
@@ -3501,7 +3501,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Check if we are actually in cluster mode
-  bool isClusterEnabled = checkClusterEnabled(ctx);
+  const bool isClusterEnabled = checkClusterEnabled(ctx);
 
   // Apply configuration
   if (unprefixedConfigSupported) {

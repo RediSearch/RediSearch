@@ -422,7 +422,7 @@ def testSetACLUsername():
 ################################################################################
 
 def _removeModuleArgs(env: Env):
-    """Remove modules and args from the environment"""
+    """Remove modules and args from the environment (to test MODULE LOADEX)"""
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
     env.envRunner.modulePath.pop()
@@ -442,35 +442,35 @@ UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
 
 numericConfigs = [
-    # configName, ftConfigName, defaultValue, minValue, maxValue, immutable
-    ('search-_numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False),
-    ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True),
-    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False),
-    ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False),
-    ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, LLONG_MAX, False),
-    ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False),
-    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False),
-    ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False),
-    ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, False),
-    ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False),
-    ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', -1, 0, LLONG_MAX, False),
-    ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True),
-    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False),
-    ('search-max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 0, LLONG_MAX, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False),
-    ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False),
-    ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False),
-    ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False),
-    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True),
-    ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True),
-    ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False),
-    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False),
-    ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False),
-    ('search-workers', 'WORKERS', 0, 0, 16, False),
-    ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True),
+    # configName, ftConfigName, defaultValue, minValue, maxValue, immutable, clusterConfig
+    ('search-_numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False, False),
+    ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
+    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False, False),
+    ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
+    ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, LLONG_MAX, False, False),
+    ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
+    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False, False),
+    ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
+    ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, False, False),
+    ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
+    ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', -1, 0, LLONG_MAX, False, False),
+    ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
+    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
+    ('search-max-search-results', 'MAXSEARCHRESULTS', 1_000_000, 0, LLONG_MAX, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 1, 16, False, False),
+    ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
+    ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
+    ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
+    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
+    ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
+    ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
+    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
+    ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
+    ('search-workers', 'WORKERS', 0, 0, 16, False, False),
+    ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     # Cluster parameters
-    ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True),
-    ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False),
+    ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
+    ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
 ]
 
 @skip(redis_less_than='8.0')
@@ -518,9 +518,8 @@ def testConfigAPIRunTimeNumericParams():
             .contains('CONFIG SET failed')
 
     # Test numeric parameters
-    for configName, ftConfigName, default, min, max, immutable in numericConfigs:
-        if configName in ['search-threads',
-                          'search-topology-validation-timeout']:
+    for configName, ftConfigName, default, min, max, immutable, clusterConfig in numericConfigs:
+        if clusterConfig:
             if not env.isCluster():
                 continue
 
@@ -541,9 +540,8 @@ def testModuleLoadexNumericParams():
     redisearch_module_path = env.envRunner.modulePath[0]
     _removeModuleArgs(env)
 
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        if configName in ['search-threads',
-                          'search-topology-validation-timeout']:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if clusterConfig:
             if not env.isCluster():
                 continue
 
@@ -603,9 +601,8 @@ def testConfigAPILoadTimeNumericParams():
         env.debugPrint('MODULE environment variable is not set. Skipping test')
         env.skip()
 
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
-        if configName in ['search-threads',
-                          'search-topology-validation-timeout']:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if clusterConfig:
             continue
 
         # Test that the limits are enforced using MODULE LOADEX
@@ -627,20 +624,18 @@ def testConfigFileNumericParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
             # Skip cluster parameters
-            if configName in ['search-threads',
-                              'search-topology-validation-timeout']:
+            if clusterConfig:
                 continue
 
             f.write(f'{configName} {minValue}\n')
 
     # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         # Skip cluster parameters
-        if configName in ['search-threads',
-                          'search-topology-validation-timeout']:
+        if clusterConfig:
             if not env.isCluster():
                 continue
 
@@ -658,12 +653,12 @@ def testClusterConfigFileNumericParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
             f.write(f'{configName} {minValue}\n')
 
     # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, str(minValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
@@ -677,22 +672,20 @@ def testConfigFileAndArgsNumericParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+        for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
             # Skip cluster parameters
-            if configName in ['search-threads',
-                              'search-topology-validation-timeout']:
+            if clusterConfig:
                 continue
             f.write(f'{configName} {minValue}\n')
 
     moduleArgs = ''
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         moduleArgs += f'{argName} {minValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
-    for configName, argName, default, minValue, maxValue, immutable in numericConfigs:
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         # Skip cluster parameters
-        if configName in ['search-threads',
-                          'search-topology-validation-timeout']:
+        if clusterConfig:
             continue
 
         res = env.cmd('CONFIG', 'GET', configName)
