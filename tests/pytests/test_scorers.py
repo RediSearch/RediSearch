@@ -299,7 +299,7 @@ def testScoreError(env):
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
 
-def _test_score(env, idx):
+def _test_expose_score(env, idx):
     conn = env.getClusterConnectionIfNeeded()
     conn.execute_command('HSET', 'doc1', 'title', 'hello')
 
@@ -327,8 +327,8 @@ def _test_score(env, idx):
 
 def testExposeScore(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    _test_score(env, 'idx')
+    _test_expose_score(env, 'idx')
 
 def testExposeScoreOptimized(env: Env):
     env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
-    _test_score(env, 'idxOpt')
+    _test_expose_score(env, 'idxOpt')
