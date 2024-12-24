@@ -447,40 +447,6 @@ TEST_F(IndexTest, testPureNot) {
   InvertedIndex_Free(w);
 }
 
-// // Note -- in test_index.c, this test was never actually run!
-// TEST_F(IndexTest, DISABLED_testOptional) {
-//   InvertedIndex *w = createPopulateTermsInvIndex(16, 1);
-//   // not all numbers that divide by 3
-//   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
-//   IndexReader *r1 = NewTermIndexReader(w);   //
-//   IndexReader *r2 = NewTermIndexReader(w2);  //
-
-//   // printf("Reading!\n");
-//   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-//   irs[0] = NewReadIterator(r1);
-//   irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
-
-//   IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-//   RSIndexResult *h = NULL;
-
-//   int i = 1;
-//   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-//     // printf("%d <=> %d\n", h->docId, i);
-//     ASSERT_EQ(i, h->docId);
-//     if (i > 0 && i % 3 == 0) {
-//       ASSERT_EQ(1, h->agg.children[1]->freq);
-//     } else {
-//       ASSERT_EQ(0, h->agg.children[1]->freq);
-//     }
-//     // printf("%d, ", h.docId);
-//   }
-
-//   ui->Free(ui);
-//   // IndexResult_Free(&h);
-//   InvertedIndex_Free(w);
-//   InvertedIndex_Free(w2);
-// }
-
 TEST_F(IndexTest, testNumericInverted) {
   size_t index_memsize;
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);

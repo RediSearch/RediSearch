@@ -299,38 +299,36 @@ def testScoreError(env):
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
 
-def testExposeScore(env: Env):
+def _test_score(env, idx):
     conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
 
-    def test_score(env, conn):
-        conn.execute_command('HSET', 'doc1', 'title', 'hello')
+    # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
+    # Test with default scorer (TFIDF)
+    expected = [1, ['__score', '1']]
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    # Test with explicit TFIDF scorer
+    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    # Test with explicit BM25 scorer
+    expected = [1, ['__score', str(0.454545444693)]] # BM25 score (different from TFIDF)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
-        # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
-        # Test with default scorer (TFIDF)
-        expected = [1, ['__score', '1']]
-        env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
-        # Test with explicit TFIDF scorer
-        env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
-        # Test with explicit BM25 scorer
-        expected = [1, ['__score', str(0.454545444693)]] # BM25 score (different from TFIDF)
-        env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    conn.execute_command('HSET', 'doc2', 'title', 'world')
 
-        conn.execute_command('HSET', 'doc2', 'title', 'world')
+    doc1_score = 1 if env.isCluster() else 2 # TODO: why?
 
-        doc1_score = 1 if env.isCluster() else 2 # TODO: why?
+    expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
-        expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
-        env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    expected = [1, ['count', '1']]
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
 
-        expected = [1, ['count', '1']]
-        env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
+    env.expect('FT.SEARCH', idx, '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')
 
-        env.expect('FT.SEARCH', 'idx', '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')
+def testExposeScore(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    _test_score(env, 'idx')
 
-    for idx_def in [
-        ['FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT'],
-        ['FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT']
-    ]:
-        env.expect(*idx_def).ok()
-        test_score(env, conn)
-        env.flush()
+def testExposeScoreOptimized(env: Env):
+    env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
+    _test_score(env, 'idxOpt')
