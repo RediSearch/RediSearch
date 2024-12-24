@@ -536,7 +536,7 @@ def testDialect2TagExact():
                     'NOCONTENT', 'SORTBY', 'id', 'ASC')
         env.assertEqual(res, expected)
 
-        # Optional Queries (using tiled "~")
+        # Optional Queries (using tilde "~")
         res = env.cmd('FT.SEARCH', idx, '@tag:{"abc:1"} ~@tag:{"xyz:2"}',
                     'NOCONTENT', 'SORTBY', 'id', 'ASC')
         env.assertEqual(res, [2, '{doc}:1', '{doc}:3'])
