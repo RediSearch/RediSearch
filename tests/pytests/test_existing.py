@@ -59,3 +59,55 @@ def test_existing_GC():
     # Reschedule the gc - add a job to the queue
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+@skip(cluster=True)
+def testOptimized():
+    """
+    Basic test for the optimized versions of the iterators that exploit the
+    existing-index.
+    """
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 0")
+
+    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
+    # Stop GC from running periodically
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Add some docs
+    n_docs = 10
+    for i in range(1, n_docs + 1):
+        env.cmd('HSET', f'doc{i}', 't', f'hello')
+
+    # Remove some docs
+    for i in range(1, n_docs + 1):       # Doc{i} matches doc with id = i
+        if i % 2 == 0:
+            env.cmd('DEL', f'doc{i}')
+
+    # Sanity check
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'), [i for i in range(1, 11)])
+
+    # Apply the GC, to clean the deleted docs from the inverted indexes
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+
+    # Make sure the inverted index is updated
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'), [i for i in range(1, 11, 2)])
+
+    # Test the optimized wildcard iterator
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0')
+    env.assertEqual(res, [n_docs / 2])
+
+    # Add a doc with a different value for the 't' field
+    env.cmd('HSET', 'doc11', 't', 'world')
+
+    # Test the optimized version of the optional iterator
+    res = env.cmd('FT.SEARCH', 'idx', '~@t:hello*', 'WITHSCORES')
+    for i in range(1, len(res), 3):
+        # Only doc11 should have score 0
+        if res[i] != 'doc11':
+            env.assertEqual(res[i+1], '1')    # The score should be 1
+        else:
+            env.assertEqual(res[i+1], '0')    # The score should be 0
+
+    # Test the optimized version of the NOT iterator
+    env.expect('FT.SEARCH', 'idx', '-@t:world', 'NOCONTENT').equal(
+        [5, 'doc1', 'doc3', 'doc5', 'doc7', 'doc9'])
