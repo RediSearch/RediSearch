@@ -463,14 +463,13 @@ def testNoStopwords(env):
     res = env.cmd('ft.search', 'idx', 'hello a world', 'NOSTOPWORDS')
     env.assertEqual(0, res[0])
 
-def testOptional(env):
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
-    env.expect('ft.add', 'idx',
-                                    'doc1', 1.0, 'fields', 'foo', 'hello wat woot').ok()
-    env.expect('ft.add', 'idx', 'doc2',
-                                    1.0, 'fields', 'foo', 'hello world woot').ok()
-    env.expect('ft.add', 'idx', 'doc3',
-                                    1.0, 'fields', 'foo', 'hello world werld').ok()
+def utilTestOptional(env, optimized = False):
+    env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE' if optimized else 'DISABLE', 'schema', 'foo', 'text').ok()
+
+    conn = env.getClusterConnectionIfNeeded()
+    env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
 
     expected = [3, 'doc1', 'doc2', 'doc3']
     res = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
@@ -490,8 +489,13 @@ def testOptional(env):
     # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
-def testExplain(env: Env):
+def testOptional(env):
+    utilTestOptional(env)
 
+def testOptionalOptimized(env):
+    utilTestOptional(env, optimized=True)
+
+def testExplain(env: Env):
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',
