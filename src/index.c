@@ -1427,12 +1427,12 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
   RSIndexResult *wcii_res = NULL;
   if (docId > nc->wcii->LastDocId(nc->wcii->ctx)) {
     rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, &wcii_res);
-    if (rc == INDEXREAD_EOF) {
-      IITER_SET_EOF(&nc->base);
-      return INDEXREAD_EOF;
-    } else if (rc == INDEXREAD_NOTFOUND) {
-      // This doc-id was deleted
-      return INDEXREAD_NOTFOUND;
+    if (rc != INDEXREAD_OK) {
+      if (rc != INDEXREAD_NOTFOUND) {
+        // EOF or timeout, set invalid
+        IITER_SET_EOF(&nc->base);
+      }
+      return rc;
     }
   }
 
@@ -1440,7 +1440,7 @@ static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
     // Has a real hit on the child iterator
     nc->base.current->weight = nc->weight;
   } else {
-    nc->virt->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
+    nc->virt->docId = nc->lastDocId = docId;
     nc->virt->weight = 0;
     nc->base.current = nc->virt;
   }
@@ -1454,8 +1454,7 @@ static size_t OI_NumEstimated(void *ctx) {
   return nc->maxDocId;
 }
 
-/* Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
- * our child */
+// Read from an OPTIONAL iterator - Non-Optimized version.
 static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   if (nc->lastDocId >= nc->maxDocId) {
@@ -1487,6 +1486,8 @@ static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
+// Read from optional iterator - Optimized version, utilizing the `existing docs`
+// inverted index.
 static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
   if (nc->lastDocId >= nc->maxDocId) {
@@ -1496,9 +1497,10 @@ static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
   // Get the next docId
   RSIndexResult *wcii_res = NULL;
   int wcii_rc = nc->wcii->Read(nc->wcii->ctx, &wcii_res);
-  if (wcii_rc == INDEXREAD_EOF) {
+  if (wcii_rc != INDEXREAD_OK) {
+    // EOF, set invalid
     IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
+    return wcii_rc;
   }
 
   int rc;
@@ -1507,7 +1509,6 @@ static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
     rc = nc->child->Read(nc->child->ctx, &nc->base.current);
     if (rc == INDEXREAD_EOF) {
       nc->nextRealId = nc->maxDocId + 1;
-      break;
     } else {
       nc->nextRealId = nc->base.current->docId;
     }
