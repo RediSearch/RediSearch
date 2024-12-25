@@ -13,7 +13,7 @@
 #include <time.h>
 
 #include "commands.h"
-#include "command_info.h"
+#include "command_info/command_info.h"
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
@@ -1147,6 +1147,7 @@ static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details
         }
         break;
     case NONE:
+      RS_LOG_ASSERT_FMT(!details->callback.ptr, "Command registration callback was specified but the type of callback was not set for: %s", details->name);
       break;
   }
   return REDISMODULE_OK;
@@ -1197,18 +1198,6 @@ static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleComman
   return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
-#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
-  SubCommand subcommands[] = {                                                                                                                                      \
-    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
-    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
-    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
-  }
-
-static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
-  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);
-  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
-}
-
 static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *debugCommand) {
   int rc = RegisterDebugCommands(debugCommand);
   if (rc != REDISMODULE_OK) {
@@ -1216,6 +1205,8 @@ static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *deb
   }
   return RegisterCoordDebugCommands(debugCommand);
 }
+
+static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand);
 
 #define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " PROXY_FILTERED : flags
 
@@ -1301,11 +1292,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
     return REDISMODULE_ERR;
-  }
-
-  if (RedisModule_SetCommandInfo == NULL) {
-    RedisModule_Log(ctx, "warning",
-                    "RedisModule_SetCommandInfo is not available, search commands will have limited information");
   }
 
   const CommandKeys indexOnlyCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
@@ -3134,6 +3120,20 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
                                                CursorCommandInternal, ctx, argv, argc,
                                                (WeakRef){0});
+}
+
+#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
+  SubCommand subcommands[] = {                                                                                                                                      \
+    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
+    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
+    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
+  }
+
+// This function sits next to RegisterCoordCursorCommands fucntion
+// RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
+static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
 static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {

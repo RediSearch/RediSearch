@@ -16,7 +16,7 @@
       {
         "name": "index",
         "type": "string",
-        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+        "summary": "Specifies the name of the index."
       },
       {
         "name": "data_type",
@@ -816,7 +816,7 @@
         "type": "pure-token",
         "token": "VERBATIM",
         "optional": true,
-        "summary": "Searches using the exact query terms without stemming or synonym expansion."
+        "summary": "Searches using the exact query terms without stemming or query expansion."
       },
       {
         "name": "nostopwords",
@@ -1027,7 +1027,8 @@
             "token": "SEPARATOR",
             "optional": true
           }
-        ]
+        ],
+        "summary": "Splits a field into contextual fragments surrounding the found terms, Note that summarize for JSON documents is not currently supported."
       },
       {
         "name": "highlight",
@@ -1079,7 +1080,7 @@
             ]
           }
         ],
-        "summary": "Highlights terms in the search results, with customizable tags for emphasis."
+        "summary": "Highlights terms in the search results, with customizable tags for emphasis. Note that highlight for JSON documents is not currently supported."
       },
       {
         "name": "slop",

@@ -24,15 +24,19 @@ endif()
 # Define paths for the script and output files
 set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
 set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
-set(COMMAND_OUTPUT_H "${CMAKE_SOURCE_DIR}/src/command_info/command_info.h")
-set(COMMAND_OUTPUT_C "${CMAKE_SOURCE_DIR}/src/command_info/command_info.c")
+set(COMMAND_INFO_FILE_NAME "command_info")
+set(COMMAND_INFO_FOLDER_NAME "command_info")
+set(COMMAND_OUTPUT_FOLDER "${CMAKE_SOURCE_DIR}/src/${COMMAND_INFO_FOLDER_NAME}")
+set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
+set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
+set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
 
 # Add custom command to run the Python script
 add_custom_command(
         OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C}
-        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${CMAKE_SOURCE_DIR}/src/command_info
+        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${COMMAND_OUTPUT_FILE} -i ${COMMAND_INFO_FOLDER_NAME}
         DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
-        COMMENT "Generating command_info.h and command_info.c"
+        COMMENT "Generating ${COMMAND_INFO_FILE_NAME}.h and ${COMMAND_INFO_FILE_NAME}.c"
         VERBATIM
 )
 
@@ -111,6 +115,7 @@ file(GLOB SOURCES
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/command_info/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
