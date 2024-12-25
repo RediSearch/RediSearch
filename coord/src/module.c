@@ -30,6 +30,8 @@
 #include "cluster_spell_check.h"
 #include "profile.h"
 #include "resp3.h"
+#include "debug_commands.h"
+#include "global_stats.h"
 
 #include "libuv/include/uv.h"
 
@@ -1625,6 +1627,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccessTime = clock();
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, postProccessTime);
   }
+
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH);
 
 cleanup:
   RedisModule_EndReply(reply);

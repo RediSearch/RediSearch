@@ -1,6 +1,7 @@
 from common import *
 from RLTest import Env
 import redis
+from inspect import currentframe
 
 def info_modules_to_dict(conn):
   res = conn.execute_command('INFO MODULES')
@@ -189,13 +190,108 @@ def test_redis_info():
     conn.execute_command('DEL', f'h{i}')
 
   # Force-invoke the GC
-  forceInvokeGC(env, 'idx')
-
-  # Wait for GC to finish
-  time.sleep(2)
+  forceInvokeGC(env)
 
   # Call `INFO` and check that the data is updated accordingly
   res = env.cmd('INFO', 'MODULES')
   env.assertGreater(res['search_bytes_collected'], 0)
   env.assertGreater(res['search_total_cycles'], 0)
   env.assertGreater(res['search_total_ms_run'], 0)
+
+
+def test_counting_queries(env: Env):
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  # Add some data
+  with env.getClusterConnectionIfNeeded() as con:
+    for i in range(10):
+      con.execute_command('HSET', i, 'n', i)
+
+  # Initiate counters
+  queries_counter = 0
+  query_commands_counter = 0
+  def check_counters():
+    line_number = currentframe().f_back.f_lineno
+    info = env.cmd('INFO', 'MODULES')
+    env.assertEqual(info['search_total_queries_processed'], queries_counter, message=f'line {line_number}')
+    env.assertEqual(info['search_total_query_commands'], query_commands_counter, message=f'line {line_number}')
+
+  # Call `INFO` and check that the counters are 0
+  check_counters()
+
+  env.cmd('FT.SEARCH', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  env.cmd('FT.AGGREGATE', 'idx', '*')
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 6)
+  env.assertNotEqual(cursor, 0) # Cursor is not done
+  queries_counter += 1
+  query_commands_counter += 1
+
+  # Both counters should be updated
+  check_counters()
+
+  _, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+  env.assertEqual(cursor, 0) # Cursor is done
+  query_commands_counter += 1 # Another query command, but not a unique query
+
+  # Only the query commands counter should be updated
+  check_counters()
+
+  # Call commands that do not count as queries
+
+  # Search with a non-existing index
+  env.expect('FT.SEARCH', 'idx2', '*').error()
+  check_counters()
+
+  # Search with a syntax error
+  env.expect('FT.SEARCH', 'idx', '(*').error()
+  check_counters()
+
+  # Aggregate with a non-existing index
+  env.expect('FT.AGGREGATE', 'idx2', '*').error()
+  check_counters()
+
+  # Aggregate with a syntax error
+  env.expect('FT.AGGREGATE', 'idx', '(*').error()
+  check_counters()
+
+  # Cursor read with a non-existing cursor
+  env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
+  check_counters()
+
+  if env.isCluster() and env.shardsCount > 1:
+    # Verify that the counters are updated correctly on a cluster
+    # We expect all the counters to sum up to the total number of queries
+
+    for i in range(1, env.shardsCount + 1):
+      env.getConnection(i).execute_command('FT.SEARCH', 'idx', '*')
+
+    queries_counter += env.shardsCount
+    query_commands_counter += env.shardsCount
+
+    actual_queries_counter = 0
+    actual_query_commands_counter = 0
+    for i in range(1, env.shardsCount + 1):
+      info = env.getConnection(i).execute_command('INFO', 'MODULES')
+      actual_queries_counter += info['search_total_queries_processed']
+      actual_query_commands_counter += info['search_total_query_commands']
+
+    env.assertEqual(actual_queries_counter, queries_counter)
+    env.assertEqual(actual_query_commands_counter, query_commands_counter)
+
+
+@skip(noWorkers=True)
+def test_counting_queries_BG():
+  env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
+  test_counting_queries(env)

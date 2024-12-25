@@ -1064,16 +1064,6 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
 }
 
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
-  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    char field[16] = {0};
-    snprintf(field, sizeof field, "dialect_%d", dialect);
-    // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
-  }
-}
-
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
   switch (policy) {
     case TimeoutPolicy_Return:
