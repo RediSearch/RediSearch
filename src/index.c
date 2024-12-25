@@ -1391,7 +1391,7 @@ static int OI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-// SkipTo for OPTIONAL iterator - Non-optimized version.
+// SkipTo for OPTIONAL iterator - Optimized version.
 static int OI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
 
