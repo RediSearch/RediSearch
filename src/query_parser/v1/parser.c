@@ -757,7 +757,7 @@ static void yy_destructor(
       break;
     case 30: /* attribute */
 {
- rm_free((char*)(yypminor->yy87).value); 
+ HiddenString_Free((yypminor->yy87).value); 
 }
       break;
     case 31: /* attribute_list */

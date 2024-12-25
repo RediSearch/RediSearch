@@ -1551,7 +1551,8 @@ specialCaseCtx* SpecialCaseCtx_New() {
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if (!ctx) return;
-  if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
+  if (ctx->specialCaseType == SPECIAL_CASE_KNN) {
+    HiddenString_Free(ctx->knn.fieldName);
     QueryNode_Free(ctx->knn.queryNode);
   } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
     HiddenString_Free(ctx->sortby.sortKey);
@@ -1681,7 +1682,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     size_t k = queryVectorNode.vq->knn.k;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
-    ctx->knn.fieldName = HiddenString_GetUnsafe(queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField, NULL);
+    ctx->knn.fieldName = HiddenString_Retain(queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField);
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
     ctx->specialCaseType = SPECIAL_CASE_KNN;

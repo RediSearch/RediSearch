@@ -129,7 +129,7 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { HiddenString_Free($$.value); }
 
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }

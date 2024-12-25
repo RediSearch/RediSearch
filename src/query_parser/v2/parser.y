@@ -217,7 +217,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { HiddenString_Free($$.value); }
 
 %type attribute_list {QueryAttribute *}
 %destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
@@ -1045,8 +1045,13 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_fiel
   }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  char *scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &scoreField, NULL, &D);
   B->vn.vq->params = C;
+  if (scoreField) {
+    B->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   A = B;
 }
 
@@ -1058,7 +1063,12 @@ vector_query(A) ::= vector_command(B) vector_score_field(D). {
   }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  char *scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &scoreField, NULL, &D);
+  if (scoreField) {
+    B->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   A = B;
 }
 
@@ -1087,7 +1097,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr)->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr)->value));
 
   if (A) {
     QueryNode_AddChild(B, A);
