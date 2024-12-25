@@ -1094,7 +1094,6 @@ ok:
     // This doc-id was deleted
     return INDEXREAD_NOTFOUND;
   }
-  RS_LOG_ASSERT_FMT(nc->lastDocId == docId, "Expected docId to be %llu, got %llu", docId, nc->lastDocId);
   return INDEXREAD_OK;
 }
 
