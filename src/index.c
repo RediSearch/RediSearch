@@ -1468,6 +1468,8 @@ static int OI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
     int rc = nc->child->Read(nc->child->ctx, &nc->base.current);
     if (rc == INDEXREAD_EOF) {
       nc->nextRealId = nc->maxDocId + 1;
+    } else if (rc == INDEXREAD_TIMEOUT) {
+      return rc;
     } else {
       nc->nextRealId = nc->base.current->docId;
     }
@@ -1509,6 +1511,8 @@ static int OI_ReadSorted_O(void *ctx, RSIndexResult **hit) {
     rc = nc->child->Read(nc->child->ctx, &nc->base.current);
     if (rc == INDEXREAD_EOF) {
       nc->nextRealId = nc->maxDocId + 1;
+    } else if (rc == INDEXREAD_TIMEOUT) {
+      return rc;
     } else {
       nc->nextRealId = nc->base.current->docId;
     }
