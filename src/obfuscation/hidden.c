@@ -34,6 +34,7 @@ HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnershi
 
 void HiddenString_Free(const HiddenString* hn) {
   HiddenStringImpl* value = (HiddenStringImpl*)hn;
+  RS_LOG_ASSERT(value->refcount > 0, "Freeing a string with refcount 0");
   if (--value->refcount == 0) {
     if (value->owner != Borrow) {
       rm_free((void*)value->buffer);

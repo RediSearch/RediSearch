@@ -2110,7 +2110,6 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
                                             .nameLen = attr->namelen,
                                             .value = rm_strndup(value, valLen), .valLen = valLen };
-    attr->value = NULL;
     vq->params.params = array_ensure_append_1(vq->params.params, param);
     bool resolve_required = false;  // at this point, we have the actual value in hand, not the query param.
     vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, resolve_required);
@@ -2183,8 +2182,8 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     //                                          will be enable if field was declared phonetic
 
   } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
-    // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
-    qn->opts.distField = NewHiddenStringEx(attr->value, attr->vallen, Take);
+    // Retain the value string, so it won't get freed when releasing the QueryAttribute.
+    qn->opts.distField = HiddenString_Retain(attr->value);
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {
