@@ -13,6 +13,10 @@ on:
         type: boolean
         description: 'Run profiler on standalone benchmarks'
         default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
   workflow_call:
     inputs:
       extended:
