@@ -23,6 +23,7 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -697,7 +698,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
         if field in ['GEO', 'NUMERIC']:
             block_size = 48
             initial_block_cap = 6
-            inverted_index_meta_data = 48
+            inverted_index_meta_data = 40
             total_size += (block_size + initial_block_cap + inverted_index_meta_data)
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
@@ -742,3 +743,16 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
 def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def downloadFiles(rdbs = None):
+    if rdbs is None:
+        return False
+
+    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
+    for f in rdbs:
+        path = os.path.join(REDISEARCH_CACHE_DIR, f)
+        if not os.path.exists(path):
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+        if not os.path.exists(path):
+            return False
+    return True

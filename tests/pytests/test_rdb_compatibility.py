@@ -15,18 +15,6 @@ RDBS = [
     'redisearch_2.0.9.rdb'
 ]
 
-def downloadFiles(rdbs = None):
-    rdbs = RDBS if rdbs is None else rdbs
-
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
-    for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
-            return False
-    return True
-
 @skip(cluster=True)
 def testRDBCompatibility(env):
     # temp skip for out-of-index
@@ -38,7 +26,7 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles():
+    if not downloadFiles(RDBS):
         if CI:
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
         else:
@@ -122,6 +110,6 @@ def testRDBCompatibility_vecsim():
         env.assertTrue(env.checkExitCode())
 
 if __name__ == "__main__":
-    if not downloadFiles():
+    if not downloadFiles(RDBS):
         raise Exception("Couldn't download RDB files")
     print("RDB Files ready for testing!")
