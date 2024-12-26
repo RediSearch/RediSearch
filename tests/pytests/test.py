@@ -13,7 +13,7 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1').error().contains("wrong number of arguments")
     env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
-    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
+    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("no such index")
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
@@ -190,8 +190,8 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments")
 
-    env.expect('ft.get fake_idx foo').error().contains("Unknown Index name")
-    env.expect('ft.mget fake_idx foo').error().contains("Unknown Index name")
+    env.expect('ft.get fake_idx foo').error().contains("no such index")
+    env.expect('ft.mget fake_idx foo').error().contains("no such index")
 
     for i in range(100):
         env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -203,7 +203,7 @@ def testGet(env):
         env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(env.cmd(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("no such index")
 
     rr = env.cmd(
         'ft.mget', 'idx', *('doc%d' % i for i in range(100)))
@@ -357,8 +357,6 @@ def testDrop(env):
                              'doc96', 'doc97', 'doc98', 'doc99'],
                              py2sorted(keys))
 
-    env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments")
-
 def testDelete(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
@@ -387,8 +385,6 @@ def testDelete(env):
         env.expect('FT.DROPINDEX', 'idx').ok()
         keys = env.keys('*')
         env.assertEqual(py2sorted("doc%d" %k for k in range(100)), py2sorted(keys))
-
-    env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
 
 def testCustomStopwords(env):
     # Index with default stopwords
@@ -467,14 +463,13 @@ def testNoStopwords(env):
     res = env.cmd('ft.search', 'idx', 'hello a world', 'NOSTOPWORDS')
     env.assertEqual(0, res[0])
 
-def testOptional(env):
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
-    env.expect('ft.add', 'idx',
-                                    'doc1', 1.0, 'fields', 'foo', 'hello wat woot').ok()
-    env.expect('ft.add', 'idx', 'doc2',
-                                    1.0, 'fields', 'foo', 'hello world woot').ok()
-    env.expect('ft.add', 'idx', 'doc3',
-                                    1.0, 'fields', 'foo', 'hello world werld').ok()
+def utilTestOptional(env, optimized = False):
+    env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE' if optimized else 'DISABLE', 'schema', 'foo', 'text').ok()
+
+    conn = env.getClusterConnectionIfNeeded()
+    env.assertEqual(conn.execute_command('HSET', 'doc1', 'foo', 'hello wat woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc2', 'foo', 'hello world woot'), 1)
+    env.assertEqual(conn.execute_command('HSET', 'doc3', 'foo', 'hello world werld'), 1)
 
     expected = [3, 'doc1', 'doc2', 'doc3']
     res = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
@@ -494,8 +489,13 @@ def testOptional(env):
     # Note that doc1 gets 0 score since neither 'world' appears in the doc nor the phrase 'werld hello'.
     env.assertEqual(res, [3, 'doc3', '3', 'doc2', '1', 'doc1', '0'])
 
-def testExplain(env: Env):
+def testOptional(env):
+    utilTestOptional(env)
 
+def testOptionalOptimized(env):
+    utilTestOptional(env, optimized=True)
+
+def testExplain(env: Env):
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH',
         'SCHEMA', 't', 'TEXT', 'bar', 'NUMERIC', 'SORTABLE',

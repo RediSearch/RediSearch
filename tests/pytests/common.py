@@ -23,6 +23,7 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -654,25 +655,36 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
+# Dispatch a command to make sure that the module is loaded and initialized
+# We need to dispatch a command that will activate the topology updater, by
+# sending a command to the shards. Otherwise the cluster.refresh command will
+# not be effective, due to lazy initialization of the topology updater.
+# Thus we dispatch a command that does not have an index, as it is not stopped
+# in the coordinator level.
 def verify_shard_init(shard):
+    # One of the following errors can be raised (timing), yet they
+    # mean the same thing in this case - the command was dispatched
+    # to the shards before the connections were ready. Continue to
+    # try until success\timeout.
+    uninitialized_errors = [
+        'ERRCLUSTER Uninitialized cluster state, could not perform command',
+        'Could not distribute command'
+    ]
+    # The following error means that the cluster is initialized, as it was
+    # returned from the shards.
+    initialized_error = 'Alias does not exist'
+
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.CREATE', 'init_shard_idx' ,'SCHEMA', 't', 'TEXT')
-                shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
+                shard.execute_command('FT.ALIASDEL', 'non-existing-alias')
                 break
             except redis_exceptions.ResponseError as e:
-                # One of the following errors can be raised (timing), yet they
-                # mean the same thing in this case - the command was dispatched
-                # to the shards before the connections were ready. Continue to
-                # try until success\timeout.
-                possible_errors = [
-                    'ERRCLUSTER Uninitialized cluster state, could not perform command',
-                    'Could not distribute command'
-                ]
-                if any([err in str(e) for err in possible_errors]):
+                if any([err in str(e) for err in uninitialized_errors]):
                     continue
+                elif initialized_error in str(e):
+                    break
+                # Unexpected error, raise it.
                 raise
 
 def cmd_assert(env, cmd, res, message=None):
@@ -686,7 +698,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
         if field in ['GEO', 'NUMERIC']:
             block_size = 48
             initial_block_cap = 6
-            inverted_index_meta_data = 48
+            inverted_index_meta_data = 40
             total_size += (block_size + initial_block_cap + inverted_index_meta_data)
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
@@ -731,3 +743,16 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
 def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def downloadFiles(rdbs = None):
+    if rdbs is None:
+        return False
+
+    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
+    for f in rdbs:
+        path = os.path.join(REDISEARCH_CACHE_DIR, f)
+        if not os.path.exists(path):
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+        if not os.path.exists(path):
+            return False
+    return True

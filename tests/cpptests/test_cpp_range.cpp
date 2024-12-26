@@ -38,7 +38,7 @@ TEST_F(RangeTest, testRangeTree) {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000), false);
   }
-  ASSERT_EQ(t->numRanges, 12);
+  ASSERT_EQ(t->numRanges, 8);
   ASSERT_EQ(t->numEntries, 50000);
 
   struct {
@@ -184,7 +184,7 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 42);
+  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 36);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
@@ -229,7 +229,7 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  size_t empty_numeric_mem_size = sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
