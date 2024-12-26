@@ -154,7 +154,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +174,7 @@ jobs:
 
 
   benchmark-vecsim-oss-standalone-profiler:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
+    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       fail-fast: false
       matrix:
