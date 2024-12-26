@@ -130,12 +130,14 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
-                      const char *field_name); // includes tiered index
+                      const FieldSpec *fs); // includes tiered index
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
 int VecSim_CallTieredIndexesGC(WeakRef spRef);
+
+char *VecSim_FormatIndexAndFieldName(const FieldSpec *fs, StrongRef sp_ref, bool obfuscate);
 
 #ifdef __cplusplus
 extern "C" {

@@ -167,8 +167,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const HiddenString *fieldName, const RSValue *returnedField,
-                               hlpDocContext *docParams, int options) {
+                               const RSValue *returnedField, hlpDocContext *docParams, int options) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -181,7 +180,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   size_t docLen;
   const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
-      !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
+      !fragmentizeOffsets(lookup, fieldInfo->name, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {
     if (fieldInfo->mode == SummarizeMode_Synopsis) {
       // If summarizing is requested then trim the field so that the user isn't
@@ -264,7 +263,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, const R
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, spec->name, fieldValue, docParams,
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, fieldValue, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);

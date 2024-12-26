@@ -49,6 +49,7 @@ static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings
   *tgt = *defaults;
   if (tgt->separator) {
     HiddenString_TakeOwnership(tgt->separator);
+    HiddenString_Retain(tgt->separator);
   }
 }
 

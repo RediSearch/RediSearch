@@ -57,9 +57,9 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy);
 
 static void ReturnedField_Free(ReturnedField *field) {
-  rm_free(field->highlightSettings.openTag);
-  rm_free(field->highlightSettings.closeTag);
-  rm_free(field->summarizeSettings.separator);
+  HiddenString_Free(field->highlightSettings.openTag);
+  HiddenString_Free(field->highlightSettings.closeTag);
+  HiddenString_Free(field->summarizeSettings.separator);
   if (field->name) {
     HiddenString_Free(field->name);
   }

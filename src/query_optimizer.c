@@ -141,7 +141,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const HiddenString *fieldName = opt->field->fieldName;
+  const HiddenString *fieldName = field ? opt->field->fieldName : NULL;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
