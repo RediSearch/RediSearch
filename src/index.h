@@ -73,7 +73,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
 
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
-IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight);
+IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double weight);
 
 /* Create a wildcard iterator, to iterate all the existing docs in the*/
 IndexIterator *NewWildcardIterator(QueryEvalCtx *q);
