@@ -21,9 +21,14 @@ on:
       profiler:
         type: boolean
         default: false
+      allowed_setup:
+        type: string
+        description: 'if empty allows all setups. if not, will only trigger for a specific setup'
+        default: ""
 
 jobs:
   benchmark-search-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,6 +43,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-vecsim-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +58,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +73,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-04-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +88,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-08-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +103,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-16-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     strategy:
       fail-fast: false
       matrix:
@@ -112,7 +119,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-20-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +135,7 @@ jobs:
 
 
   benchmark-search-oss-cluster-24-primaries:
-    if: inputs.extended
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
     strategy:
       fail-fast: false
       matrix:
@@ -143,7 +150,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
-    if: inputs.profiler
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +170,7 @@ jobs:
 
 
   benchmark-vecsim-oss-standalone-profiler:
-    if: inputs.profiler
+    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
     strategy:
       fail-fast: false
       matrix:
