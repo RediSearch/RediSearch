@@ -66,6 +66,7 @@ typedef struct {
   uint32_t lastOffset;
   uint16_t options;
   bool empty_input;
+  RSLanguage language;
 } TokenizerCtx;
 
 typedef struct RSTokenizer {

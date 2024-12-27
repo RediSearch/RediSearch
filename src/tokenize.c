@@ -16,6 +16,7 @@
 #include <wctype.h>
 #include <wchar.h>
 #include <locale.h>
+#include <language.h>
 
 typedef struct {
   RSTokenizer base;
@@ -149,8 +150,12 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     // TODO: Call DefaultNormalize_utf8 only if it is needed ?
-    // char *normalized = DefaultNormalize(tok, normBuf, &normLen);
-    char *normalized = DefaultNormalize_utf8(tok, normBuf, &normLen);
+    char *normalized = NULL;
+    if (base->ctx.language == RS_LANG_CHINESE) {
+      normalized = DefaultNormalize(tok, normBuf, &normLen);
+    } else {
+      normalized = DefaultNormalize_utf8(tok, normBuf, &normLen);
+    }
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
@@ -254,6 +259,7 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
+  t->ctx.language = RS_LANG_CHINESE;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
@@ -265,6 +271,7 @@ RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
     mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
+  t->ctx.language = RS_LANG_ENGLISH;  // TODO: set the language using the index language
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
