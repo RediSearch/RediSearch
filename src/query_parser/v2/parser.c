@@ -1878,7 +1878,7 @@ static YYACTIONTYPE yy_reduce(
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase_utf8(tok, tokLen), tokLen);
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
       QueryNode_AddChild(yylhsminor.yy47, C);
     }
   }
@@ -1897,7 +1897,7 @@ static YYACTIONTYPE yy_reduce(
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
   // yymsp[-2].minor.yy47 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
-  yymsp[-2].minor.yy47 = NewTokenNode(ctx, rm_strdupcase_utf8(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy47 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
   yymsp[-2].minor.yy47->opts.flags |= QueryNode_Verbatim;
 }

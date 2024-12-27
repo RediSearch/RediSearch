@@ -79,31 +79,31 @@ def testRussianAlphabet(env):
         expected = [2, 'test:consonantsU', 'test:consonantsL']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:БВГДЗКЛМНПРСТФХ', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Search soft consonants
         expected = [2, 'test:softConsonantsU', 'test:softConsonantsL']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:ЙЧЩ', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Search hard consonants
         expected = [2, 'test:hardConsonantsU', 'test:hardConsonantsL']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:ЖШЦ', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Search hard vowels
         expected = [2, 'test:hardVowelsU', 'test:hardVowelsL']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:АЭЫОУ', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Search soft vowels
         expected = [2, 'test:softVowelsU', 'test:softVowelsL']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:ЯЕИЁЮ', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
 def testDiacritics(env):
     conn = getConnectionByEnv(env)
@@ -148,7 +148,6 @@ def testDiacriticLimitation(env):
     # the diacritics are not removed, so we got 6 different terms
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
-        print(res)
         expected = ['+etud', '+étud', 'etude', 'etudes', 'étude', 'études']
         env.assertEqual(res, expected)
 

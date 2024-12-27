@@ -550,7 +550,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase_utf8(tok, tokLen), tokLen);
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
       QueryNode_AddChild(A, C);
     }
   }
@@ -567,7 +567,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   *s = '$';
   memcpy(s + 1, B.s, B.len);
   // A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
-  A = NewTokenNode(ctx, rm_strdupcase_utf8(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }

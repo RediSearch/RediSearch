@@ -37,14 +37,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
 // Normalization buffer
 #define MAX_NORMALIZE_SIZE 128
 
-/**
- * Normalizes text.
- * - s contains the raw token
- * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. on output contains the
- * on output contains the length of the normalized token
- */
-static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+static char *DefaultNormalize_singlechar(char *s, char *dst, size_t *len) {
   size_t origLen = *len;
   char *realDest = s;
   size_t dstLen = 0;
@@ -128,6 +121,21 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
   return dst;
 }
 
+/**
+ * Normalizes text.
+ * - s contains the raw token
+ * - dst is the destination buffer which contains the normalized text
+ * - len on input contains the length of the raw token. on output contains the
+ * on output contains the length of the normalized token
+ */
+static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+  if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
+    return DefaultNormalize_utf8(s, dst, len);
+  } else {
+    return DefaultNormalize(s, dst, len);
+  }
+}
+
 // tokenize the text in the context
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
@@ -149,13 +157,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    // TODO: Call DefaultNormalize_utf8 only if it is needed ?
-    char *normalized = NULL;
-    if (base->ctx.language == RS_LANG_CHINESE) {
-      normalized = DefaultNormalize(tok, normBuf, &normLen);
-    } else {
-      normalized = DefaultNormalize_utf8(tok, normBuf, &normLen);
-    }
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
@@ -259,7 +261,6 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
-  t->ctx.language = RS_LANG_CHINESE;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
@@ -271,7 +272,6 @@ RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
     mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
-  t->ctx.language = RS_LANG_ENGLISH;  // TODO: set the language using the index language
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }

@@ -109,8 +109,7 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-// strndup + lowercase in one pass!
-static char *rm_strdupcase(const char *s, size_t len) {
+static char *rm_strdupcase_singlechar(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = dst;
@@ -176,6 +175,15 @@ static char *rm_strdupcase_utf8(const char *s, size_t len) {
   *dst = '\0';
 
   return ret;
+}
+
+// strndup + lowercase in one pass!
+static char *rm_strdupcase(const char *s, size_t len) {
+  if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
+    return rm_strdupcase_utf8(s,len);
+  } else {
+    return rm_strdupcase_singlechar(s, len);
+  }
 }
 
 #endif
