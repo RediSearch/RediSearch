@@ -894,16 +894,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  size_t res = 0;
-  res += sp->docs.memsize;
-  res += sp->docs.sortablesSize;
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
-  res += IndexSpec_collect_text_overhead(sp);
-  res += IndexSpec_collect_tags_overhead(sp);
-  res += sp->stats.invertedSize;
-  res += sp->stats.offsetVecsSize;
-  res += sp->stats.termsSize;
-  return res;
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes
