@@ -429,12 +429,6 @@
   "FT.SUGADD": {
     "summary": "Adds a suggestion string to an auto-complete suggestion dictionary",
     "complexity": "O(1)",
-    "history": [
-      [
-          "2.0.0",
-          "Deprecated `PAYLOAD` argument"
-      ]
-    ],
     "arguments": [
       {
         "name": "key",
@@ -473,12 +467,6 @@
   "FT.SUGGET": {
     "summary": "Gets completion suggestions for a prefix",
     "complexity": "O(1)",
-    "history": [
-      [
-          "2.0.0",
-          "Deprecated `WITHPAYLOADS` argument"
-      ]
-    ],
     "arguments": [
       {
         "name": "key",
