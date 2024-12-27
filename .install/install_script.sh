@@ -20,4 +20,7 @@ echo $OS
 
 source ${OS}.sh $MODE
 
+echo "Checking available locales"
+locale -a
+
 git config --global --add safe.directory '*'
