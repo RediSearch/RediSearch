@@ -132,7 +132,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
     return DefaultNormalize_utf8(s, dst, len);
   } else {
-    return DefaultNormalize(s, dst, len);
+    return DefaultNormalize_singlechar(s, dst, len);
   }
 }
 
