@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from common import getConnectionByEnv, debug_cmd, config_cmd
+from common import *
 from RLTest import Env
 import locale
 
@@ -193,3 +193,35 @@ def testDiacriticLimitation(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:Étude', 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [2, 'mot:2', 'mot:4'])
+
+@skip(cluster=True)
+def testStopWords(env):
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+    
+    conn = getConnectionByEnv(env)
+    # test with russian lowercase stopwords
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+            'STOPWORDS', 3, 'от', 'и', 'не',
+            'SCHEMA', 't', 'TEXT', 'NOSTEM')
+
+    conn.execute_command('HSET', 'test:1', 't', 'не ясно') # 1 term
+    conn.execute_command('HSET', 'test:2', 't', 'Мужчины и женщины') # 2 terms
+    conn.execute_command('HSET', 'test:3', 't', 'от одного до десяти') # 3 terms
+    # create the same text with different case
+    conn.execute_command('HSET', 'test:4', 't', 'НЕ ЯСНО')
+    conn.execute_command('HSET', 'test:5', 't', 'МУЖЧИНЫ И ЖЕНЩИНЫ')
+    conn.execute_command('HSET', 'test:6', 't', 'ОТ ОДНОГО ДО ДЕСЯТИ')
+    # only 6 terms are indexed, the stopwords are not indexed
+    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+    env.assertEqual(len(res), 6)
+
+    # test with russian uppercase stopwords.
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+            'STOPWORDS', 3, 'ОТ', 'И', 'НЕ',
+            'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    waitForIndex(env, 'idx2')
+    # This fails, there are 9 terms because the stopwords are not converted
+    # to lowercase correctly
+    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
+    env.assertEqual(len(res), 9)
