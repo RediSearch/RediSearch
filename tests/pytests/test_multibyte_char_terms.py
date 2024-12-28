@@ -2,9 +2,20 @@
 
 from common import getConnectionByEnv, debug_cmd, config_cmd
 from RLTest import Env
+import locale
 
+
+def is_locale_available(locale_name):
+    try:
+        locale.setlocale(locale.LC_ALL, locale_name)
+        return True
+    except locale.Error:
+        return False
 
 def testMultibyteChars(env):
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'RUSSIAN', 'SCHEMA', 't', 'TEXT')
@@ -54,6 +65,9 @@ def testMultibyteChars(env):
         env.assertEqual(res, expected)
 
 def testRussianAlphabet(env):
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'RUSSIAN', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
@@ -106,6 +120,9 @@ def testRussianAlphabet(env):
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
 def testDiacritics(env):
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'ENGLISH', 'SCHEMA', 't', 'TEXT')
@@ -136,6 +153,9 @@ def testDiacritics(env):
         env.assertEqual(len(res), 9)
     
 def testDiacriticLimitation(env):
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'FRENCH', 'SCHEMA', 't', 'TEXT')
