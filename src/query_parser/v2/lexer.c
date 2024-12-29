@@ -99,7 +99,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
 
 
 
-/* #line 103 "lexer.c" */
+/* #line 98 "lexer.c" */
 static const char _query_actions[] = {
 	0, 1, 0, 1, 1, 1, 2, 1, 
 	26, 1, 27, 1, 28, 1, 29, 1, 
@@ -584,7 +584,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* ts = q->raw;          // query start
   const char* te = q->raw + q->len; // query end
   
-/* #line 588 "lexer.c" */
+/* #line 579 "lexer.c" */
 	{
 	cs = query_start;
 	ts = 0;
@@ -601,7 +601,7 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *q) {
   const char* eof = pe;
 
   
-/* #line 605 "lexer.c" */
+/* #line 592 "lexer.c" */
 	{
 	int _klen;
 	unsigned int _trans;
@@ -620,7 +620,7 @@ _resume:
 /* #line 1 "NONE" */
 	{ts = p;}
 	break;
-/* #line 624 "lexer.c" */
+/* #line 609 "lexer.c" */
 		}
 	}
 
@@ -1663,7 +1663,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 1667 "lexer.c" */
+/* #line 1566 "lexer.c" */
 		}
 	}
 
@@ -1676,7 +1676,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 1680 "lexer.c" */
+/* #line 1577 "lexer.c" */
 		}
 	}
 

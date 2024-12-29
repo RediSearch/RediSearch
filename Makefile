@@ -161,9 +161,6 @@ HIREDIS_DIR=$(ROOT)/deps/hiredis
 HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
 
-# FAST_FLOAT_DIR=$(ROOT)/deps/fast_float
-# FAST_FLOAT_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/fast_float
-
 export COORD
 export PACKAGE_NAME
 
@@ -317,12 +314,6 @@ hiredis: $(HIREDIS)
 $(HIREDIS):
 	@echo Building hiredis...
 	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=''
-
-# fast_float: $(FAST_FLOAT)
-
-# $(FAST_FLOAT):
-# 	@echo Building fast_float...
-# 	$(SHOW)$(MAKE) --no-print-directory -C build/fast_float DEBUG=''
 
 #----------------------------------------------------------------------------------------------
 
