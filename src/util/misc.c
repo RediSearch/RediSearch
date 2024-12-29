@@ -8,26 +8,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-#include <stdio.h>
-#include <unicode/uchar.h>
-#include <unicode/ustring.h>
-#include <unicode/utypes.h>
-
-bool isAlphabetic(const char *str, size_t len) {
-    UChar32 c;
-    UErrorCode error = U_ZERO_ERROR;
-
-    for (int32_t i = 0; i < len; ) {
-        U8_NEXT(str, i, len, c);
-        if (c < 0) {
-            return false; // Invalid UTF-8 sequence
-        }
-        if (!u_isalpha(c)) {
-            return false;
-        }
-    }
-    return true;
-}
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",

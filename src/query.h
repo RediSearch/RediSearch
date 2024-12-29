@@ -132,6 +132,8 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);
 
+void PrintQueryAST(const QueryAST *ast);
+
 QueryNode *RSQuery_ParseRaw_v1(QueryParseCtx *);
 QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);
 
