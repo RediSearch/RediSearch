@@ -12,6 +12,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+#include "fast_float/fast_float_strtod.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -48,7 +49,7 @@ static int ParseDouble(const char *arg, double *d, int sign) {
   }
   #endif
 
-  *d = strtod(arg, &e);
+  *d = fast_float_strtod(arg, &e);
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
       *e != '\0') {

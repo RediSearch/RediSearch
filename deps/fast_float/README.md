@@ -1,4 +1,4 @@
-README for fast_float v6.1.4
+README for fast_float v7.0.0
 
 ----------------------------------------------
 
@@ -13,9 +13,9 @@ fast_float repository) via the command
 ```
 git clone https://github.com/fastfloat/fast_float
 cd fast_float
-git checkout v6.1.4
+git checkout v7.0.0
 python3 ./script/amalgamate.py --license=MIT \
-  > $REDIS_SRC/deps/fast_float/fast_float.h
+  > $REDISEARCH_SRC/deps/fast_float/fast_float.h
 ```
 
 [1]: https://github.com/fastfloat/fast_float

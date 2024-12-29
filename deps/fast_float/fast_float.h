@@ -12,14 +12,15 @@
 // with contributions from Jan Pharago
 // with contributions from Maya Warrier
 // with contributions from Taha Khokhar
+// with contributions from Anders Dalvander
 //
 //
 // MIT License Notice
 //
 //    MIT License
-//    
+//
 //    Copyright (c) 2021 The fast_float authors
-//    
+//
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
 //    documentation files (the "Software"), to deal in the
@@ -29,11 +30,11 @@
 //    the Software, and to permit persons to whom the Software
 //    is furnished to do so, subject to the following
 //    conditions:
-//    
+//
 //    The above copyright notice and this permission notice
 //    shall be included in all copies or substantial portions
 //    of the Software.
-//    
+//
 //    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
 //    ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
 //    TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
@@ -84,6 +85,12 @@
 #define FASTFLOAT_IS_CONSTEXPR 0
 #endif
 
+#if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#define FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE 0
+#else
+#define FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE 1
+#endif
+
 #endif // FASTFLOAT_CONSTEXPR_FEATURE_DETECT_H
 
 #ifndef FASTFLOAT_FLOAT_COMMON_H
@@ -103,20 +110,26 @@
 
 namespace fast_float {
 
-#define FASTFLOAT_JSONFMT (1 << 5)
-#define FASTFLOAT_FORTRANFMT (1 << 6)
+enum class chars_format : uint64_t;
 
-enum chars_format {
+namespace detail {
+constexpr chars_format basic_json_fmt = chars_format(1 << 5);
+constexpr chars_format basic_fortran_fmt = chars_format(1 << 6);
+} // namespace detail
+
+enum class chars_format : uint64_t {
   scientific = 1 << 0,
   fixed = 1 << 2,
   hex = 1 << 3,
   no_infnan = 1 << 4,
   // RFC 8259: https://datatracker.ietf.org/doc/html/rfc8259#section-6
-  json = FASTFLOAT_JSONFMT | fixed | scientific | no_infnan,
+  json = uint64_t(detail::basic_json_fmt) | fixed | scientific | no_infnan,
   // Extension of RFC 8259 where, e.g., "inf" and "nan" are allowed.
-  json_or_infnan = FASTFLOAT_JSONFMT | fixed | scientific,
-  fortran = FASTFLOAT_FORTRANFMT | fixed | scientific,
-  general = fixed | scientific
+  json_or_infnan = uint64_t(detail::basic_json_fmt) | fixed | scientific,
+  fortran = uint64_t(detail::basic_fortran_fmt) | fixed | scientific,
+  general = fixed | scientific,
+  allow_leading_plus = 1 << 7,
+  skip_white_space = 1 << 8,
 };
 
 template <typename UC> struct from_chars_result_t {
@@ -127,13 +140,15 @@ using from_chars_result = from_chars_result_t<char>;
 
 template <typename UC> struct parse_options_t {
   constexpr explicit parse_options_t(chars_format fmt = chars_format::general,
-                                     UC dot = UC('.'))
-      : format(fmt), decimal_point(dot) {}
+                                     UC dot = UC('.'), int b = 10)
+      : format(fmt), decimal_point(dot), base(b) {}
 
   /** Which number formats are accepted */
   chars_format format;
   /** The character used as decimal point */
   UC decimal_point;
+  /** The base used for integers */
+  int base;
 };
 using parse_options = parse_options_t<char>;
 
@@ -301,12 +316,15 @@ fastfloat_really_inline constexpr bool is_supported_char_type() {
 // Compares two ASCII strings in a case insensitive manner.
 template <typename UC>
 inline FASTFLOAT_CONSTEXPR14 bool
-fastfloat_strncasecmp(UC const *input1, UC const *input2, size_t length) {
-  char running_diff{0};
+fastfloat_strncasecmp(UC const *actual_mixedcase, UC const *expected_lowercase,
+                      size_t length) {
   for (size_t i = 0; i < length; ++i) {
-    running_diff |= (char(input1[i]) ^ char(input2[i]));
+    UC const actual = actual_mixedcase[i];
+    if ((actual < 256 ? actual | 32 : actual) != expected_lowercase[i]) {
+      return false;
+    }
   }
-  return (running_diff == 0) || (running_diff == 32);
+  return true;
 }
 
 #ifndef FLT_EVAL_METHOD
@@ -430,7 +448,8 @@ full_multiplication(uint64_t a, uint64_t b) {
   // But MinGW on ARM64 doesn't have native support for 64-bit multiplications
   answer.high = __umulh(a, b);
   answer.low = a * b;
-#elif defined(FASTFLOAT_32BIT) || (defined(_WIN64) && !defined(__clang__))
+#elif defined(FASTFLOAT_32BIT) ||                                              \
+    (defined(_WIN64) && !defined(__clang__) && !defined(_M_ARM64))
   answer.low = _umul128(a, b, &answer.high); // _umul128 not available on ARM64
 #elif defined(FASTFLOAT_64BIT) && defined(__SIZEOF_INT128__)
   __uint128_t r = ((__uint128_t)a) * b;
@@ -529,11 +548,15 @@ template <typename U> struct binary_format_lookup_tables<double, U> {
                           constant_55555 * 5 * 5 * 5 * 5)};
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <typename U>
 constexpr double binary_format_lookup_tables<double, U>::powers_of_ten[];
 
 template <typename U>
 constexpr uint64_t binary_format_lookup_tables<double, U>::max_mantissa[];
+
+#endif
 
 template <typename U> struct binary_format_lookup_tables<float, U> {
   static constexpr float powers_of_ten[] = {1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f,
@@ -556,11 +579,15 @@ template <typename U> struct binary_format_lookup_tables<float, U> {
       0x1000000 / (constant_55555 * constant_55555 * 5)};
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <typename U>
 constexpr float binary_format_lookup_tables<float, U>::powers_of_ten[];
 
 template <typename U>
 constexpr uint64_t binary_format_lookup_tables<float, U>::max_mantissa[];
+
+#endif
 
 template <>
 inline constexpr int binary_format<double>::min_exponent_fast_path() {
@@ -748,7 +775,6 @@ to_float(bool negative, adjusted_mantissa am, T &value) {
 #endif
 }
 
-#ifdef FASTFLOAT_SKIP_WHITE_SPACE // disabled by default
 template <typename = void> struct space_lut {
   static constexpr bool value[] = {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -764,10 +790,15 @@ template <typename = void> struct space_lut {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <typename T> constexpr bool space_lut<T>::value[];
 
-inline constexpr bool is_space(uint8_t c) { return space_lut<>::value[c]; }
 #endif
+
+template <typename UC> constexpr bool is_space(UC c) {
+  return c < 256 && space_lut<>::value[uint8_t(c)];
+}
 
 template <typename UC> static constexpr uint64_t int_cmp_zeros() {
   static_assert((sizeof(UC) == 1) || (sizeof(UC) == 2) || (sizeof(UC) == 4),
@@ -846,11 +877,15 @@ template <typename = void> struct int_luts {
       3379220508056640625,     4738381338321616896};
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <typename T> constexpr uint8_t int_luts<T>::chdigit[];
 
 template <typename T> constexpr size_t int_luts<T>::maxdigits_u64[];
 
 template <typename T> constexpr uint64_t int_luts<T>::min_safe_u64[];
+
+#endif
 
 template <typename UC>
 fastfloat_really_inline constexpr uint8_t ch_to_digit(UC c) {
@@ -866,6 +901,58 @@ fastfloat_really_inline constexpr size_t max_digits_u64(int base) {
 fastfloat_really_inline constexpr uint64_t min_safe_u64(int base) {
   return int_luts<>::min_safe_u64[base - 2];
 }
+
+constexpr chars_format operator~(chars_format rhs) noexcept {
+  using int_type = std::underlying_type<chars_format>::type;
+  return static_cast<chars_format>(~static_cast<int_type>(rhs));
+}
+
+constexpr chars_format operator&(chars_format lhs, chars_format rhs) noexcept {
+  using int_type = std::underlying_type<chars_format>::type;
+  return static_cast<chars_format>(static_cast<int_type>(lhs) &
+                                   static_cast<int_type>(rhs));
+}
+
+constexpr chars_format operator|(chars_format lhs, chars_format rhs) noexcept {
+  using int_type = std::underlying_type<chars_format>::type;
+  return static_cast<chars_format>(static_cast<int_type>(lhs) |
+                                   static_cast<int_type>(rhs));
+}
+
+constexpr chars_format operator^(chars_format lhs, chars_format rhs) noexcept {
+  using int_type = std::underlying_type<chars_format>::type;
+  return static_cast<chars_format>(static_cast<int_type>(lhs) ^
+                                   static_cast<int_type>(rhs));
+}
+
+fastfloat_really_inline FASTFLOAT_CONSTEXPR14 chars_format &
+operator&=(chars_format &lhs, chars_format rhs) noexcept {
+  return lhs = (lhs & rhs);
+}
+
+fastfloat_really_inline FASTFLOAT_CONSTEXPR14 chars_format &
+operator|=(chars_format &lhs, chars_format rhs) noexcept {
+  return lhs = (lhs | rhs);
+}
+
+fastfloat_really_inline FASTFLOAT_CONSTEXPR14 chars_format &
+operator^=(chars_format &lhs, chars_format rhs) noexcept {
+  return lhs = (lhs ^ rhs);
+}
+
+namespace detail {
+// adjust for deprecated feature macros
+constexpr chars_format adjust_for_feature_macros(chars_format fmt) {
+  return fmt
+#ifdef FASTFLOAT_ALLOWS_LEADING_PLUS
+         | chars_format::allow_leading_plus
+#endif
+#ifdef FASTFLOAT_SKIP_WHITE_SPACE
+         | chars_format::skip_white_space
+#endif
+      ;
+}
+} // namespace detail
 
 } // namespace fast_float
 
@@ -910,11 +997,13 @@ from_chars(UC const *first, UC const *last, T &value,
 
 /**
  * Like from_chars, but accepts an `options` argument to govern number parsing.
+ * Both for floating-point types and integer types.
  */
 template <typename T, typename UC = char>
 FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
 from_chars_advanced(UC const *first, UC const *last, T &value,
                     parse_options_t<UC> options) noexcept;
+
 /**
  * from_chars for integer types.
  */
@@ -1210,24 +1299,24 @@ template <typename UC>
 fastfloat_really_inline FASTFLOAT_CONSTEXPR20 parsed_number_string_t<UC>
 parse_number_string(UC const *p, UC const *pend,
                     parse_options_t<UC> options) noexcept {
-  chars_format const fmt = options.format;
+  chars_format const fmt = detail::adjust_for_feature_macros(options.format);
   UC const decimal_point = options.decimal_point;
 
   parsed_number_string_t<UC> answer;
   answer.valid = false;
   answer.too_many_digits = false;
+  // assume p < pend, so dereference without checks;
   answer.negative = (*p == UC('-'));
-#ifdef FASTFLOAT_ALLOWS_LEADING_PLUS // disabled by default
-  if ((*p == UC('-')) || (!(fmt & FASTFLOAT_JSONFMT) && *p == UC('+'))) {
-#else
-  if (*p == UC('-')) { // C++17 20.19.3.(7.1) explicitly forbids '+' sign here
-#endif
+  // C++17 20.19.3.(7.1) explicitly forbids '+' sign here
+  if ((*p == UC('-')) ||
+      (uint64_t(fmt & chars_format::allow_leading_plus) &&
+       !uint64_t(fmt & detail::basic_json_fmt) && *p == UC('+'))) {
     ++p;
     if (p == pend) {
       return report_parse_error<UC>(
           p, parse_error::missing_integer_or_dot_after_sign);
     }
-    if (fmt & FASTFLOAT_JSONFMT) {
+    if (uint64_t(fmt & detail::basic_json_fmt)) {
       if (!is_integer(*p)) { // a sign must be followed by an integer
         return report_parse_error<UC>(p,
                                       parse_error::missing_integer_after_sign);
@@ -1256,7 +1345,7 @@ parse_number_string(UC const *p, UC const *pend,
   UC const *const end_of_integer_part = p;
   int64_t digit_count = int64_t(end_of_integer_part - start_digits);
   answer.integer = span<const UC>(start_digits, size_t(digit_count));
-  if (fmt & FASTFLOAT_JSONFMT) {
+  if (uint64_t(fmt & detail::basic_json_fmt)) {
     // at least 1 digit in integer part, without leading zeros
     if (digit_count == 0) {
       return report_parse_error<UC>(p, parse_error::no_digits_in_integer_part);
@@ -1285,7 +1374,7 @@ parse_number_string(UC const *p, UC const *pend,
     answer.fraction = span<const UC>(before, size_t(p - before));
     digit_count -= exponent;
   }
-  if (fmt & FASTFLOAT_JSONFMT) {
+  if (uint64_t(fmt & detail::basic_json_fmt)) {
     // at least 1 digit in fractional part
     if (has_decimal_point && exponent == 0) {
       return report_parse_error<UC>(p,
@@ -1296,9 +1385,9 @@ parse_number_string(UC const *p, UC const *pend,
     return report_parse_error<UC>(p, parse_error::no_digits_in_mantissa);
   }
   int64_t exp_number = 0; // explicit exponential part
-  if (((fmt & chars_format::scientific) && (p != pend) &&
+  if ((uint64_t(fmt & chars_format::scientific) && (p != pend) &&
        ((UC('e') == *p) || (UC('E') == *p))) ||
-      ((fmt & FASTFLOAT_FORTRANFMT) && (p != pend) &&
+      (uint64_t(fmt & detail::basic_fortran_fmt) && (p != pend) &&
        ((UC('+') == *p) || (UC('-') == *p) || (UC('d') == *p) ||
         (UC('D') == *p)))) {
     UC const *location_of_e = p;
@@ -1316,7 +1405,7 @@ parse_number_string(UC const *p, UC const *pend,
       ++p;
     }
     if ((p == pend) || !is_integer(*p)) {
-      if (!(fmt & chars_format::fixed)) {
+      if (!uint64_t(fmt & chars_format::fixed)) {
         // The exponential part is invalid for scientific notation, so it must
         // be a trailing token for fixed notation. However, fixed notation is
         // disabled, so report a scientific notation error.
@@ -1339,7 +1428,8 @@ parse_number_string(UC const *p, UC const *pend,
     }
   } else {
     // If it scientific and not fixed, we have to bail out.
-    if ((fmt & chars_format::scientific) && !(fmt & chars_format::fixed)) {
+    if (uint64_t(fmt & chars_format::scientific) &&
+        !uint64_t(fmt & chars_format::fixed)) {
       return report_parse_error<UC>(p, parse_error::missing_exponential_part);
     }
   }
@@ -1398,22 +1488,23 @@ parse_number_string(UC const *p, UC const *pend,
 
 template <typename T, typename UC>
 fastfloat_really_inline FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
-parse_int_string(UC const *p, UC const *pend, T &value, int base) {
+parse_int_string(UC const *p, UC const *pend, T &value,
+                 parse_options_t<UC> options) {
+  chars_format const fmt = detail::adjust_for_feature_macros(options.format);
+  int const base = options.base;
+
   from_chars_result_t<UC> answer;
 
   UC const *const first = p;
 
-  bool negative = (*p == UC('-'));
+  bool const negative = (*p == UC('-'));
   if (!std::is_signed<T>::value && negative) {
     answer.ec = std::errc::invalid_argument;
     answer.ptr = first;
     return answer;
   }
-#ifdef FASTFLOAT_ALLOWS_LEADING_PLUS // disabled by default
-  if ((*p == UC('-')) || (*p == UC('+'))) {
-#else
-  if (*p == UC('-')) {
-#endif
+  if ((*p == UC('-')) ||
+      (uint64_t(fmt & chars_format::allow_leading_plus) && (*p == UC('+')))) {
     ++p;
   }
 
@@ -2200,9 +2291,13 @@ template <class unused = void> struct powers_template {
   };
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <class unused>
 constexpr uint64_t
     powers_template<unused>::power_of_five_128[number_of_entries];
+
+#endif
 
 using powers = powers_template<>;
 
@@ -2825,11 +2920,15 @@ template <typename = void> struct pow5_tables {
 #endif
 };
 
+#if FASTFLOAT_DETAIL_MUST_DEFINE_CONSTEXPR_VARIABLE
+
 template <typename T> constexpr uint32_t pow5_tables<T>::large_step;
 
 template <typename T> constexpr uint64_t pow5_tables<T>::small_power_of_5[];
 
 template <typename T> constexpr limb pow5_tables<T>::large_power_of_5[];
+
+#endif
 
 // big integer type. implements a small subset of big integer
 // arithmetic, using simple algorithms since asymptotically
@@ -3510,24 +3609,20 @@ namespace detail {
  * strings a null-free and fixed.
  **/
 template <typename T, typename UC>
-from_chars_result_t<UC> FASTFLOAT_CONSTEXPR14 parse_infnan(UC const *first,
-                                                           UC const *last,
-                                                           T &value) noexcept {
+from_chars_result_t<UC>
+    FASTFLOAT_CONSTEXPR14 parse_infnan(UC const *first, UC const *last,
+                                       T &value, chars_format fmt) noexcept {
   from_chars_result_t<UC> answer{};
   answer.ptr = first;
   answer.ec = std::errc(); // be optimistic
-  bool minusSign = false;
-  if (*first ==
-      UC('-')) { // assume first < last, so dereference without checks;
-                 // C++17 20.19.3.(7.1) explicitly forbids '+' here
-    minusSign = true;
+  // assume first < last, so dereference without checks;
+  bool const minusSign = (*first == UC('-'));
+  // C++17 20.19.3.(7.1) explicitly forbids '+' sign here
+  if ((*first == UC('-')) ||
+      (uint64_t(fmt & chars_format::allow_leading_plus) &&
+       (*first == UC('+')))) {
     ++first;
   }
-#ifdef FASTFLOAT_ALLOWS_LEADING_PLUS // disabled by default
-  if (*first == UC('+')) {
-    ++first;
-  }
-#endif
   if (last - first >= 3) {
     if (fastfloat_strncasecmp(first, str_const_nan<UC>(), 3)) {
       answer.ptr = (first += 3);
@@ -3584,7 +3679,7 @@ fastfloat_really_inline bool rounds_to_nearest() noexcept {
   // However, it is expected to be much faster than the fegetround()
   // function call.
   //
-  // The volatile keywoard prevents the compiler from computing the function
+  // The volatile keyword prevents the compiler from computing the function
   // at compile-time.
   // There might be other ways to prevent compile-time optimizations (e.g.,
   // asm). The value does not need to be std::numeric_limits<float>::min(), any
@@ -3777,20 +3872,22 @@ from_chars_advanced(parsed_number_string_t<UC> &pns, T &value) noexcept {
 
 template <typename T, typename UC>
 FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
-from_chars_advanced(UC const *first, UC const *last, T &value,
-                    parse_options_t<UC> options) noexcept {
+from_chars_float_advanced(UC const *first, UC const *last, T &value,
+                          parse_options_t<UC> options) noexcept {
 
   static_assert(is_supported_float_type<T>(),
                 "only some floating-point types are supported");
   static_assert(is_supported_char_type<UC>(),
                 "only char, wchar_t, char16_t and char32_t are supported");
 
+  chars_format const fmt = detail::adjust_for_feature_macros(options.format);
+
   from_chars_result_t<UC> answer;
-#ifdef FASTFLOAT_SKIP_WHITE_SPACE // disabled by default
-  while ((first != last) && fast_float::is_space(uint8_t(*first))) {
-    first++;
+  if (uint64_t(fmt & chars_format::skip_white_space)) {
+    while ((first != last) && fast_float::is_space(*first)) {
+      first++;
+    }
   }
-#endif
   if (first == last) {
     answer.ec = std::errc::invalid_argument;
     answer.ptr = first;
@@ -3799,12 +3896,12 @@ from_chars_advanced(UC const *first, UC const *last, T &value,
   parsed_number_string_t<UC> pns =
       parse_number_string<UC>(first, last, options);
   if (!pns.valid) {
-    if (options.format & chars_format::no_infnan) {
+    if (uint64_t(fmt & chars_format::no_infnan)) {
       answer.ec = std::errc::invalid_argument;
       answer.ptr = first;
       return answer;
     } else {
-      return detail::parse_infnan(first, last, value);
+      return detail::parse_infnan(first, last, value, fmt);
     }
   }
 
@@ -3815,21 +3912,67 @@ from_chars_advanced(UC const *first, UC const *last, T &value,
 template <typename T, typename UC, typename>
 FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
 from_chars(UC const *first, UC const *last, T &value, int base) noexcept {
+
+  static_assert(std::is_integral<T>::value, "only integer types are supported");
   static_assert(is_supported_char_type<UC>(),
                 "only char, wchar_t, char16_t and char32_t are supported");
 
+  parse_options_t<UC> options;
+  options.base = base;
+  return from_chars_advanced(first, last, value, options);
+}
+
+template <typename T, typename UC>
+FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
+from_chars_int_advanced(UC const *first, UC const *last, T &value,
+                        parse_options_t<UC> options) noexcept {
+
+  static_assert(std::is_integral<T>::value, "only integer types are supported");
+  static_assert(is_supported_char_type<UC>(),
+                "only char, wchar_t, char16_t and char32_t are supported");
+
+  chars_format const fmt = detail::adjust_for_feature_macros(options.format);
+  int const base = options.base;
+
   from_chars_result_t<UC> answer;
-#ifdef FASTFLOAT_SKIP_WHITE_SPACE // disabled by default
-  while ((first != last) && fast_float::is_space(uint8_t(*first))) {
-    first++;
+  if (uint64_t(fmt & chars_format::skip_white_space)) {
+    while ((first != last) && fast_float::is_space(*first)) {
+      first++;
+    }
   }
-#endif
   if (first == last || base < 2 || base > 36) {
     answer.ec = std::errc::invalid_argument;
     answer.ptr = first;
     return answer;
   }
-  return parse_int_string(first, last, value, base);
+
+  return parse_int_string(first, last, value, options);
+}
+
+template <bool> struct from_chars_advanced_caller {
+  template <typename T, typename UC>
+  FASTFLOAT_CONSTEXPR20 static from_chars_result_t<UC>
+  call(UC const *first, UC const *last, T &value,
+       parse_options_t<UC> options) noexcept {
+    return from_chars_float_advanced(first, last, value, options);
+  }
+};
+
+template <> struct from_chars_advanced_caller<false> {
+  template <typename T, typename UC>
+  FASTFLOAT_CONSTEXPR20 static from_chars_result_t<UC>
+  call(UC const *first, UC const *last, T &value,
+       parse_options_t<UC> options) noexcept {
+    return from_chars_int_advanced(first, last, value, options);
+  }
+};
+
+template <typename T, typename UC>
+FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
+from_chars_advanced(UC const *first, UC const *last, T &value,
+                    parse_options_t<UC> options) noexcept {
+  return from_chars_advanced_caller<is_supported_float_type<T>()>::call(
+      first, last, value, options);
 }
 
 } // namespace fast_float
