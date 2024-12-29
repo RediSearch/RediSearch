@@ -124,9 +124,8 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
   pos++;
 
   char *end1 = NULL, *end2 = NULL;
-  // TODO: can we use fast_float here? fast_float_strtod does not skip leading spaces
-  *lon = strtod(str, &end1);
-  *lat = strtod(pos, &end2);
+  *lon = fast_float_strtod(str, &end1);
+  *lat = fast_float_strtod(pos, &end2);
   if (*end1 || *end2) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid geo string");
     return REDISMODULE_ERR;

@@ -1,3 +1,4 @@
+#define FASTFLOAT_SKIP_WHITE_SPACE
 #include "fast_float.h"
 #include <iostream>
 #include <string>
