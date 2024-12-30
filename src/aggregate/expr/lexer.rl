@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "expression.h"
 #include "exprast.h"
+#include "fast_float/fast_float_strtod.h"
 
 #include "token.h"
 
@@ -61,7 +62,7 @@ main := |*
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod(tok.s, &ne);
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
     if (!ctx.ok) {
