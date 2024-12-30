@@ -1106,22 +1106,22 @@ static void yy_destructor(
     case 58: /* vector_command */
     case 59: /* vector_range_command */
 {
- QueryNode_Free((yypminor->yy3)); 
+ QueryNode_Free((yypminor->yy3));
 }
       break;
     case 43: /* attribute */
 {
- rm_free((char*)(yypminor->yy79).value); 
+ rm_free((char*)(yypminor->yy79).value);
 }
       break;
     case 44: /* attribute_list */
 {
- array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value));
 }
       break;
     case 55: /* geo_filter */
 {
- QueryParam_Free((yypminor->yy62)); 
+ QueryParam_Free((yypminor->yy62));
 }
       break;
     case 61: /* vector_attribute_list */
@@ -1881,7 +1881,10 @@ static YYACTIONTYPE yy_reduce(
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
+      char *normalized = rm_normalize(tok, tokLen);
+      HiddenString *hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
+      QueryNode *C = NewTokenNode(ctx, hidden);
+      HiddenString_Free(hidden);
       QueryNode_AddChild(yylhsminor.yy3, C);
     }
   }

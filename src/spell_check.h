@@ -44,7 +44,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s);
 
 RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score);
 int RS_SuggestionCompare(const void *val1, const void *val2);
-void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
+void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, const char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber);
 void SpellCheck_Reply(SpellCheckCtx *ctx, QueryAST *q);
 

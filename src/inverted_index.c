@@ -98,8 +98,9 @@ void TermReader_OnReopen(void *privdata) {
   if (ir->record->type == RSResultType_Term) {
     // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
-    InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, ir->record->term.term->str,
-                                                 ir->record->term.term->len, 0, NULL);
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(ir->record->term.term->str, &len);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, str, len, 0, NULL);
     if (!idx || ir->idx != idx) {
       // The inverted index was collected entirely by GC.
       // All the documents that were inside were deleted and new ones were added.

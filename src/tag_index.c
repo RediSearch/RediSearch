@@ -229,8 +229,9 @@ static void TagReader_OnReopen(void *privdata) {
       size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
-      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                              ir->record->term.term->len, DONT_CREATE_INDEX, &sz);
+      size_t len;
+      const char *str = HiddenString_GetUnsafe(ir->record->term.term->str, &len);
+      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, str, len, DONT_CREATE_INDEX, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // The inverted index was collected entirely by GC.
         // All the documents that were inside were deleted and new ones were added.
@@ -263,10 +264,11 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 
 IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex) {
-  RSToken tok = {.str = (char *)value, .len = len};
+  RSToken tok = {.str = NewHiddenString(value, len, false)};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
   IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
+  HiddenString_Free(tok.str);
   if (!r) {
     return NULL;
   }
