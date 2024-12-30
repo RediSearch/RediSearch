@@ -1,4 +1,3 @@
-
 from includes import *
 try:
     from collections.abc import Iterable
@@ -24,6 +23,8 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 import subprocess
+import requests
+import urllib3
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -744,15 +745,32 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
-def downloadFiles(rdbs = None):
+
+def downloadFiles(env, rdbs=None):
     if rdbs is None:
         return False
 
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
+    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True)  # create cache dir if not exists
+    urllib3.disable_warnings(
+        urllib3.exceptions.InsecureRequestWarning
+    )  # disable warning for downloading file without certificate
     for f in rdbs:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+            response = requests.get(BASE_RDBS_URL + f, verify=False)
+            try:
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as err:
+                env.assertTrue(
+                    False,
+                    message=f"Failed to download {f} from {BASE_RDBS_URL} with error: {err}",
+                    depth=1,
+                )
+                return False
+
+            with open(path, "wb") as file:
+                file.write(response.content)
+
         if not os.path.exists(path):
             return False
     return True

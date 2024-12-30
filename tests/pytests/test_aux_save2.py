@@ -138,12 +138,9 @@ def testLoadRdbWithEmptySpellcheckDict(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles(RDBS):
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    res = downloadFiles(env, RDBS)
+    if not res:
+        return
 
     for fileName in RDBS:
         env.stop()
