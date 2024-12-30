@@ -236,7 +236,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     double idf = r->term.term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                           r->term.term->str);
+                           HiddenString_GetUnsafe(r->term.term->str, NULL));
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -416,22 +416,30 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
   if (!dd->data.cn.tokenizer) {
     tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
-    dd->data.cn.tokList = NewVector(char *, 4);
+    dd->data.cn.tokList = NewVector(void*, 4);
   }
 
   tokenizer = dd->data.cn.tokenizer;
   Vector *tokVec = dd->data.cn.tokList;
 
   tokVec->top = 0;
-  tokenizer->Start(tokenizer, token->str, token->len, 0);
+  size_t len;
+  const char* str = HiddenString_GetUnsafe(token->str, &len);
+  char *mutableStr = rm_strndup(str, len);
+  tokenizer->Start(tokenizer, mutableStr, len, 0);
 
   Token tTok = {0};
   while (tokenizer->Next(tokenizer, &tTok)) {
-    char *s = rm_strndup(tTok.tok, tTok.tokLen);
+    HiddenString *s = NewHiddenString(tTok.tok, tTok.tokLen, true);
     Vector_Push(tokVec, s);
   }
+  rm_free(mutableStr);
 
-  ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 0, 0);
+  ctx->ExpandTokenWithPhrase(ctx, (HiddenString **)tokVec->data, tokVec->top, token->flags, 0, 0);
+  HiddenString *next = NULL;
+  while (Vector_Pop(tokVec, &next)) {
+    HiddenString_Free(next);
+  }
 }
 
 /******************************************************************************************
@@ -469,8 +477,11 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  const sb_symbol *b = (const sb_symbol *)token->str;
-  const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
+  size_t tokenLen;
+  const char* tokenStr = HiddenString_GetUnsafe(token->str, &tokenLen);
+
+  const sb_symbol *b = (const sb_symbol *)tokenStr;
+  const sb_symbol *stemmed = sb_stemmer_stem(sb, b, tokenLen);
 
   if (stemmed) {
     int sl = sb_stemmer_length(sb);
@@ -513,9 +524,16 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     // Add expanded nodes with corresponding field mask
     qn = *ctx->currentNode;
     qn->opts.fieldMask = expandable_fm;
-    ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
-    if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
-      ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
+    HiddenString* tok = NewHiddenStringEx(dup, sl + 1, Move);
+    ctx->ExpandToken(ctx, tok, 0x0);  // TODO: Set proper flags here
+    HiddenString_Free(tok);
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(token->str, &len);
+    const char *stemmed_cstr = (const char *)stemmed;
+    if (sl != len || strncmp(stemmed_cstr, str, len)) {
+      HiddenString* tok = NewHiddenString(stemmed_cstr, sl, true);
+      ctx->ExpandToken(ctx, tok, 0x0);
+      HiddenString_Free(tok);
     }
     // Restore field mask of UNION node
     qn->opts.fieldMask = orig_fm;
@@ -545,10 +563,14 @@ void StemmerExpanderFree(void *p) {
 int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   char *primary = NULL;
 
-  PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(token->str, &len);
+  PhoneticManager_ExpandPhonetics(NULL, str, len, &primary, NULL);
 
   if (primary) {
-    ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
+    HiddenString *primaryToken = NewHiddenStringEx(primary, strlen(primary), Move);
+    ctx->ExpandToken(ctx, primaryToken, 0x0);
+    HiddenString_Free(primaryToken);
   }
   return REDISMODULE_OK;
 }
@@ -565,14 +587,18 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(token->str, &len);
+  TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, str, len);
 
   if (t_data == NULL) {
     return REDISMODULE_OK;
   }
 
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    ctx->ExpandToken(ctx, rm_strdup(t_data->groupIds[i]), strlen(t_data->groupIds[i]), 0x0);
+    HiddenString *groupId = NewHiddenString(t_data->groupIds[i], strlen(t_data->groupIds[i]), true);
+    ctx->ExpandToken(ctx, groupId, 0x0);
+    HiddenString_Free(groupId);
   }
   return REDISMODULE_OK;
 }

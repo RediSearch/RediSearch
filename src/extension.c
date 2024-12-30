@@ -152,7 +152,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
 /* The implementation of the actual query expansion. This function either turns the current node
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
-void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, HiddenString* str,
                      RSTokenFlags flags) {
 
   QueryAST *q = ctx->qast;
@@ -169,7 +169,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
     *ctx->currentNode = un;
   }
 
-  QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
+  QueryNode *exp = NewTokenNodeExpanded(q, str, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   /* Now the current node must be a union node - so we just add a new token node to it */
   QueryNode_AddChild(*ctx->currentNode, exp);
@@ -179,7 +179,7 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
 /* The implementation of the actual query expansion. This function either turns the current node
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
-void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
+void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, HiddenString **toks, size_t num,
                                RSTokenFlags flags, int replace, int exact) {
 
   QueryAST *q = ctx->qast;
@@ -187,7 +187,7 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    QueryNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    QueryNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token

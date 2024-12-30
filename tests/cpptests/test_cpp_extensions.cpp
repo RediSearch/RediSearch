@@ -41,7 +41,9 @@ static double myScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
 }
 
 static int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  HiddenString *tok = NewHiddenString("foo", 3, true);
+  ctx->ExpandToken(ctx, tok, 0x00ff);
+  HiddenString_Free(tok);
   return REDISMODULE_OK;
 }
 
@@ -136,19 +138,19 @@ TEST_F(ExtTest, testQueryExpander_v1) {
 
   QueryNode *n = qast.root;
   ASSERT_EQ(QN_UNION, n->children[0]->type);
-  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
+  ASSERT_STREQ("hello", HiddenString_GetUnsafe(n->children[0]->children[0]->tn.str, NULL));
   ASSERT_EQ(0, n->children[0]->children[0]->tn.expanded);
-  ASSERT_STREQ("foo", n->children[0]->children[1]->tn.str);
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(n->children[0]->children[1]->tn.str, NULL));
   ASSERT_EQ(0x00FF, n->children[0]->children[1]->tn.flags);
 
   ASSERT_NE(0, n->children[0]->children[1]->tn.expanded);
 
   ASSERT_EQ(QN_UNION, n->children[1]->type);
-  ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
-  ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(n->children[1]->children[0]->tn.str, NULL));
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(n->children[1]->children[1]->tn.str, NULL));
 
   RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
-  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
+  ASSERT_EQ(HiddenString_Compare(qtr->str, n->children[1]->children[1]->tn.str), 0);
   ASSERT_EQ(0x00FF, qtr->flags);
 
   Term_Free(qtr);
@@ -178,19 +180,19 @@ TEST_F(ExtTest, testQueryExpander_v2) {
 
   QueryNode *n = qast.root;
   ASSERT_EQ(QN_UNION, n->children[0]->type);
-  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
+  ASSERT_STREQ("hello", HiddenString_GetUnsafe(n->children[0]->children[0]->tn.str, NULL));
   ASSERT_EQ(0, n->children[0]->children[0]->tn.expanded);
-  ASSERT_STREQ("foo", n->children[0]->children[1]->tn.str);
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(n->children[0]->children[1]->tn.str, NULL));
   ASSERT_EQ(0x00FF, n->children[0]->children[1]->tn.flags);
 
   ASSERT_NE(0, n->children[0]->children[1]->tn.expanded);
 
   ASSERT_EQ(QN_UNION, n->children[1]->type);
-  ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
-  ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(n->children[1]->children[0]->tn.str, NULL));
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(n->children[1]->children[1]->tn.str, NULL));
 
   RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
-  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
+  ASSERT_EQ(HiddenString_Compare(qtr->str, n->children[1]->children[1]->tn.str), 0);
   ASSERT_EQ(0x00FF, qtr->flags);
 
   Term_Free(qtr);

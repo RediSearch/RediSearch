@@ -22,7 +22,9 @@ static double filterOutScorer(const ScoringFunctionArgs *ctx, const RSIndexResul
 }
 
 int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  HiddenString *tok = NewHiddenString("foo", 3, true);
+  ctx->ExpandToken(ctx, tok, 0x00ff);
+  HiddenString_Free(tok);
   return REDISEARCH_OK;
 }
 

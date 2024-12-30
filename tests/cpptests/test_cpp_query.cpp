@@ -300,34 +300,34 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT_TRUE(n->children[0]->type == QN_UNION);
-  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
-  ASSERT_STREQ("world", n->children[0]->children[1]->tn.str);
+  ASSERT_STREQ("hello", HiddenString_GetUnsafe(n->children[0]->children[0]->tn.str, NULL));
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(n->children[0]->children[1]->tn.str, NULL));
 
   QueryNode *_n = n->children[1];
 
   ASSERT_TRUE(_n->type == QN_PHRASE);
   ASSERT_TRUE(_n->pn.exact == 1);
   ASSERT_EQ(QueryNode_NumChildren(_n), 2);
-  ASSERT_STREQ("another", _n->children[0]->tn.str);
-  ASSERT_STREQ("world", _n->children[1]->tn.str);
+  ASSERT_STREQ("another", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(_n->children[1]->tn.str, NULL));
 
   _n = n->children[2];
   ASSERT_TRUE(_n->type == QN_PHRASE);
 
   ASSERT_TRUE(_n->pn.exact == 0);
   ASSERT_EQ(QueryNode_NumChildren(_n), 2);
-  ASSERT_STREQ("foo", _n->children[0]->tn.str);
-  ASSERT_STREQ("bar", _n->children[1]->tn.str);
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
+  ASSERT_STREQ("bar", HiddenString_GetUnsafe(_n->children[1]->tn.str, NULL));
 
   _n = n->children[3];
   ASSERT_TRUE(_n->type == QN_NOT);
   _n = QueryNode_GetChild(_n, 0);
   ASSERT_TRUE(_n->pn.exact == 0);
   ASSERT_EQ(2, QueryNode_NumChildren(_n));
-  ASSERT_STREQ("baz", _n->children[0]->tn.str);
+  ASSERT_STREQ("baz", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
-  ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
+  ASSERT_STREQ("boo", HiddenString_GetUnsafe(_n->children[1]->pfx.tok.str, NULL));
   QAST_Destroy(&ast);
   IndexSpec_RemoveFromGlobals(ref);
 }
@@ -607,34 +607,34 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
 
   ASSERT_TRUE(n->children[0]->type == QN_UNION);
-  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
-  ASSERT_STREQ("world", n->children[0]->children[1]->tn.str);
+  ASSERT_STREQ("hello", HiddenString_GetUnsafe(n->children[0]->children[0]->tn.str, NULL));
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(n->children[0]->children[1]->tn.str, NULL));
 
   QueryNode *_n = n->children[1];
 
   ASSERT_TRUE(_n->type == QN_PHRASE);
   ASSERT_TRUE(_n->pn.exact == 1);
   ASSERT_EQ(QueryNode_NumChildren(_n), 2);
-  ASSERT_STREQ("another", _n->children[0]->tn.str);
-  ASSERT_STREQ("world", _n->children[1]->tn.str);
+  ASSERT_STREQ("another", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(_n->children[1]->tn.str, NULL));
 
   _n = n->children[2];
   ASSERT_TRUE(_n->type == QN_PHRASE);
 
   ASSERT_TRUE(_n->pn.exact == 0);
   ASSERT_EQ(QueryNode_NumChildren(_n), 2);
-  ASSERT_STREQ("foo", _n->children[0]->tn.str);
-  ASSERT_STREQ("bar", _n->children[1]->tn.str);
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
+  ASSERT_STREQ("bar", HiddenString_GetUnsafe(_n->children[1]->tn.str, NULL));
 
   _n = n->children[3];
   ASSERT_TRUE(_n->type == QN_NOT);
   _n = QueryNode_GetChild(_n, 0);
   ASSERT_TRUE(_n->pn.exact == 0);
   ASSERT_EQ(2, QueryNode_NumChildren(_n));
-  ASSERT_STREQ("baz", _n->children[0]->tn.str);
+  ASSERT_STREQ("baz", HiddenString_GetUnsafe(_n->children[0]->tn.str, NULL));
 
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
-  ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
+  ASSERT_STREQ("boo", HiddenString_GetUnsafe(_n->children[1]->pfx.tok.str, NULL));
   QAST_Destroy(&ast);
   IndexSpec_RemoveFromGlobals(ref);
 }
@@ -897,17 +897,17 @@ TEST_F(QueryTest, testTags) {
   ASSERT_EQ(n->type, QN_TAG);
   ASSERT_EQ(4, QueryNode_NumChildren(n));
   ASSERT_EQ(QN_PHRASE, n->children[0]->type);
-  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
-  ASSERT_STREQ("world", n->children[0]->children[1]->tn.str);
+  ASSERT_STREQ("hello", HiddenString_GetUnsafe(n->children[0]->children[0]->tn.str, NULL));
+  ASSERT_STREQ("world", HiddenString_GetUnsafe(n->children[0]->children[1]->tn.str, NULL));
 
   ASSERT_EQ(QN_TOKEN, n->children[1]->type);
-  ASSERT_STREQ("foo", n->children[1]->tn.str);
+  ASSERT_STREQ("foo", HiddenString_GetUnsafe(n->children[1]->tn.str, NULL));
 
   ASSERT_EQ(QN_TOKEN, n->children[2]->type);
-  ASSERT_STREQ("שלום", n->children[2]->tn.str);
+  ASSERT_STREQ("שלום", HiddenString_GetUnsafe(n->children[2]->tn.str, NULL));
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
-  ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
+  ASSERT_STREQ("lorem\\ ipsum", HiddenString_GetUnsafe(n->children[3]->tn.str, NULL));
   IndexSpec_RemoveFromGlobals(ref);
 }
 
@@ -922,15 +922,18 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
-  ASSERT_EQ(11, n->verb.tok.len);
-  ASSERT_STREQ("hello world", n->verb.tok.str);
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(n->verb.tok.str, &len);
+  ASSERT_EQ(11, len);
+  ASSERT_STREQ("hello world", str);
 
   qt = "w'?*?*?'";
   ASSERT_TRUE(ast.parse(qt, 2)) << ast.getError();
   n = ast.root;
   ASSERT_EQ(n->type, QN_WILDCARD_QUERY);
-  ASSERT_EQ(5, n->verb.tok.len);
-  ASSERT_STREQ("?*?*?", n->verb.tok.str);
+  str = HiddenString_GetUnsafe(n->verb.tok.str, &len);
+  ASSERT_EQ(5, len);
+  ASSERT_STREQ("?*?*?", str);
 
   IndexSpec_RemoveFromGlobals(ref);
 }

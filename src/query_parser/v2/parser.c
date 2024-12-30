@@ -118,7 +118,7 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
     QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %f", msg, tok->pos, tok->numval);
   } else {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", msg, tok->pos);
+    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -1877,8 +1877,10 @@ static YYACTIONTYPE yy_reduce(
     // get the next token
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
-    if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+    if (tokLen > 0) {
+      HiddenString *hidden = NewHiddenStringEx(rm_strdupcase(tok, tokLen), tokLen, Move);
+      QueryNode *C = NewTokenNode(ctx, hidden);
+      HiddenString_Free(hidden);
       QueryNode_AddChild(yylhsminor.yy47, C);
     }
   }
@@ -1896,7 +1898,8 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy47 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  HiddenString* hidden = NewHiddenStringEx(rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), yymsp[-1].minor.yy0.len + 1, Move);
+  yymsp[-2].minor.yy47 = NewTokenNode(ctx, hidden);
   rm_free(s);
   yymsp[-2].minor.yy47->opts.flags |= QueryNode_Verbatim;
 }

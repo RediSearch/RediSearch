@@ -496,7 +496,11 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   // printf("Term Pointer: %p\n", term);
   iter->tmpTerm.score = term->idf;
   iter->tmpTerm.termId = term->id;
-  iter->tmpTerm.len = term->len;
+  size_t len = 0;
+  if (term->str) {
+    HiddenString_GetUnsafe(term->str, &len);
+  }
+  iter->tmpTerm.len = len;
   iter->tmpTerm.tokPos = iter->curTokPos;
   iter->tmpTerm.bytePos = iter->curByteOffset;
   *termInfo = &iter->tmpTerm;
