@@ -519,9 +519,25 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) { //not self-stemmed
       ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
-      for (int i = 0; i < array_len(un->children); ++i) {
-        if (!un->children[i]->tn.expanded) {
-          array_del_fast(un->children, i);
+      bool all_stem = true;
+      uint64_t bit_mask = 1;
+      t_fieldMask fm = orig_fm;
+      
+      while (fm) {
+        if (fm & bit_mask) {
+          const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit_mask);
+          if (fs && FieldSpec_IsNoStem(fs)) {
+            all_stem = false;
+          }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+      if (all_stem) {
+        for (int i = 0; i < array_len(un->children); ++i) {
+          if (!un->children[i]->tn.expanded) {
+            array_del_fast(un->children, i);
+          }
         }
       }
     }
