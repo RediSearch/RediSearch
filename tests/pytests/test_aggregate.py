@@ -252,8 +252,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         for row in res[1:]:
             row = to_dict(row)
-            expected = '%s|%s|%s|%g' % (
-                row['title'], row['brand'], 'Mark', float(row['price']))
+            expected = f"{row['title']}|{row['brand']}|Mark|{float(row['price']):g}"
             self.env.assertEqual(expected, row['titleBrand'])
 
     def testSum(self):
@@ -792,8 +791,8 @@ def testGroupbyNoReduce(env):
             'birthYear', 'NUMERIC', 'SORTABLE')
 
     for x in range(10):
-        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
-            'primaryName', 'sarah number{}'.format(x))
+        env.cmd('ft.add', 'idx', f'doc{x}', 1, 'fields',
+            'primaryName', f'sarah number{x}')
 
     rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'groupby', 1, '@primaryName')
     env.assertEqual(11, len(rv))
@@ -982,7 +981,7 @@ def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
     for i in range(101):
-        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', i)
+        conn.execute_command('HSET', f'doc{i}', 't', 'text', 'num', i)
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
                                     'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
@@ -1003,7 +1002,7 @@ def testAggregateGroup0Field(env):
               530000.0, 500000.0, 540000.0, 2500000.0, 330000.0, 525000.0,
               2500000.0, 350000.0, 590000.0, 1250000.0, 799000.0, 1380000.0]
     for i in range(len(values)):
-        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', values[i])
+        conn.execute_command('HSET', f'doc{i}', 't', 'text', 'num', values[i])
 
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
