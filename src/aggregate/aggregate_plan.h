@@ -63,6 +63,8 @@ typedef struct PLN_BaseStep {
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
 #define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
+// TODO: Fix the above to:
+// #define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, AGGPlan, steps)
 
 /**
  * JUNCTION/REDUCTION POINTS
@@ -185,7 +187,7 @@ void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp);
 
 /* Removes the step from the plan */
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
+void AGPLN_PopStep(PLN_BaseStep *step);
 
 /** Checks if a step with the given type is contained within the plan */
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
