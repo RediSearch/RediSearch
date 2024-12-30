@@ -27,7 +27,7 @@ IndexError IndexError_Init() {
     IndexError error = {0}; // Initialize all fields to 0.
     error.last_error = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
-    error.key = RedisModule_CreateStringFromString(RSDummyContext, NA_rstr);
+    error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     return error;
 }
 void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
@@ -41,7 +41,7 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
     }
     RedisModule_FreeString(RSDummyContext, error->key);
     error->last_error = error_message ? rm_strdup(error_message) : NA; // Don't strdup NULL.
-    error->key = RedisModule_CreateStringFromString(RSDummyContext, key);
+    error->key = RedisModule_HoldString(RSDummyContext, key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
     clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time);
