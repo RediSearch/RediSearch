@@ -670,11 +670,19 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       return RedisModule_Reply_String(reply, v->rstrval);
 
     case RSValue_Number: {
-      if (!(flags & SENDREPLY_FLAG_EXPAND) && !(flags & SENDREPLY_FLAG_TYPED)) {
-        // With STRING format and with `_NUM_SSTRING` disabled, return the number as a string
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
         char buf[128];
         size_t len = RSValue_NumToString(v->numval, buf);
-        return RedisModule_Reply_StringBuffer(reply, buf, len);
+
+        if (flags & SENDREPLY_FLAG_TYPED) {
+          if (reply->resp3) {
+            return RedisModule_Reply_Double(reply, v->numval);
+          } else { // RESP2
+            return RedisModule_Reply_Error(reply, buf);
+          }
+        } else {
+          return RedisModule_Reply_StringBuffer(reply, buf, len);
+        }
       } else {
         long long ll = v->numval;
         if (ll == v->numval) {
