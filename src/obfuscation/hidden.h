@@ -15,12 +15,24 @@ extern "C" {
 
 typedef struct HiddenString HiddenString;
 
+typedef enum {
+  Borrow = 0,
+  Take = 1,
+  Move = 2
+} Ownership;
+
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
 // This is a security measure to prevent leaking user data
 // The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
 // HiddenString_Free must be called for the object to release it
-HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
+HiddenString *NewHiddenStringEx(const char *name, size_t length, Ownership mode);
+
+static inline HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership) {
+  return NewHiddenStringEx(name, length, takeOwnership ? Take : Borrow);
+}
+
+
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value);
 

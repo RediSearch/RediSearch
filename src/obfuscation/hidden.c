@@ -10,18 +10,18 @@ typedef struct {
   const char *buffer;
   uint32_t length;
   uint16_t refcount;
-  bool owner;
+  Ownership owner;
 } HiddenStringImpl;
 
-HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
+HiddenString *NewHiddenStringEx(const char* name, size_t length, Ownership mode) {
   HiddenStringImpl* value = rm_malloc(sizeof(*value));
-  if (takeOwnership) {
+  if (mode == Take) {
     value->buffer = rm_strndup(name, length);
   } else {
     value->buffer = name;
   }
   value->length = length;
-  value->owner = takeOwnership;
+  value->owner = mode;
   value->refcount = 1;
   return (HiddenString*)value;
 };
@@ -29,7 +29,7 @@ HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnershi
 void HiddenString_Free(const HiddenString* hn) {
   HiddenStringImpl* value = (HiddenStringImpl*)hn;
   if (--value->refcount == 0) {
-    if (value->owner) {
+    if (value->owner != Borrow) {
       rm_free((void*)value->buffer);
     }
     rm_free(value);
@@ -82,11 +82,11 @@ HiddenString *HiddenString_Retain(HiddenString *value) {
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
   HiddenStringImpl* impl = (HiddenStringImpl*)hidden;
-  if (impl->owner) {
+  if (impl->owner != Borrow) {
     return;
   }
   impl->buffer = rm_strndup(impl->buffer, impl->length);
-  impl->owner = true;
+  impl->owner = Take;
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {

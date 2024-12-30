@@ -84,7 +84,7 @@ typedef struct {
   // type of query node UNION,GEO,NUMERIC...
   QueryNodeType origType;
   // original string for fuzzy or prefix unions
-  const char *qstr;
+  const HiddenString *qstr;
 } UnionIterator;
 
 static void resetMinIdHeap(UnionIterator *ui) {
@@ -160,7 +160,7 @@ static void UI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
-                                double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config) {
+                                double weight, QueryNodeType type, const HiddenString *qstr, IteratorsConfig *config) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
   ctx->origits = its;
@@ -1855,10 +1855,12 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   if (!ui->qstr) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
   } else {
-    const char *qstr = ui->qstr;
-    if (isUnsafeForSimpleString(qstr)) qstr = escapeSimpleString(qstr);
-    RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
-    if (qstr != ui->qstr) rm_free((char*)qstr);
+    const HiddenString *qstr = ui->qstr;
+    const char *original = HiddenString_GetUnsafe(qstr, NULL);
+    const char *str = original;
+    if (isUnsafeForSimpleString(str)) str = escapeSimpleString(str);
+    RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, str);
+    if (str != original) rm_free((char*)str);
   }
 
   if (config->printProfileClock) {

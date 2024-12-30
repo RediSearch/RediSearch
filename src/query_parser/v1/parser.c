@@ -57,6 +57,14 @@ static char *strdupcase(const char *s, size_t len) {
   return ret;
 }
 
+static HiddenString* MakeToken(const char *s, size_t len) {
+    return NewHiddenStringEx(strdupcase(s, len), len, Move);
+}
+
+static HiddenString* MakeTagToken(const char *s, size_t len) {
+    return NewHiddenStringEx(rm_strndup(s, len), len, Move);
+}
+
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -1390,14 +1398,18 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
 {
-    yymsp[-2].minor.yy75 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+    HiddenString *hidden = MakeToken(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+    yymsp[-2].minor.yy75 = NewTokenNode(ctx, hidden);
+    HiddenString_Free(hidden);
     yymsp[-2].minor.yy75->opts.flags |= QueryNode_Verbatim;
 
 }
         break;
       case 18: /* expr ::= term */
 {
-   yylhsminor.yy75 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
+    HiddenString *hidden = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    yylhsminor.yy75 = NewTokenNode(ctx, hidden);
+    HiddenString_Free(hidden);
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1421,15 +1433,21 @@ static YYACTIONTYPE yy_reduce(
       case 22: /* termlist ::= term term */
 {
     yylhsminor.yy75 = NewPhraseNode(0);
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    HiddenString* b = MakeToken(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+    HiddenString* c = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, b));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, c));
+    HiddenString_Free(b);
+    HiddenString_Free(c);
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy75 = yymsp[-1].minor.yy75;
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    HiddenString* c = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, c));
+    HiddenString_Free(c);
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1549,7 +1567,9 @@ static YYACTIONTYPE yy_reduce(
       case 41: /* tag_list ::= LB STOPWORD */ yytestcase(yyruleno==41);
 {
     yymsp[-1].minor.yy75 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy75, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    HiddenString *tag = MakeTagToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    QueryNode_AddChild(yymsp[-1].minor.yy75, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
 }
         break;
       case 42: /* tag_list ::= LB affix */
@@ -1562,7 +1582,9 @@ static YYACTIONTYPE yy_reduce(
       case 44: /* tag_list ::= tag_list OR term */
       case 45: /* tag_list ::= tag_list OR STOPWORD */ yytestcase(yyruleno==45);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy75, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    HiddenString *tag = MakeTagToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    QueryNode_AddChild(yymsp[-2].minor.yy75, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
     yylhsminor.yy75 = yymsp[-2].minor.yy75;
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
