@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+#include "rmalloc.h"
 #include "redismodule.h"
 
 #define RedisModule_ReplyWithLiteral(ctx, literal) \

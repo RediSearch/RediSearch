@@ -232,7 +232,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
+  REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 

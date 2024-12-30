@@ -1292,6 +1292,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
   }
+
+  IndexError_Clear(spec->stats.indexError);
+
   // Reset fields stats
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
@@ -1531,6 +1534,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
+  sp->stats.indexError = IndexError_Init();
+
   return sp;
 }
 
@@ -1556,6 +1561,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
+  fs->indexError = IndexError_Init();
   return fs;
 }
 
@@ -1668,6 +1674,9 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
+
+  f->indexError = IndexError_Init();
+
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -1737,6 +1746,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   return REDISMODULE_OK;
 
 fail:
+  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2067,7 +2077,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
-  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexingFailures);
+  RedisModule_InfoAddFieldLongLong(ctx, "hash_indexing_failures", sp->stats.indexError.error_count);
   RedisModule_InfoAddFieldLongLong(ctx, "indexing", !!global_spec_scanner || sp->scan_in_progress);
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
@@ -2145,6 +2155,8 @@ void Indexes_UpgradeLegacyIndexes() {
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
+    // Init the index error
+    sp->stats.indexError = IndexError_Init();
 
     // put the new index in the specDict_g
     dictAdd(specDict_g, sp->name, sp);
@@ -2171,6 +2183,9 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
                                    QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_MakeKeyless(sp);
+
+  // `indexError` must be initialized before attempting to free the spec.
+  sp->stats.indexError = IndexError_Init();
 
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -2272,7 +2287,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     sp = oldSpec;
   } else {
     dictAdd(specDict_g, sp->name, sp);
-
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
     }
@@ -2550,8 +2564,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
-
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
@@ -2562,6 +2574,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   hires_clock_get(&t0);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  QueryError status = {0};
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -2569,26 +2582,27 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
   if (rv != REDISMODULE_OK) {
-    spec->stats.indexingFailures++;
+    // we already unlocked the spec but we can increase this value atomically
+    IndexError_AddError(&spec->stats.indexError, status.detail, doc.docKey);
 
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     IndexSpec_DeleteDoc(spec, ctx, key);
+    QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
   }
 
-  QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);

@@ -23,6 +23,7 @@
 #include "util/dict.h"
 #include "redisearch_api.h"
 #include "rules.h"
+#include "info/index_error.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,7 +118,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t indexingFailures;
+  IndexError indexError;
   size_t vectorIndexSize;
   long double totalIndexTime; // usec
 } IndexStats;
@@ -248,8 +249,8 @@ typedef struct IndexSpec {
   int16_t numFields;              // Number of fields
   int16_t numSortableFields;      // Number of sortable fields
 
-  IndexStats stats;               // Statistics of memory used and quantities
   IndexFlags flags;               // Flags
+  IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
