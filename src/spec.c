@@ -1226,10 +1226,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free fields data
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      if (spec->fields[i].name != spec->fields[i].path) {
-        rm_free(spec->fields[i].name);
-      }
-      rm_free(spec->fields[i].path);
+      FieldSpec_Cleanup(&spec->fields[i]);
     }
     rm_free(spec->fields);
   }
