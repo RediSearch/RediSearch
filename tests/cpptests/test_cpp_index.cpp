@@ -818,7 +818,10 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+
   // Run simple top k query.
+  const char *rawScoreField = "__v_score";
+  HiddenString *scoreField = NewHiddenString(rawScoreField, strlen(rawScoreField), false);
   HybridIteratorParams hParams = {.sctx=NULL,
                                   .index = index,
                                   .dim = d,
@@ -826,7 +829,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .spaceMetric = met,
                                   .query = top_k_query,
                                   .qParams = queryParams,
-                                  .vectorScoreField = "__v_score",
+                                  .vectorScoreField = scoreField,
                                   .canTrimDeepResults = true,
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
@@ -946,6 +949,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
+  HiddenString_Free(scoreField);
 }
 
 TEST_F(IndexTest, testInvalidHybridVector) {
@@ -982,11 +986,13 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
   // Create hybrid iterator - should return NULL.
+  const char *rawScoreField = "__v_score";
+  HiddenString *scoreField = NewHiddenString(rawScoreField, strlen(rawScoreField), false);
   HybridIteratorParams hParams = {.sctx = NULL,
                                   .index = index,
                                   .query = top_k_query,
                                   .qParams = queryParams,
-                                  .vectorScoreField = "__v_score",
+                                  .vectorScoreField = scoreField,
                                   .canTrimDeepResults = true,
                                   .childIt = ii,
                                   .filterCtx = &filterCtx};
@@ -994,6 +1000,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_FALSE(hybridIt);
+  HiddenString_Free(scoreField);
 
   ii->Free(ii);
   InvertedIndex_Free(w);

@@ -21,7 +21,7 @@ typedef struct {
   VecSimMetric spaceMetric;
   KNNVectorQuery query;
   VecSimQueryParams qParams;
-  const char *vectorScoreField;
+  HiddenString *vectorScoreField;
   bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
   IndexIterator *childIt;
   struct timespec timeout;

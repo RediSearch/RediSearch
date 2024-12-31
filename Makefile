@@ -389,8 +389,6 @@ FLOW_TESTS_DEFS=\
 	SAN=$(SAN) \
 	EXT=$(EXT)
 
-export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
-
 ifeq ($(SLOW),1)
 _TEST_PARALLEL=0
 else ifeq ($(TEST_PARALLEL),)

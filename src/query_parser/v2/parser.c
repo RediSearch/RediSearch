@@ -2340,7 +2340,7 @@ static YYACTIONTYPE yy_reduce(
       case 78: /* vector_query ::= vector_command vector_attribute_list vector_score_field */
 {
   if (yymsp[-2].minor.yy3->vn.vq->scoreField) {
-    rm_free(yymsp[-2].minor.yy3->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-2].minor.yy3->vn.vq->scoreField);
     yymsp[-2].minor.yy3->vn.vq->scoreField = NULL;
   }
   yymsp[-2].minor.yy3->params = array_grow(yymsp[-2].minor.yy3->params, 1);
@@ -2354,7 +2354,7 @@ static YYACTIONTYPE yy_reduce(
       case 79: /* vector_query ::= vector_command vector_score_field */
 {
   if (yymsp[-1].minor.yy3->vn.vq->scoreField) {
-    rm_free(yymsp[-1].minor.yy3->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-1].minor.yy3->vn.vq->scoreField);
     yymsp[-1].minor.yy3->vn.vq->scoreField = NULL;
   }
   yymsp[-1].minor.yy3->params = array_grow(yymsp[-1].minor.yy3->params, 1);

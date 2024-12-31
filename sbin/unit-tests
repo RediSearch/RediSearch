@@ -65,8 +65,6 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
-
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
 

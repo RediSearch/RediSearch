@@ -401,7 +401,7 @@ typedef struct {
   union {
     struct {
       RSTokenizer *tokenizer;
-      Vector *tokList;
+      arrayof(HiddenString*) tokList;
     } cn;
     struct sb_stemmer *latin;
   } data;
@@ -416,13 +416,11 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   }
   if (!dd->data.cn.tokenizer) {
     tokenizer = dd->data.cn.tokenizer = NewChineseTokenizer(NULL, NULL, 0);
-    dd->data.cn.tokList = NewVector(void*, 4);
+    dd->data.cn.tokList = array_new(HiddenString*, 4);
   }
 
   tokenizer = dd->data.cn.tokenizer;
-  Vector *tokVec = dd->data.cn.tokList;
 
-  tokVec->top = 0;
   size_t len;
   const char* str = HiddenString_GetUnsafe(token->str, &len);
   char *mutableStr = rm_strndup(str, len);
@@ -431,15 +429,11 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   Token tTok = {0};
   while (tokenizer->Next(tokenizer, &tTok)) {
     HiddenString *s = NewHiddenString(tTok.tok, tTok.tokLen, true);
-    Vector_Push(tokVec, s);
+    array_ensure_append_1(dd->data.cn.tokList, s);
   }
   rm_free(mutableStr);
 
-  ctx->ExpandTokenWithPhrase(ctx, (HiddenString **)tokVec->data, tokVec->top, token->flags, 0, 0);
-  HiddenString *next = NULL;
-  while (Vector_Pop(tokVec, &next)) {
-    HiddenString_Free(next);
-  }
+  ctx->ExpandTokenWithPhrase(ctx, dd->data.cn.tokList, array_len(dd->data.cn.tokList), token->flags, 0, 0);
 }
 
 /******************************************************************************************
@@ -548,7 +542,7 @@ void StemmerExpanderFree(void *p) {
   defaultExpanderCtx *dd = p;
   if (dd->isCn) {
     dd->data.cn.tokenizer->Free(dd->data.cn.tokenizer);
-    Vector_Free(dd->data.cn.tokList);
+    array_free_ex(dd->data.cn.tokList, HiddenString_Free(*(HiddenString**)ptr));
   } else if (dd->data.latin) {
     sb_stemmer_delete(dd->data.latin);
   }

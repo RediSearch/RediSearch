@@ -83,13 +83,15 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_TERM:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_normalize(source->s, source->len);
-    if (target_len) *target_len = strlen(target_value);
+    char *dup = rm_normalize(source->s, source->len);
+    size_t len = strlen(dup); // rm_strdupcase can unescape the string, so we need to recalculate the length
+    *(HiddenString**)target_value = NewHiddenStringEx(dup, len, Move);
+    if (target_len) *target_len = source->len;
     return false; // done
 
   case QT_TERM_CASE:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_strndup(source->s, source->len);
+    *(HiddenString**)target_value = NewHiddenStringEx(source->s, source->len, Take);
     if (target_len) *target_len = source->len;
     return false; // done
 
@@ -105,8 +107,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_WILDCARD:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_calloc(1, source->len + 1);
+    char *target = rm_calloc(1, source->len + 1);
     memcpy(*(char**)target_value, source->s, source->len);
+    *(HiddenString**)target_value = NewHiddenStringEx(target, source->len, Move);
     if (target_len) *target_len = source->len;
     return false; // done
 
@@ -190,6 +193,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
           val_is_numeric = 1;
         }
         char *dup = rm_strdupcase(val, val_len);
+        val_len = strlen(dup); // rm_strdupcase can unescape the string, so we need to recalculate the length
         *(HiddenString**)param->target = NewHiddenStringEx(dup, val_len, Move);
         if (param->target_len) *param->target_len = val_len;
       }

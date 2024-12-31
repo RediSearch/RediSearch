@@ -74,6 +74,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
       FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
       FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+      const char *rawScoreField = "__v_score";
+      HiddenString *scoreField = NewHiddenString(rawScoreField, strlen(rawScoreField), false);
       HybridIteratorParams hParams = {.sctx = NULL,
                                       .index = index,
                                       .dim = d,
@@ -81,7 +83,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .spaceMetric = VecSimMetric_L2,
                                       .query = top_k_query,
                                       .qParams = queryParams,
-                                      .vectorScoreField = "__v_score",
+                                      .vectorScoreField = scoreField,
                                       .canTrimDeepResults = true,
                                       .childIt = ui,
                                       .filterCtx = &filterCtx,
@@ -89,6 +91,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       QueryError err = {QUERY_OK};
       IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
       assert(!QueryError_HasError(&err));
+      HiddenString_Free(scoreField);
 
       // Run in batches mode.
       HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
