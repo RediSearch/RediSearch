@@ -26,8 +26,7 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    res = downloadFiles(env, RDBS)
-    if not res:
+    if not downloadFiles(env, RDBS):
         return
 
     for fileName in RDBS:
@@ -65,8 +64,7 @@ def testRDBCompatibility_vecsim():
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
-    res = downloadFiles(env, rdbs)
-    if not res:
+    if not downloadFiles(env, rdbs):
         return
 
     for fileName in rdbs:

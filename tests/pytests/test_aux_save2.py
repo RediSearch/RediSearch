@@ -133,13 +133,11 @@ def testLoadRdbWithEmptySpellcheckDict(env):
     # empty_dict1 and empty_dict2 are empty dictionaries
     # dict is a non-empty dictionary, containing two items: ['hello', 'hola']
 
-    env = Env()
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    res = downloadFiles(env, RDBS)
-    if not res:
+    if not downloadFiles(env, RDBS):
         return
 
     for fileName in RDBS:
