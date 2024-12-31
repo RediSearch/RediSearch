@@ -533,11 +533,13 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
         fm &= ~bit_mask;
         bit_mask <<= 1;
       }
-      if (all_stem) {
+      if (all_stem && ctx->handle->spec->rule->lang_default == ctx->language) {
         for (int i = 0; i < array_len(un->children); ++i) {
           if (!un->children[i]->tn.expanded) {
+            QueryNode_Free(un->children[i]);
             array_del_fast(un->children, i);
           }
+          
         }
       }
     }

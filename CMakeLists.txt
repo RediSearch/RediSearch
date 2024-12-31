@@ -99,6 +99,12 @@ add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/coord)
 
+set(ICU_INCLUDE_DIR /opt/homebrew/opt/icu4c/include)
+set(ICU_UC_LIBRARY /opt/homebrew/opt/icu4c/lib/libicuuc.dylib)
+set(ICU_I18N_LIBRARY /opt/homebrew/opt/icu4c/lib/libicui18n.dylib)
+
+include_directories(${ICU_INCLUDE_DIR})
+
 #----------------------------------------------------------------------------------------------
 
 file(GLOB SOURCES
