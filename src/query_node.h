@@ -187,7 +187,7 @@ typedef struct {
   int inOrder;
   double weight;
   int phonetic;
-  char *distField;
+  HiddenString *distField;
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;

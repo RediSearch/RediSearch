@@ -15,7 +15,6 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
-add_dependencies(rstest example_extension)
 add_test(NAME rstest COMMAND rstest)
 
 

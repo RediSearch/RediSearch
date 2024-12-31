@@ -500,7 +500,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
         hi->searchMode = VECSIM_HYBRID_BATCHES;
       }
     }
-    hi->scoreField = NewHiddenString(hParams.vectorScoreField, strlen(hParams.vectorScoreField), false);
+    hi->scoreField = HiddenString_Retain(hParams.vectorScoreField);
     hi->topResults = mmh_init_with_size(hParams.query.k, cmpVecSimResByScore, NULL, (mmh_free_func)IndexResult_Free);
     hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
   }

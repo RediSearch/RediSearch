@@ -28,10 +28,8 @@ typedef enum {
 // HiddenString_Free must be called for the object to release it
 HiddenString *NewHiddenStringEx(const char *name, size_t length, Ownership mode);
 
-static inline HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership) {
-  return NewHiddenStringEx(name, length, takeOwnership ? Take : Borrow);
-}
-
+// Uses NewHiddenStringEx with Take/Borrow ownership mode based on the boolean takeOwnership
+HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
 
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value);

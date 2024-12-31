@@ -71,7 +71,8 @@ static char *strdupcase(const char *s, size_t len) {
 }
 
 static HiddenString* MakeToken(const char *s, size_t len) {
-    return NewHiddenStringEx(strdupcase(s, len), len, Move);
+    char *str = strdupcase(s, len); // strdupcase can unescape the string, will need to recompute the length
+    return NewHiddenStringEx(str, strlen(str), Move);
 }
 
 static HiddenString* MakeTagToken(const char *s, size_t len) {

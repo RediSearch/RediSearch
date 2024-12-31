@@ -2333,7 +2333,7 @@ static YYACTIONTYPE yy_reduce(
       case 77: /* vector_query ::= vector_command vector_attribute_list vector_score_field */
 {
   if (yymsp[-2].minor.yy47->vn.vq->scoreField) {
-    rm_free(yymsp[-2].minor.yy47->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-2].minor.yy47->vn.vq->scoreField);
     yymsp[-2].minor.yy47->vn.vq->scoreField = NULL;
   }
   yymsp[-2].minor.yy47->params = array_grow(yymsp[-2].minor.yy47->params, 1);
@@ -2347,7 +2347,7 @@ static YYACTIONTYPE yy_reduce(
       case 78: /* vector_query ::= vector_command vector_score_field */
 {
   if (yymsp[-1].minor.yy47->vn.vq->scoreField) {
-    rm_free(yymsp[-1].minor.yy47->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-1].minor.yy47->vn.vq->scoreField);
     yymsp[-1].minor.yy47->vn.vq->scoreField = NULL;
   }
   yymsp[-1].minor.yy47->params = array_grow(yymsp[-1].minor.yy47->params, 1);
@@ -2426,7 +2426,9 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy47 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy47->vn.vq->field = yymsp[-1].minor.yy58.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy47->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy58.tok.len, yymsp[-1].minor.yy58.tok.s)));
+    char* scoreField = NULL;
+    RedisModule_Assert(-1 != (rm_asprintf(&scoreField, "__%.*s_score", yymsp[-1].minor.yy58.tok.len, yymsp[-1].minor.yy58.tok.s)));
+    yylhsminor.yy47->vn.vq->scoreField = NewHiddenStringEx(scoreField, strlen(scoreField), Move);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy47 = NULL;

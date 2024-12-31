@@ -258,7 +258,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 
 IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex) {
-  RSToken tok = {.str = NewHiddenString(value, len, false)};
+  RSToken tok = {.str = NewHiddenString(value, len, true)};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
   IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
