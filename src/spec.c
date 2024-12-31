@@ -1671,9 +1671,6 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
-
-  f->indexError = IndexError_Init();
-
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
@@ -1743,7 +1740,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   return REDISMODULE_OK;
 
 fail:
-  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2198,6 +2194,12 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
+
+  // Since we either way clear error for all fields upon error, we must initialize all of them.
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    fs->indexError = IndexError_Init();
+  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, sp->fields + i, encver) != REDISMODULE_OK) {
@@ -2320,6 +2322,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
+  // Since we either way clear error for all fields upon error, we must initialize all of them.
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    fs->indexError = IndexError_Init();
+  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
