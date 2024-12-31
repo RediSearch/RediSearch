@@ -7,6 +7,7 @@
 #ifndef RS_MISC_H
 #define RS_MISC_H
 
+#include <stdbool.h>
 #include "redismodule.h"
 
 /**
@@ -17,5 +18,7 @@ void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *ke
 char *strtolower(char *str);
 
 int GetRedisErrorCodeLength(const char* error);
+
+bool contains_non_alphabetic_char(char* str, size_t len);
 
 #endif

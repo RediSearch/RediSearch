@@ -28,3 +28,14 @@ int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;
 }
+
+bool contains_non_alphabetic_char(char* str, size_t len) {
+    if (len == 0 || !str ) return false;
+    const char* non_alphabetic_chars = "0123456789!@#$%^&*()_+-=[]{}\\|;:'\",.<>/?`~§± ";
+    for (size_t i = 0; i < len; i++) {
+        if (strchr(non_alphabetic_chars, str[i])) {
+            return true;
+        }
+    }
+    return false;
+}
