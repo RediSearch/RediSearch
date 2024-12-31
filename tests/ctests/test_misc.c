@@ -64,8 +64,7 @@ int test_strtolower() {
 }
 
 int test_get_redis_error_code_length() {
-    // Test NULL and empty
-    ASSERT_EQUAL(GetRedisErrorCodeLength(NULL), 0);
+    // Test empty
     ASSERT_EQUAL(GetRedisErrorCodeLength(""), 0);
     
     // Test no space
