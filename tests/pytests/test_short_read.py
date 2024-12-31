@@ -597,21 +597,27 @@ def runShortRead(env, data, total_len, expected_index):
 seed = str(time.time())
 random.seed(seed)
 
-def downloadFile(file_name):
+def downloadFile(env, file_name):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     path_dir = os.path.dirname(path)
     os.makedirs(path_dir, exist_ok=True)
     if not os.path.exists(path):
         subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + file_name, "-O", path, "-q"])
         if os.path.splitext(path)[-1] == '.zip':
-            return unzip(path, path_dir)
+            res = unzip(path, path_dir)
+            env.assertTrue(res, message='Failed to unzip ' + path)
+            return res
         else:
-            return os.path.exists(path) and os.path.getsize(path) > 0
+            exists = os.path.exists(path)
+            non_zero_size = os.path.getsize(path) > 0
+            res = exists and non_zero_size
+            env.assertTrue(res, message=f'Failed to download {path}. exists: ' + str(exists) + ', non_zero_size: ' + str(non_zero_size))
+            return res
     return True
 
 def doTest(env: Env, test_name, rdb_name, expected_index):
     env.debugPrint(f'random seed for {test_name}: {seed}', force=True)
-    env.assertTrue(downloadFile(rdb_name), message='Failed to download ' + rdb_name)
+    env.assertTrue(downloadFile(env, rdb_name), message='Failed to download ' + rdb_name)
     name, ext = os.path.splitext(rdb_name)
     fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
 
@@ -622,7 +628,7 @@ def doTest(env: Env, test_name, rdb_name, expected_index):
         sendShortReads(env, fullPath, expected_index)
 
 # Dynamically create a test function for each rdb file
-@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64')
+@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True)
 def register_tests():
     test_func = lambda test, rdb, idx: lambda env: doTest(env, test, rdb, idx)
     for rdb_name, expected_index in RDBS.items():
