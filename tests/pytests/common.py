@@ -745,7 +745,6 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
-
 def downloadFiles(env, rdbs=None):
     if rdbs is None:
         return False

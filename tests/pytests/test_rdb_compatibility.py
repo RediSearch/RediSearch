@@ -65,7 +65,7 @@ def testRDBCompatibility_vecsim():
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
-    res = downloadFiles(env, RDBS)
+    res = downloadFiles(env, rdbs)
     if not res:
         return
 
