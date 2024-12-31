@@ -481,13 +481,13 @@ def test_redis_info_modules_vecsim():
   env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL')
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   set_doc = lambda: env.expect('HSET', '1', 'vec', '????????')
-  field_infos = lambda: [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  get_field_infos = lambda: [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
   # Busy wait until the new vector has moved completely to HNSW in both indexes.
   def wait_for_vector_to_move_to_hnsw():
     while True:
-      infos = field_infos()
+      field_infos = get_field_infos()
       # Once the frontend index is empty for ALL fields, we can continue to the test (async indexing is done).
-      if all([to_dict(f_info['FRONTEND_INDEX'])['INDEX_SIZE'] == 0 for f_info in infos[:2]]):
+      if all([to_dict(f_info['FRONTEND_INDEX'])['INDEX_SIZE'] == 0 for f_info in field_infos[:2]]):
         break
 
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -498,8 +498,8 @@ def test_redis_info_modules_vecsim():
   wait_for_vector_to_move_to_hnsw()
 
   info = env.cmd('INFO', 'MODULES')
-  infos = field_infos()
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in infos))
+  field_infos = get_field_infos()
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
 
   [env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # Stop the gc
@@ -507,8 +507,8 @@ def test_redis_info_modules_vecsim():
   wait_for_vector_to_move_to_hnsw()
 
   info = env.cmd('INFO', 'MODULES')
-  infos = field_infos()
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in infos))
+  field_infos = get_field_infos()
+  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
@@ -517,7 +517,7 @@ def test_redis_info_modules_vecsim():
   [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
 
   info = env.cmd('INFO', 'MODULES')
-  field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
+  field_infos = get_field_infos()
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
