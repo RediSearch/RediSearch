@@ -58,6 +58,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "activeThreads.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
@@ -1283,6 +1284,10 @@ void RediSearch_CleanupModule(void) {
   // a reference to the spec bat this time).
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
+
+  // At this point, the active-threads container is empty, since all threads
+  // finished their work.
+  activeThreads_Destroy();
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
@@ -3506,6 +3511,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   DIST_AGG_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
+  activeThreads_Init();
 
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
     // Running against a Redis version that does not support module ACL protection

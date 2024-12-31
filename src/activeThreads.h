@@ -35,8 +35,8 @@ extern ActiveThreads *activeThreads;
 /**
  * @brief Initializes the active threads data structure.
  *
- * This function allocates memory for the `activeThreads` structure and initializes
- * the dictionary for mapping thread IDs to `StrongRef` objects' `RefManager`. It
+ * This function allocates memory for the `activeThreads` structure and
+ * initializes the doubly-linked list for storing `ActiveThread` objects. It
  * also initializes the mutex used for thread-safe operations on the
  * `activeThreads` structure.
  */
@@ -45,17 +45,28 @@ void activeThreads_Init();
 /**
  * @brief Destroys the active threads data structure.
  *
- * This function releases the dictionary and destroys the mutex used for thread-safe
- * operations on the `activeThreads` structure.
+ * This function releases the doubly-linked list and destroys the mutex used
+ * for thread-safe operations on the `activeThreads` structure.
  */
 void activeThreads_Destroy();
 
 /**
+ * @brief Adds the current thread to the active threads data structure.
+ *
+ * This function adds the current thread ID (obtained using `pthread_self()`)
+ * and its associated `StrongRef` to the doubly-linked list. The function is
+ * thread-safe and locks the mutex during the operation.
+ *
+ * @param spec_ref The `StrongRef` associated with the current thread.
+ */
+void activeThreads_AddCurrentThread(StrongRef spec_ref);
+
+/**
  * @brief Adds a thread to the active threads data structure.
  *
- * This function adds a thread ID and its associated `RefManager` (of the `StrongRef`)
- * to the dictionary.
- * The function is thread-safe and locks the mutex during the operation.
+ * This function adds a thread ID and its associated `StrongRef` (of the
+ * `ActiveThread`) to the doubly-linked list. The function is thread-safe and
+ * locks the mutex during the operation.
  *
  * @param tid The thread ID to add.
  * @param spec_ref The `StrongRef` associated with the thread.
@@ -63,35 +74,25 @@ void activeThreads_Destroy();
 void activeThreads_AddThread(pthread_t tid, StrongRef spec_ref);
 
 /**
- * @brief Adds the current thread to the active threads data structure.
+ * @brief Removes the current thread from the active threads data structure.
  *
- * This function adds the current thread ID (obtained using `pthread_self()`) and its
- * associated `StrongRef` to the dictionary. The function is thread-safe and locks the
- * mutex during the operation.
- *
- * @param spec_ref The `StrongRef` associated with the current thread.
+ * This function removes the current thread ID (obtained using `pthread_self()`)
+ * and its associated `StrongRef` from the doubly-linked list. The value
+ * destructor will release the `StrongRef`. The function is thread-safe and
+ * locks the mutex during the operation.
  */
-void activeThreads_AddCurrentThread(StrongRef spec_ref);
+void activeThreads_RemoveCurrentThread();
 
 /**
  * @brief Removes a thread from the active threads data structure.
  *
- * This function removes a thread ID and its associated `StrongRef` from the dictionary.
- * The value destructor will release the `StrongRef`. The function is thread-safe and
- * locks the mutex during the operation.
+ * This function removes a thread ID and its associated `StrongRef` from the
+ * doubly-linked list. The value destructor will release the `StrongRef`. The
+ * function is thread-safe and locks the mutex during the operation.
  *
  * @param tid The thread ID to remove.
  */
-void activeThreads_RemoveThread(pthread_t thread);
-
-/**
- * @brief Removes the current thread from the active threads data structure.
- *
- * This function removes the current thread ID (obtained using `pthread_self()`) and
- * its associated `StrongRef` from the dictionary. The value destructor will release the
- * `StrongRef`. The function is thread-safe and locks the mutex during the operation.
- */
-void activeThreads_RemoveCurrentThread();
+void activeThreads_RemoveThread(pthread_t tid);
 
 #ifdef __cplusplus
 }
