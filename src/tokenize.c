@@ -37,10 +37,18 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
 // Normalization buffer
 #define MAX_NORMALIZE_SIZE 128
 
-static char *DefaultNormalize_singlechar(char *s, char *dst, size_t *len) {
-  size_t origLen = *len;
-  char *realDest = s;
-  size_t dstLen = 0;
+/**
+ * Normalize a single-byte character string, converting it to lower case and
+ * removing control characters.
+ * - s contains the raw token
+ * - dst is the destination buffer which contains the normalized text
+ * - len on input contains the length of the raw token. On output contains the 
+ *   length of the normalized token
+ */
+static char *DefaultNormalize_singleByteChars(char *s, char *dst, size_t *len) {
+  size_t origLen = *len;  // original length of the token
+  char *realDest = s;     // pointer to the current destination buffer
+  size_t dstLen = 0;      // length of the destination buffer
 
 #define SWITCH_DEST()        \
   if (realDest != dst) {     \
@@ -51,17 +59,22 @@ static char *DefaultNormalize_singlechar(char *s, char *dst, size_t *len) {
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
     if (isupper(s[ii])) {
+      // convert the character to lower case
       SWITCH_DEST();
       realDest[dstLen++] = tolower(s[ii]);
     } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
+      // skip blank characters and control characters
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
+      // handle backslash escapes
       SWITCH_DEST();
       escaped = 1;
       continue;
     } else {
+      // copy the character as is
       dst[dstLen++] = s[ii];
     }
+    // reset the escape flag
     escaped = 0;
   }
 
@@ -69,13 +82,22 @@ static char *DefaultNormalize_singlechar(char *s, char *dst, size_t *len) {
   return dst;
 }
 
+
+/**
+ * Normalize a UTF-8 string, converting it to lower case and removing control 
+ * characters.
+ * - s contains the raw token
+ * - dst is the destination buffer which contains the normalized text
+ * - len on input contains the length of the raw token. On output contains the
+ *   length of the normalized token
+ */
 static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
   // TODO: set locale depending on the index language?
   setlocale(LC_ALL, "en_US.UTF-8");
 
-  size_t origLen = *len;
-  char *realDest = s;
-  size_t dstLen = 0;
+  size_t origLen = *len;   // original length of the token
+  char *realDest = s;      // pointer to the current destination buffer
+  size_t dstLen = 0;       // length of the destination buffer
 
 #define SWITCH_DEST()        \
   if (realDest != dst) {     \
@@ -84,12 +106,17 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
   }
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
+
+  // Initialize the state for multi-byte character conversion
   mbstate_t state;
   memset(&state, 0, sizeof(state));
-  wchar_t wc;
-  size_t len_wc;
+
+  wchar_t wc;       // wide character
+  size_t len_wc;    // number of bytes consumed by the wide character
 
   for (size_t ii = 0; ii < origLen;) {
+    // Convert the next character to a wide character
+    // len_wc is the number of bytes consumed
     len_wc = mbrtowc(&wc, &s[ii], MB_CUR_MAX, &state);
     if (len_wc == (size_t)-1 || len_wc == (size_t)-2) {
       // Handle invalid multi-byte sequence
@@ -98,22 +125,28 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
     }
 
     if (iswupper(wc)) {
+      // If the character is upper case, convert it to lower case
       SWITCH_DEST();
       wchar_t lower_wc = towlower(wc);
       wcrtomb(&realDest[dstLen], lower_wc, &state);
       dstLen += len_wc;
     } else if ((iswblank(wc) && !escaped) || iswcntrl(wc)) {
+      // Skip blank characters and control characters
       SWITCH_DEST();
     } else if (wc == L'\\' && !escaped) {
+      // Handle backslash escapes
       SWITCH_DEST();
       escaped = 1;
       ii += len_wc;
       continue;
     } else {
+      // Copy the character as is
       memcpy(&dst[dstLen], &s[ii], len_wc);
       dstLen += len_wc;
     }
+    // Move to the next character
     ii += len_wc;
+    // Reset the escape flag
     escaped = 0;
   }
 
@@ -121,18 +154,11 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
   return dst;
 }
 
-/**
- * Normalizes text.
- * - s contains the raw token
- * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. on output contains the
- * on output contains the length of the normalized token
- */
 static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
     return DefaultNormalize_utf8(s, dst, len);
   } else {
-    return DefaultNormalize_singlechar(s, dst, len);
+    return DefaultNormalize_singleByteChars(s, dst, len);
   }
 }
 

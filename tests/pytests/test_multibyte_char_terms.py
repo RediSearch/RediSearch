@@ -120,6 +120,9 @@ def testRussianAlphabet(env):
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
 def testDiacritics(env):
+    ''' Test that caracters with diacritics are converted to lowercase, but the 
+    diacritics are not removed.
+    '''
     if not is_locale_available('en_US.UTF-8'):
         env.skip()
 
@@ -153,6 +156,8 @@ def testDiacritics(env):
         env.assertEqual(len(res), 9)
     
 def testDiacriticLimitation(env):
+    ''' Test that the diacritics are not removed, so the terms with diacritics
+    are not found when searching for terms without diacritics, and vice versa.'''
     if not is_locale_available('en_US.UTF-8'):
         env.skip()
 
@@ -223,5 +228,38 @@ def testStopWords(env):
     waitForIndex(env, 'idx2')
     # This fails, there are 9 terms because the stopwords are not converted
     # to lowercase correctly
+    # Ticket created to fix this: MOD-8443
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
     env.assertEqual(len(res), 9)
+
+def testInvalidMultiByteSequence(env):
+    ''' Test that invalid multi-byte sequences are ignored when indexing terms.'''
+
+    if not is_locale_available('en_US.UTF-8'):
+        env.skip()
+    
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+            'SCHEMA', 't', 'TEXT')
+    conn = getConnectionByEnv(env)
+
+    # Valid strings for comparison
+    conn.execute_command('HSET', 'test:1', 't', 'abcabc')
+    conn.execute_command('HSET', 'test:2', 't', 'ABCABC')
+    
+    # Invalid multi-byte sequences
+    invalid_str1 = b'\xC3'         # Incomplete UTF-8 sequence
+    invalid_str2 = b'\xC3\x28'     # Invalid UTF-8 sequence
+    invalid_str3 = b'\xC0\xAF'     # Overlong encoding
+    invalid_str4 = b'\xE2\x28\xA1' # Invalid UTF-8 sequence
+
+    # Store invalid strings in Redis
+    conn.execute_command('HSET', 'test:3', 't', invalid_str1.decode('utf-8', 'ignore'))
+    conn.execute_command('HSET', 'test:4', 't', invalid_str2.decode('utf-8', 'ignore'))
+    conn.execute_command('HSET', 'test:5', 't', invalid_str3.decode('utf-8', 'ignore'))
+    conn.execute_command('HSET', 'test:6', 't', invalid_str4.decode('utf-8', 'ignore'))
+
+    # Check the terms in the index
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        # Only the valid terms are indexed
+        env.assertEqual(res, ['abcabc'])

@@ -79,7 +79,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     // lowercase the letters
     for (size_t pos = 0; pos < tlen; pos++) {
       if (isalpha(t[pos])) {
-        t[pos] = tolower(t[pos]);  // TODO: Support multi-byte UTF-8 characters?
+        t[pos] = tolower(t[pos]);
       }
     }
     // printf("Adding stopword %s\n", t);
