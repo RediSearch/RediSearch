@@ -170,10 +170,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
       return REDIS_ERR;
     }
   }
-  if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
-    int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
-    c->protocol = cmd->protocol;
-  }
+
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
@@ -677,10 +674,11 @@ static int MRConn_Connect(MRConn *conn) {
     redisAsyncFree(c);
     return REDIS_ERR;
   }
-
+  redisAsyncCommand(c, NULL, NULL, "HELLO 3");
   conn->conn = c;
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
+  conn->protocol = 3;
 
   redisLibuvAttach(conn->conn, uv_default_loop());
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
