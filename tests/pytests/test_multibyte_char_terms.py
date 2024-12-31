@@ -13,6 +13,8 @@ def is_locale_available(locale_name):
         return False
 
 def testMultibyteChars(env):
+    ''' Test that multibyte characters are correctly converted to lowercase and
+    that queries are case-insensitive.'''
     if not is_locale_available('en_US.UTF-8'):
         env.skip()
 
@@ -30,7 +32,7 @@ def testMultibyteChars(env):
         # only 2 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 2)
-
+        env.assertEqual(res, ['abcabc', 'бълга123'])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -59,12 +61,38 @@ def testMultibyteChars(env):
             'FT.SEARCH', 'idx', '@t:БЪлга123', 'NOCONTENT')
         env.assertEqual(res, expected)
 
-        # Search with prefix
+        # Search with lowercase prefix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:бълга*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase prefix
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:БЪЛГА*', 'NOCONTENT')
         env.assertEqual(res, expected)
 
+        # Search with lowercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ълга123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ЪЛГА123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ълга*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ЪЛГА*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
 def testRussianAlphabet(env):
+    '''Test that the russian alphabet is correctly indexed and searched.'''
     if not is_locale_available('en_US.UTF-8'):
         env.skip()
 
@@ -201,12 +229,14 @@ def testDiacriticLimitation(env):
 
 @skip(cluster=True)
 def testStopWords(env):
+    '''Test that stopwords are not indexed, but for multibyte characters they 
+    are not converted to lowercase correctly.'''
     if not is_locale_available('en_US.UTF-8'):
         env.skip()
     
     conn = getConnectionByEnv(env)
     # test with russian lowercase stopwords
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'STOPWORDS', 3, 'от', 'и', 'не',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
@@ -218,8 +248,9 @@ def testStopWords(env):
     conn.execute_command('HSET', 'test:5', 't', 'МУЖЧИНЫ И ЖЕНЩИНЫ')
     conn.execute_command('HSET', 'test:6', 't', 'ОТ ОДНОГО ДО ДЕСЯТИ')
     # only 6 terms are indexed, the stopwords are not indexed
-    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
     env.assertEqual(len(res), 6)
+    env.assertEqual(res, ['десяти', 'до', 'женщины', 'мужчины', 'одного', 'ясно'])  
 
     # test with russian uppercase stopwords.
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
@@ -231,6 +262,8 @@ def testStopWords(env):
     # Ticket created to fix this: MOD-8443
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
     env.assertEqual(len(res), 9)
+    env.assertEqual(res, ['десяти', 'до', 'женщины', 'и', 'мужчины', 'не',
+                          'одного', 'от', 'ясно'])
 
 def testInvalidMultiByteSequence(env):
     ''' Test that invalid multi-byte sequences are ignored when indexing terms.'''
