@@ -205,7 +205,7 @@ def test_redis_info_errors():
   expected['idx1_errors'] = 0
   validate_info_output(message='drop one index')
 
-@skip(cluster=True, no_json=True)
+@skip(cluster=True)
 def test_redis_info_errors_json():
 
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
