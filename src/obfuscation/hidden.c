@@ -19,12 +19,18 @@ HiddenString *NewHiddenStringEx(const char* name, size_t length, Ownership mode)
     value->buffer = rm_strndup(name, length);
   } else {
     value->buffer = name;
+    bool same_length = length == strlen(name);
+    RS_LOG_ASSERT(same_length, "Length mismatch");
   }
   value->length = length;
   value->owner = mode;
   value->refcount = 1;
   return (HiddenString*)value;
 };
+
+HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership) {
+  return NewHiddenStringEx(name, length, takeOwnership ? Take : Borrow);
+}
 
 void HiddenString_Free(const HiddenString* hn) {
   HiddenStringImpl* value = (HiddenStringImpl*)hn;

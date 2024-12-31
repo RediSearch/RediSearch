@@ -199,7 +199,6 @@ if (BUILD_SEARCH_UNIT_TESTS)
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)
-    add_subdirectory(tests/ctests/ext-example example_extension)
     add_subdirectory(tests/ctests/coord_tests)
 
 endif()
