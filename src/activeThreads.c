@@ -7,6 +7,11 @@
 #include "activeThreads.h"
 #include "rmutil/rm_assert.h"
 
+// Add this under an #ifdef __linux block, otherwise we can use the `pthread_self` function.
+#ifdef __linux__
+#include <syscall.h>
+#endif
+
 ActiveThreads *activeThreads = NULL;
 
 // TLS key for the active thread
@@ -50,6 +55,8 @@ void activeThreads_Destroy() {
  */
 void activeThreads_AddCurrentThread(StrongRef spec_ref) {
   activeThreads_AddThread(pthread_self(), spec_ref);
+  // TODO - For Linux:
+  // activeThreads_AddThread(syscall(SYS_gettid), spec_ref);
 }
 
 /**

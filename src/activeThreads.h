@@ -17,7 +17,7 @@ extern "C" {
 
 typedef struct {
   DLLIST_node llnode;
-  pthread_t tid;
+  pthread_t tid;          // TODO: Switch to uint_32 so it will be compatible with both pthread_t and pid_t, or have a separate field for the pid_t (linux case)
   StrongRef spec_ref;
 } ActiveThread;
 

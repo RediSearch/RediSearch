@@ -10,6 +10,7 @@
 #include "cursor.h"
 #include "indexes_info.h"
 #include "util/units.h"
+#include "activeThreads.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -24,6 +25,7 @@ static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_ActiveThreads(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -71,6 +73,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Run time configuration
   AddToInfo_RSConfig(ctx);
+
+  // Active threads
+  if (for_crash_report) {
+    AddToInfo_ActiveThreads(ctx);
+  }
 }
 
 /* ========================== IMP ============================ */
@@ -269,4 +276,15 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+}
+
+void AddToInfo_ActiveThreads(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "active_threads");
+
+  // Assumes no other thread is currently accessing the active-threads container
+  DLLIST_FOREACH(node, &(activeThreads->list)) {
+    ActiveThread *at = DLLIST_ITEM(node, ActiveThread, llnode);
+    IndexSpec *spec = StrongRef_Get(at->spec_ref);
+    RedisModule_InfoAddFieldULongLong(ctx, (const char *)spec->name, (unsigned long)at->tid);
+  }
 }
