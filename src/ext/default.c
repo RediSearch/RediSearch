@@ -468,7 +468,6 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-
   const sb_symbol *b = (const sb_symbol *)token->str;
   const sb_symbol *stemmed = sb_stemmer_stem(sb, b, token->len);
 
@@ -545,7 +544,6 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     }
     // Restore field mask of UNION node
     qn->opts.fieldMask = orig_fm;
-
   }
   return REDISMODULE_OK;
 }
