@@ -696,12 +696,12 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
 
       if (isTyped) {
         if (reply->resp3) {
-          return RedisModule_Reply_Double(reply, v->numval);
+          return RedisModule_ReplyWithDouble(reply, v->numval);
         } else {
            // In RESP2, RM_ReplyWithDouble() does not tag the response as
            // double, it's just a plain string. So we send it as simple string
            // that is converted to double by MRReply_ToValue().
-          return RedisModule_Reply_Error(reply, buf);
+          return RedisModule_ReplyWithError(reply, buf);
         }
       } else {
         return RedisModule_ReplyWithStringBuffer(ctx, buf, len);
