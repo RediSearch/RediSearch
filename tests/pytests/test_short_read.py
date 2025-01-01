@@ -597,21 +597,21 @@ def runShortRead(env, data, total_len, expected_index):
 seed = str(time.time())
 random.seed(seed)
 
-def downloadFile(file_name):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)
-    if not os.path.exists(path):
-        subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + file_name, "-O", path, "-q"])
-        if os.path.splitext(path)[-1] == '.zip':
-            return unzip(path, path_dir)
-        else:
-            return os.path.exists(path) and os.path.getsize(path) > 0
+def getRDBFiles(env, rdb_name, depth=0):
+    if not downloadFile(env, rdb_name, depth=depth+1):
+        return False
+    path = os.path.join(REDISEARCH_CACHE_DIR, rdb_name)
+    if os.path.splitext(rdb_name)[-1] == '.zip':
+        path_dir = os.path.dirname(path)
+        if not unzip(path, path_dir):
+            env.assertTrue(False, message='Failed to unzip ' + path)
+            return False
     return True
 
-def doTest(env: Env, test_name, rdb_name, expected_index):
+def doTest(env: Env, test_name, rdb_name, expected_index, depth=0):
     env.debugPrint(f'random seed for {test_name}: {seed}', force=True)
-    env.assertTrue(downloadFile(rdb_name), message='Failed to download ' + rdb_name)
+    if not getRDBFiles(env, rdb_name, depth=depth+1):
+        return False
     name, ext = os.path.splitext(rdb_name)
     fullPath = os.path.join(REDISEARCH_CACHE_DIR, name if ext == '.zip' else rdb_name)
 
