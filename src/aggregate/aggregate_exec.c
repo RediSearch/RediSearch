@@ -863,7 +863,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  activeThreads_AddCurrentThread(IndexSpec_GetStrongRefUnsafe(sctx->spec));
+  activeThreads_AddCurrentThread(sctx->spec->own_ref);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
@@ -874,7 +874,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    activeThreads_RemoveCurrentThread();
     AREQ_Free(*r);
     *r = NULL;
     if (thctx) {
@@ -944,8 +943,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
 
-    // Remove main-thread from active-threads.
-    activeThreads_RemoveCurrentThread();
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).

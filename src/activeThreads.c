@@ -107,11 +107,14 @@ void activeThreads_RemoveCurrentThread() {
  */
 void activeThreads_RemoveThread(pthread_t tid) {
   ActiveThread *at = (ActiveThread *)pthread_getspecific(_activeThreadKey);
-  RS_LOG_ASSERT(at, "Active thread not found");
+  if (!at) {
+    return;
+  }
 
   pthread_mutex_lock(&activeThreads->lock);
   dllist_delete(&at->llnode);
   pthread_mutex_unlock(&activeThreads->lock);
 
+  pthread_setspecific(_activeThreadKey, NULL);
   // The StrongRef is released later by the thread.
 }
