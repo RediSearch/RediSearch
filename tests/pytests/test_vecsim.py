@@ -2394,3 +2394,30 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
+
+
+def test_vector_index_ptr_valid(env):
+    conn = getConnectionByEnv(env)
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with "bad" parameter 
+    #            Insert partial doc - only numeric
+    #            Update Doc
+    # Note: Should be updated if "bad" parameters are updated
+    
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+
+    conn.execute_command('FT.CREATE', 'idx1','SCHEMA', 'n', 'NUMERIC',
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M)   
+    conn.execute_command('HSET', 'doc1', 'n', 0)
+    res = conn.execute_command('HSET', 'doc1', 'n', 1)
+    # env.assertEqual(res, 0)
+
+    # Assert FT.INFO error message is correct
+    idx_info = index_info(env, 'idx1')
+
+
+
+    
+
+

@@ -2999,6 +2999,16 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
           continue;
         }
         VecSimIndex *vecsim = kdv->p;
+        if(!vecsim)
+        {
+          const FieldSpec *fs = spec->fields + i;
+          IndexError_AddError(&spec->stats.indexError, "Could not open vector index", key);
+          FieldSpec_AddError(&spec->fields[fs->index], "Could not open vector index", key);
+          continue;
+        }
+        //@Omer - no check needed
+        // This function and the function that calls it, don't perform checks
+        // The function that calls it always returns REDISMODULE_OK
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }
