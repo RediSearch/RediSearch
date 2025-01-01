@@ -460,14 +460,10 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-  if (qn->type == QN_TOKEN) {
+  if (qn->type == QN_TOKEN && qn->tn.str) {
     // can only access tn member if we know we are a token
-    size_t len = 0;
-    HiddenString_GetUnsafe(qn->tn.str, &len);
-    if (len > 0) {
-      expCtx->currentNode = pqn;
-      expander(expCtx, &qn->tn);
-    }
+    expCtx->currentNode = pqn;
+    expander(expCtx, &qn->tn);
   } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
@@ -1313,34 +1309,45 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 }
 
+static char* TagLowercase(const char *str, size_t len, TagFieldFlags tagFlags) {
+  char *mutate = rm_strndup(str, len);
+  tag_strtolower(mutate, &len, tagFlags & TagField_CaseSensitive);
+  return mutate;
+}
+
+static HiddenString* HiddenTagLowercase(HiddenString *input, TagFieldFlags tagFlags) {
+  if (!input) {
+    return NULL;
+  }
+  size_t len = 0;
+  const char *str = HiddenString_GetUnsafe(input, &len);
+  char *lowercase = TagLowercase(str, len, tagFlags);
+  HiddenString_Free(input);
+  input = NewHiddenStringEx(lowercase, len, Move);
+  return input;
+}
+
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
   switch (n->type) {
     case QN_TOKEN: {
+      n->tn.str = HiddenTagLowercase(n->tn.str, fs->tagOpts.tagFlags);
       size_t len = 0;
       const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
-      if (n->tn.str) {
-        // need to lowercase the string for TagIndex_OpenReader call
-        char *mutate = rm_strndup(str, len);
-        tag_strtolower(mutate, &len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
-        HiddenString_Free(n->tn.str);
-        n->tn.str = NewHiddenStringEx(mutate, len, Move);
-        str = mutate;
-      }
       ret = TagIndex_OpenReader(idx, q->sctx, str, len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
+    {
+      n->pfx.tok.str = HiddenTagLowercase(n->pfx.tok.str, fs->tagOpts.tagFlags); // needed for testPrefixNodeCaseSensitive
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs), fs->index);
-
+    }
     case QN_WILDCARD_QUERY:
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index);
-
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
-
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
