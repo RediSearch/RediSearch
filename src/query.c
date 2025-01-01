@@ -84,7 +84,7 @@ void QueryNode_Free(QueryNode *n) {
     n->params = NULL;
   }
   if (n->opts.distField) {
-    rm_free(n->opts.distField);
+    HiddenString_Free(n->opts.distField);
   }
 
   switch (n->type) {
@@ -479,13 +479,14 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-  size_t len = 0;
-  if (qn->tn.str) {
+  if (qn->type == QN_TOKEN) {
+    // can only access tn member if we know we are a token
+    size_t len = 0;
     HiddenString_GetUnsafe(qn->tn.str, &len);
-  }
-  if (qn->type == QN_TOKEN && len > 0) {
-    expCtx->currentNode = pqn;
-    expander(expCtx, &qn->tn);
+    if (len > 0) {
+      expCtx->currentNode = pqn;
+      expander(expCtx, &qn->tn);
+    }
   } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);

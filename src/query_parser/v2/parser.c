@@ -1880,7 +1880,7 @@ static YYACTIONTYPE yy_reduce(
     // get the next token
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
-    if(tokLen > 0) {
+    if (tokLen > 0) {
       char *normalized = rm_normalize(tok, tokLen);
       HiddenString *hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
       QueryNode *C = NewTokenNode(ctx, hidden);
