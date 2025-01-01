@@ -1119,6 +1119,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   char *err;
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+  activeThreads_Init();
 
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
@@ -3557,7 +3558,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   DIST_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
 
   Initialize_CoordKeyspaceNotifications(ctx);
-  activeThreads_Init();
 
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
     // Running against a Redis version that does not support module ACL protection
