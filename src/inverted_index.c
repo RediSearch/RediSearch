@@ -920,10 +920,10 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     if (ir->skipMulti) {
-    // Avoid returning the same doc
-    //
-    // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-    // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
+      // Avoid returning the same doc
+      //
+      // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+      // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
       if( ir->sameId == ir->lastId) {
         continue;
       }

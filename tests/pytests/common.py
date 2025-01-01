@@ -1,4 +1,3 @@
-
 from includes import *
 try:
     from collections.abc import Iterable
@@ -23,6 +22,7 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
+import subprocess
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -336,7 +336,7 @@ def no_msan(f):
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
             fname = f.__name__
-            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} due to memory sanitizer", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -347,7 +347,7 @@ def unstable(f):
     def wrapper(env, *args, **kwargs):
         if UNSTABLE == True:
             fname = f.__name__
-            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} because it is unstable", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -510,11 +510,11 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
     res = compare_lists_rec(list1, list2, delta + 0.000001)
     if res:
         if _assert:
-            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(True, message=f'{str(list1)} ~ {str(list2)}')
         return True
     else:
         if _assert:
-            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(False, message=f'{str(list1)} ~ {str(list2)}')
         return False
 
 class ConditionalExpected:
@@ -742,3 +742,54 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
 def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+
+def downloadFile(env, file_name, depth=0):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                    "wget",
+                    "--no-check-certificate",
+                    BASE_RDBS_URL + file_name,
+                    "-O",
+                    path,
+                    "-q",
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(
+                False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
+                depth=depth + 1,
+            )
+            try:
+                os.remove(path)
+                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+
+def downloadFiles(env, rdbs=None, depth=0):
+    if rdbs is None:
+        return False
+
+    for f in rdbs:
+        if not downloadFile(env, f, depth=depth + 1):
+            return False
+    return True

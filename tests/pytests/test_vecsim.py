@@ -877,7 +877,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-i))
         expected_res.append(['__v_score', str(dim*i**2), 'num', str(index_size-i)])
 
-    execute_hybrid_query(env, '(@num:[0 {}])=>[KNN 10 @v $vec_param]'.format(index_size), query_data, 'num').equal(expected_res)
+    execute_hybrid_query(env, f'(@num:[0 {index_size}])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
     execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
 
     # Expect that no result will pass the filter.
@@ -890,7 +890,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-lower_bound_num-i))
         expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
     # We switch from batches to ad-hoc BF mode during the run.
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
+    execute_hybrid_query(env, f'(@num:[-inf {index_size - lower_bound_num}])=>[KNN 10 @v $vec_param]', query_data, 'num',
                             hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
     execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
                             .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',

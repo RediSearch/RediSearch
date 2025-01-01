@@ -94,6 +94,7 @@ static inline bool SearchCluster_Ready() {
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
+    // API not supported -> allow access (ACL will not be enforced).
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
@@ -101,23 +102,26 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 
   if (!user) {
     RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_FreeString(ctx, user_name);
     return false;
   }
 
+  bool ret = true;
   HiddenUnicodeString **prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
   for (uint i = 0; i < array_len(prefixes); i++) {
     prefix = HiddenUnicodeString_CreateRedisModuleString(prefixes[i], ctx);
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
+      ret = false;
       RedisModule_FreeString(ctx, prefix);
-      RedisModule_FreeModuleUser(user);
-      return false;
+      break;
     }
     RedisModule_FreeString(ctx, prefix);
   }
 
   RedisModule_FreeModuleUser(user);
-  return true;
+  RedisModule_FreeString(ctx, user_name);
+  return ret;
 }
 
 /* FT.MGET {index} {key} ...
