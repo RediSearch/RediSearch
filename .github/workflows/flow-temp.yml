@@ -9,7 +9,7 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   get-latest-redis-tag:
@@ -49,11 +49,11 @@ jobs:
       fail-fast: false
       platform: "amazonlinux:2"
 
-  # test-debian:
-  #   needs: [docs-only, get-latest-redis-tag]
-  #   if: needs.docs-only.outputs.only-docs-changed == 'false'
-  #   uses: ./.github/workflows/flow-linux-platforms.yml
-  #   secrets: inherit
-  #   with:
-  #     redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-  #     platform: "debian:bullseye"
+  test-debian:
+    needs: [docs-only, get-latest-redis-tag]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      platform: "debian:bullseye"

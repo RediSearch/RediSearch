@@ -382,9 +382,19 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
     n_recieved = len(res) - 1
-    while cursor:
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        n_recieved += len(res) - 1
+    env.debugPrint(f'First cursor run, Received {n_recieved} results', force=True)
+    i = 1
+    try:
+        # Little less than RLTest timeout
+        with TimeLimit(RLTEST_TEST_TIMEOUT - 2):
+            while cursor:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+                n_recieved += len(res) - 1
+            env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
+            i += 1
+
+    except Exception as e:
+        env.assertEqual(str(e), f'Cursor read failed after retrieving {n_recieved} results, cursor id: {cursor}')
 
     env.assertEqual(n_recieved, num_docs)
     # Ensure that the cursors we opened were closed properly
