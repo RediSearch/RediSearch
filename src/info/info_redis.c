@@ -285,6 +285,10 @@ void AddToInfo_ActiveThreads(RedisModuleInfoCtx *ctx) {
   DLLIST_FOREACH(node, &(activeThreads->list)) {
     ActiveThread *at = DLLIST_ITEM(node, ActiveThread, llnode);
     IndexSpec *spec = StrongRef_Get(at->spec_ref);
-    RedisModule_InfoAddFieldULongLong(ctx, (const char *)spec->name, (unsigned long)at->tid);
+    if (at->Ltid) {
+      RedisModule_InfoAddFieldULongLong(ctx, (const char *)spec->name, (unsigned long long)at->Ltid);
+    } else {
+      RedisModule_InfoAddFieldULongLong(ctx, (const char *)spec->name, (unsigned long long)at->tid);
+    }
   }
 }

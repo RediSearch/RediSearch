@@ -15,12 +15,28 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Represents an active thread.
+ *
+ * This structure is used to store information about an active thread, including
+ * the thread ID, Linux thread ID, and a strong reference to the `IndexSpec`
+ * associated with the thread. Since we use the StrongRef, we know that we can
+ * safely access the `IndexSpec` upon crashing.
+ */
 typedef struct {
-  DLLIST_node llnode;
-  pthread_t tid;          // TODO: Switch to uint_32 so it will be compatible with both pthread_t and pid_t, or have a separate field for the pid_t (linux case)
-  StrongRef spec_ref;
+  DLLIST_node llnode;    // Node in the doubly-linked list
+  pthread_t tid;         // pthread thread id
+  pid_t Ltid;            // Linux thread id
+  StrongRef spec_ref;    // Strong reference to the IndexSpec
 } ActiveThread;
 
+/**
+ * @brief Represents a list of active threads.
+ *
+ * This structure is used to store a list of active threads. It contains a
+ * doubly-linked list of `ActiveThread` objects and a mutex for thread-safe
+ * operations on the list.
+ */
 typedef struct {
   DLLIST list;
   pthread_mutex_t lock;

@@ -55,8 +55,6 @@ void activeThreads_Destroy() {
  */
 void activeThreads_AddCurrentThread(StrongRef spec_ref) {
   activeThreads_AddThread(pthread_self(), spec_ref);
-  // TODO - For Linux:
-  // activeThreads_AddThread(syscall(SYS_gettid), spec_ref);
 }
 
 /**
@@ -73,6 +71,11 @@ void activeThreads_AddThread(pthread_t tid, StrongRef spec_ref) {
   ActiveThread *at = rm_calloc(1, sizeof(ActiveThread));
   at->tid = tid;
   at->spec_ref = spec_ref;
+
+  // If we're on Linux, get the Linux thread ID, which is printed in the trace
+  #ifdef __linux__
+  at->Ltid = syscall(SYS_gettid);
+  #endif
 
   pthread_mutex_lock(&activeThreads->lock);
   dllist_append(&activeThreads->list, &at->llnode);
