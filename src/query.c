@@ -460,7 +460,7 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-  if (qn->type == QN_TOKEN && qn->tn.str) {
+  if (qn->type == QN_TOKEN && qn->tn.str && !HiddenString_IsEmpty(qn->tn.str)) {
     // can only access tn member if we know we are a token
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
