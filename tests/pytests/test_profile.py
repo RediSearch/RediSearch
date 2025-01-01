@@ -58,8 +58,7 @@ def testProfileSearch(env):
 
   # test PREFIX
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
-  expected_res = ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  expected_res = ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test FUZZY
