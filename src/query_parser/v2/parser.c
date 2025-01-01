@@ -1878,7 +1878,8 @@ static YYACTIONTYPE yy_reduce(
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if (tokLen > 0) {
-      HiddenString *hidden = NewHiddenStringEx(rm_strdupcase(tok, tokLen), tokLen, Move);
+      char *clean = rm_strdupcase(tok, tokLen); // unescapes the string, can lead to a shorter string
+      HiddenString *hidden = NewHiddenStringEx(clean, strlen(clean), Move);
       QueryNode *C = NewTokenNode(ctx, hidden);
       HiddenString_Free(hidden);
       QueryNode_AddChild(yylhsminor.yy47, C);
@@ -1898,7 +1899,8 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  HiddenString* hidden = NewHiddenStringEx(rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), yymsp[-1].minor.yy0.len + 1, Move);
+  char *clean = rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1); // unescapes the string, can lead to a shorter string
+  HiddenString* hidden = NewHiddenStringEx(clean, strlen(clean), Move);
   yymsp[-2].minor.yy47 = NewTokenNode(ctx, hidden);
   rm_free(s);
   yymsp[-2].minor.yy47->opts.flags |= QueryNode_Verbatim;

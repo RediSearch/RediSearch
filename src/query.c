@@ -84,7 +84,7 @@ void QueryNode_Free(QueryNode *n) {
     n->params = NULL;
   }
   if (n->opts.distField) {
-    rm_free(n->opts.distField);
+    HiddenString_Free(n->opts.distField);
   }
 
   switch (n->type) {
@@ -460,13 +460,14 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-  size_t len = 0;
-  if (qn->tn.str) {
+  if (qn->type == QN_TOKEN) {
+    // can only access tn member if we know we are a token
+    size_t len = 0;
     HiddenString_GetUnsafe(qn->tn.str, &len);
-  }
-  if (qn->type == QN_TOKEN && len > 0) {
-    expCtx->currentNode = pqn;
-    expander(expCtx, &qn->tn);
+    if (len > 0) {
+      expCtx->currentNode = pqn;
+      expander(expCtx, &qn->tn);
+    }
   } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
@@ -1316,19 +1317,18 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
-  if (n->tn.str) {
-    size_t len;
-    const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
-    char *mutate = rm_strndup(str, len);
-    tag_strtolower(mutate, &len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
-    HiddenString_Free(n->tn.str);
-    n->tn.str = NewHiddenStringEx(mutate, len, Move);
-  }
-
   switch (n->type) {
     case QN_TOKEN: {
-      size_t len;
+      size_t len = 0;
       const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
+      if (n->tn.str) {
+        // need to lowercase the string for TagIndex_OpenReader call
+        char *mutate = rm_strndup(str, len);
+        tag_strtolower(mutate, &len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
+        HiddenString_Free(n->tn.str);
+        n->tn.str = NewHiddenStringEx(mutate, len, Move);
+        str = mutate;
+      }
       ret = TagIndex_OpenReader(idx, q->sctx, str, len, weight, fs->index);
       break;
     }

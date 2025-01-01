@@ -145,8 +145,8 @@ for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)"
   if [[ -z $TEST ]]; then
     if [[ $NOP != 1 ]]; then
   	  for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-  		  TEST_NAME="$(basename $test)" sanitizer_defs
-  		  echo $TEST_NAME
+  	    test_name="$(basename $test)" sanitizer_defs
+  		  echo $test_name
   		  { $test; (( E |= $? )); } || true
   	  done
     else
@@ -178,7 +178,8 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p "$(dirname "$STATFILE")"
 	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STATFILE || echo 1) )) || true
+		(( E |= $(cat $STA
+		TFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
 fi
