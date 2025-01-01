@@ -166,14 +166,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RS_NullVal();
   RSValue *v = NULL;
   switch (MRReply_Type(r)) {
-    case MR_REPLY_STATUS: {
-      // In RESP2, RSValue_SendReply() send double values as simple strings, 
-      // so we need to convert them back to doubles here
-      double d = 0;
-      RS_LOG_ASSERT(MRReply_ToDouble(r, &d), "non-numeric status reply");
-      v = RS_NumVal(d);
-      break;
-    }
+    case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
       const char *s = MRReply_String(r, &l);

@@ -1332,7 +1332,8 @@ def testErrorStatsResp2():
 
     env = Env(protocol=2)
     conn = getConnectionByEnv(env)
-    expected_errorstats = conn.execute_command('info', 'errorstats')
+    res = conn.execute_command('info', 'errorstats')
+    env.assertEqual(res, {'errorstat_ERR': {'count': 1 }})
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn.execute_command('HSET', 'key1', 'n', 1.23)
     conn.execute_command('HSET', 'key2', 'n', 4.56)
@@ -1342,7 +1343,7 @@ def testErrorStatsResp2():
             'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
-        env.assertEqual(res, expected_errorstats)
+        env.assertEqual(res, {'errorstat_ERR': {'count': 1 + (i * 2)}})
 
 @skip(cluster=False)
 def testErrorStatsResp3():
