@@ -651,7 +651,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     rm_free(ctx.its);
     return NULL;
   } else if (ctx.nits == 1) {
-    return ctx.its[0];
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
@@ -833,7 +835,9 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else if (ctx.nits == 1) {
-    return ctx.its[0];
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
