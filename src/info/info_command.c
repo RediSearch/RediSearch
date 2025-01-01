@@ -15,6 +15,7 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "activeThreads.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -96,6 +97,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
+  activeThreads_AddCurrentThread(ref);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   bool has_map = RedisModule_HasMap(reply);
@@ -306,5 +309,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_MapEnd(reply); // top
   RedisModule_EndReply(reply);
+  activeThreads_RemoveCurrentThread();
   return REDISMODULE_OK;
 }

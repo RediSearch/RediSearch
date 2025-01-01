@@ -863,6 +863,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  activeThreads_AddCurrentThread(IndexSpec_GetStrongRefUnsafe(sctx->spec));
+
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
@@ -872,6 +874,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
+    activeThreads_RemoveCurrentThread();
     AREQ_Free(*r);
     *r = NULL;
     if (thctx) {
@@ -917,7 +920,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     r->initClock = clock();
   }
 
-  // This function also builds the RedisSearchCtx.
+  // This function also builds the RedisSearchCtx, and registers the thread to
+  // the active-threads container.
   // It will search for the spec according the the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
@@ -940,6 +944,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
 
+    // Remove main-thread from active-threads.
+    activeThreads_RemoveCurrentThread();
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
@@ -965,9 +971,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
+  activeThreads_RemoveCurrentThread();
   return REDISMODULE_OK;
 
 error:
+  activeThreads_RemoveCurrentThread();
   if (r) {
     AREQ_Free(r);
   }
@@ -1044,6 +1052,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
+  activeThreads_RemoveCurrentThread();
   return ret;
 }
 
@@ -1110,7 +1119,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
       return;
     }
 
-    // Register the thread to the active-threads container
+    // Register the thread to the active-threads container (BG, main)
     activeThreads_AddCurrentThread(execution_ref);
 
     if (HasLoader(req)) { // Quick check if the cursor has loaders.

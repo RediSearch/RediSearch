@@ -17,6 +17,7 @@
 #include "coord/config.h"
 #include "dist_profile.h"
 #include "util/misc.h"
+#include "activeThreads.h"
 
 #include <err.h>
 
@@ -684,12 +685,14 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  IndexSpec *sp = StrongRef_Get(strong_ref);
+  StrongRef spec_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
     goto err;
   }
+
+  activeThreads_AddCurrentThread(spec_ref);
 
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
@@ -763,7 +766,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  StrongRef_Release(strong_ref);
+  activeThreads_RemoveCurrentThread();
+  StrongRef_Release(spec_ref);
   RedisModule_EndReply(reply);
   return;
 
@@ -773,7 +777,8 @@ err:
   QueryError_ReplyAndClear(ctx, &status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
-    StrongRef_Release(strong_ref);
+    activeThreads_RemoveCurrentThread();
+    StrongRef_Release(spec_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);

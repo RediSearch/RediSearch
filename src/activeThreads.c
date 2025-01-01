@@ -4,13 +4,12 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "activeThreads.h"
-#include "rmutil/rm_assert.h"
-
-// Add this under an #ifdef __linux block, otherwise we can use the `pthread_self` function.
 #ifdef __linux__
 #include <syscall.h>
 #endif
+
+#include "activeThreads.h"
+#include "rmutil/rm_assert.h"
 
 ActiveThreads *activeThreads = NULL;
 
@@ -108,7 +107,7 @@ void activeThreads_RemoveCurrentThread() {
  */
 void activeThreads_RemoveThread(pthread_t tid) {
   ActiveThread *at = (ActiveThread *)pthread_getspecific(_activeThreadKey);
-  RS_LOG_ASSERT(at != NULL, "Active thread not found");
+  RS_LOG_ASSERT(at, "Active thread not found");
 
   pthread_mutex_lock(&activeThreads->lock);
   dllist_delete(&at->llnode);

@@ -600,7 +600,7 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  *
  * @param ref a strong reference to the spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef ref);
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
 
 /*
  * Free an indexSpec. For LLAPI

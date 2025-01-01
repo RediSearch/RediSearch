@@ -65,6 +65,7 @@ typedef struct PLN_BaseStep {
 #define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, PLN_BaseStep, llnodePln)
 // TODO: Fix the above to:
 // #define PLN_END_STEP(plan) DLLIST_ITEM(&(plan)->steps, AGGPlan, steps)
+// (requires a fix of the condition using it, which is buggy as well).
 
 /**
  * JUNCTION/REDUCTION POINTS
