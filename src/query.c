@@ -1309,9 +1309,9 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 }
 
-static char* TagLowercase(const char *str, size_t len, TagFieldFlags tagFlags) {
-  char *mutate = rm_strndup(str, len);
-  tag_strtolower(mutate, &len, tagFlags & TagField_CaseSensitive);
+static char* TagLowercase(const char *str, size_t* len, TagFieldFlags tagFlags) {
+  char *mutate = rm_strndup(str, *len);
+  tag_strtolower(mutate, len, tagFlags & TagField_CaseSensitive);
   return mutate;
 }
 
@@ -1321,7 +1321,7 @@ static HiddenString* HiddenTagLowercase(HiddenString *input, TagFieldFlags tagFl
   }
   size_t len = 0;
   const char *str = HiddenString_GetUnsafe(input, &len);
-  char *lowercase = TagLowercase(str, len, tagFlags);
+  char *lowercase = TagLowercase(str, &len, tagFlags);
   HiddenString_Free(input);
   input = NewHiddenStringEx(lowercase, len, Move);
   return input;
