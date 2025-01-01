@@ -910,7 +910,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
   return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
-                             q->docTable->maxDocId, qn->opts.weight);
+                             q, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1766,7 +1766,7 @@ void QueryNode_AddChild(QueryNode *n, QueryNode *ch) {
   QueryNode_AddChildren(n, &ch, 1);
 }
 
-void QueryNode_ClearChildren(QueryNode *n, bool shouldFree) {
+void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   if (shouldFree) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
       QueryNode_Free(n->children[ii]);
@@ -2154,84 +2154,3 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, 
   }
   return 1;
 }
-
-// ...existing code...
-
-static void PrintQueryNode(const QueryNode *node, int depth) {
-    if (!node) return;
-
-    for (int i = 0; i < depth; ++i) {
-        printf("  ");
-    }
-
-    switch (node->type) {
-        case QN_TOKEN:
-            printf("TOKEN: %s\n", node->tn.str);
-            break;
-        case QN_PHRASE:
-            printf("PHRASE\n");
-            break;
-        case QN_UNION:
-            printf("UNION\n");
-            break;
-        case QN_TAG:
-            printf("TAG\n");
-            break;
-        case QN_NOT:
-            printf("NOT\n");
-            break;
-        case QN_PREFIX:
-            printf("PREFIX: %s\n", node->pfx.tok.str);
-            break;
-        case QN_LEXRANGE:
-            printf("LEXRANGE\n");
-            break;
-        case QN_FUZZY:
-            printf("FUZZY: %s\n", node->fz.tok.str);
-            break;
-        case QN_NUMERIC:
-            printf("NUMERIC\n");
-            break;
-        case QN_OPTIONAL:
-            printf("OPTIONAL\n");
-            break;
-        case QN_GEO:
-            printf("GEO\n");
-            break;
-        case QN_VECTOR:
-            printf("VECTOR\n");
-            break;
-        case QN_IDS:
-            printf("IDS\n");
-            break;
-        case QN_WILDCARD:
-            printf("WILDCARD\n");
-            break;
-        case QN_WILDCARD_QUERY:
-            printf("WILDCARD_QUERY: %s\n", node->verb.tok.str);
-            break;
-        case QN_GEOMETRY:
-            printf("GEOMETRY\n");
-            break;
-        case QN_MISSING:
-            printf("MISSING\n");
-            break;
-        case QN_NULL:
-            printf("NULL\n");
-            break;
-    }
-
-    for (size_t i = 0; i < QueryNode_NumChildren(node); ++i) {
-        PrintQueryNode(node->children[i], depth + 1);
-    }
-}
-
-void PrintQueryAST(const QueryAST *ast) {
-    if (!ast || !ast->root) {
-        printf("Empty QueryAST\n");
-        return;
-    }
-    PrintQueryNode(ast->root, 0);
-}
-
-// ...existing code...

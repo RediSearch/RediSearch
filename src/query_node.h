@@ -8,7 +8,6 @@
 #pragma once
 
 #include <stdlib.h>
-#include <stdbool.h>
 #include "redisearch.h"
 #include "query_error.h"
 #include "param.h"
@@ -229,7 +228,7 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, Q
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
-void QueryNode_ClearChildren(QueryNode *parent, bool shouldFree);
+void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
 
 /*
  * Substitute parameters with actual values
