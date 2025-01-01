@@ -138,18 +138,9 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, CREATE_INDEX);
-            // ####################
+            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, DONT_CREATE_INDEX);
             if(!vecsim)
-            {
-              const FieldSpec *fs = aCtx->fspecs + i;
-              // QueryError_SetError(status, QUERY_VECTORINDEX, "Could not open vector index");
-              IndexError_AddError(&aCtx->spec->stats.indexError, "Could not open vector index", doc->docKey);
-              FieldSpec_AddError(&spec->fields[i], "Could not open vector index", doc->docKey);
               continue;
-            }
-            // ####################
-            //@Omer - calling function checks for null, so return null
             VecSimIndex_DeleteVector(vecsim, dmd->id);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }

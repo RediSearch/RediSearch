@@ -40,10 +40,6 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
     p.execute()
     return id_vec_list
 
-def index_errors(env):
-    return to_dict(index_info(env)['Index Errors'])
-def field_errors(env,fld_index = 0):
-    return to_dict(to_dict(to_dict(index_info(env)['field statistics'][fld_index]))['Index Errors'])
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
                          hybrid_mode='HYBRID_BATCHES'):
@@ -450,7 +446,7 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity HNSW index `EPSILON`')
 
 
-def test_index_errors(env):
+def test_index_errors():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2398,26 +2394,24 @@ def test_switch_write_mode_multiple_indexes(env):
 
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
-    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with "bad" parameter 
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter 
     #            Insert partial doc - only numeric
     #            Update Doc
-    # Note: Should be updated if "bad" parameters are updated
     
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
     dim = 2
 
-    conn.execute_command('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
-                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M)   
-    conn.execute_command('HSET', 'doc', 'n', 0)
+    res = conn.execute_command('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M) 
+    env.assertEqual(res, 'OK')
+
+    res = conn.execute_command('HSET', 'doc', 'n', 0)
+    env.assertEqual(res, 1)
+    # Before bug fix, the following command would cause a server crash due to the null pointer accsess
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
-    
-    # Assert FT.INFO error message is correct
-    info_indexErrors = index_errors(env)
-    info_FieldStatistics = field_errors(env,1)
 
-    env.assertEqual(info_indexErrors['last indexing error'], 'Could not open vector index')
-    env.assertEqual(info_FieldStatistics['last indexing error'], 'Could not open vector index')
 
 

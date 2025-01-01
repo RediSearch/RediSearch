@@ -1152,12 +1152,6 @@ DEBUG_COMMAND(VecsimInfo) {
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName,CREATE_INDEX);
-  // @OMER - not checking ptr
-  // @OMER c1 - the comment above sais call can't fail
-  //         but what if the specs are "bad" so no creation-
-  //         where does the specs being checked?
-  // if null return error "cannot open vector index"
-
   if(!vecsimIndex)
   {
     SearchCtx_Free(sctx);
@@ -1229,9 +1223,6 @@ DEBUG_COMMAND(dumpHNSWData) {
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
-    // @OMER - not checking ptr
-    // @OMER - see comment c1
-  // same solution
   if(!vecsimIndex)
   {
     RedisModule_ReplyWithError(ctx, "Can't open vector index");

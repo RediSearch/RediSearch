@@ -359,3 +359,17 @@ def testSpecIndexesInfo(env: Env):
     expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
+
+# @skip(cluster=True)
+def testVecsimInfo(env: Env):
+
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
+    env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
+        .contains("Can't open vector index")

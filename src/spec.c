@@ -2994,21 +2994,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
-        if (!kdv) {
-          continue;
-        }
-        VecSimIndex *vecsim = kdv->p;
+        VecSimIndex *vecsim = openVectorIndex(spec,rmskey,DONT_CREATE_INDEX); 
         if(!vecsim)
-        {
-          const FieldSpec *fs = spec->fields + i;
-          IndexError_AddError(&spec->stats.indexError, "Could not open vector index", key);
-          FieldSpec_AddError(&spec->fields[fs->index], "Could not open vector index", key);
           continue;
-        }
-        //@Omer - no check needed
-        // This function and the function that calls it, don't perform checks
-        // The function that calls it always returns REDISMODULE_OK
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }
