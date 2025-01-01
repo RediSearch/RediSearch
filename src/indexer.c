@@ -145,7 +145,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
               const FieldSpec *fs = aCtx->fspecs + i;
               // QueryError_SetError(status, QUERY_VECTORINDEX, "Could not open vector index");
               IndexError_AddError(&aCtx->spec->stats.indexError, "Could not open vector index", doc->docKey);
-              FieldSpec_AddError(&aCtx->spec->fields[fs->index], "Could not open vector index", doc->docKey);
+              FieldSpec_AddError(&spec->fields[i], "Could not open vector index", doc->docKey);
               continue;
             }
             // ####################

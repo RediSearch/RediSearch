@@ -40,6 +40,10 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
     p.execute()
     return id_vec_list
 
+def index_errors(env):
+    return to_dict(index_info(env)['Index Errors'])
+def field_errors(env,fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env)['field statistics'][fld_index]))['Index Errors'])
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
                          hybrid_mode='HYBRID_BATCHES'):
@@ -446,39 +450,35 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity HNSW index `EPSILON`')
 
 
-def test_index_errors():
+def test_index_errors(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
                          'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
     error_count = 0
-    def index_errors():
-        return to_dict(index_info(env)['Index Errors'])
-    def field_errors():
-        return to_dict(to_dict(to_dict(index_info(env)['field statistics'][0]))['Index Errors'])
 
     # Check that the index errors are empty
-    env.assertEqual(index_errors()['indexing failures'], error_count)
-    env.assertEqual(index_errors()['last indexing error'], 'N/A')
-    env.assertEqual(index_errors()['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(), index_errors())
+    env.assertEqual(index_errors(env)['indexing failures'], error_count)
+    env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
+    env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
+    env.assertEqual(field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors())
+        env.assertEqual(cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
-        cur_index_errors = index_errors()
+        cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors())
+        env.assertEqual(cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -2407,17 +2407,17 @@ def test_vector_index_ptr_valid(env):
     M = UINT16_MAX + 1
     dim = 2
 
-    conn.execute_command('FT.CREATE', 'idx1','SCHEMA', 'n', 'NUMERIC',
+    conn.execute_command('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
                     'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M)   
-    conn.execute_command('HSET', 'doc1', 'n', 0)
-    res = conn.execute_command('HSET', 'doc1', 'n', 1)
-    # env.assertEqual(res, 0)
-
-    # Assert FT.INFO error message is correct
-    idx_info = index_info(env, 'idx1')
-
-
-
+    conn.execute_command('HSET', 'doc', 'n', 0)
+    res = conn.execute_command('HSET', 'doc', 'n', 1)
+    env.assertEqual(res, 0)
     
+    # Assert FT.INFO error message is correct
+    info_indexErrors = index_errors(env)
+    info_FieldStatistics = field_errors(env,1)
+
+    env.assertEqual(info_indexErrors['last indexing error'], 'Could not open vector index')
+    env.assertEqual(info_FieldStatistics['last indexing error'], 'Could not open vector index')
 
 
