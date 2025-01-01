@@ -1,4 +1,3 @@
-
 from includes import *
 try:
     from collections.abc import Iterable
@@ -744,15 +743,53 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
-def downloadFiles(rdbs = None):
+
+def downloadFile(env, file_name, depth=0):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                    "wget",
+                    "--no-check-certificate",
+                    BASE_RDBS_URL + file_name,
+                    "-O",
+                    path,
+                    "-q",
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(
+                False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
+                depth=depth + 1,
+            )
+            try:
+                os.remove(path)
+                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+
+def downloadFiles(env, rdbs=None, depth=0):
     if rdbs is None:
         return False
 
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
     for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
+        if not downloadFile(env, f, depth=depth + 1):
             return False
     return True

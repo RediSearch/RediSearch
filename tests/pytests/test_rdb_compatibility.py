@@ -26,12 +26,8 @@ def testRDBCompatibility(env):
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
-    if not downloadFiles(RDBS):
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, RDBS):
+        return
 
     for fileName in RDBS:
         env.stop()
@@ -68,12 +64,8 @@ def testRDBCompatibility_vecsim():
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb']
     algorithms = ['FLAT', 'HNSW']
-    if not downloadFiles(rdbs):
-        if CI:
-            env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
-        else:
-            env.skip()
-            return
+    if not downloadFiles(env, rdbs):
+        return
 
     for fileName in rdbs:
         env.stop()
@@ -108,8 +100,3 @@ def testRDBCompatibility_vecsim():
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
-
-if __name__ == "__main__":
-    if not downloadFiles(RDBS):
-        raise Exception("Couldn't download RDB files")
-    print("RDB Files ready for testing!")
