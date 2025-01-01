@@ -336,7 +336,7 @@ def no_msan(f):
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
             fname = f.__name__
-            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} due to memory sanitizer", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -347,7 +347,7 @@ def unstable(f):
     def wrapper(env, *args, **kwargs):
         if UNSTABLE == True:
             fname = f.__name__
-            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} because it is unstable", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -510,11 +510,11 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
     res = compare_lists_rec(list1, list2, delta + 0.000001)
     if res:
         if _assert:
-            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(True, message=f'{str(list1)} ~ {str(list2)}')
         return True
     else:
         if _assert:
-            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(False, message=f'{str(list1)} ~ {str(list2)}')
         return False
 
 class ConditionalExpected:

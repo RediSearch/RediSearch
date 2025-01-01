@@ -74,7 +74,7 @@ def testFuzzySyntaxError(env):
     for ch in unallowChars:
         error = None
         try:
-            env.cmd('ft.search', 'idx', '%%wor%sd%%' % ch)
+            env.cmd('ft.search', 'idx', f'%wor{ch}d%')
         except Exception as e:
             error = str(e)
         env.assertTrue('Syntax error' in error)

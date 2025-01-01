@@ -247,8 +247,8 @@ def testMultiNonText(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         env.cmd('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'TEXT')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -274,13 +274,13 @@ def testMultiNonTextNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr TEXT
     for (i,v) in enumerate(non_text_dict.values()):
-        env.cmd('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'TEXT')
+        env.cmd('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_text_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_text_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:(third)', 'NOCONTENT').equal([1, 'doc:1'])
@@ -312,11 +312,11 @@ def testMultiSortRoot(env):
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps(gag))
+        conn.execute_command('JSON.SET', f'multi:doc:{i + 1}', '$', json.dumps(gag))
 
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps(gag[0]))
+        conn.execute_command('JSON.SET', f'single:doc:{i + 1}', '$', json.dumps(gag[0]))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -341,11 +341,11 @@ def testMultiSortNested(env):
 
     # docs with array of strings
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'multi:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag}))
+        conn.execute_command('JSON.SET', f'multi:doc:{i + 1}', '$', json.dumps({ "chalkboard": gag}))
 
     # docs with a single string
     for i, gag in enumerate(gag_arr):
-        conn.execute_command('JSON.SET', 'single:doc:{}'.format(i+1), '$', json.dumps({ "chalkboard": gag[0]}))
+        conn.execute_command('JSON.SET', f'single:doc:{i + 1}', '$', json.dumps({ "chalkboard": gag[0]}))
 
     sortMulti(env, text_cmd_args, tag_cmd_args)
 
@@ -393,15 +393,15 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
         # Multi TEXT with single TEXT
         env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                         trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                        message = '{} with arg `{}`'.format('multi TEXT with single TEXT', text_arg))
+                        message = f'multi TEXT with single TEXT with arg `{text_arg}`')
         # Multi TAG with single TAG
         env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg)),
                         trim_in_list('single:', env.cmd('FT.SEARCH', 'idx2_single_tag', *tag_arg)),
-                        message = '{} arg `{}`'.format('multi TAG with single TAG', tag_arg))
+                        message = f'multi TAG with single TAG arg `{tag_arg}`')
         # Multi TEXT with multi TAG
         env.assertEqual(env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg),
                         env.cmd('FT.SEARCH', 'idx2_multi_tag', *tag_arg),
-                        message = '{} text arg `{}` tag arg `{}`'.format('multi TEXT with multi TAG', text_arg, tag_arg))
+                        message = f'multi TEXT with multi TAG text arg `{text_arg}` tag arg `{tag_arg}`')
 
     if not env.isCluster():
         # (skip this comparison in cluster since score is affected by the number of shards/distribution of keys across shards)
@@ -411,7 +411,7 @@ def sortMulti(env, text_cmd_args, tag_cmd_args):
             # Multi TEXT with single TEXT
             env.assertEqual(trim_in_list('multi:', env.cmd('FT.SEARCH', 'idx1_multi_text', *text_arg)),
                             trim_in_list('single:', env.cmd('FT.SEARCH', 'idx1_single_text', *text_arg)),
-                            message = '{} arg {}'.format('multi TEXT with single TEXT', text_arg))
+                            message = f'multi TEXT with single TEXT arg {text_arg}')
 
 
 @skip(no_json=True)
@@ -431,7 +431,7 @@ def testMultiEmptyBlankOrNone(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'TEXT')
 
     for i, val in enumerate(values):
-        conn.execute_command('JSON.SET', 'doc:{}'.format(i+1), '$', json.dumps({ "val": val}))
+        conn.execute_command('JSON.SET', f'doc:{i + 1}', '$', json.dumps({ "val": val}))
     conn.execute_command('JSON.SET', 'doc', '$', json.dumps({"val": ["haha"]}))
     env.expect('FT.SEARCH', 'idx', '@val:(haha)', 'NOCONTENT', 'SORTBY', 'val', 'ASC').equal([1, 'doc'])
 
@@ -545,7 +545,7 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     env.assertTrue(not is_sortable_unf or is_sortable)
     sortable_param = ['SORTABLE', 'UNF'] if is_sortable_unf else (['SORTABLE'] if is_sortable else [])
-    message = 'dialect {}, sortable {}, unf {}'.format('default' if default_dialect else 3, is_sortable, is_sortable_unf)
+    message = f"dialect {'default' if default_dialect else 3}, sortable {is_sortable}, unf {is_sortable_unf}"
     env.assertEqual(len(expected), 4, message=message)
 
     doc1_content = {
