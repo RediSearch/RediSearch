@@ -244,6 +244,20 @@ static int JSON_getFloat64(RedisJSON json, double *val) {
   }
 }
 
+static int JSON_getUint8(RedisJSON json, uint8_t *val) {
+  long long temp;
+  int ret = japi->getInt(json, &temp);
+  *val = (uint8_t)temp;
+  return ret;
+}
+
+static int JSON_getInt8(RedisJSON json, int8_t *val) {
+  long long temp;
+  int ret = japi->getInt(json, &temp);
+  *val = (int8_t)temp;
+  return ret;
+}
+
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
   for (int i = 0; i < len; ++i) {
@@ -269,6 +283,10 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
       return (getJSONElementFunc)JSON_getFloat16;
     case VecSimType_BFLOAT16:
       return (getJSONElementFunc)JSON_getBFloat16;
+    case VecSimType_UINT8:
+      return (getJSONElementFunc)JSON_getUint8;
+    case VecSimType_INT8:
+      return (getJSONElementFunc)JSON_getInt8;
     // Uncomment when support for more types is added
     // case VecSimType_INT32:
     //   return (getJSONElementFunc)JSON_getInt32;
