@@ -8,6 +8,9 @@
 #include "query_error.h"
 #include "inverted_index.h"
 #include "rwlock.h"
+#include "info/global_stats.h"
+#include "redis_index.h"
+#include "index_utils.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -78,6 +81,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     sp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
+    RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
 
@@ -553,4 +557,29 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
+}
+
+TEST_F(FGCTest, testDeleteDuringGCCleanup) {
+  // Setup.
+  unsigned curId = 0;
+  InvertedIndex *iv = getTagInvidx(ctx, sp, "f1", "hello");
+
+  while (iv->size < 2) {
+    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
+  }
+  // Delete one document.
+  RS::deleteDocument(ctx, sp, numToDocid(1).c_str());
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete the second document while fGC is waiting before the fork. If we were storing the number
+  // of document to delete at this point, we wouldn't have accounted for this deletion later on
+  // after the GC is done.
+  RS::deleteDocument(ctx, sp, numToDocid(2).c_str());
+  ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
+
+  FGC_Apply(fgc);
+
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }

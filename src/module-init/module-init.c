@@ -6,7 +6,6 @@
 #include "redismodule.h"
 
 #include "module.h"
-#include "version.h"
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
@@ -23,8 +22,9 @@
 #include "VecSim/vec_sim.h"
 #include "util/array.h"
 #include "fork_gc.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "profile.h"
+#include "info/info_redis.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -111,74 +111,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RSGlobalConfig.minTermPrefix = 0;
   RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
-}
-
-#define MEMORY_HUMAN(x) ((x) / (double)(1024 * 1024))
-
-void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
-  // Module version
-  RedisModule_InfoAddSection(ctx, "version");
-  char ver[64];
-  // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH);
-  RedisModule_InfoAddFieldCString(ctx, "version", ver);
-  // Redis version
-  GetFormattedRedisVersion(ver, sizeof(ver));
-  RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
-  // Redis Enterprise version
-  if (IsEnterprise()) {
-    GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
-    RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
-  }
-
-  // Numer of indexes
-  RedisModule_InfoAddSection(ctx, "index");
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_indexes", dictSize(specDict_g));
-
-  // Fields statistics
-  FieldsGlobalStats_AddToInfo(ctx);
-
-   // Memory
-  RedisModule_InfoAddSection(ctx, "memory");
-  TotalSpecsInfo total_info = RediSearch_TotalInfo();
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes", total_info.total_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "used_memory_indexes_human", MEMORY_HUMAN(total_info.total_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index", total_info.min_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "min_memory_index_human", MEMORY_HUMAN(total_info.min_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index", total_info.max_mem);
-  RedisModule_InfoAddFieldDouble(ctx, "max_memory_index_human", MEMORY_HUMAN(total_info.max_mem));
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info.indexing_time / (float)CLOCKS_PER_MILLISEC);
-
-  // Cursors
-  RedisModule_InfoAddSection(ctx, "cursors");
-  CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
-
-  // GC stats
-  RedisModule_InfoAddSection(ctx, "gc");
-  InfoGCStats stats = total_info.gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
-
-  // Dialect statistics
-  DialectsGlobalStats_AddToInfo(ctx);
-
-  // Run time configuration
-  RSConfig_AddToInfo(ctx);
-
-  #ifdef FTINFO_FOR_INFO_MODULES
-  // FT.INFO for some of the indexes
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry;
-  int count = 5;
-  while (count-- && (entry = dictNext(iter))) {
-    IndexSpec *spec = dictGetVal(entry);
-    IndexSpec_AddToInfo(ctx, spec);
-  }
-  dictReleaseIterator(iter);
-  #endif
 }
 
 static inline const char* RS_GetExtraVersion() {

@@ -142,4 +142,11 @@ RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 
+/**Adds an error message to the IndexError of the FieldSpec.
+ * This function also updates the global field's type index error counter.
+ */
+void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
+
 #endif /* SRC_FIELD_SPEC_H_ */

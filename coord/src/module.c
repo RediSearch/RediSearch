@@ -30,7 +30,8 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
-
+#include "info/global_stats.h"
+#include "util/units.h"
 #include "libuv/include/uv.h"
 
 #include <stdlib.h>
@@ -370,6 +371,7 @@ typedef struct {
   char *queryString;
   long long offset;
   long long limit;
+  long long initClock;
   long long requestedResultsCount;
   int withScores;
   int withExplainScores;
@@ -565,6 +567,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   searchRequestCtx *req = searchRequestCtx_New();
+
+  req->initClock = clock();
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -1253,6 +1257,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccesTime = clock();
     profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
   }
+
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
 
 cleanup:
   if (rCtx.pq) {

@@ -212,6 +212,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
+      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
@@ -370,7 +371,7 @@ void Document_Clear(Document *d) {
             array_free(field->arrNumval);
           }
           if (field->multisv) {
-            RSValue_Free(field->multisv);            
+            RSValue_Free(field->multisv);
           }
           break;
         case FLD_VAR_T_BLOB_ARRAY:

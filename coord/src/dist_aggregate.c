@@ -14,6 +14,8 @@
 #include "profile.h"
 #include "util/timeout.h"
 #include "coord/src/config.h"
+#include "util/misc.h"
+#include "util/units.h"
 
 #include <err.h>
 
@@ -400,7 +402,6 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
-    r->initClock = clock();
     r->reqflags |= QEXEC_F_PROFILE;
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
@@ -420,7 +421,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   r->qiter.err = &status;
-  r->reqflags |= QEXEC_F_IS_EXTENDED;
+  r->reqflags |= QEXEC_F_IS_AGGREGATE | AREQ_BUILDPIPELINE_NO_ROOT;
+  r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
