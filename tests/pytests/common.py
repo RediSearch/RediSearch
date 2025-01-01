@@ -776,6 +776,11 @@ def downloadFile(env, file_name, depth=0):
                 pass
             return False
     if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
         return False
     return True
 
@@ -787,3 +792,4 @@ def downloadFiles(env, rdbs=None, depth=0):
     for f in rdbs:
         if not downloadFile(env, f, depth=depth + 1):
             return False
+    return True
