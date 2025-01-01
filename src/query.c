@@ -479,14 +479,10 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-  if (qn->type == QN_TOKEN) {
+  if (qn->type == QN_TOKEN && qn->tn.str) {
     // can only access tn member if we know we are a token
-    size_t len = 0;
-    HiddenString_GetUnsafe(qn->tn.str, &len);
-    if (len > 0) {
-      expCtx->currentNode = pqn;
-      expander(expCtx, &qn->tn);
-    }
+    expCtx->currentNode = pqn;
+    expander(expCtx, &qn->tn);
   } else {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
@@ -1376,16 +1372,16 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
+    {
+      n->pfx.tok.str = HiddenTagLowercase(n->pfx.tok.str, fs->tagOpts.tagFlags); // needed for testPrefixNodeCaseSensitive
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
                          FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
-
+    }
     case QN_WILDCARD_QUERY:
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index,
                                        caseSensitive);
-
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight, caseSensitive);
-
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
