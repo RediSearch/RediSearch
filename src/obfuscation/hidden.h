@@ -34,6 +34,8 @@ HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnershi
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value);
 
+bool HiddenString_IsEmpty(const HiddenString *value);
+
 // Comparison functions
 // CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
 // Eventually the hope is to remove them altogether.
