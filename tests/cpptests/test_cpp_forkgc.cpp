@@ -9,6 +9,7 @@
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "rwlock.h"
+#include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
 extern "C" {
@@ -65,7 +66,7 @@ void *cbWrapper(void *args) {
     }
 
     // run ForkGC
-    gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+    gc->callbacks.periodicCallback(fgcArgs->fgc);
   }
   return NULL;
 }
@@ -81,6 +82,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+    RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
 
@@ -607,4 +609,30 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocStr(newLastBlockId)));
   ASSERT_NE(ss.end(), ss.find(numToDocStr(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocStr(lastLastBlockId)));
+}
+
+TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
+  // Setup.
+  unsigned curId = 0;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
+
+  while (iv->size < 2) {
+    RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
+  }
+  // Delete one document.
+  RS::deleteDocument(ctx, ism, numToDocStr(1).c_str());
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete the second document while fGC is waiting before the fork. If we were storing the number
+  // of document to delete at this point, we wouldn't have accounted for this deletion later on
+  // after the GC is done.
+  RS::deleteDocument(ctx, ism, numToDocStr(2).c_str());
+  ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
+
+  FGC_Apply(fgc);
+
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }

@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict
+from common import getConnectionByEnv, index_info, to_dict, waitForIndex
 
 
 
@@ -75,6 +75,60 @@ def test_numeric_index_failures(env):
     error_dict = to_dict(info["Index Errors"])
     env.assertEqual(error_dict, expected_error_dict)
 
+def test_alter_failures(env):
+  # Create an index
+  env.expect('ft.create', 'idx', 'SCHEMA', 'n1', 'numeric').ok()
+
+  # Create a document with a field containing invalid numeric value, but is not part of the index schema
+  env.expect('HSET', 'doc', 'n1', 3, 'n2', 'meow').equal(2)
+
+
+  # The document should be indexed successfully
+  info = index_info(env)
+  env.assertEqual(int(info['num_docs']), 1)
+
+  expected_error_dict = {
+      indexing_failures_str: 0,
+      last_indexing_error_str: 'N/A',
+      last_indexing_error_key_str: 'N/A',
+  }
+
+  # No error was encountered
+  env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
+
+  # Validate the field statistics
+  expected_no_error_field_stats = [
+      'identifier', 'n1', 'attribute', 'n1', 'Index Errors',
+      ['indexing failures', 0, 'last indexing error', 'N/A', 'last indexing error key', 'N/A']
+  ]
+
+  env.assertEqual(info['field statistics'][0], expected_no_error_field_stats)
+
+  # Add the field of which the document contains an invalid numeric value.
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n2', 'NUMERIC').ok()
+  waitForIndex(env)
+  info = index_info(env)
+
+  # Doc should be deleted
+  env.assertEqual(int(info['num_docs']), 0)
+  expected_error_dict = {
+      indexing_failures_str: 1,
+      last_indexing_error_str: f"Invalid numeric value: \'meow\'",
+      last_indexing_error_key_str: 'doc'
+  }
+
+  env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
+
+  # Validate the field statistics
+  expected_failed_field_stats = [
+      'identifier', 'n2', 'attribute', 'n2' , 'Index Errors',
+      ['indexing failures', 1, 'last indexing error',
+        f"Invalid numeric value: \'meow\'",
+        'last indexing error key', 'doc']
+  ]
+
+  env.assertEqual(info['field statistics'][0], expected_no_error_field_stats)
+  env.assertEqual(info['field statistics'][1], expected_failed_field_stats)
 
 def test_mixed_index_failures(env):
   con = getConnectionByEnv(env)

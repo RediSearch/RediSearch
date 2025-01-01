@@ -10,8 +10,6 @@
 #include "value.h"
 #include "aggregate/aggregate.h"
 
-#define CLOCKS_PER_MILLISEC  (CLOCKS_PER_SEC / 1000)
-
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))

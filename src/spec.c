@@ -31,6 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "util/workers.h"
+#include "info/global_stats.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -368,8 +369,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);
   res += sp->stats.invertedSize;
-  res += sp->stats.skipIndexesSize;
-  res += sp->stats.scoreIndexesSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
@@ -937,6 +936,29 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
   return total_memory;
 }
 
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
+  VectorIndexStats stats = {0};
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
+      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+      if (!vecsim) {
+        continue;
+      }
+      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+      stats.memory += info.commonInfo.memory;
+      if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
+        stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
+      } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+                 fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+        stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
+      }
+    }
+  }
+  return stats;
+}
+
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(const IndexSpec *sp) {
   int maxId = -1;
@@ -1225,6 +1247,10 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
       stats->numDocs ? (double)sp->stats.totalDocsLen / (double)sp->stats.numDocuments : 0;
 }
 
+size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
+  return IndexError_ErrorCount(&sp->stats.indexError);
+}
+
 // Assuming the spec is properly locked for writing before calling this function.
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
@@ -1465,7 +1491,9 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
 
   // Remove spec's fields from global statistics
   for (size_t i = 0; i < spec->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+    FieldSpec *field = spec->fields + i;
+    FieldsGlobalStats_UpdateStats(field, -1);
+    FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
   }
 
   // Mark there are pending index drops.
@@ -1908,25 +1936,12 @@ static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
   stats->numRecords = RedisModule_LoadUnsigned(rdb);
   stats->invertedSize = RedisModule_LoadUnsigned(rdb);
-  stats->invertedCap = RedisModule_LoadUnsigned(rdb);
-  stats->skipIndexesSize = RedisModule_LoadUnsigned(rdb);
-  stats->scoreIndexesSize = RedisModule_LoadUnsigned(rdb);
+  RedisModule_LoadUnsigned(rdb); // Consume `invertedCap`
+  RedisModule_LoadUnsigned(rdb); // Consume `skipIndexesSize`
+  RedisModule_LoadUnsigned(rdb); // Consume `scoreIndexesSize`
   stats->offsetVecsSize = RedisModule_LoadUnsigned(rdb);
   stats->offsetVecRecords = RedisModule_LoadUnsigned(rdb);
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
-}
-
-static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
-  RedisModule_SaveUnsigned(rdb, stats->numDocuments);
-  RedisModule_SaveUnsigned(rdb, stats->numTerms);
-  RedisModule_SaveUnsigned(rdb, stats->numRecords);
-  RedisModule_SaveUnsigned(rdb, stats->invertedSize);
-  RedisModule_SaveUnsigned(rdb, stats->invertedCap);
-  RedisModule_SaveUnsigned(rdb, stats->skipIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->scoreIndexesSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
-  RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
-  RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2401,8 +2416,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
-  //    IndexStats_RdbLoad(rdb, &sp->stats);
-
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
     goto cleanup;
@@ -2635,11 +2648,6 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 
     SchemaRule_RdbSave(sp->rule, rdb);
 
-    //    IndexStats_RdbSave(rdb, &sp->stats);
-    //    DocTable_RdbSave(&sp->docs, rdb);
-    //    // save trie of terms
-    //    TrieType_GenericSave(rdb, sp->terms, 0);
-
     // If we have custom stopwords, save them
     if (sp->flags & Index_HasCustomStopwords) {
       StopWordList_RdbSave(rdb, sp->stopwords);
@@ -2806,6 +2814,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_IncrActiveWrites(spec);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
@@ -2814,6 +2823,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += clock() - startDocTime;
+  IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2864,7 +2874,9 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_IncrActiveWrites(spec);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
+  IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }
@@ -2880,7 +2892,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   workersThreadPool_Drain(ctx, 0);
 #endif
   Dictionary_Clear();
-  RSGlobalConfig.used_dialects = 0;
+  RSGlobalStats.totalStats.used_dialects = 0;
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {

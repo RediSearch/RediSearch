@@ -14,6 +14,8 @@
 #include "redismodule.h"
 #include "reply_macros.h"
 #include "redis_index.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -217,14 +219,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
   REPLY_KVNUM("total_inverted_index_blocks", TotalIIBlocks);
-  // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
-
-  // REPLY_KVNUM("inverted_cap_ovh", 0);
-  //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  // REPLY_KVNUM("skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  // REPLY_KVNUM("score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
