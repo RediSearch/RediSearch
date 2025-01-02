@@ -51,7 +51,7 @@ def testRDBCompatibility(env):
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
             env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
         env.cmd('flushall')
-        env.assertTrue(env.checkExitCode())
+        env.assertTrue(env.checkExitCode(), message=fileName)
 
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():

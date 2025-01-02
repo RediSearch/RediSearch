@@ -60,7 +60,7 @@ def testMissingValidations():
     # Tests that we get an error in case of a user tries to use "ismissing(@field)"
     # when `field` is created with `NOINDEX` and `INDEXMISSING`
     env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'f1', 'TAG', 'INDEXMISSING', 'NOINDEX').error().contains(
-        'Field `f1` cannot be defined with both `NOINDEX` and `INDEXMISSING`'
+        'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`'
     )
 
 def testMissingInfo():
@@ -554,7 +554,7 @@ def testMissingGC():
     res = env.cmd('FT.INFO', 'idx')
     gc_sec = res[res.index('gc_stats') + 1]
     bytes_collected = gc_sec[gc_sec.index('bytes_collected') + 1]
-    env.assertTrue(int(bytes_collected) > 0)
+    env.assertGreater(int(bytes_collected), 0)
 
     # Reschedule the gc - add a job to the queue
     env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')

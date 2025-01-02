@@ -6,7 +6,7 @@ from json_multi_text_content import *
 
 
 def expect_undef_order(query : Query):
-    query.error().contains("has undefined ordering")
+    query.error().contains("with undefined ordering")
 
 @skip(no_json=True)
 def testMultiText(env):
@@ -117,8 +117,8 @@ def searchMultiTextCategory(env):
         env.expect('FT.SEARCH', idx, '@category:(cloud)', 'NOCONTENT').equal([1, 'doc:3'])
 
     # Multi-value attributes which have no definite ordering cannot use slop or inorder
-    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_flat', '@category:(programming science)=>{$inorder:false}').error().contains("with undefined ordering")
 
 def searchMultiTextAuthor(env):
     """ helper function for searching multi-value attributes """
@@ -138,27 +138,27 @@ def searchMultiTextAuthor(env):
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, 'doc:1', 'doc:2', 'doc:3']))
 
     # None-exact phrase using multi-value attributes which have no definite ordering cannot use slop or inorder
-    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@category|author:("Redis Ltd.")=>{$inorder:true}').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(Redis Ltd.)=>{$inorder:true}').error().contains("with undefined ordering")
 
     cond = ConditionalExpected(env, has_json_api_v2)
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200; $inorder:false}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$slop:200}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(programming science)=>{$inorder:false}', 'NOCONTENT') \
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
-        .expect_when(False, lambda q: q.error().contains("has undefined ordering"))
+        .expect_when(False, lambda q: q.error().contains("with undefined ordering"))
 
 @skip(no_json=True)
 def testInvalidPath(env):
@@ -192,9 +192,9 @@ def testUndefinedOrderingWithSlopAndInorder(env):
         .expect_when(True, lambda q: q.equal([0])) \
         .expect_when(False, expect_undef_order)
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$slop:200}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:false}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)=>{$inorder:true}').error().contains("with undefined ordering")
 
     cond.call('FT.SEARCH', 'idx_category_arr_author_flat', '@category:(does not matter)', 'SLOP', '200') \
         .expect_when(True, lambda q: q.equal([0])) \
@@ -204,20 +204,20 @@ def testUndefinedOrderingWithSlopAndInorder(env):
         .expect_when(False, expect_undef_order)
 
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '@author:(does not matter)', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', 'does not matter', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}', 'SLOP', '200').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}', 'INORDER').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}', 'SLOP', '200').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}', 'INORDER').error().contains("with undefined ordering")
 
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}').error().contains("has undefined ordering")
-    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}').error().contains("has undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$inorder:false}').error().contains("with undefined ordering")
+    env.expect('FT.SEARCH', 'idx_category_arr_author_flat', '(does not matter)=>{$slop:200}').error().contains("with undefined ordering")
 
 
     # NOOFFSETS - SLOP/INORDER are not considered - No need to fail on undefined ordering
