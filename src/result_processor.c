@@ -883,6 +883,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
+  clock_t start = clock();
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -890,6 +891,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+  rp->GILTime += clock() - start;
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;
@@ -1068,6 +1071,10 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
 clock_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
+}
+
+clock_t RPProfile_GetGILTime(ResultProcessor *rp){
+  return rp->GILTime;
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {

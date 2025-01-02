@@ -63,7 +63,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_SAFE_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
@@ -82,6 +81,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_PROFILE:
       case RP_MAX:
         RS_LOG_ASSERT(0, "RPType error");
+        break;
+      case RP_SAFE_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        double rpGILTime = (double)RPProfile_GetGILTime(rp) / CLOCKS_PER_MILLISEC;
+        printProfileGILTime(rpGILTime);
         break;
     }
 

@@ -158,6 +158,7 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
+  clock_t GILTime;
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
@@ -265,6 +266,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
 ResultProcessor *RPCounter_New();
 
 clock_t RPProfile_GetClock(ResultProcessor *rp);
+clock_t RPProfile_GetGILTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);
