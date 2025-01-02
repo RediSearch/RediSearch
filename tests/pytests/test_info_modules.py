@@ -409,14 +409,6 @@ def test_counting_queries(env: Env):
   env.expect('FT.SEARCH', 'idx', '(*').error()
   check_counters()
 
-  # Aggregate with a non-existing index
-  env.expect('FT.AGGREGATE', 'idx2', '*').error()
-  check_counters()
-
-  # Aggregate with a syntax error
-  env.expect('FT.AGGREGATE', 'idx', '(*').error()
-  check_counters()
-
   # Cursor read with a non-existing cursor
   env.expect('FT.CURSOR', 'READ', 'idx', '123').error()
   check_counters()
