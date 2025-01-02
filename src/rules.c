@@ -71,7 +71,7 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
     ++upgradeFailures;
   }
   if (upgradeFailures) {
-    RedisModule_Log(ctx, "warning", "Indexes were defined for upgrade but failed to find %zu of them, valid index count: %zu", upgradeFailures, dictSize(specDict_g));
+    RedisModule_Log(ctx, "warning", "Indexes were defined for upgrade but failed to find %zu of them", upgradeFailures);
   }
   dictReleaseIterator(iter);
   dictEmpty(legacySpecRules, NULL);
