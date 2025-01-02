@@ -5,6 +5,7 @@ CXX ?= g++
 CFLAGS=-Wall -O3
 # This avoids loosing the fastfloat specific compile flags when we override the CFLAGS via the main project
 FASTFLOAT_CFLAGS=-std=c++11 -DFASTFLOAT_ALLOWS_LEADING_PLUS
+FASTFLOAT_CFLAGS += -DFASTFLOAT_SKIP_WHITE_SPACE
 LDFLAGS=
 
 libfast_float: fast_float_strtod.o

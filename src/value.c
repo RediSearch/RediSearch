@@ -671,8 +671,7 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       return RedisModule_Reply_String(reply, v->rstrval);
 
     case RSValue_Number: {
-      if (!(flags & SENDREPLY_FLAG_EXPAND) && !(flags & SENDREPLY_FLAG_TYPED)) {
-        // With STRING format and with `_NUM_SSTRING` disabled, return the number as a string
+      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
         char buf[128];
         size_t len = RSValue_NumToString(v->numval, buf);
 
