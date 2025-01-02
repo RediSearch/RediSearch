@@ -57,9 +57,9 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy);
 
 static void ReturnedField_Free(ReturnedField *field) {
-  rm_free(field->highlightSettings.openTag);
-  rm_free(field->highlightSettings.closeTag);
-  rm_free(field->summarizeSettings.separator);
+  HiddenString_Free(field->highlightSettings.openTag);
+  HiddenString_Free(field->highlightSettings.closeTag);
+  HiddenString_Free(field->summarizeSettings.separator);
   if (field->name) {
     HiddenString_Free(field->name);
   }
@@ -76,10 +76,10 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
+ReturnedField *FieldList_GetCreateField(FieldList *fields, HiddenString *name, HiddenString *path) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (!HiddenString_CompareC(fields->fields[ii].name, name, strlen(name))) {
+    if (!HiddenString_Compare(fields->fields[ii].name, name)) {
       return fields->fields + ii;
     }
   }
@@ -87,8 +87,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = NewHiddenString(name, strlen(name), false);
-  ret->path = path ? NewHiddenString(path, strlen(path), false) : HiddenString_Retain(ret->name);
+  ret->name = name;
+  ret->path = path ? path : HiddenString_Retain(ret->name);
   return ret;
 }
 
@@ -143,23 +143,17 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status) {
   int requiredFieldNum = AC_NumArgs(&args);
   // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
   // If we need to use them in reply we should make a copy of those strings.
-  const char** requiredFields = array_new(const char*, requiredFieldNum);
-  for(size_t i=0; i < requiredFieldNum; i++) {
-    const char *s = AC_GetStringNC(&args, NULL); {
-      if(!s) {
-        array_free(requiredFields);
+  HiddenString** requiredFields = array_new(HiddenString*, requiredFieldNum);
+  for (size_t i=0; i < requiredFieldNum; i++) {
+    HiddenString *s = AC_GetHiddenString(&args); {
+      if (!s) {
+        array_free_ex(requiredFields, HiddenString_Free(*(HiddenString**)ptr));
         return REDISMODULE_ERR;
       }
     }
     array_append(requiredFields, s);
   }
-
-  HiddenString** hiddenFields = array_new(HiddenString*, requiredFieldNum);
-  for (size_t i=0; i < requiredFieldNum; i++) {
-    array_append(hiddenFields, NewHiddenString(requiredFields[i], strlen(requiredFields[i]), false));
-  }
-  array_free(requiredFields);
-  req->requiredFields = hiddenFields;
+  req->requiredFields = requiredFields;
   return REDISMODULE_OK;
 }
 
@@ -378,7 +372,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 0 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
   uint64_t ascMap = SORTASCMAP_INIT;
-  const char **keys = NULL;
+  HiddenString **keys = NULL;
 
   if (isLegacy) {
     if (AC_NumRemaining(ac) > 0) {
@@ -400,12 +394,12 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   }
 
-  keys = array_new(const char *, 8);
+  keys = array_new(HiddenString *, 8);
 
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
-    const char *s = AC_GetStringNC(&subArgs, NULL);
+    HiddenString *s = AC_GetHiddenString(&subArgs);
     array_append(keys, s);
 
     if (legacyDesc) {
@@ -421,7 +415,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
           goto err;
         }
         s++;
-        array_append(keys, s);
+        array_append(keys, NewHiddenString(s, strlen(s), false));
         continue;
       }
 
@@ -459,7 +453,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 err:
   QERR_MKBADARGS(status, "Bad SORTBY arguments");
   if (keys) {
-    array_free(keys);
+    array_free_ex(keys, HiddenString_Free(*(HiddenString**)ptr));
   }
   return REDISMODULE_ERR;
 }
@@ -592,14 +586,17 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
-      const char *path = AC_GetStringNC(&returnFields, NULL);
-      const char *name = path;
+      HiddenString *path = AC_GetHiddenString(&returnFields);
+      HiddenString *name = HiddenString_Retain(path);
       if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
-        int rv = AC_GetString(&returnFields, &name, NULL, 0);
-        if (rv != AC_OK) {
+        HiddenString_Free(name);
+        name = AC_GetHiddenString(&returnFields);
+        if (!name) {
+          HiddenString_Free(path);
           QERR_MKBADARGS(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (!strcasecmp(name, SPEC_AS_STR)) {
+        } else if (!HiddenString_CaseInsensitiveCompareC(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+          HiddenString_Free(path);
           QERR_MKBADARGS(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
@@ -1263,8 +1260,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
-        const char *keystr = astp->sortKeys[ii];
-        HiddenString *key = NewHiddenString(keystr, strlen(keystr), false);
+        HiddenString *key = astp->sortKeys[ii];
         RLookupKey *sortkey = RLookup_GetKey(lk, key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
@@ -1275,7 +1271,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
             HiddenString_Free(key);
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", HiddenString_GetUnsafe(key, NULL));
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;

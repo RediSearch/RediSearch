@@ -70,6 +70,15 @@ static char *strdupcase(const char *s, size_t len) {
   return ret;
 }
 
+static HiddenString* MakeToken(const char *s, size_t len) {
+    char *str = strdupcase(s, len); // strdupcase can unescape the string, will need to recompute the length
+    return NewHiddenStringEx(str, strlen(str), Move);
+}
+
+static HiddenString* MakeTagToken(const char *s, size_t len) {
+    return NewHiddenStringEx(rm_strndup(s, len), len, Move);
+}
+
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -120,10 +129,10 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { HiddenString_Free($$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -301,7 +310,7 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = NewHiddenString(C.s, C.len, true) };
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -327,7 +336,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 
@@ -343,13 +352,17 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    HiddenString *hidden = MakeToken(B.s, B.len);
+    A = NewTokenNode(ctx, hidden);
+    HiddenString_Free(hidden);
     A->opts.flags |= QueryNode_Verbatim;
 
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    HiddenString *hidden = MakeToken(B.s, B.len);
+    A = NewTokenNode(ctx, hidden);
+    HiddenString_Free(hidden);
 }
 
 expr(A) ::= affix(B) . [PREFIX]  {
@@ -366,13 +379,19 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    HiddenString* b = MakeToken(B.s, B.len);
+    HiddenString* c = MakeToken(C.s, C.len);
+    QueryNode_AddChild(A, NewTokenNode(ctx, b));
+    QueryNode_AddChild(A, NewTokenNode(ctx, c));
+    HiddenString_Free(b);
+    HiddenString_Free(c);
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    HiddenString* c = MakeToken(C.s, C.len);
+    QueryNode_AddChild(A, NewTokenNode(ctx, c));
+    HiddenString_Free(c);
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -508,12 +527,16 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+    HiddenString *tag = MakeTagToken(B.s, B.len);
+    QueryNode_AddChild(A, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+    HiddenString *tag = MakeTagToken(B.s, B.len);
+    QueryNode_AddChild(A, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
 }
 
 tag_list(A) ::= LB affix(B) . [TAGLIST] {
@@ -527,12 +550,16 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+    HiddenString *tag = MakeTagToken(C.s, C.len);
+    QueryNode_AddChild(B, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+    HiddenString *tag = MakeTagToken(C.s, C.len);
+    QueryNode_AddChild(B, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
     A = B;
 }
 

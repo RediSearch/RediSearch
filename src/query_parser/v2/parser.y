@@ -217,10 +217,10 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { HiddenString_Free($$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -487,18 +487,16 @@ text_expr(A) ::= LP text_expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char *value = rm_strndup(C.s, C.len);
-  size_t value_len = C.len;
+  HiddenString *value = NewHiddenString(C.s, C.len, true);
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, HiddenString_GetUnsafe(value, NULL), &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
+      HiddenString_Free(value);
+      value = NewHiddenString(found_value, found_value_len, true);
     }
   }
-  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value};
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -523,7 +521,7 @@ expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
   A = B;
 }
 
@@ -531,7 +529,7 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
   A = B;
 }
 
@@ -549,8 +547,11 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     // get the next token
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
-    if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+    if (tokLen > 0) {
+      char *clean = rm_strdupcase(tok, tokLen); // unescapes the string, can lead to a shorter string
+      HiddenString *hidden = NewHiddenStringEx(clean, strlen(clean), Move);
+      QueryNode *C = NewTokenNode(ctx, hidden);
+      HiddenString_Free(hidden);
       QueryNode_AddChild(A, C);
     }
   }
@@ -566,7 +567,9 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  char *clean = rm_strdupcase(s, B.len + 1); // unescapes the string, can lead to a shorter string
+  HiddenString* hidden = NewHiddenStringEx(clean, strlen(clean), Move);
+  A = NewTokenNode(ctx, hidden);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -1037,25 +1040,35 @@ query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
-    rm_free(B->vn.vq->scoreField);
+    HiddenString_Free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
   }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  char *scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &scoreField, NULL, &D);
   B->vn.vq->params = C;
+  if (scoreField) {
+    B->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   A = B;
 }
 
 // Vector query opt. 2 - score field only, no params.
 vector_query(A) ::= vector_command(B) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
-    rm_free(B->vn.vq->scoreField);
+    HiddenString_Free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
   }
   B->params = array_grow(B->params, 1);
   memset(&array_tail(B->params), 0, sizeof(*B->params));
-  QueryNode_SetParam(ctx, &(array_tail(B->params)), &(B->vn.vq->scoreField), NULL, &D);
+  char *scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(B->params)), &scoreField, NULL, &D);
+  if (scoreField) {
+    B->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   A = B;
 }
 
@@ -1084,7 +1097,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   if (B && C) {
     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr)->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr)->value));
 
   if (A) {
     QueryNode_AddChild(B, A);
@@ -1098,7 +1111,7 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
   if (A) {
     QueryNode_AddChild(B, A);
@@ -1114,7 +1127,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
   if (B && C) {
      QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
-  array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
 }
 
@@ -1128,7 +1141,9 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    char* scoreField = NULL;
+    RedisModule_Assert(-1 != (rm_asprintf(&scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    A->vn.vq->scoreField = NewHiddenStringEx(scoreField, strlen(scoreField), Move);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

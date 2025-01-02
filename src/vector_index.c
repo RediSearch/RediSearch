@@ -102,7 +102,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .spaceMetric = metric,
                                       .query = vq->knn,
                                       .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
+                                      .vectorScoreField = vq->scoreField, // note we don't retain the string, that is done in NewHybridVectorIterator
                                       .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
@@ -171,14 +171,13 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   if (!val) {
     return -1;
   }
-  rm_free((char *)params.params[index].value);
+  rm_free((char*)params.params[index].value);
   params.params[index].value = rm_strndup(val, val_len);
-  params.params[index].valLen = val_len;
   return 1;
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
-  if (vq->scoreField) rm_free((char *)vq->scoreField);
+  if (vq->scoreField) HiddenString_Free(vq->scoreField);
   switch (vq->type) {
     case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
     case VECSIM_QT_RANGE:
@@ -333,10 +332,10 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
 }
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
-                      const char *field_name) {
+                      const FieldSpec *fs) {
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
-  logCtx->index_field_name = field_name;
+  logCtx->index_field_name = VecSim_FormatIndexAndFieldName(fs, sp_ref, RSGlobalConfig.hideUserDataFromLog);
   vecsimParams->logCtx = logCtx;
 
   switch (vecsimParams->algo) {
@@ -545,4 +544,16 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
+}
+
+char *VecSim_FormatIndexAndFieldName(const FieldSpec *fs, StrongRef sp_ref, bool obfuscate) {
+  IndexSpec *sp = StrongRef_Get(sp_ref);
+  RS_LOG_ASSERT(sp, "Index spec is NULL");
+  const char *index_name = IndexSpec_FormatName(sp, obfuscate);
+  char *field_name = FieldSpec_FormatName(fs, obfuscate, true);
+  size_t len = strlen(index_name) + strlen(field_name) + 2;
+  char *ret = rm_malloc(len);
+  snprintf(ret, len, "%s:%s", index_name, field_name);
+  rm_free(field_name);
+  return ret;
 }

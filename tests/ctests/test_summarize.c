@@ -76,7 +76,10 @@ int testFragmentize() {
   ASSERT(allFrags != NULL);
   ASSERT(nfrags != 0);
 
-  HighlightTags tags = {.openTag = "<i>", .closeTag = "</i>"};
+  const char *openTag = "<i>";
+  const char *closeTag = "</i>";
+  HighlightTags tags = {.openTag = NewHiddenString(openTag, strlen(openTag), false),
+                        .closeTag = NewHiddenString(closeTag, strlen(closeTag), false)};
   char *hlRes = FragmentList_HighlightWholeDocS(&fragList, &tags);
   ASSERT(strlen(hlRes) > strlen(lorem));
   free(hlRes);
@@ -117,6 +120,8 @@ int testFragmentize() {
   for (size_t ii = 0; ii < numFrags; ++ii) {
     Array_Free(contexts + ii);
   }
+  HiddenString_Free(tags.openTag);
+  HiddenString_Free(tags.closeTag);
   return 0;
 }
 

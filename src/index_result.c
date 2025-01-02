@@ -156,7 +156,7 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
 
   if (r->type == RSResultType_Term) {
     printf("Term{%llu: %s},\n", (unsigned long long)r->docId,
-           r->term.term ? r->term.term->str : "nil");
+           r->term.term ? HiddenString_GetUnsafe(r->term.term->str, NULL) : "nil");
     return;
   }
   if (r->type == RSResultType_Virtual) {
@@ -190,8 +190,12 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;
-  ret->str = tok->str ? rm_strndup(tok->str, tok->len) : NULL;
-  ret->len = tok->len;
+  if (!tok->str) {
+    ret->str = NULL;
+  } else {
+    ret->str = HiddenString_Retain(tok->str);
+    HiddenString_TakeOwnership(ret->str);
+  }
   ret->flags = tok->flags;
   ret->id = id;
   return ret;
@@ -199,7 +203,7 @@ RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
 
 void Term_Free(RSQueryTerm *t) {
   if (t) {
-    if (t->str) rm_free(t->str);
+    if (t->str) HiddenString_Free(t->str);
     rm_free(t);
   }
 }
@@ -339,7 +343,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
       break;
     case RSResultType_Term:
       if (r->term.term) {
-        const char *s = r->term.term->str;
+        const char *s = HiddenString_GetUnsafe(r->term.term->str, NULL);
         // make sure we have a term string and it's not an expansion
         if (s) {
           arr[(*len)++] = r->term.term;

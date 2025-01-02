@@ -293,7 +293,9 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
 IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
                               t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight) {
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(term->str, &len);
+  RedisModuleString *termKey = fmtRedisTermKey(ctx, str, len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
 

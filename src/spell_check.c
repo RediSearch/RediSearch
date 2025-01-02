@@ -168,7 +168,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   return ret;
 }
 
-void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
+void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, const char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
   bool resp3 = RedisModule_HasMap(reply);
 
@@ -224,7 +224,7 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
   array_free_ex(suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
 }
 
-static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, size_t len,
+static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, const char *term, size_t len,
                                             t_fieldMask fieldMask) {
   RedisModule_Reply *reply = scCtx->reply;
 
@@ -316,9 +316,12 @@ static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
 
 static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   SpellCheckCtx *scCtx = arg;
-  if (n->type == QN_TOKEN &&
-      SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
-    scCtx->results++;
+  if (n->type == QN_TOKEN) {
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
+    if (SpellCheck_ReplyTermSuggestions(scCtx, str, len, n->opts.fieldMask)) {
+      scCtx->results++;
+    }
   }
   return 1;
 }
