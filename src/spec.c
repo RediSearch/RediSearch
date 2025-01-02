@@ -825,7 +825,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, false);
+      VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
       if (!vecsim) {
         continue;
       }

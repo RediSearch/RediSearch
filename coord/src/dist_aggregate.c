@@ -421,7 +421,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   r->qiter.err = &status;
-  r->reqflags |= QEXEC_F_IS_AGGREGATE | AREQ_BUILDPIPELINE_NO_ROOT;
+  r->reqflags |= QEXEC_F_IS_AGGREGATE;
   r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);

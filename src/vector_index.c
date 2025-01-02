@@ -10,9 +10,8 @@
 #include "query_param.h"
 #include "rdb.h"
 
-static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
-  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -54,40 +53,9 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   return kdv->p;
 }
 
-VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
-  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
-  }
-  if (!create_if_index) {
-    return NULL;
-  }
-
-  size_t fieldLen;
-  const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
-  FieldSpec *fieldSpec = NULL;
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
-      fieldSpec = &spec->fields[i];
-      break;
-    }
-  }
-  if (fieldSpec == NULL) {
-    return NULL;
-  }
-
-  // create new vector data structure
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
-  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
-  return kdv->p;
-}
-
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx, keyName, 1);
+  return openVectorKeysDict(ctx->spec, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
@@ -117,7 +85,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;

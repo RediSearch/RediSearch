@@ -213,10 +213,10 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                     \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                    \
-    .prioritizeIntersectUnionChildren = false,                                                                        \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
+    .prioritizeIntersectUnionChildren = false,                                                    \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                \
   }
 
 #define REDIS_ARRAY_LIMIT 7
