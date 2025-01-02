@@ -21,6 +21,30 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+# Define paths for the script and output files
+set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
+set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
+set(COMMAND_INFO_FILE_NAME "command_info")
+set(COMMAND_INFO_FOLDER_NAME "command_info")
+set(COMMAND_OUTPUT_FOLDER "${CMAKE_SOURCE_DIR}/src/${COMMAND_INFO_FOLDER_NAME}")
+set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
+set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
+set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
+
+# Add custom command to run the Python script
+add_custom_command(
+        OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C}
+        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${COMMAND_OUTPUT_FILE} -i ${COMMAND_INFO_FOLDER_NAME}
+        DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
+        COMMENT "Generating ${COMMAND_INFO_FILE_NAME}.h and ${COMMAND_INFO_FILE_NAME}.c"
+        VERBATIM
+)
+
+# Create a custom target that relies on the generated files
+add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C})
+
+#----------------------------------------------------------------------------------------------
+
 setup_cc_options()
 
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
@@ -107,6 +131,7 @@ file(GLOB SOURCES
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/command_info/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
@@ -148,6 +173,7 @@ if (BUILD_STATIC)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+    add_dependencies(redisearch generate_command_info)
 
 else() # OSS RediSearch
     add_library(redisearch SHARED ${FINAL_OBJECTS})
@@ -166,7 +192,7 @@ else() # OSS RediSearch
 
     extract_debug_symbols(redisearch)
 
-    add_dependencies(redisearch VectorSimilarity)
+    add_dependencies(redisearch VectorSimilarity generate_command_info)
 
 endif()
 
