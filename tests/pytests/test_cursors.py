@@ -390,8 +390,8 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
             while cursor:
                 res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
                 n_recieved += len(res) - 1
-            env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
-            i += 1
+                env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
+                i += 1
 
     except Exception as e:
         env.assertEqual(str(e), f'Cursor read failed after retrieving {n_recieved} results, cursor id: {cursor}')
