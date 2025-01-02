@@ -9,39 +9,53 @@ on:
         type: boolean
         description: 'Run extended benchmarks'
         default: false
+      profiler:
+        type: boolean
+        description: 'Run profiler on standalone benchmarks'
+        default: false
   workflow_call:
     inputs:
       extended:
+        type: boolean
+        default: false
+      profiler:
         type: boolean
         default: false
 
 jobs:
   benchmark-search-oss-standalone:
     strategy:
+      fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-vecsim-oss-standalone:
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
     strategy:
+      fail-fast: false
       matrix:
-        member_id: [1, 2]
+        member_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -54,7 +68,9 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-04-primaries:
+    if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -69,7 +85,9 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-08-primaries:
+    if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -84,7 +102,9 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-16-primaries:
+    if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -102,6 +122,7 @@ jobs:
   benchmark-search-oss-cluster-20-primaries:
     if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -119,6 +140,7 @@ jobs:
   benchmark-search-oss-cluster-24-primaries:
     if: inputs.extended
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -133,7 +155,9 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-standalone-profiler:
+    if: inputs.profiler
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -144,12 +168,16 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "search*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
 
   benchmark-vecsim-oss-standalone-profiler:
+    if: inputs.profiler
     strategy:
+      fail-fast: false
       matrix:
         member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
@@ -160,5 +188,7 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search/redisearch.so
       benchmark_glob: "vecsim*.yml"
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
