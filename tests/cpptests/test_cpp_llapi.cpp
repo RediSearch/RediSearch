@@ -556,6 +556,9 @@ TEST_F(LLApiTest, testRanges) {
 
   ValidateResults(index, qn, 'a', 'z', 26);
 
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkM", "MarkN", 1, 0);
+  ValidateResults(index, qn, 'm', 'm', 1);
+
   // printf("Have %lu ids in range!\n", results.size());
   RediSearch_DropIndex(index);
 }
