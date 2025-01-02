@@ -187,13 +187,13 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   if ((aCtx->specFlags & Index_Async) && aCtx->specName) {
-    HiddenString_Free(aCtx->specName);
+    aCtx->specName = NULL;
   }
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    aCtx->specName = HiddenString_Retain(sp->specName);
+    aCtx->specName = sp->specName; // we do not retain the spec name, we rely on spec being alive for the duration of the ctx.
   }
 
   // Assign the document:
