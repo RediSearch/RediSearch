@@ -793,3 +793,8 @@ def downloadFiles(env, rdbs=None, depth=0):
         if not downloadFile(env, f, depth=depth + 1):
             return False
     return True
+
+def index_errors(env):
+    return to_dict(index_info(env)['Index Errors'])
+def field_errors(env,fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env)['field statistics'][fld_index]))['Index Errors'])
