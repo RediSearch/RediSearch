@@ -47,6 +47,9 @@ extern RedisModuleCtx *RSDummyContext;
 /** Indicates that RediSearch_Init was called */
 extern int RS_Initialized;
 
+// Number of shards in the cluster. Hint we can read and modify from the main thread
+extern size_t NumShards;
+
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
   RS_LOG_ASSERT(ctx != RSDummyContext, "");     \
@@ -118,6 +121,23 @@ typedef struct {
   clock_t profileClock;
   void *reducer;
 } searchRequestCtx;
+
+#define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
+
+#define VERIFY_ACL(ctx, idxR)                                                  \
+  do {                                                                         \
+    const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                \
+    IndexLoadOptions lopts =                                                   \
+      {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                \
+    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                       \
+    IndexSpec *sp = StrongRef_Get(spec_ref);                                   \
+    if (!sp) {                                                                 \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);\
+    }                                                                          \
+    if (!ACLUserMayAccessIndex(ctx, sp)) {                                     \
+      return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                      \
+    }                                                                          \
+  } while(0);
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
                              QueryError *status);

@@ -244,6 +244,10 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
+  if (NumShards == 1 && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {

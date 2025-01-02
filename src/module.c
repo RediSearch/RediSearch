@@ -60,23 +60,7 @@
 #include "util/units.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
-#define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
 #define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
-
-#define VERIFY_ACL(ctx, idxR)                                                  \
-  do {                                                                         \
-    const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                \
-    IndexLoadOptions lopts =                                                   \
-      {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                \
-    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                       \
-    IndexSpec *sp = StrongRef_Get(spec_ref);                                   \
-    if (!sp) {                                                                 \
-      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);\
-    }                                                                          \
-    if (!ACLUserMayAccessIndex(ctx, sp)) {                                     \
-      return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                      \
-    }                                                                          \
-  } while(0);
 
 extern RSConfig RSGlobalConfig;
 
@@ -84,8 +68,7 @@ extern RedisModuleCtx *RSDummyContext;
 
 static int DIST_AGG_THREADPOOL = -1;
 
-// Number of shards in the cluster. Hint we can read and modify from the main thread
-size_t NumShards = 0;
+NumShards = 0;
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -2825,13 +2808,13 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1])
-
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
+  VERIFY_ACL(ctx, argv[1])
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
@@ -2882,19 +2865,19 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
   }
   RS_AutoMemory(ctx);
 
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
   // Validate ACL key permissions if needed (for commands that access an index)
   if (indexNamePos != -1) {
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
     VERIFY_ACL(ctx, argv[indexNamePos])
-  }
-
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -2934,19 +2917,19 @@ static int SingleShardCommandHandler(RedisModuleCtx *ctx,
   }
   RS_AutoMemory(ctx);
 
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return genericCallUnderscoreVariant(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
   // Validate ACL key permissions if needed (for commands that access an index)
   if (indexNamePos != -1) {
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
     VERIFY_ACL(ctx, argv[indexNamePos])
-  }
-
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
@@ -3038,13 +3021,13 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1])
-
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
+
+  VERIFY_ACL(ctx, argv[1])
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
