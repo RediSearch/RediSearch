@@ -14,6 +14,7 @@
 #include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
+#include "obfuscation/hidden.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -168,9 +169,7 @@ typedef uint32_t RSTokenFlags;
  * tokens */
 typedef struct {
   /* The token string - which may or may not be NULL terminated */
-  char *str;
-  /* The token length */
-  size_t len;
+  HiddenString *str;
 
   /* Is this token an expansion? */
   uint8_t expanded : 1;
@@ -208,15 +207,16 @@ typedef struct RSQueryExpanderCtx {
    * length, and flags is a 32 bit flag mask that can be used by the extension to set private
    * information on the token
    * */
-  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
+  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, HiddenString *str,
                       RSTokenFlags flags);
 
   /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
-   * with num its len, each member of it is a null terminated string. If replace is set to 1, we
+   * with num its len, each member of it is a null term
+* inated string. If replace is set to 1, we
    * replace the original token with the new phrase. If exact is 1 the expanded phrase is an exact
    * match phrase
    */
-  void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
+  void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, HiddenString **toks, size_t num,
                                 RSTokenFlags flags, int replace, int exact);
 
   /* SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
@@ -233,9 +233,7 @@ typedef void (*RSFreeFunction)(void *);
 /* A single term being evaluated in query time */
 typedef struct {
   /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
+  HiddenString *str;
   /* Inverse document frequency of the term in the index. See
    * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
   double idf;

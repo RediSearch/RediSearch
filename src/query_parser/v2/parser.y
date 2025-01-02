@@ -549,8 +549,11 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     // get the next token
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
-    if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+    if (tokLen > 0) {
+      char *clean = rm_strdupcase(tok, tokLen); // unescapes the string, can lead to a shorter string
+      HiddenString *hidden = NewHiddenStringEx(clean, strlen(clean), Move);
+      QueryNode *C = NewTokenNode(ctx, hidden);
+      HiddenString_Free(hidden);
       QueryNode_AddChild(A, C);
     }
   }
@@ -566,7 +569,9 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  char *clean = rm_strdupcase(s, B.len + 1); // unescapes the string, can lead to a shorter string
+  HiddenString* hidden = NewHiddenStringEx(clean, strlen(clean), Move);
+  A = NewTokenNode(ctx, hidden);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -1037,7 +1042,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB . { // main parse, simple vecsim 
 // Vector query opt. 1 - full query.
 vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
-    rm_free(B->vn.vq->scoreField);
+    HiddenString_Free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
   }
   B->params = array_grow(B->params, 1);
@@ -1050,7 +1055,7 @@ vector_query(A) ::= vector_command(B) vector_attribute_list(C) vector_score_fiel
 // Vector query opt. 2 - score field only, no params.
 vector_query(A) ::= vector_command(B) vector_score_field(D). {
   if (B->vn.vq->scoreField) {
-    rm_free(B->vn.vq->scoreField);
+    HiddenString_Free(B->vn.vq->scoreField);
     B->vn.vq->scoreField = NULL;
   }
   B->params = array_grow(B->params, 1);
@@ -1128,7 +1133,9 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    char* scoreField = NULL;
+    RedisModule_Assert(-1 != (rm_asprintf(&scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    A->vn.vq->scoreField = NewHiddenStringEx(scoreField, strlen(scoreField), Move);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

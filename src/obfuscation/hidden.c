@@ -10,31 +10,42 @@ typedef struct {
   const char *buffer;
   uint32_t length;
   uint16_t refcount;
-  bool owner;
+  Ownership owner;
 } HiddenStringImpl;
 
-HiddenString *NewHiddenString(const char* name, size_t length, bool takeOwnership) {
+HiddenString *NewHiddenStringEx(const char* name, size_t length, Ownership mode) {
   HiddenStringImpl* value = rm_malloc(sizeof(*value));
-  if (takeOwnership) {
+  if (mode == Take) {
     value->buffer = rm_strndup(name, length);
   } else {
     value->buffer = name;
+    bool same_length = length == strlen(name);
+    RS_LOG_ASSERT(same_length, "Length mismatch");
   }
   value->length = length;
-  value->owner = takeOwnership;
+  value->owner = mode;
   value->refcount = 1;
   return (HiddenString*)value;
 };
 
+HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership) {
+  return NewHiddenStringEx(name, length, takeOwnership ? Take : Borrow);
+}
+
 void HiddenString_Free(const HiddenString* hn) {
   HiddenStringImpl* value = (HiddenStringImpl*)hn;
   if (--value->refcount == 0) {
-    if (value->owner) {
+    if (value->owner != Borrow) {
       rm_free((void*)value->buffer);
     }
     rm_free(value);
   }
 };
+
+bool HiddenString_IsEmpty(const HiddenString *value) {
+  const HiddenStringImpl* impl = (const HiddenStringImpl*)value;
+  return impl->length == 0;
+}
 
 static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncmp(left, right, MIN(left_length, right_length));
@@ -82,11 +93,11 @@ HiddenString *HiddenString_Retain(HiddenString *value) {
 
 void HiddenString_TakeOwnership(HiddenString *hidden) {
   HiddenStringImpl* impl = (HiddenStringImpl*)hidden;
-  if (impl->owner) {
+  if (impl->owner != Borrow) {
     return;
   }
   impl->buffer = rm_strndup(impl->buffer, impl->length);
-  impl->owner = true;
+  impl->owner = Take;
 }
 
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb) {

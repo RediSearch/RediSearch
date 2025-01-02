@@ -14,8 +14,7 @@ typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;
     QueryType query_type;
     const FieldSpec *fs;
-    const char *str;
-    size_t str_len;
+    HiddenString *str;
 } GeometryQuery;
 
 void GeometryQuery_Free(GeometryQuery *geomq);

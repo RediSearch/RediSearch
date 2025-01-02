@@ -21,7 +21,7 @@ typedef struct {
   VecSimMetric spaceMetric;
   KNNVectorQuery query;
   VecSimQueryParams qParams;
-  const char *vectorScoreField;
+  HiddenString *vectorScoreField;
   bool ignoreDocScore;
   IndexIterator *childIt;
   struct timespec timeout;
