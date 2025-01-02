@@ -2,9 +2,7 @@ version: 0.5
 name: "ann-benchmarks_QUERY_1c_redisearch-hnsw_glove-200-angular_M-4"
 metadata:
   component: "vecsim"
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 timeout_seconds: 1800
 setups:
   - oss-standalone
