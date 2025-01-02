@@ -28,31 +28,31 @@ void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
   sprintf(buffer, "Key@%zu", epoch);
 }
 
-char *Obfuscate_Text(const char* text) {
+const char *Obfuscate_Text(const char* text) {
   return "Text";
 }
 
-char *Obfuscate_Number(size_t number) {
+const char *Obfuscate_Number(size_t number) {
   return "Number";
 }
 
-char *Obfuscate_Vector(const char* vector, size_t dim) {
+const char *Obfuscate_Vector(const char* vector, size_t dim) {
   return "Vector";
 }
 
-char *Obfuscate_Tag(const char* tag) {
+const char *Obfuscate_Tag(const char* tag) {
   return "Tag";
 }
 
-char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude) {
+const char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude) {
   return "Geo";
 }
 
-char *Obfuscate_GeoShape() {
+const char *Obfuscate_GeoShape() {
   return "GeoShape";
 }
 
-char *Obfuscate_QueryNode(struct RSQueryNode *node) {
+const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
   switch (node->type) {
     case QN_PHRASE:
       return "Phrase";

@@ -15,7 +15,6 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/heap_doubles.h"
-#include "obfuscation/obfuscation_api.h"
 
 #define NR_MINRANGE_CARD 16
 #define NR_MAXRANGE_CARD 2500

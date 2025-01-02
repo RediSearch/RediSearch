@@ -559,6 +559,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     return REDISMODULE_ERR;
   }
 
+  // We aren't taking ownership on the string we got from the user, less cost memory-wise
   HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
   if (dictFetchValue(legacySpecRules, indexName)) {
     HiddenString_Free(indexName, false);

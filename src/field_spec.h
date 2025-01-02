@@ -157,8 +157,8 @@ RSValueType fieldTypeToValueType(FieldType ft);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
 
-char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded);
-char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

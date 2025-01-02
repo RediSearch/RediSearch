@@ -651,3 +651,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   }
   return rv;
 }
+
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
+  QueryError_SetErrorFmt(status, QUERY_EINVALPATH,
+                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
+                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
+  RedisModule_FreeString(RSDummyContext, err_msg);
+}

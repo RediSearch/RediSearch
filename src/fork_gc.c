@@ -858,7 +858,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
       const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
-                      " trie in index '%s' failed", Obfuscate_Text(term), name);
+                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;

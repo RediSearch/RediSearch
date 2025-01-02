@@ -42,7 +42,7 @@ void HiddenString_Clone(const HiddenString *src, HiddenString **dst);
 void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb);
 // Remove a key from the keyspace using the hidden string, e.g an index name that
 // Used in legacy code, should be avoided in new code
-void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenString* value);
+void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value);
 // Creates a redis module string from a hidden string
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx);
 

@@ -89,7 +89,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field", " '%s' twice", HiddenString_GetUnsafe(fs->fieldName, NULL));
+      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
 
@@ -107,7 +107,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         QueryError_SetErrorFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
-                               "Tried to index field", " %s as type not specified in schema", HiddenString_GetUnsafe(fs->fieldName, NULL));
+                               "Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return -1;
       }
     }
@@ -262,8 +262,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats
-    IndexError_AddError(&sctx->spec->stats.indexError, QueryError_GetDisplayableError(&status, true),
-                        QueryError_GetDisplayableError(&status, false), aCtx->doc->docKey);
+    IndexError_AddQueryError(&sctx->spec->stats.indexError, &status, aCtx->doc->docKey);
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     QueryError_ClearError(&status);

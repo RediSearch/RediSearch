@@ -14,7 +14,6 @@
 #include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
-#include "obfuscation/obfuscation_api.h"
 #include <stdio.h>
 
 RedisModuleType *InvertedIndexType;

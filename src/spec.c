@@ -154,7 +154,7 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, Qu
       const FieldSpec *fs = spec->fields + ii;
       if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
         QueryError_SetErrorFmt(status, QUERY_EBADORDEROPTION,
-          "slop/inorder are not supported for field", " `%s` since it has undefined ordering", HiddenString_GetUnsafe(fs->fieldName, NULL));
+                               "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return 0;
       }
     }
@@ -215,7 +215,7 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 * The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
 
   const char *args[argc];
@@ -223,7 +223,7 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
+  return IndexSpec_Parse(name, args, argc, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -443,15 +443,18 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     return NULL;
   }
+  size_t nameLen;
+  const char *rawName = RedisModule_StringPtrLen(argv[1], &nameLen);
+  HiddenString *name = NewHiddenString(rawName, nameLen, true);
   // Create the IndexSpec, along with its corresponding weak\strong refs
-  StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
+  StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, name, &argv[2], argc - 2, status);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
   }
 
   // Add the spec to the global spec dictionary
-  dictAdd(specDict_g, sp->specName, spec_ref.rm);
+  dictAdd(specDict_g, name, spec_ref.rm);
 
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
@@ -1021,7 +1024,7 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field", " `%s` cannot be defined with both `NOINDEX` and `INDEXMISSING`'", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
   return 1;
@@ -1202,7 +1205,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
       fs->sortIdx = sp->numSortableFields++;
       if (fs->sortIdx == -1) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited", " to %d Sortable fields",
+        QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
                                SPEC_MAX_FIELDS);
         goto reset;
       }
@@ -1285,8 +1288,8 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  IndexSpec *spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
+StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status) {
+  IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
@@ -1380,6 +1383,11 @@ failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
   IndexSpec_RemoveFromGlobals(spec_ref);
   return INVALID_STRONG_REF;
+}
+
+StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status) {
+  HiddenString *hidden = NewHiddenString(name, strlen(name), true);
+  return IndexSpec_Parse(hidden, argv, argc, status);
 }
 
 /* Initialize some index stats that might be useful for scoring functions */
@@ -1554,9 +1562,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free spec name
   HiddenString_Free(spec->specName, true);
-  if (spec->obfuscatedName) {
-    rm_free(spec->obfuscatedName);
-  }
+  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -1793,7 +1799,7 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *NewIndexSpec(HiddenString *name) {
+IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->flags = INDEX_DEFAULT_FLAGS;
@@ -2810,9 +2816,6 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp) {
-      continue;
-    }
     // we save the name plus the null terminator
     HiddenString_SaveToRdb(sp->specName, rdb);
     RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);

@@ -36,18 +36,23 @@ IndexError IndexError_Init() {
     error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     return error;
 }
-void IndexError_AddError(IndexError *error, ConstErrorMessage shortError, ConstErrorMessage detailedError, RedisModuleString *key) {
-    if (!NA_rstr) initDefaultKey();
-    if (!error) {
-        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
-                        "Index error occurred but no index error message was set.");
-    }
+
+static inline void IndexError_ClearLastError(IndexError *error) {
     if (error->last_error_without_user_data != NA) {
         rm_free(error->last_error_without_user_data);
     }
     if (error->last_error_with_user_data != NA) {
         rm_free(error->last_error_with_user_data);
     }
+}
+
+void IndexError_AddError(IndexError *error, ConstErrorMessage shortError, ConstErrorMessage detailedError, RedisModuleString *key) {
+    if (!NA_rstr) initDefaultKey();
+    if (!shortError || !detailedError) {
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+                        "Index error occurred but no index error message was set.");
+    }
+    IndexError_ClearLastError(error);
     RedisModule_FreeString(RSDummyContext, error->key);
     error->last_error_without_user_data = shortError ? rm_strdup(shortError) : NA; // Don't strdup NULL.
     error->last_error_with_user_data = detailedError ? rm_strdup(detailedError) : NA; // Don't strdup NULL.
@@ -141,8 +146,7 @@ void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
         // copy/add error count later.
-        if (error->last_error_without_user_data != NA) rm_free(error->last_error_without_user_data);
-        if (error->last_error_with_user_data != NA) rm_free(error->last_error_with_user_data);
+        IndexError_ClearLastError(error);
         RedisModule_FreeString(RSDummyContext, error->key);
         error->last_error_without_user_data = rm_strdup(other->last_error_without_user_data);
         error->last_error_with_user_data = rm_strdup(other->last_error_with_user_data);
@@ -161,12 +165,7 @@ void IndexError_SetErrorCount(IndexError *error, size_t error_count) {
 
 // Set the last_error of the IndexError.
 void IndexError_SetLastError(IndexError *error, const char *last_error) {
-    if (error->last_error_without_user_data != NA) {
-        rm_free(error->last_error_without_user_data);
-    }
-    if (error->last_error_with_user_data != NA) {
-        rm_free(error->last_error_with_user_data);
-    }
+    IndexError_ClearLastError(error);
     // Don't strdup NULL.
     error->last_error_without_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
     error->last_error_with_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;

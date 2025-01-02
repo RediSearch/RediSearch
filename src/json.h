@@ -55,13 +55,7 @@ void pathFree(JSONPath jsonpath);
 int pathIsSingle(JSONPath jsonpath);
 int pathHasDefinedOrder(JSONPath jsonpath);
 
-#define JSONParse_error(status, err_msg, path, fieldName, indexName)                                      \
-    do {                                                                                                  \
-      QueryError_SetErrorFmt(status, QUERY_EINVALPATH,                                                    \
-                             "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",                 \
-                             HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL)); \
-      RedisModule_FreeString(RSDummyContext, err_msg);                                                    \
-    } while (0)
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName);
 
 #ifdef __cplusplus
 }

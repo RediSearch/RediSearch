@@ -102,6 +102,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_Map(reply); // top
 
+  // Safe to access the spec directly since it is was already validated as a strong reference by the caller
   const IndexSpec *sp = sctx->spec;
   IndexSpec *modifiableSpec = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
@@ -117,8 +118,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     RedisModule_Reply_Map(reply); // >>field
 
     const FieldSpec *fs = &sp->fields[i];
-    char *path = FieldSpec_FormatPath(fs, obfuscate, true);
-    char *name = FieldSpec_FormatName(fs, obfuscate, true);
+    char *path = FieldSpec_FormatPath(fs, obfuscate);
+    char *name = FieldSpec_FormatName(fs, obfuscate);
     REPLY_KVSTR("identifier", path);
     REPLY_KVSTR("attribute", name);
     rm_free(path);

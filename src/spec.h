@@ -267,7 +267,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  HiddenString *specName;         // Index private name
+  const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
@@ -473,7 +473,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                    RedisModuleString **argv, int argc, QueryError *status);
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
@@ -490,7 +490,10 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
+// Calls IndexSpec_Parse after wrapping name with a hidden string
+StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
+
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
@@ -612,7 +615,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
-IndexSpec *NewIndexSpec(HiddenString *name);
+IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
@@ -662,7 +665,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
 /**
-* obfuscate argument is used to detemine how we will format the index name
+* obfuscate argument is used to determine how we will format the index name
 * if obfuscate is true we will return the obfuscated name
 * meant to allow us and the user to use the same commands with different outputs
 * meaning we don't want to have access to the user data

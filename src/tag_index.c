@@ -15,7 +15,6 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
-#include "obfuscation/obfuscation_api.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

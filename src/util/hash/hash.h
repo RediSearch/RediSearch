@@ -6,7 +6,7 @@
 
 #pragma once
 #include <stdint.h>
-#include "obfuscation/hidden.h"
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {

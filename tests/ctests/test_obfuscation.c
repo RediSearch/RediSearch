@@ -6,7 +6,7 @@
 #include <string.h>
 
 struct RSQueryNode;
-char *Obfuscate_QueryNode(struct RSQueryNode *node);
+const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 enum {
     IndexSize = MAX_OBFUSCATED_INDEX_NAME,
@@ -40,32 +40,32 @@ int testSimpleIndexObfuscation() {
 }
 
 int testTextObfuscation() {
-    char *obfuscated = Obfuscate_Text("hello");
+    const char *obfuscated = Obfuscate_Text("hello");
     return strcmp(obfuscated, "Text");
 }
 
 int testNumberObfuscation() {
-    char *obfuscated = Obfuscate_Number(rand());
+    const char *obfuscated = Obfuscate_Number(rand());
     return strcmp(obfuscated, "Number");
 }
 
 int testVectorObfuscation() {
-    char *obfuscated = Obfuscate_Vector("hello", 5);
+    const char *obfuscated = Obfuscate_Vector("hello", 5);
     return strcmp(obfuscated, "Vector");
 }
 
 int testTagObfuscation() {
-    char *obfuscated = Obfuscate_Tag("hello");
+    const char *obfuscated = Obfuscate_Tag("hello");
     return strcmp(obfuscated, "Tag");
 }
 
 int testGeoObfuscation() {
-    char *obfuscated = Obfuscate_Geo(1, 2);
+    const char *obfuscated = Obfuscate_Geo(1, 2);
     return strcmp(obfuscated, "Geo");
 }
 
 int testGeoShapeObfuscation() {
-    char *obfuscated = Obfuscate_GeoShape();
+    const char *obfuscated = Obfuscate_GeoShape();
     return strcmp(obfuscated, "GeoShape");
 }
 
@@ -94,7 +94,7 @@ int testQueryNodeObfuscation() {
         struct RSQueryNode node = {
             .type = i,
         };
-        char *obfuscated = Obfuscate_QueryNode(&node);
+        const char *obfuscated = Obfuscate_QueryNode(&node);
         ASSERT(strcmp(obfuscated, expected[i - 1]) == 0);
     }
     return 0;

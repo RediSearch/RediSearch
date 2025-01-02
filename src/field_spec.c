@@ -52,8 +52,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate, true));
-  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate, true));
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }
@@ -67,7 +67,7 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
   return IndexError_ErrorCount(&fs->indexError);
 }
 
-static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void (*callback)(t_uniqueId, char*), bool obfuscate, bool escapeIfNeeded) {
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void (*callback)(t_uniqueId, char*), bool obfuscate) {
   char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
   const char* value = obfuscated;
   if (obfuscate) {
@@ -75,17 +75,17 @@ static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void 
   } else {
     value = HiddenString_GetUnsafe(name, NULL);
   }
-  if (escapeIfNeeded && isUnsafeForSimpleString(value)) {
+  if (isUnsafeForSimpleString(value)) {
     return escapeSimpleString(value);
   } else {
     return rm_strdup(value);
   }
 }
 
-char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
-  return FormatFieldNameOrPath(fs->index, fs->fieldName, Obfuscate_Field, obfuscate, escapeIfNeeded);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate) {
+  return FormatFieldNameOrPath(fs->index, fs->fieldName, Obfuscate_Field, obfuscate);
 }
 
-char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate, bool escapeIfNeeded) {
-  return FormatFieldNameOrPath(fs->index, fs->fieldPath, Obfuscate_FieldPath, obfuscate, escapeIfNeeded);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
+  return FormatFieldNameOrPath(fs->index, fs->fieldPath, Obfuscate_FieldPath, obfuscate);
 }

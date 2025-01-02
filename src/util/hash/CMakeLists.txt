@@ -6,7 +6,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Collect source files
 file(GLOB SOURCES "*.cpp")
 
-# Find Boost (if needed for this library)
+# Find Boost
 find_package(Boost REQUIRED)
 
 # Add the library

@@ -28,12 +28,12 @@ sds HiddenUnicodeString_GetUnsafe(const HiddenUnicodeString *value, size_t *leng
   return v;
 }
 
-RedisModuleString *HiddenUnicodeString_CreateRedisModuleString(HiddenUnicodeString* value, RedisModuleCtx* ctx) {
+RedisModuleString *HiddenUnicodeString_CreateRedisModuleString(const HiddenUnicodeString* value, RedisModuleCtx* ctx) {
   sds v = (sds)value;
   return RedisModule_CreateString(ctx, v, sdslen(v));
 }
 
-void HiddenUnicodeString_SaveToRdb(HiddenUnicodeString* value, RedisModuleIO* rdb) {
+void HiddenUnicodeString_SaveToRdb(const HiddenUnicodeString* value, RedisModuleIO* rdb) {
   sds v = (sds)value;
   RedisModule_SaveStringBuffer(rdb, v, sdslen(v) + 1);
 }
