@@ -6,7 +6,7 @@
 extern "C"
 {
 #endif
-    double fast_float_strtod(const char *in, char **out);
+double fast_float_strtod(const char *in, char **out);
 
 #if defined(__cplusplus)
 }

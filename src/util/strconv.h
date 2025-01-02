@@ -6,7 +6,6 @@
 
 #ifndef RS_STRCONV_H_
 #define RS_STRCONV_H_
-#include <stdlib.h>
 #include <limits.h>
 #include <sys/errno.h>
 #include <math.h>
@@ -54,7 +53,7 @@ static int ParseDouble(const char *arg, double *d, int sign) {
       *e != '\0') {
     return 0;
   }
-  
+
   if(sign == -1) {
     *d = -(*d);
   }

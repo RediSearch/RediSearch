@@ -183,7 +183,7 @@ int _parseFloat(const char *str, size_t len, double *d) {
   double val = fast_float_strtod(str, &endptr);
 
   /* Check for various possible errors */
-  if (errno != 0 || (endptr == str && val == 0) || (endptr != (str + len ))) {
+  if (errno != 0 || (endptr == str && val == 0)) {
     return 0;
   }
   *d = val;
