@@ -73,7 +73,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 }
 
 // tokenize the text in the context
-uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
+uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t, bool *overflow) {
   TokenizerCtx *ctx = &base->ctx;
   simpleTokenizer *self = (simpleTokenizer *)base;
   while (self->pos != NULL) {
@@ -84,6 +84,9 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     size_t normLen = origLen;
     if (normLen > MAX_NORMALIZE_SIZE) {
       normLen = MAX_NORMALIZE_SIZE;
+      //Omer 
+      // Add error handling
+      if (overflow) *overflow = true;
     }
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;

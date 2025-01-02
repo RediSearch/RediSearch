@@ -121,7 +121,7 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
   RSTokenizer *tokenizer = NewSimpleTokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
   tokenizer->Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
   Token tokInfo;
-  while (tokenizer->Next(tokenizer, &tokInfo)) {
+  while (tokenizer->Next(tokenizer, &tokInfo,NULL)) {
     extractToken(fragList, &tokInfo, terms, numTerms);
   }
   tokenizer->Free(tokenizer);

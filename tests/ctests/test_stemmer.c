@@ -59,7 +59,7 @@ int testTokenize() {
 
   tokenContext *tx = &ctx;
   tk->Start(tk, txt, strlen(txt), 0);
-  while (tk->Next(tk, &t)) {
+  while (tk->Next(tk, &t,NULL)) {
     printf("round %d\n", ctx.num);
     int ret = strncmp(t.tok, tx->expectedTokens[tx->num], t.tokLen);
     ASSERT(ret == 0);

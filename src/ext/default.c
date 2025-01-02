@@ -426,7 +426,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   tokenizer->Start(tokenizer, token->str, token->len, 0);
 
   Token tTok = {0};
-  while (tokenizer->Next(tokenizer, &tTok)) {
+  while (tokenizer->Next(tokenizer, &tTok,NULL)) {
     char *s = rm_strndup(tTok.tok, tTok.tokLen);
     Vector_Push(tokVec, s);
   }

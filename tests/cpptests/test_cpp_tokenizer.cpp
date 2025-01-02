@@ -16,7 +16,7 @@ TEST_F(TokenizerTest, testTokenize) {
   tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
   Token tok;
   size_t i = 0;
-  while (tk->Next(tk, &tok)) {
+  while (tk->Next(tk, &tok,NULL)) {
     ASSERT_EQ(i + 1, tok.pos);
     ASSERT_EQ(tok.tokLen, strlen(expected[i]));
     std::string got(tok.tok, tok.tokLen);
@@ -77,7 +77,7 @@ TEST_F(TokenizerTest, testChineseMixed) {
   Token t = {0};
   size_t pos = 1;
   std::set<std::string> tokens;
-  while (tk->Next(tk, &t)) {
+  while (tk->Next(tk, &t,NULL)) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
@@ -111,7 +111,7 @@ TEST_F(TokenizerTest, testTrailingEscapes) {
   std::set<std::string> tokens;
   Token t;
   size_t pos = 1;
-  while (tk->Next(tk, &t)) {
+  while (tk->Next(tk, &t,NULL)) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
@@ -132,7 +132,7 @@ TEST_F(TokenizerTest, testEscapedSeparator) {
 
   Token tok;
   size_t i = 0;
-  while (tk->Next(tk, &tok)) {
+  while (tk->Next(tk, &tok,NULL)) {
     ASSERT_EQ(i + 1, tok.pos);
     ASSERT_EQ(tok.tokLen, strlen(expected[i]));
     std::string got(tok.tok, tok.tokLen);

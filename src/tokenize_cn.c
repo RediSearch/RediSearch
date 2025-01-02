@@ -125,7 +125,7 @@ static void initToken(RSTokenizer *base, Token *t, const friso_token_t from) {
   t->pos = ++base->ctx.lastOffset;
 }
 
-static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
+static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t, bool *overflow) {
   cnTokenizer *self = (cnTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
 
