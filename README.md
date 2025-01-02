@@ -67,7 +67,7 @@ $ redis-cli
 
 The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
 
-* The [RediSearch quick start](https://redis.io/docs/interact/search-and-query/quickstart/)
+* The [RediSearch quick start](https://redis.io/docs/latest/develop/get-started/document-database/)
 * The [RediSearch command reference](https://redis.io/commands/?group=search)
 * References on features such as [aggregations](https://redis.io/docs/interact/search-and-query/search/aggregations/), [highlights](https://redis.io/docs/interact/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/interact/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/interact/search-and-query/advanced-concepts/spellcheck/).
 
