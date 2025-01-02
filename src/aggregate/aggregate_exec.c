@@ -252,7 +252,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
       !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = RSGlobalConfig.maxAggregateResults;
   }
-  if (req->sctx->spec) {
+  if (req->sctx) {
     IndexSpec_IncrActiveQueries(req->sctx->spec);
   }
   cachedVars cv = {0};
@@ -319,6 +319,9 @@ done:
   SearchResult_Destroy(&r);
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
+  }
+  if (req->sctx) {
+    IndexSpec_DecrActiveQueries(req->sctx->spec);
   }
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
     TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
