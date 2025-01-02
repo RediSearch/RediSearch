@@ -2614,6 +2614,13 @@ def testAlias(env):
     r = env.cmd('ft.search', 'temp', 'foo')
     env.assertEqual([1, 'doc3', ['t1', 'foo']], r)
 
+def testAliasIndexConflict(env):
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'tmp_index_name', 'ON', 'HASH', 'schema', 't1', 'text')
+    env.expect('ft.aliasAdd', 'tmp_index_name', 'idx').error().contains('Alias conflicts with an existing index name')
+    env.cmd('ft.drop', 'tmp_index_name')
+    env.cmd('ft.aliasAdd', 'tmp_index_name', 'idx')
+
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f1', 'text')
     env.expect('ft.add', 'idx', 'schema', 'f1').error()
