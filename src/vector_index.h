@@ -100,6 +100,9 @@ typedef enum {
 
 } VecSimSearchMode;
 
+// This function was backported since it is needed for stats generation. In advanced versions, this replaces
+// "OpenVectorIndex" function, but here there is too much discrepancy compared to the original code which is
+// used in many places, so we just have both functions here.
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,

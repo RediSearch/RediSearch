@@ -819,7 +819,6 @@ static void registerApis() {
   REGISTER_API(FreeString);
   REGISTER_API(RetainString);
   REGISTER_API(HoldString);
-  REGISTER_API(TrimStringAllocation);
   REGISTER_API(StringPtrLen);
   REGISTER_API(StringToDouble);
   REGISTER_API(StringToLongLong);
