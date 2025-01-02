@@ -9,6 +9,8 @@
 #include <ctype.h>
 #include <string.h>
 
+#define NON_ALPHABETIC_CHARS "0123456789!@#$%^&*()_+-=[]{}\\|;:'\",.<>/?`~§± "
+
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
                   "Requested AOF, but this is unsupported for this module");
@@ -27,4 +29,14 @@ char *strtolower(char *str) {
 int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;
+}
+
+bool contains_non_alphabetic_char(char* str, size_t len) {
+  if (len == 0 || !str ) return false;
+  for (size_t i = 0; i < len; i++) {
+      if (strchr(NON_ALPHABETIC_CHARS, str[i])) {
+          return true;
+      }
+  }
+  return false;
 }
