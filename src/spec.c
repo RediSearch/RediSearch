@@ -1321,7 +1321,10 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   // Reset fields stats
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      FieldsGlobalStats_UpdateStats(spec->fields + i, -1);
+      FieldSpec *field = spec->fields + i;
+      FieldsGlobalStats_UpdateStats(field, -1);
+      FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
+
     }
   }
   // Free unlinked index spec on a second thread

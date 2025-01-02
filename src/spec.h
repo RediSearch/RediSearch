@@ -102,7 +102,7 @@ struct DocumentIndexer;
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 #define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
+#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
 extern dict *specDict_g;
 

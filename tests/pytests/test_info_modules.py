@@ -41,7 +41,6 @@ def testInfoModulesBasic(env):
                                           'body', 'TEXT', 'NOINDEX',
                                           'id', 'NUMERIC',
                                           'subject location', 'GEO',
-                                          'geom', 'GEOSHAPE', 'SORTABLE'
                                           ).ok()
 
   env.expect('FT.CREATE', idx2, 'LANGUAGE', 'french', 'NOOFFSETS', 'NOFREQS',
@@ -49,7 +48,6 @@ def testInfoModulesBasic(env):
                                 'SCHEMA', 't1', 'TAG', 'CASESENSITIVE', 'SORTABLE',
                                           'T2', 'AS', 't2', 'TAG',
                                           'id', 'NUMERIC', 'NOINDEX',
-                                          'geom', 'GEOSHAPE', 'NOINDEX'
                                           ).ok()
 
   env.expect('FT.CREATE', idx3, 'SCHEMA', 'vec_flat', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '128', 'DISTANCE_METRIC', 'L2',
@@ -87,7 +85,7 @@ def testInfoModulesAlter(env):
   idx1 = 'idx1'
 
   env.expect('FT.CREATE', idx1, 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
+  env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX').ok()
 
   info = info_modules_to_dict(conn)
   env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
@@ -95,7 +93,6 @@ def testInfoModulesAlter(env):
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 1, Sortable=1))
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_numeric']), get_search_field_info('Numeric', 1, NoIndex=1))
-  env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_geoshape']), get_search_field_info('Geoshape', 1, Sortable=1))
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertEqual(idx1Info['search_field_2'], 'identifier=n,attribute=n,type=NUMERIC,NOINDEX=ON')
@@ -150,7 +147,6 @@ def test_redis_info_errors():
 
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   conn = getConnectionByEnv(env)
-
   # Create two indices
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'n', 'NUMERIC')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'n2', 'NUMERIC')
@@ -470,56 +466,35 @@ def test_counting_queries(env: Env):
 
 @skip(cluster=True)
 def test_redis_info_modules_vecsim(env):
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   set_doc = lambda: env.expect('HSET', '1', 'vec', '????????')
-  get_field_infos = lambda: [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  # Busy wait until the new vector has moved completely to HNSW in both indexes.
-  def wait_for_vector_to_move_to_hnsw():
-    while True:
-      field_infos = get_field_infos()
-      # Once the frontend index is empty for ALL fields, we can continue to the test (async indexing is done).
-      if all([to_dict(f_info['FRONTEND_INDEX'])['INDEX_SIZE'] == 0 for f_info in field_infos[:2]]):
-        break
+  get_field_infos = lambda: [to_dict(env.cmd('FT.DEBUG', 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
 
+  # In this version (2.6) HNSW isn't a "tiered" index, so we insert vectors directly. "marked_deleted_vectors" is always
+  # zero.
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
   set_doc().equal(1) # Add a document for the first time
-  wait_for_vector_to_move_to_hnsw()
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = get_field_infos()
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
 
-  [env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # Stop the gc
   set_doc().equal(0) # Add (override) the document with a new one
-  wait_for_vector_to_move_to_hnsw()
-
-  info = env.cmd('INFO', 'MODULES')
-  field_infos = get_field_infos()
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
-  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
-  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
-
-  [env.expect('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # resume gc
-  [forceInvokeGC(env, f'idx{i}') for i in range(1, 4)]
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = get_field_infos()
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
-  env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
-  env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
+
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
   # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
   # is > 8h (5 mintues is the hard limit for a test).
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', '1').ok()
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
   get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_docs_not_collected_by_gc']
 
@@ -529,7 +504,6 @@ def test_indexes_logically_deleted_docs(env):
   # Create one index and one document, then delete the document (logically)
   num_fields = 3
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'text', 'TEXT', 'tag', 'TAG', 'num', 'NUMERIC').ok()
-  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx1').ok()  # Stop GC for this index to keep the deleted docs
   set_doc(f'doc:1').equal(num_fields)
   env.assertEqual(get_logically_deleted_docs(), 0)
   env.expect('DEL', 'doc:1').equal(1)
@@ -546,17 +520,11 @@ def test_indexes_logically_deleted_docs(env):
   env.assertEqual(get_logically_deleted_docs(), 3)
 
   # Drop first index, expect that the deleted documents in this index will not be accounted anymore when releasing the GC.
-  # We run in a transaction, to ensure that the GC will not run until the "dropindex" commmand is executed from
-  # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
-  # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
-  env.expect('MULTI').ok()
-  env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx1')
   env.cmd('FT.DROPINDEX', 'idx1')
-  env.expect('EXEC').equal(['OK', 'OK'])
-  env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')  # Wait for the gc to finish
   env.assertEqual(get_logically_deleted_docs(), 1)
 
   # Run GC, expect that the deleted document will not be accounted anymore.
+  env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   forceInvokeGC(env, idx='idx2')
   env.assertEqual(get_logically_deleted_docs(), 0)
 

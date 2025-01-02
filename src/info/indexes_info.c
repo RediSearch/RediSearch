@@ -45,8 +45,13 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     }
 
     // Index
-    if (sp->scan_in_progress) info.num_active_indexes_indexing++;
-    if (sp->scan_in_progress) info.num_active_indexes++;
+    size_t activeQueries = IndexSpec_GetActiveQueries(sp);
+    size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+    if (activeQueries) info.num_active_indexes_querying++;
+    if (activeWrites || sp->scan_in_progress) info.num_active_indexes_indexing++;
+    if (activeQueries || activeWrites || sp->scan_in_progress) info.num_active_indexes++;
+    info.total_active_queries += activeQueries;
+    info.total_active_writes += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
 
     // Index errors metrics

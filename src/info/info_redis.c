@@ -195,6 +195,7 @@ void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
   RedisModule_InfoAddFieldULongLong(ctx, "total_docs_not_collected_by_gc", IndexesGlobalStats_GetLogicallyDeletedDocs());
+  RedisModule_InfoAddFieldULongLong(ctx, "marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
 
 void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -203,6 +204,7 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_queries_processed", stats.total_queries_processed);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", stats.total_query_execution_time);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
