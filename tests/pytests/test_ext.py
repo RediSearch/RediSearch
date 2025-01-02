@@ -28,7 +28,7 @@ def testExt(env):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(ext_path))
 
-    env = Env(moduleArgs='EXTLOAD %s' % ext_path)
+    env = Env(moduleArgs=f'EXTLOAD {ext_path}')
 
     N = 100
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
