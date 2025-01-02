@@ -246,11 +246,9 @@ def testOptionalAndWildcardScoring(env):
     res = conn.execute_command('ft.search', 'idx', '*', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 
-    expected_res = [1, 'doc2', ['0.6489037427548099',
-                                ['Final BM25 : words BM25 0.65 * document score 1.00',
-                                 [['(Weight 1.00 * children BM25 0.65)',
-                                   ['words: (0.65 = IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
-                                    '/ (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))']]]]]]
+    expected_res = [1, 'doc2', ['0.6489037427548099', 
+                                ['Final BM25 : words BM25 0.65 * document score 1.00', 
+                                    ['words: (0.65 = IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))']]]]
     res = conn.execute_command('ft.search', 'idx', '*ds', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 

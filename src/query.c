@@ -650,10 +650,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
-  // TODO: This should be a single iterator.
-  // } else if (ctx.nits == 1) {
-  //   // In case of a single iterator, we can just return it
-  //   return ctx.its[0];
+  } else if (ctx.nits == 1) {
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
@@ -834,6 +834,10 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  } else if (ctx.nits == 1) {
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
@@ -1065,6 +1069,10 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  } else if (ctx.nits == 1) {
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
@@ -1384,6 +1392,12 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     } else {
       array_free(total_its);
     }
+  }
+
+  if (n == 1) {
+    ret = iters[0];
+    rm_free(iters);
+    goto done;
   }
 
   ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
