@@ -71,7 +71,7 @@ typedef struct {
 typedef struct RSTokenizer {
   TokenizerCtx ctx;
   // read the next token. Return its position or 0 if we can't read anymore
-  uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
+  uint32_t (*Next)(struct RSTokenizer *self, Token *tok, bool *overflow);
   void (*Free)(struct RSTokenizer *self);
   void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint16_t options);
   void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint16_t opts);

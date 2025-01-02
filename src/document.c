@@ -446,12 +446,21 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
       Token tok = {0};
-      while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok)) {
+      bool token_overflow = false;
+      while (0 != aCtx->tokenizer->Next(aCtx->tokenizer, &tok, &token_overflow)) {
+
+        if (token_overflow){
+          IndexError_AddError(&aCtx->spec->stats.indexError, "Term in text bigger than buffer size", aCtx->doc->docKey);
+          FieldSpec_AddError(&aCtx->spec->fields[fs->index], "Term in text bigger than buffer size", aCtx->doc->docKey);
+          token_overflow = false;
+        }
+    
         if (!indexesEmpty && tok.tokLen == 0) {
           // Skip empty values if the field should not index them
           // Empty tokens are returned only if the original value was empty
           continue;
         }
+
         forwardIndexTokenFunc(&tokCtx, &tok);
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;

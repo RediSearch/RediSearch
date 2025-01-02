@@ -409,3 +409,34 @@ def test_multiple_index_failures_json(env):
           env.assertEqual(info['num_docs'], 0)
           env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
           env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
+
+
+def test_max_term_size_in_tokenizer(env):
+  # Insert a document with a term in text that is too long (over 128).
+  
+  con = getConnectionByEnv(env)
+  con.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  long_term = 'a' * 129
+  res = con.execute_command('HSET', 'doc', 't', long_term)
+  # The document should be indexed.
+  env.assertEqual(res, 1)
+  
+  # The info should contain error from indexing
+  info = index_info(env)
+  error_dict = to_dict(info["Index Errors"])
+  
+  expected_error_dict = {
+    indexing_failures_str: 1,
+    last_indexing_error_str: 'Term in text bigger than buffer size',
+    last_indexing_error_key_str: 'doc'
+  }
+  env.assertEqual(error_dict, expected_error_dict)
+
+  expected_failed_field_stats = [
+      'identifier','t', 'attribute', 't', 'Index Errors',
+      ['indexing failures', 1, 'last indexing error',
+        'Term in text bigger than buffer size',
+      'last indexing error key', 'doc']
+  ]
+  env.assertEqual(info["Index Errors"][3],'Term in text bigger than buffer size')
+  env.assertEqual(info["field statistics"][0], expected_failed_field_stats)
