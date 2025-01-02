@@ -21,7 +21,7 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
-
+#include <util/arr.h>
 /******************************************************************************************
  *
  * TF-IDF Scoring Functions
@@ -440,7 +440,6 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  *
  ******************************************************************************************/
 int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
   struct sb_stemmer *sb;
@@ -500,22 +499,48 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     }
 
     /* Replace current node with a new union node if needed */
+    QueryNode *un = NULL;
     if (qn->type != QN_UNION) {
-      QueryNode *un = NewUnionNode();
+      un = NewUnionNode();
 
       un->opts.fieldMask = qn->opts.fieldMask;
 
       /* Append current node to the new union node as a child */
       QueryNode_AddChild(un, qn);
       *ctx->currentNode = un;
+    } else {
+      un = qn;
     }
 
     // Add expanded nodes with corresponding field mask
     qn = *ctx->currentNode;
     qn->opts.fieldMask = expandable_fm;
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
-    if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
+    if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) { //not self-stemmed
       ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
+      bool all_stem = true;
+      uint64_t bit_mask = 1;
+      t_fieldMask fm = orig_fm;
+      
+      while (fm) {
+        if (fm & bit_mask) {
+          const FieldSpec *fs = IndexSpec_GetFieldByBit(ctx->handle->spec, bit_mask);
+          if (fs && FieldSpec_IsNoStem(fs)) {
+            all_stem = false;
+          }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+      if (all_stem && ctx->handle->spec->rule->lang_default == ctx->language) {
+        for (int i = 0; i < array_len(un->children); ++i) {
+          if (!un->children[i]->tn.expanded) {
+            QueryNode_Free(un->children[i]);
+            array_del_fast(un->children, i);
+          }
+          
+        }
+      }
     }
     // Restore field mask of UNION node
     qn->opts.fieldMask = orig_fm;
