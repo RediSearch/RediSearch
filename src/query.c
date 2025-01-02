@@ -1069,6 +1069,10 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   if (ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  } else if (ctx.nits == 1) {
+    IndexIterator *ret = ctx.its[0];
+    rm_free(ctx.its);
+    return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
   }

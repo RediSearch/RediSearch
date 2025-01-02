@@ -589,6 +589,9 @@ TEST_F(LLApiTest, testRangesOnTags) {
 
   ValidateResults(index, tagQn, 'a', 'z', 26);
 
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkM", "MarkN", 1, 0);
+  ValidateResults(index, qn, 'm', 'm', 1);
+
   RediSearch_DropIndex(index);
 }
 
