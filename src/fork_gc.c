@@ -26,6 +26,7 @@
 #include "suffix.h"
 #include "resp3.h"
 #include "info/global_stats.h"
+#include "activeThreads.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -822,6 +823,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     goto cleanup;
   }
 
+  activeThreads_AddCurrentThread(spec_ref);
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   RedisSearchCtx *sctx = &sctx_;
 
@@ -867,6 +869,7 @@ cleanup:
 
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(spec_ref);
   }
   rm_free(term);
@@ -903,12 +906,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       break;
     }
 
-    StrongRef cur_iter_spec_ref = WeakRef_Promote(gc->index);
-    IndexSpec *sp = StrongRef_Get(cur_iter_spec_ref);
+    StrongRef spec_ref = WeakRef_Promote(gc->index);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) {
       status = FGC_SPEC_DELETED;
       goto loop_cleanup;
     }
+    activeThreads_AddCurrentThread(spec_ref);
     RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx *sctx = &_sctx;
 
@@ -946,7 +950,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
-      StrongRef_Release(cur_iter_spec_ref);
+      activeThreads_RemoveCurrentThread();
+      StrongRef_Release(spec_ref);
     }
   }
 
@@ -999,12 +1004,13 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       break;
     }
 
-    StrongRef cur_iter_spec_ref = WeakRef_Promote(gc->index);
-    IndexSpec *sp = StrongRef_Get(cur_iter_spec_ref);
+    StrongRef spec_ref = WeakRef_Promote(gc->index);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) {
       status = FGC_SPEC_DELETED;
       break;
     }
+    activeThreads_AddCurrentThread(spec_ref);
     RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx *sctx = &_sctx;
 
@@ -1052,7 +1058,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
-    StrongRef_Release(cur_iter_spec_ref);
+    activeThreads_RemoveCurrentThread();
+    StrongRef_Release(spec_ref);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
     }
@@ -1092,6 +1099,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
+  activeThreads_AddCurrentThread(spec_ref);
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   RedisSearchCtx *sctx = &sctx_;
 
@@ -1119,6 +1127,7 @@ cleanup:
 
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(spec_ref);
   }
   rm_free(fieldName);
@@ -1156,6 +1165,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
+  activeThreads_AddCurrentThread(spec_ref);
   RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   RedisSearchCtx *sctx = &sctx_;
 
@@ -1179,6 +1189,7 @@ cleanup:
   rm_free(empty_indicator);
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(spec_ref);
   }
   if (status != FGC_COLLECTED)  {
@@ -1232,6 +1243,10 @@ static int periodicCb(void *privdata) {
     StrongRef_Release(early_check);
     return 1;
   }
+
+  // Register GC thread to the active-threads container
+  activeThreads_AddCurrentThread(early_check);
+
   int gcrv = 1;
   pid_t cpid;
   TimeSample ts;
@@ -1248,6 +1263,7 @@ static int periodicCb(void *privdata) {
   int rc = pipe(gc->pipefd);  // create the pipe
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(early_check);
     return 1;
   }
@@ -1262,6 +1278,7 @@ static int periodicCb(void *privdata) {
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(early_check);
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1273,7 +1290,7 @@ static int periodicCb(void *privdata) {
   }
 
   // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
   size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
@@ -1294,6 +1311,7 @@ static int periodicCb(void *privdata) {
   } else {
     // main process
     // release the strong reference to the index for the main process (see comment above)
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(early_check);
     close(gc->pipefd[GC_WRITERFD]);
     while (gc->pauseState == FGC_PAUSED_PARENT) {

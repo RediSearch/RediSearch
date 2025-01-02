@@ -19,6 +19,7 @@
 #include "resp3.h"
 #include "query_error.h"
 #include "info/global_stats.h"
+#include "activeThreads.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -735,6 +736,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
+
+  // Register the thread to the active-threads container
+  activeThreads_AddCurrentThread(execution_ref);
+
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
     req->sctx->redisCtx = outctx;
@@ -770,6 +775,7 @@ error:
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
+  activeThreads_RemoveCurrentThread();
   StrongRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
@@ -857,6 +863,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
@@ -911,7 +919,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     r->initClock = clock();
   }
 
-  // This function also builds the RedisSearchCtx.
+  // This function also builds the RedisSearchCtx, and registers the thread to
+  // the active-threads container.
   // It will search for the spec according the the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
@@ -959,9 +968,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
+  activeThreads_RemoveCurrentThread();
   return REDISMODULE_OK;
 
 error:
+  activeThreads_RemoveCurrentThread();
   if (r) {
     AREQ_Free(r);
   }
@@ -1038,6 +1049,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
+  activeThreads_RemoveCurrentThread();
   return ret;
 }
 
@@ -1103,6 +1115,10 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
+
+    // Register the thread to the active-threads container (BG, main)
+    activeThreads_AddCurrentThread(execution_ref);
+
     if (HasLoader(req)) { // Quick check if the cursor has loaders.
       bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
@@ -1125,6 +1141,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
 
   runCursor(reply, cursor, count);
   if (has_spec) {
+    activeThreads_RemoveCurrentThread();
     StrongRef_Release(execution_ref);
   }
 }

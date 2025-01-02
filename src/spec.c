@@ -32,6 +32,7 @@
 #include "commands.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
+#include "activeThreads.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1356,7 +1357,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  IndexSpec_RemoveFromGlobals(spec_ref);
+  IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
 }
 
@@ -1593,7 +1594,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 // Also assumes that the spec is existing in the global dictionary, so
 // we use the global reference as our guard and access the spec dierctly.
 // This function consumes the Strong reference it gets
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
   // Remove spec from global index list
@@ -1634,6 +1635,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
   spec->own_ref = (StrongRef){0};
 
+  if (removeActive) {
+    // Remove thread from active-threads container
+    activeThreads_RemoveCurrentThread();
+  }
+
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
   StrongRef_Release(spec_ref);
@@ -1659,7 +1665,7 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_RemoveFromGlobals(specs[i]);
+    IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -2200,9 +2206,11 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
+      activeThreads_AddCurrentThread(curr_run_ref);
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
+      activeThreads_RemoveCurrentThread();
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
