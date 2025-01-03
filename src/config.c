@@ -26,6 +26,63 @@
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
+typedef struct {
+  const char *FTConfigName;
+  const char *ConfigName;
+} configPair_t;
+
+configPair_t __configPairs[] = {
+  {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
+  {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
+  {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
+  {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
+  {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
+  {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
+  {"CONN_PER_SHARD",                  "search-conn-per-shard"},
+  {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
+  {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
+  {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
+  {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
+  {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
+  {"FORKGC_SLEEP_BEFORE_EXIT",        "search-forkgc-sleep-before-exit"},
+  {"GC_POLICY",                       "search-gc-policy"},
+  {"GCSCANSIZE",                      "search-gcscansize"},
+  {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
+  {"MAXDOCTABLESIZE",                 "search-maxdoctablesize"},
+  {"MAXPREFIXEXPANSIONS",             "search-maxprefixexpansions"},
+  {"MAXSEARCHRESULTS",                "search-maxsearchresults"},
+  {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
+  {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
+  {"MINPREFIX",                       "search-minprefix"},
+  {"MINSTEMLEN",                      "search-minstemlen"},
+  {"NO_MEM_POOLS",                    "search-no-mem-pools"},
+  {"NOGC",                            "search-nogc"},
+  {"ON_TIMEOUT",                      "search-on-timeout"},
+  {"MULTI_TEXT_SLOP",                 "search-multi-text-slop"},
+  {"PARTIAL_INDEXED_DOCS",            "search-partial-indexed-docs"},
+  {"RAW_DOCID_ENCODING",              "search-raw-docid-encoding"},
+  {"SEARCH_THREADS",                  "search-search-threads"},
+  {"TIERED_HNSW_BUFFER_LIMIT",        "search-tiered-hnsw-buffer-limit"},
+  {"TIMEOUT",                         "search-timeout"},
+  {"TOPOLOGY_VALIDATION_TIMEOUT",     "search-topology-validation-timeout"},
+  {"UNION_ITERATOR_HEAP",             "search-union_iterator-heap"},
+  {"VSS_MAX_RESIZE",                  "search-vss-max-resize"},
+  {"WORKERS",                         "search-workers"},
+  {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
+};
+
+static const char* FTConfigNameToConfigName(const char *name) {
+  size_t num_configs = sizeof(__configPairs) / sizeof(configPair_t);
+  for (size_t i = 0; i < num_configs; ++i) {
+    if (!strcasecmp(__configPairs[i].FTConfigName, name)) {
+      return __configPairs[i].ConfigName;
+    }
+  }
+  return NULL;
+}
+
 int set_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -824,8 +881,6 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
 
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
-  sds currValue = NULL;
-  sds currValueDefault = NULL;
   while (!AC_IsAtEnd(&ac)) {
     const char *name = AC_GetStringNC(&ac, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
@@ -838,40 +893,22 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    // if the value is different from default, we can't update it, because the
-    // CONFIG SET has higher priority than the FT.CONFIG SET
-    RSConfig RSDefaultConfig = RS_DEFAULT_CONFIG;
-    currValue = curVar->getValue(&RSGlobalConfig);
-    currValueDefault = curVar->getValue(&RSDefaultConfig);
-    bool isExistingEqual = (currValue != NULL && currValueDefault != NULL
-                            && sdscmp(currValue, currValueDefault) == 0);
-    if (isExistingEqual ||
-        (currValue == NULL && currValueDefault == NULL)) {
-      // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
-      // If we don't have a coordinator or this configuration has no trigger, this value
-      // is meaningless and should be ignored
-      if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-        goto err;
-      }
-    } else {
-      // Existing value and default value are different (was already set by CONFIG)
-      QueryError_SetErrorFmt(&status, QUERY_EDUPFIELD, "Can't set %s, because it was already set by CONFIG", curVar->name);
-      goto err;
+    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+    // If we don't have a coordinator or this configuration has no trigger, this value
+    // is meaningless and should be ignored
+    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
+      *err = rm_strdup(QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      return REDISMODULE_ERR;
     }
-    sdsfree(currValue);
-    sdsfree(currValueDefault);
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
+    RedisModule_Log(RSDummyContext, "warning", 
+      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
+      name, FTConfigNameToConfigName(name));
   }
 
   return REDISMODULE_OK;
-
-err:
-  sdsfree(currValue);
-  sdsfree(currValueDefault);
-  *err = rm_strdup(QueryError_GetError(&status));
-  QueryError_ClearError(&status);
-  return REDISMODULE_ERR;
 }
 
 RSConfigOptions RSGlobalConfigOptions = {
