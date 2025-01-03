@@ -24,6 +24,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
+#include "info/global_stats.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -1151,7 +1152,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
     return 1;
   }
-
   int gcrv = 1;
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
@@ -1224,6 +1224,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     return 1;
   }
 
+  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
+  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
@@ -1302,6 +1305,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       }
     }
   }
+
+  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
 
@@ -1352,6 +1357,7 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-gc->deletedDocsFromLastRun);
   if (gc->keyName && gc->type == FGC_TYPE_INKEYSPACE) {
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
   }
@@ -1404,6 +1410,7 @@ static void killCb(void *ctx) {
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
+  IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
 static struct timespec getIntervalCb(void *ctx) {

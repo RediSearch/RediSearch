@@ -10,6 +10,8 @@
 #include "redisearch.h"
 #include "value.h"
 #include "VecSim/vec_sim.h"
+#include "info/index_error.h"
+#include "info/field_spec_info.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -108,6 +110,9 @@ typedef struct FieldSpec {
   // ID used to identify the field within the field mask
   t_fieldId ftId;
 
+  // The index error for this field
+  IndexError indexError;
+
   // TODO: More options here..
 } FieldSpec;
 
@@ -132,5 +137,16 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  * Convert field type given by integer to the name type in string form.
  */
 const char *FieldSpec_GetTypeNames(int idx);
+
+RSValueType fieldTypeToValueType(FieldType ft);
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+
+/**Adds an error message to the IndexError of the FieldSpec.
+ * This function also updates the global field's type index error counter.
+ */
+void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
 #endif /* SRC_FIELD_SPEC_H_ */

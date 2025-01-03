@@ -5,13 +5,14 @@
  */
 
 #include "info_command.h"
+#include "info/field_spec_info.h"
 
 // Type of field returned in INFO
 typedef enum {
   InfoField_WholeSum,
   InfoField_DoubleSum,
   InfoField_DoubleAverage,
-  InfoField_Max
+  InfoField_Max,
 } InfoFieldType;
 
 // Field specification
@@ -79,9 +80,13 @@ typedef struct {
     size_t total_l;
     double total_d;
     struct {
-      double avg;
+      double sum;
       double count;
     } avg;
+    struct {
+      char *str;
+      size_t len;
+    } str;
   } u;
 } InfoValue;
 
@@ -117,24 +122,33 @@ static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *v
 
 // Writes field data to the target
 static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
-  if (type == InfoField_WholeSum) {
-    long long tmp;
-    MRReply_ToInteger(src, &tmp);
-    dst->u.total_l += tmp;
-  } else if (type == InfoField_DoubleSum) {
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.total_d += d;
-  } else if (type == InfoField_DoubleAverage) {
-    dst->u.avg.count++;
-    double d;
-    MRReply_ToDouble(src, &d);
-    dst->u.avg.avg += d;
-  } else if (type == InfoField_Max) {
-    long long newVal;
-    MRReply_ToInteger(src, &newVal);
-    if (dst->u.total_l < newVal) {
-      dst->u.total_l = newVal;
+  switch (type) {
+    case InfoField_WholeSum: {
+      long long tmp;
+      MRReply_ToInteger(src, &tmp);
+      dst->u.total_l += tmp;
+      break;
+    }
+    case InfoField_DoubleSum: {
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.total_d += d;
+      break;
+    }
+    case InfoField_DoubleAverage: {
+      dst->u.avg.count++;
+      double d;
+      MRReply_ToDouble(src, &d);
+      dst->u.avg.sum += d;
+      break;
+    }
+    case InfoField_Max: {
+      long long newVal;
+      MRReply_ToInteger(src, &newVal);
+      if (dst->u.total_l < newVal) {
+        dst->u.total_l = newVal;
+      }
+      break;
     }
   }
   dst->isSet = 1;
@@ -169,7 +183,7 @@ static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSp
   struct InfoFieldTypeAndValue total_ms = findInfoTypeAndValue(gcValues, gcSpecs, numFields, "total_ms_run");
   if (total_cycles.value && total_ms.value && avg_cycle_time_ms.type == InfoField_DoubleAverage) {
     avg_cycle_time_ms.value->u.avg.count = total_cycles.value->u.total_l;
-    avg_cycle_time_ms.value->u.avg.avg = total_ms.value->u.total_l;
+    avg_cycle_time_ms.value->u.avg.sum = total_ms.value->u.total_l;
     avg_cycle_time_ms.value->isSet = 1;
   }
 }
@@ -256,7 +270,7 @@ static size_t replyKvArray(InfoFields *fields, RedisModuleCtx *ctx, InfoValue *v
       RedisModule_ReplyWithDouble(ctx, source->u.total_d);
     } else if (type == InfoField_DoubleAverage) {
       if (source->u.avg.count) {
-        RedisModule_ReplyWithDouble(ctx, source->u.avg.avg / source->u.avg.count);
+        RedisModule_ReplyWithDouble(ctx, source->u.avg.sum / source->u.avg.count);
       } else {
         RedisModule_ReplyWithDouble(ctx, 0);
       }
