@@ -11,6 +11,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+#include "fast_float/fast_float_strtod.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -40,17 +41,17 @@ static int ParseDouble(const char *arg, double *d, int sign) {
   errno = 0;
 
   // Simulate the behavior of glibc's strtod
-  #if !defined(__GLIBC__)
   if (strcmp(arg, "") == 0) {
     *d = 0;
     return 1;
   }
-  #endif
 
-  *d = strtod(arg, &e);
+  *d = fast_float_strtod(arg, &e);
 
-  if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
-      *e != '\0') {
+  // We use EINVAL to check valid range since fast_flow_strtod() maps ERANGE to 
+  // EINVAL
+  if ((errno == EINVAL && (*d == HUGE_VAL || *d == -HUGE_VAL))
+      || (errno != 0 && *d == 0) || *e != '\0') {
     return 0;
   }
 
