@@ -9,6 +9,7 @@
 #include "aggregate/expr/exprast.h"
 #include "json.h"
 #include "rdb.h"
+#include "fast_float/fast_float_strtod.h"
 
 TrieMap *SchemaPrefixes_g;
 
@@ -91,7 +92,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (args->score_default) {
     double score;
     char *endptr = {0};
-    score = strtod(args->score_default, &endptr);
+    score = fast_float_strtod(args->score_default, &endptr);
     if (args->score_default == endptr || score < 0 || score > 1) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
       goto error;

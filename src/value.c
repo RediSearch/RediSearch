@@ -11,6 +11,7 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "fast_float/fast_float_strtod.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -248,7 +249,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
   char *e;
   errno = 0;
-  double d = strtod(p, &e);
+  double d = fast_float_strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
     return NULL;
@@ -258,7 +259,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into teh double pointer */
+not. If possible, we put the actual value into the double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d) {
   if (RSValue_IsNull(v)) return 0;
   v = RSValue_Dereference(v);
@@ -296,7 +297,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   if (p) {
     char *e;
     errno = 0;
-    *d = strtod(p, &e);
+    *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
       return 0;
