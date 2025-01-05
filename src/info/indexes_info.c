@@ -15,7 +15,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
   // Since we are holding the GIL, we know the BG indexer is not currently running, but it might
   // have been running before we acquired the GIL.
   // We will set this flag to true if we find any index with a scan in progress, and then
-  // count it ONCE in the total_active_writes. Assumes there is only one BG indexer thread.
+  // count it ONCE in the total_active_write_threads. Assumes there is only one BG indexer thread.
   bool BGIndexerInProgress = false;
   // Traverse `specDict_g`, and aggregate indices statistics
   dictIterator *iter = dictGetIterator(specDict_g);
@@ -51,7 +51,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (activeWrites || sp->scan_in_progress) info.num_active_indexes_indexing++;
     if (activeQueries || activeWrites || sp->scan_in_progress) info.num_active_indexes++;
     info.total_active_queries += activeQueries;
-    info.total_active_writes += activeWrites;
+    info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
 
     // Index errors metrics
@@ -63,6 +63,6 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found
-  if (BGIndexerInProgress) info.total_active_writes++;  // BG indexer is currently active
+  if (BGIndexerInProgress) info.total_active_write_threads++;  // BG indexer is currently active
   return info;
 }
