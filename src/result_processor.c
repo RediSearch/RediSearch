@@ -892,7 +892,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
-  rp->GILTime += clock() - start;
+  rp->totalGILTime += clock() - start;
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;
@@ -1074,7 +1074,7 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 }
 
 clock_t RPProfile_GetGILTime(ResultProcessor *rp){
-  return rp->GILTime;
+  return rp->totalGILTime;
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
