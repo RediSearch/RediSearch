@@ -395,7 +395,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
+size_t IndexSpec_TotalMemUsage(const IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;

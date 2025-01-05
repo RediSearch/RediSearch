@@ -104,7 +104,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   // Safe to access the spec directly since it is was already validated as a strong reference by the caller
   const IndexSpec *sp = sctx->spec;
-  IndexSpec *modifiableSpec = sctx->spec;
+  IndexSpec *specForOpeningIndexes = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
   REPLY_KVSTR_SAFE("index_name", specName);
 
@@ -158,7 +158,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(modifiableSpec, fs, DONT_CREATE_INDEX);
+      const GeometryIndex *idx = OpenGeometryIndex(specForOpeningIndexes, fs, DONT_CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         geom_idx_sz += api->report(idx);
@@ -234,7 +234,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(modifiableSpec) / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(specForOpeningIndexes) / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
@@ -248,7 +248,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
-  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(modifiableSpec, dt_tm_size,
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, dt_tm_size,
     tags_overhead, text_overhead) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",

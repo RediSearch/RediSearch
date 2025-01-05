@@ -1317,10 +1317,6 @@ DEBUG_COMMAND(ListIndexesSwitch) {
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(InfoForIndexSwitch) {
-  return IndexObfuscatedInfo(ctx, argv, argc);
-}
-
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1353,7 +1349,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
                                {"INDEXES", ListIndexesSwitch},
-                               {"INFO", InfoForIndexSwitch},
+                               {"INFO", IndexObfuscatedInfo},
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

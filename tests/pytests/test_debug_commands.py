@@ -373,9 +373,17 @@ def testIndexObfuscatedInfo(env: Env):
     debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
     info = to_dict(debug_output[0])
     env.assertEqual(info['index_name'], obfuscated_name)
-    env.assertEqual(info['prefixes'], 'Text')
-    env.assertEqual(info['attributes'][0]['identifier'], 'FieldPath@0')
-    env.assertEqual(info['attributes'][0]['attribute'], 'Field@0')
-    env.assertEqual(info['attributes'][0]['type'], 'TEXT')
-    env.assertEqual(info['field statistics'][0]['identifier'], 'FieldPath@0')
-    env.assertEqual(info['field statistics'][0]['attribute'], 'Field@0')
+    index_definition = to_dict(info['index_definition'])
+    env.assertEqual(index_definition['prefixes'][0], 'Text')
+    attr_list = info['attributes']
+    field_stats_list = info['field statistics']
+    field_count = len(attr_list)
+    env.assertEqual(field_count, 1)
+    env.assertEqual(len(field_stats_list), field_count)
+    for i in range(field_count):
+        attr = to_dict(attr_list[i])
+        env.assertEqual(attr['identifier'], f'FieldPath@{i}')
+        env.assertEqual(attr['attribute'], f'Field@{i}')
+        field_stats = to_dict(field_stats_list[i])
+        env.assertEqual(field_stats['identifier'], f'FieldPath@{i}')
+        env.assertEqual(field_stats['attribute'], f'Field@{i}')
