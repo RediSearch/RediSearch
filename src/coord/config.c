@@ -53,8 +53,6 @@ CONFIG_GETTER(getClusterTimeout) {
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG SET search-oss-global-password <password>` instead");
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
   RETURN_STATUS(acrc);
@@ -179,7 +177,7 @@ CONFIG_SETTER(setOSSACLUsername) {
 
 // acl-username
 RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
-  char *str = *(char **)privdata;  
+  char *str = *(char **)privdata;
   config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
   return config_oss_acl_username;
 }
