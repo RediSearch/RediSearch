@@ -15,7 +15,7 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 

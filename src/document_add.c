@@ -8,7 +8,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]

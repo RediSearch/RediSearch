@@ -10,7 +10,7 @@
 #include "cursor.h"
 #include "indexes_info.h"
 #include "util/units.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics

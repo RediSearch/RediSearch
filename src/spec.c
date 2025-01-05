@@ -32,7 +32,7 @@
 #include "commands.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

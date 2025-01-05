@@ -58,7 +58,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
@@ -900,20 +900,19 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
       activeThreads_RemoveCurrentThread();
       return QueryError_ReplyAndClear(ctx, &status);
     }
+    activeThreads_RemoveCurrentThread();
   }
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index.. this shouldn't fail
+    // Add back the previous index. this shouldn't fail
     if (spOrig) {
       QueryError e2 = {0};
       const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
-    activeThreads_RemoveCurrentThread();
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
-    activeThreads_RemoveCurrentThread();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }

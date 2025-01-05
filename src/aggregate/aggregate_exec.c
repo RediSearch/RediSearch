@@ -19,7 +19,7 @@
 #include "resp3.h"
 #include "query_error.h"
 #include "info/global_stats.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -869,6 +869,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
+    activeThreads_RemoveCurrentThread();
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
   }
 
@@ -920,7 +921,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   // This function also builds the RedisSearchCtx, and registers the thread to
-  // the active-threads container.
+  // the active-threads container (if successful).
   // It will search for the spec according the the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
@@ -950,6 +951,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RedisSearchCtx_LockSpecRead(r->sctx);
 
     if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
+      activeThreads_RemoveCurrentThread();
       goto error;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -961,6 +963,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       int rc = AREQ_StartCursor(r, reply, spec_ref, &status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
+        activeThreads_RemoveCurrentThread();
         goto error;
       }
     } else {
@@ -972,7 +975,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 
 error:
-  activeThreads_RemoveCurrentThread();
   if (r) {
     AREQ_Free(r);
   }
@@ -1045,6 +1047,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
+    activeThreads_RemoveCurrentThread();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);

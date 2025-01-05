@@ -8,7 +8,7 @@
 #include <syscall.h>
 #endif
 
-#include "activeThreads.h"
+#include "active_threads.h"
 #include "rmutil/rm_assert.h"
 
 ActiveThreads *activeThreads = NULL;
@@ -39,6 +39,9 @@ void activeThreads_Init() {
  */
 void activeThreads_Destroy() {
   pthread_mutex_destroy(&activeThreads->lock);
+  // Assert that the list is empty
+  RS_LOG_ASSERT(activeThreads->list.prev == activeThreads->list.next == &activeThreads->list,
+                "Active threads list is not empty");
   rm_free(activeThreads);
   pthread_key_delete(_activeThreadKey);
 }
@@ -107,14 +110,15 @@ void activeThreads_RemoveCurrentThread() {
  */
 void activeThreads_RemoveThread(pthread_t tid) {
   ActiveThread *at = (ActiveThread *)pthread_getspecific(_activeThreadKey);
-  if (!at) {
+  if (at == NULL) {
     return;
   }
+  // RS_LOG_ASSERT(at, "Active thread not found in TLS");
 
   pthread_mutex_lock(&activeThreads->lock);
   dllist_delete(&at->llnode);
   pthread_mutex_unlock(&activeThreads->lock);
 
   pthread_setspecific(_activeThreadKey, NULL);
-  // The StrongRef is released later by the thread.
+  // The StrongRef is released later by the executing thread.
 }

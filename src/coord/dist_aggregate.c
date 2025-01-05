@@ -17,7 +17,7 @@
 #include "coord/config.h"
 #include "dist_profile.h"
 #include "util/misc.h"
-#include "activeThreads.h"
+#include "active_threads.h"
 
 #include <err.h>
 
