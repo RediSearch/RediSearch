@@ -396,7 +396,7 @@ def testCursorDepletionNonStrictTimeoutPolicy():
                 env.debugPrint(f'{res["warning"]}', force=True)
                 i += 1
                 if n_recieved > 4500:
-                    env.debugPrint(f"res['results']", force=True)
+                    env.debugPrint(f"{res['results']}", force=True)
 
 
     except Exception as e:
