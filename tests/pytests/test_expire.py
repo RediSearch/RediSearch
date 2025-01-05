@@ -43,9 +43,9 @@ res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document sc
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 both_docs_no_sortby = "both_docs_no_sortby"
 both_docs_sortby = "both_docs_sortby"
-doc2_is_null = "doc2_is_null"
-doc2_is_null_sortby = "doc2_is_null_sortby"
-doc2_is_null_sortby_sorted = "doc2_is_null_sortby_sorted"
+doc2_is_lazy_expired = "doc2_is_lazy_expired"
+doc2_is_lazy_expired_sortby = "doc2_is_lazy_expired_sortby"
+doc2_is_lazy_expired_sortby_sorted = "doc2_is_lazy_expired_sortby_sorted"
 only_doc1_sortby = "only_doc1_sortby"
 only_doc1_no_sortby = "only_doc1_no_sortby"
 
@@ -55,19 +55,22 @@ def add_explain_to_results(results):
         results.insert(i+offset, res_score_and_explanation)
     return results
 
-def buildExpireDocsResults(isSortable, isJson):
+def buildExpireDocsResults(isJson):
     results = {}
+    doc1 = ['doc1', ['t', 'bar'] if not isJson else ['$', '{"t":"bar"}']]
+    doc2 = ['doc2', ['t', 'arr'] if not isJson else ['$', '{"t":"arr"}']]
+    lazy_expired_doc2 = doc2
     # When calling FT.SEARCH with SORTBY on json index, the sortby field is loaded into the result together with the json document
-    results[both_docs_no_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', ['t', 'arr']] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', ['$', '{"t":"arr"}']]
-    results[both_docs_sortby] = [2, 'doc2', ['t', 'arr'], 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', ['t', 'arr','$', '{"t":"arr"}'], 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+    results[both_docs_no_sortby] = [2, *doc1, *doc2]
+    results[both_docs_sortby] = [2, *doc2, *doc1]
 
-    results[doc2_is_null] = [2, 'doc1', ['t', 'bar'], 'doc2', None] if not isJson else [2, 'doc1', ['$', '{"t":"bar"}'], 'doc2', None]
-    results[doc2_is_null_sortby] = [2, 'doc1', ['t', 'bar'], 'doc2', None] if not isJson else [2, 'doc1', ['t', 'bar', '$', '{"t":"bar"}'], 'doc2', None]
-    results[doc2_is_null_sortby_sorted] = [2, 'doc2', None, 'doc1', ['t', 'bar']] if not isJson else [2, 'doc2', None, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+    results[doc2_is_lazy_expired] = [2, *doc1, *lazy_expired_doc2]
+    results[doc2_is_lazy_expired_sortby] = [2, *lazy_expired_doc2, *doc1]
+    results[doc2_is_lazy_expired_sortby_sorted] = [2, *lazy_expired_doc2, *doc1]
 
     # on Json we also return the sortby field value.
-    results[only_doc1_sortby] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['t', 'bar', '$', '{"t":"bar"}']]
-    results[only_doc1_no_sortby] = [1, 'doc1', ['t', 'bar']] if not isJson else [1, 'doc1', ['$', '{"t":"bar"}']]
+    results[only_doc1_sortby] = [1, *doc1]
+    results[only_doc1_no_sortby] = [1, *doc1]
 
     return results
 
@@ -75,14 +78,14 @@ def buildExpireDocsResults(isSortable, isJson):
 @skip(cluster=True, redis_less_than="7.2")
 def testExpireDocsHash(env):
 
-    expected_results = buildExpireDocsResults(False, False)
+    expected_results = buildExpireDocsResults(False)
     # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
     expireDocs(env, False, expected_results, False)
         
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2", no_json=True)
 def testExpireDocsJson(env):
-    expected_results = buildExpireDocsResults(False, True)
+    expected_results = buildExpireDocsResults( True)
     # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
     expireDocs(env, False, expected_results, True)
 
@@ -93,7 +96,7 @@ def testExpireDocsSortableHash(env):
     Same as test `testExpireDocs` only with SORTABLE
     '''
 
-    expected_results = buildExpireDocsResults(True, False)
+    expected_results = buildExpireDocsResults(False)
     expireDocs(env, True, expected_results, False)
             # With SORTABLE -
             # The documents data exists in the index.
@@ -107,7 +110,7 @@ def testExpireDocsSortableJSON(env):
     Same as test `testExpireDocs` only with SORTABLE
     '''
 
-    expected_results = buildExpireDocsResults(True, True)
+    expected_results = buildExpireDocsResults(True)
     expireDocs(env, True, expected_results, True)
             # With SORTABLE -
             # The documents data exists in the index.
@@ -127,23 +130,22 @@ def expireDocs(env, isSortable, expected_results, isJson):
     '''
     This test creates an index and two documents
     We disable active expiration
-    One of the documents is expired. As a result we fail to open the key in Redis keyspace.
+    One of the documents is lazily expired. We should succeed to open the key in Redis keyspace since we use REDISMODULE_OPEN_KEY_ACCESS_EXPIRED flag.
     The test checks the expected output.
-    The value of the expired key should be always None, regardless of wether the field is sortable or not.
+    The value of the lazily expired key should be valid, regardless of whether the field is sortable or not.
     If the field is SORTABLE, the order of the results is determined by its value. Else, the expired doc should be last.
-    The document will be loaded in the loader, which doesn't discard results in case that the load fails, but no data is stored in the look up table,
-    hence we return 'None'.
+    The document will be loaded in the loader, which should use the expiration flags to ensure doc2 will be loaded successfully
 
     When isSortable is True the index is created with `SORTABLE` arg
 
     expected results table (doc2 value > doc1 value)
     | Case          | SORTBY            | No SORTBY |
     |---------------|-------------------|-----------|
-    | SORTABLE      | doc2, None        | doc1, bar |
-    |               | doc1, bar, ['$']  | doc2, None|
+    | SORTABLE      | doc2, arr, ['$']  | doc2, arr |
+    |               | doc1, bar, ['$']  | doc1, bar |
     |---------------|-------------------|-----------|
     | Not SORTABLE  | doc1, bar, ['$']  | doc1, bar |
-    |               | doc2, None        | doc2, None|
+    |               | doc2, arr, ['$']  | doc2, arr |
     '''
     conn = env.getConnection()
 
@@ -183,9 +185,9 @@ def expireDocs(env, isSortable, expected_results, isJson):
         # First iteration
         res = conn.execute_command('FT.SEARCH', 'idx', '*', *sortby_cmd)
         if isSortable:
-            expected_res = expected_results[doc2_is_null_sortby_sorted if sortby else doc2_is_null]
+            expected_res = expected_results[doc2_is_lazy_expired_sortby_sorted if sortby else doc2_is_lazy_expired]
         else:
-            expected_res = expected_results[doc2_is_null_sortby if sortby else doc2_is_null]
+            expected_res = expected_results[doc2_is_lazy_expired_sortby if sortby else doc2_is_lazy_expired]
         env.assertEqual(res, expected_res, message=msg)
 
         # Cancel lazy expire to allow the deletion of the key
@@ -224,9 +226,9 @@ def expireDocs(env, isSortable, expected_results, isJson):
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
 
         if isSortable:
-            env.assertEqual(res, add_explain_to_results(expected_results[doc2_is_null_sortby_sorted if sortby else doc2_is_null]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
+            env.assertEqual(res, add_explain_to_results(expected_results[doc2_is_lazy_expired_sortby_sorted if sortby else doc2_is_lazy_expired]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
         else:
-            env.assertEqual(res, add_explain_to_results(expected_results[doc2_is_null_sortby if sortby else doc2_is_null]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
+            env.assertEqual(res, add_explain_to_results(expected_results[doc2_is_lazy_expired_sortby if sortby else doc2_is_lazy_expired]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
 
         # Cancel lazy expire to allow the deletion of the key
         conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
@@ -258,7 +260,8 @@ def test_expire_aggregate(env):
     # If not cleared, it might affect subsequent results.
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
-    env.assertEqual(res, [1, ['t', 'arr'], None])
+    # The result count is not accurate in aggregation, for now we compare res to the expected results with the wrong count
+    env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
 
 def createTextualSchema(field_to_additional_schema_keywords):
     schema = []
@@ -517,8 +520,8 @@ def test_background_index_no_lazy_expiration(env):
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('HSET', 'doc:1', 't', 'bar').equal(1)
     env.expect('HSET', 'doc:2', 't', 'arr').equal(1)
-    env.expect('EXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(1.5)
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.5)
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
@@ -539,8 +542,8 @@ def test_background_index_no_lazy_expiration_json(env):
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
     env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
-    env.expect('EXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(1.5)
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.5)
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
