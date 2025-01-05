@@ -540,4 +540,4 @@ def test_indexing_metrics(env: Env):
   env.assertEqual(res[-1]['search_number_of_indexes'], n_indexes)
   env.assertEqual(res[-1]['search_number_of_active_indexes'], n_indexes)
   env.assertEqual(res[-1]['search_number_of_active_indexes_indexing'], n_indexes)
-  env.assertEqual(res[-1]['search_total_active_writes'], 1) # 1 write operation by the BG indexer thread
+  env.assertEqual(res[-1]['search_total_active_write_threads'], 1) # 1 write operation by the BG indexer thread
