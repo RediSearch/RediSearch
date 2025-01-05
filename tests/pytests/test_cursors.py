@@ -362,7 +362,8 @@ def CursorOnCoordinator(env: Env):
             for i in range(n_docs):
                 env.assertContains(i, result_set)
 
-def testCursorDepletionNonStrictTimeoutPolicy(env):
+def testCursorDepletionNonStrictTimeoutPolicy():
+    env = Env(protocol=3)
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
 
@@ -381,7 +382,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
-    n_recieved = len(res) - 1
+    n_recieved = len(res['results'])
     env.debugPrint(f'First cursor run, Received {n_recieved} results', force=True)
     i = 1
     try:
@@ -389,8 +390,9 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
         with TimeLimit(RLTEST_TEST_TIMEOUT - 2):
             while cursor:
                 res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-                n_recieved += len(res) - 1
+                n_recieved += len(res['results'])
                 env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
+                env.debugPrint(f'{res["warning"]}', force=True)
                 i += 1
 
     except Exception as e:
