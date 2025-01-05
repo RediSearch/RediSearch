@@ -42,10 +42,12 @@ configPair_t __configPairs[] = {
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
   {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-forkgc-sleep-before-exit"},
+  {"FRISOINI",                        "search-friso-ini"},
   {"GC_POLICY",                       "search-gc-policy"},
   {"GCSCANSIZE",                      "search-gcscansize"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
@@ -512,7 +514,7 @@ CONFIG_SETTER(setFrisoINI) {
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
-  if (config->frisoIni /* && strlen(config->frisoIni) > 0*/ ) {
+  if (config->frisoIni && strlen(config->frisoIni) > 0) {
     return sdsnew(config->frisoIni);
   } else {
     return NULL;
@@ -903,7 +905,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     }
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
-    RedisModule_Log(RSDummyContext, "warning", 
+    RedisModule_Log(RSDummyContext, "warning",
       "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
       name, FTConfigNameToConfigName(name));
   }

@@ -3496,7 +3496,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Register the module configuration parameters
   GetRedisVersion(ctx);
-  const Version unstableRedis = {8, 1, 0};
+  const Version unstableRedis = {8, 0, 0};
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
   if (unprefixedConfigSupported) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {

@@ -962,12 +962,11 @@ def testModuleLoadexStringParams():
     os.unlink(rdbFilePath)
 
     redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
     _removeModuleArgs(env)
 
     for configName, argName, ftDefault, testValue in stringConfigs:
-        if configName == 'search-ext-load':
-            basedir = os.path.dirname(redisearch_module_path)
-            testValue = os.path.abspath(os.path.join(basedir, testValue))
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
 
         # Test setting the parameter using CONFIG
         env.start()
@@ -993,14 +992,14 @@ def testModuleLoadexStringParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module arguments, the CONFIG values should
+        # Load module using CONFIG and module arguments, the ARGS values should
         # take precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, testValue,
-                    'ARGS', argName, 'invalid_value'
+                    'CONFIG', configName, 'invalid_value',
+                    'ARGS', argName, testValue
         )
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
@@ -1024,23 +1023,20 @@ def testConfigFileStringParams():
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
 
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
         for configName, argName, ftDefault, testValue in stringConfigs:
-            if configName == 'search-ext-load':
-                basedir = os.path.dirname(redisearch_module_path)
-                testValue = os.path.abspath(os.path.join(basedir, testValue))
+            testValue = os.path.abspath(os.path.join(basedir, testValue))
             f.write(f'{configName} {testValue}\n')
 
     # Restart the server using the conf file and check each value
     env.start()
     for configName, argName, ftDefault, testValue in stringConfigs:
-        if configName == 'search-ext-load':
-                basedir = os.path.dirname(redisearch_module_path)
-                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, testValue])
         res = env.cmd(config_cmd(), 'GET', argName)
@@ -1063,30 +1059,32 @@ def testConfigFileAndArgsStringParams():
     env.assertEqual(len(env.envRunner.modulePath), 2)
     env.assertEqual(len(env.envRunner.moduleArgs), 2)
     redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
 
     # create redis configuration file
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
+    moduleArgs = ''
     with open(redisConfigFile, 'w') as f:
         for configName, argName, ftDefault, testValue in stringConfigs:
-            if configName == 'search-ext-load':
-                basedir = os.path.dirname(redisearch_module_path)
-                testValue = os.path.abspath(os.path.join(basedir, testValue))
-            f.write(f'{configName} {testValue}\n')
+            f.write(f'{configName} unusedValue\n')
+            testValue = os.path.abspath(os.path.join(basedir, testValue))
+            if (moduleArgs != ''):
+                moduleArgs += ' '
+            moduleArgs += f'{argName} {testValue}'
 
     # create module arguments
     env.envRunner.moduleArgs.pop()
     env.envRunner.moduleArgs.pop()
-    env.envRunner.moduleArgs.append(['EXTLOAD unusedValue FRISOINI unusedValue'])
+    env.envRunner.moduleArgs.append([moduleArgs])
     env.envRunner.moduleArgs.append([])
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
 
     # Restart the server using the conf file and check each value
     env.start()
+    env.assertTrue(env.isUp())
     for configName, argName, ftDefault, testValue in stringConfigs:
-        if configName == 'search-ext-load':
-                basedir = os.path.dirname(redisearch_module_path)
-                testValue = os.path.abspath(os.path.join(basedir, testValue))
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, testValue])
         res = env.cmd(config_cmd(), 'GET', argName)
