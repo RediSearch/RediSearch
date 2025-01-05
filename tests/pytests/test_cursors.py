@@ -383,6 +383,7 @@ def testCursorDepletionNonStrictTimeoutPolicy():
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
     n_recieved = len(res['results'])
+    env.debugPrint(f"res['results'][0]: {res['results'][0]}", force=True)
     env.debugPrint(f'First cursor run, Received {n_recieved} results', force=True)
     i = 1
     try:
@@ -394,6 +395,9 @@ def testCursorDepletionNonStrictTimeoutPolicy():
                 env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
                 env.debugPrint(f'{res["warning"]}', force=True)
                 i += 1
+                if n_recieved > 4500:
+                    env.debugPrint(f"res['results']", force=True)
+
 
     except Exception as e:
         env.assertEqual(str(e), f'Cursor read failed after retrieving {n_recieved} results, cursor id: {cursor}')
