@@ -947,10 +947,10 @@ def check_index_with_null(env, idx):
                     'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
     res = env.cmd('FT.SEARCH', idx, '*', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} * sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} * sort')
 
     res = env.cmd('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} [1 5] sort')
 
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
@@ -1357,6 +1357,7 @@ def testTagAutoescaping(env):
     res = env.cmd('FT.SEARCH', 'idx', '@tag:{"trailing:space"  }')
     env.assertEqual(res, expected_result)
 
+@skip(no_json=True)
 def testLimitations(env):
     """ highlight/summarize is not supported with JSON indexes """
 

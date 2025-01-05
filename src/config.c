@@ -26,6 +26,65 @@
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
+typedef struct {
+  const char *FTConfigName;
+  const char *ConfigName;
+} configPair_t;
+
+configPair_t __configPairs[] = {
+  {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
+  {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
+  {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
+  {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
+  {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
+  {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
+  {"CONN_PER_SHARD",                  "search-conn-per-shard"},
+  {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
+  {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
+  {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"EXTLOAD",                         "search-ext-load"},
+  {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
+  {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
+  {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
+  {"FORKGC_SLEEP_BEFORE_EXIT",        "search-forkgc-sleep-before-exit"},
+  {"FRISOINI",                        "search-friso-ini"},
+  {"GC_POLICY",                       "search-gc-policy"},
+  {"GCSCANSIZE",                      "search-gcscansize"},
+  {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
+  {"MAXDOCTABLESIZE",                 "search-maxdoctablesize"},
+  {"MAXPREFIXEXPANSIONS",             "search-maxprefixexpansions"},
+  {"MAXSEARCHRESULTS",                "search-maxsearchresults"},
+  {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
+  {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
+  {"MINPREFIX",                       "search-minprefix"},
+  {"MINSTEMLEN",                      "search-minstemlen"},
+  {"NO_MEM_POOLS",                    "search-no-mem-pools"},
+  {"NOGC",                            "search-nogc"},
+  {"ON_TIMEOUT",                      "search-on-timeout"},
+  {"MULTI_TEXT_SLOP",                 "search-multi-text-slop"},
+  {"PARTIAL_INDEXED_DOCS",            "search-partial-indexed-docs"},
+  {"RAW_DOCID_ENCODING",              "search-raw-docid-encoding"},
+  {"SEARCH_THREADS",                  "search-search-threads"},
+  {"TIERED_HNSW_BUFFER_LIMIT",        "search-tiered-hnsw-buffer-limit"},
+  {"TIMEOUT",                         "search-timeout"},
+  {"TOPOLOGY_VALIDATION_TIMEOUT",     "search-topology-validation-timeout"},
+  {"UNION_ITERATOR_HEAP",             "search-union_iterator-heap"},
+  {"VSS_MAX_RESIZE",                  "search-vss-max-resize"},
+  {"WORKERS",                         "search-workers"},
+  {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
+};
+
+static const char* FTConfigNameToConfigName(const char *name) {
+  size_t num_configs = sizeof(__configPairs) / sizeof(configPair_t);
+  for (size_t i = 0; i < num_configs; ++i) {
+    if (!strcasecmp(__configPairs[i].FTConfigName, name)) {
+      return __configPairs[i].ConfigName;
+    }
+  }
+  return NULL;
+}
+
 int set_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -83,13 +142,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
-  if (val) {
-    size_t len;
-    const char *ret = RedisModule_StringPtrLen(val, &len);
-    if (len > 0) {
-      *ptr = rm_strndup(ret, len);
-    }
-  }
+  size_t len;
+  const char *ret = RedisModule_StringPtrLen(val, &len);
+  *ptr = rm_strndup(ret, len);
   return REDISMODULE_OK;
 }
 
@@ -840,34 +895,19 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    // if the value is different from default, we can't update it, because the
-    // CONFIG SET has higher priority than the FT.CONFIG SET
-    RSConfig RSDefaultConfig = RS_DEFAULT_CONFIG;
-    sds currValue = curVar->getValue(&RSGlobalConfig);
-    sds currValueDefault = curVar->getValue(&RSDefaultConfig);
-
-    if ((currValue != NULL && currValueDefault!= NULL
-          && sdscmp(currValue, currValueDefault) == 0 ) ||
-          (currValue == NULL && currValueDefault == NULL)) {
-      // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
-      // If we don't have a coordinator or this configuration has no trigger, this value
-      // is meaningless and should be ignored
-      if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-        *err = rm_strdup(QueryError_GetError(&status));
-        QueryError_ClearError(&status);
-        return REDISMODULE_ERR;
-      }
-    } else {
-      // Consume the value
-      RedisModule_Log(NULL, "notice", "Can't set %s, because it was already set by CONFIG", curVar->name);
-      if (!(curVar->flags & RSCONFIGVAR_F_FLAG)) {
-        const char *value = AC_GetStringNC(&ac, NULL);
-      }
+    // `triggerId` is set by the coordinator when it registers a trigger for a configuration.
+    // If we don't have a coordinator or this configuration has no trigger, this value
+    // is meaningless and should be ignored
+    if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
+      *err = rm_strdup(QueryError_GetError(&status));
+      QueryError_ClearError(&status);
+      return REDISMODULE_ERR;
     }
-    sdsfree(currValue);
-    sdsfree(currValueDefault);
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
+    RedisModule_Log(RSDummyContext, "warning",
+      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
+      name, FTConfigNameToConfigName(name));
   }
 
   return REDISMODULE_OK;
@@ -1276,31 +1316,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   return rc;
 }
 
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "runtime_configurations");
-
-  if (RSGlobalConfig.extLoad != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
-  }
-  if (RSGlobalConfig.frisoIni != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
-  }
-  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.gcConfigParams.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.iteratorsConfigParams.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_stem_length", RSGlobalConfig.iteratorsConfigParams.minStemLength);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.requestConfigParams.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
-
-  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
-}
-
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
   switch (policy) {
     case TimeoutPolicy_Return:
@@ -1308,7 +1323,7 @@ const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
     case TimeoutPolicy_Fail:
       return on_timeout_vals[TimeoutPolicy_Fail];
     default:
-      return "huh?";
+      return "invalid";
   }
 }
 
@@ -1396,7 +1411,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-gc-scan-size", DEFAULT_GC_SCANSIZE,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcScanSize)
     )

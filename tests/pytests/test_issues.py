@@ -134,7 +134,7 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(arch_int_bits()))
+  env.expect(*args_list).error().contains(f'Schema is limited to {arch_int_bits()} TEXT fields')
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
@@ -587,7 +587,7 @@ def test_sortby_Noexist_Sortables(env):
   for count, args in enumerate(sortable_options):
     sortable1 = ['SORTABLE'] if args[0] else []
     sortable2 = ['SORTABLE'] if args[1] else []
-    conn.execute_command('FT.CREATE', 'idx{}'.format(count), 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+    conn.execute_command('FT.CREATE', f'idx{count}', 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
                                                 'text', 'TEXT', *sortable2)
 
   for count, args in enumerate(sortable_options):
@@ -597,19 +597,19 @@ def test_sortby_Noexist_Sortables(env):
     conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
     conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
 
-    msg = 'sortable1: {}, sortable2: {}'.format(sortable1, sortable2)
+    msg = f'sortable1: {sortable1}, sortable2: {sortable2}'
 
     # Check ordering of docs:
     #   In cluster: Docs without sortby field are ordered by key name
     #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
     env.assertEqual(res, [4,
         '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
         '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
       ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
     env.assertEqual(res, [4,
         '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
         '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
@@ -624,7 +624,7 @@ def test_sortby_Noexist_Sortables(env):
   conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
 
   for count, args in enumerate(sortable_options):
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'ASC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
     if env.isCluster():
       env.assertEqual(res, [10,
           '{key1}2', ['numval', '108'],
@@ -652,7 +652,7 @@ def test_sortby_Noexist_Sortables(env):
           '{key2}6', ['text', 'Squeak'],
         ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', 'idx{}'.format(count), '*', 'sortby', 'numval', 'DESC')
+    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
     if env.isCluster():
       env.assertEqual(res, [10,
           '{key2}4', ['numval', '111'],
@@ -1209,6 +1209,7 @@ def test_mod_7495(env: Env):
 @skip(cluster=True)
 def test_mod_8142(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idxOptimized', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
   env.cmd('HSET', 'doc1', 't', 'city')
   env.cmd('HSET', 'doc2', 't', 'cities')
   score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
@@ -1221,22 +1222,34 @@ def test_mod_8142(env:Env):
   env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '2', ['t', 'cities']])
   # Test with an optional term search
   env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
   # Test with an optional exact term search
   env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
   # Test without a term search
   env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idxOptimized', '-city', *score_opt).equal([0])
   env.expect('FT.SEARCH', 'idx', '-cities', *score_opt).equal([0])
+  env.expect('FT.SEARCH', 'idxOptimized', '-cities', *score_opt).equal([0])
   # Test without an exact term search
   env.expect('FT.SEARCH', 'idx', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
+  env.expect('FT.SEARCH', 'idxOptimized', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
   # Test with an optional negated term search
   env.expect('FT.SEARCH', 'idx', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
   # Test with an optional negated exact term search
   env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
   env.expect('FT.SEARCH', 'idx', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
+  env.expect('FT.SEARCH', 'idxOptimized', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
 
   # Verify that the vector search doesn't affect the scoring or result set
   env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()

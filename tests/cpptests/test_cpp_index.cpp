@@ -149,7 +149,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t index_memsize;
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
   int useFieldMask = indexFlags & Index_StoreFieldFlags;
-  int useNumEntries = indexFlags & Index_StoreNumeric;
 
   size_t t_fiedlMask_memsize = sizeof(t_fieldMask);
   size_t exp_t_fieldMask_memsize = 16;
@@ -173,7 +172,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
 
   size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
-  size_t exp_idx_no_block_memsize = (useFieldMask || useNumEntries) ?
+  size_t exp_idx_no_block_memsize = useFieldMask ?
                                     exp_ividx_memsize :
                                     exp_ividx_memsize - exp_t_fieldMask_memsize;
   ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
@@ -194,10 +193,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
-    // if (i % 10000 == 1) {
-    //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
-    //     w->ndocs);
-    // }
 
     ForwardIndexEntry h;
     h.docId = i;
@@ -224,17 +219,8 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
   ASSERT_EQ(199, idx->lastId);
 
-  // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
-
-  //   for (int x = 0; x < w->skipIdx.len; x++) {
-  //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId,
-  //     w->skipIdx.entries[x].offset);
-  //   }
-  // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
-
   for (int xx = 0; xx < 1; xx++) {
-    // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx);  //
+    IndexReader *ir = NewTermIndexReader(idx);
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -247,31 +233,71 @@ TEST_P(IndexFlagsTest, testRWFlags) {
       ASSERT_EQ(h->docId, n);
       n++;
     }
-    // for (int z= 0; z < 10; z++) {
-    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
-
-    // IR_SkipTo(ir, 900001, &h);
-
-    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
-    // long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
-
-    // printf("Time elapsed: %ldnano\n", diffInNanos);
-    // //IR_Free(ir);
-    // }
-    // IndexResult_Free(&h);
     IR_Free(ir);
   }
 
-  // IW_Free(w);
-  // // overriding the regular IW_Free because we already deleted the buffer
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
+INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
+    // 1. Full encoding - docId, freq, flags, offset
+    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags),
+    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema),
+    // 2. (Frequency, Field)
+    int(Index_StoreFreqs | Index_StoreFieldFlags),
+    int(Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema),
+    // 3. Frequencies only
+    int(Index_StoreFreqs),
+    // 4. Field only
+    int(Index_StoreFieldFlags),
+    int(Index_StoreFieldFlags | Index_WideSchema),
+    // 5. (field, offset)
+    int(Index_StoreFieldFlags | Index_StoreTermOffsets),
+    int(Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema),
+    // 6. (offset)
+    int(Index_StoreTermOffsets),
+    // 7. (freq, offset) Store term offsets but not field flags
+    int(Index_StoreFreqs | Index_StoreTermOffsets),
+    // 0. docid only
+    int(Index_DocIdsOnly)
+));
 
-int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
-  printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
-  return 0;
+// Test we only get the right encoder and decoder for the right flags
+TEST_F(IndexTest, testGetEncoderAndDecoders) {
+  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
+    switch (curFlags & INDEX_STORAGE_MASK) {
+    // 1. Full encoding - docId, freq, flags, offset
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
+    // 2. (Frequency, Field)
+    case Index_StoreFreqs | Index_StoreFieldFlags:
+    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
+    // 3. Frequencies only
+    case Index_StoreFreqs:
+    // 4. Field only
+    case Index_StoreFieldFlags:
+    case Index_StoreFieldFlags | Index_WideSchema:
+    // 5. (field, offset)
+    case Index_StoreFieldFlags | Index_StoreTermOffsets:
+    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
+    // 6. (offset)
+    case Index_StoreTermOffsets:
+    // 7. (freq, offset) Store term offsets but not field flags
+    case Index_StoreFreqs | Index_StoreTermOffsets:
+    // 0. docid only
+    case Index_DocIdsOnly:
+    // 9. Numeric
+    case Index_StoreNumeric:
+      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
+      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      break;
+
+    // invalid flags combination
+    default:
+      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+    }
+  }
 }
 
 TEST_F(IndexTest, testReadIterator) {
@@ -445,40 +471,6 @@ TEST_F(IndexTest, testPureNot) {
   }
   ir->Free(ir);
   InvertedIndex_Free(w);
-}
-
-// Note -- in test_index.c, this test was never actually run!
-TEST_F(IndexTest, DISABLED_testOptional) {
-  InvertedIndex *w = createPopulateTermsInvIndex(16, 1);
-  // not all numbers that divide by 3
-  InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w);   //
-  IndexReader *r2 = NewTermIndexReader(w2);  //
-
-  // printf("Reading!\n");
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
-
-  IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-  RSIndexResult *h = NULL;
-
-  int i = 1;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    // printf("%d <=> %d\n", h->docId, i);
-    ASSERT_EQ(i, h->docId);
-    if (i > 0 && i % 3 == 0) {
-      ASSERT_EQ(1, h->agg.children[1]->freq);
-    } else {
-      ASSERT_EQ(0, h->agg.children[1]->freq);
-    }
-    // printf("%d, ", h.docId);
-  }
-
-  ui->Free(ui);
-  // IndexResult_Free(&h);
-  InvertedIndex_Free(w);
-  InvertedIndex_Free(w2);
 }
 
 TEST_F(IndexTest, testNumericInverted) {
@@ -1197,46 +1189,6 @@ TEST_F(IndexTest, testBuffer) {
   Buffer_Free(w.buf);
 }
 
-typedef struct {
-  int num;
-  char **expected;
-
-} tokenContext;
-
-int tokenFunc(void *ctx, const Token *t) {
-  tokenContext *tx = (tokenContext *)ctx;
-  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
-  EXPECT_TRUE(ret == 0);
-  EXPECT_TRUE(t->pos > 0);
-  return 0;
-}
-
-// int testTokenize() {
-//   char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
-//   tokenContext ctx = {0};
-//   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
-//   ctx.expected = (char **)expected;
-
-//   tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
-//   ASSERT_TRUE(ctx.num == 5);
-
-//   free(txt);
-
-//   return 0;
-// }
-
-// int testForwardIndex() {
-
-//   Document doc = NewDocument(NULL, 1, 1, "english");
-//   doc.docId = 1;
-//   doc.fields[0] = N
-//   ForwardIndex *idx = NewForwardIndex(doc);
-//   char *txt = strdup("Hello? world...  hello hello ? __WAZZ@UP? שלום");
-//   tokenize(txt, 1, 1, idx, forwardIndexTokenFunc);
-
-//   return 0;
-// }
-
 TEST_F(IndexTest, testIndexSpec) {
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar", *name = "name";
   const char *args[] = {"STOPWORDS", "2",      "hello", "world",    "SCHEMA", title,
@@ -1398,12 +1350,6 @@ TEST_F(IndexTest, testHugeSpec) {
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
 }
-
-typedef union {
-
-  int i;
-  float f;
-} u;
 
 TEST_F(IndexTest, testIndexFlags) {
 
@@ -1624,4 +1570,44 @@ TEST_F(IndexTest, testDeltaSplits) {
 
   IR_Free(ir);
   InvertedIndex_Free(idx);
+}
+
+TEST_F(IndexTest, testRawDocId) {
+  const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
+  RSGlobalConfig.invertedIndexRawDocidEncoding = true;
+  size_t index_memsize = 0;
+  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
+  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+
+  // Add a few entries, all with an odd docId
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+  }
+
+  // Test that we can read them back
+  IndexReader *ir = NewTermIndexReader(idx);
+  RSIndexResult *cur;
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+    ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
+    ASSERT_EQ(id, cur->docId);
+  }
+  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
+
+  // Test that we can skip to all the ids
+  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
+    IR_Rewind(ir);
+    int rc = IR_SkipTo(ir, id, &cur);
+    if (id % 2 == 0) {
+      ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
+    } else {
+      ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(id, cur->docId);
+    }
+  }
+
+  // Clean up
+  IR_Free(ir);
+  InvertedIndex_Free(idx);
+  RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }

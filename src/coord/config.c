@@ -12,7 +12,8 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "hiredis/hiredis.h"
-#include "../module.h"
+#include "module.h"
+
 
 #include <string.h>
 #include <stdlib.h>

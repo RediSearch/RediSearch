@@ -376,10 +376,10 @@ def testEmptyTagLeak(env):
     for i in range(cycles):
         for j in range(tags):
             x = j + i * tags
-            pl.execute_command('HSET', 'doc{}'.format(x), 't', 'tag{}'.format(x))
+            pl.execute_command('HSET', f'doc{x}', 't', f'tag{x}')
         pl.execute()
         for j in range(tags):
-            pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
+            pl.execute_command('DEL', f'doc{j + i * tags}')
         pl.execute()
     forceInvokeGC(env, 'idx')
     env.expect(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't').equal([])

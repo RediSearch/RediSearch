@@ -39,7 +39,7 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info_command.h"
+#include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
@@ -56,7 +56,8 @@
 #include "coord/dist_profile.h"
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
@@ -97,6 +98,7 @@ static inline bool SearchCluster_Ready() {
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
+    // API not supported -> allow access (ACL will not be enforced).
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
@@ -104,23 +106,26 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 
   if (!user) {
     RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_FreeString(ctx, user_name);
     return false;
   }
 
+  bool ret = true;
   sds *prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
   for (uint i = 0; i < array_len(prefixes); i++) {
     prefix = RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i]));
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
+      ret = false;
       RedisModule_FreeString(ctx, prefix);
-      RedisModule_FreeModuleUser(user);
-      return false;
+      break;
     }
     RedisModule_FreeString(ctx, prefix);
   }
 
   RedisModule_FreeModuleUser(user);
-  return true;
+  RedisModule_FreeString(ctx, user_name);
+  return ret;
 }
 
 /* FT.MGET {index} {key} ...
@@ -3492,8 +3497,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Register the module configuration parameters
   GetRedisVersion(ctx);
-  Version unstableRedis = {8, 1, 0};
-  bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
+  const Version unstableRedis = {8, 0, 0};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
   if (unprefixedConfigSupported) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Error registering module configuration");
@@ -3502,7 +3507,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Check if we are actually in cluster mode
-  bool isClusterEnabled = checkClusterEnabled(ctx);
+  const bool isClusterEnabled = checkClusterEnabled(ctx);
 
   // Apply configuration
   if (unprefixedConfigSupported) {
