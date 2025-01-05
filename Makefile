@@ -200,14 +200,9 @@ endif
 CC_C_STD=gnu11
 # CC_CXX_STD=c++20
 
-# Todo: currently we run sanitizer against latest stable redis version where libstd++ is NOT dynamically linked
-# so we must use static with sanitizer. When we move to run sanitizer against redis >= 8 where libstd++ is dynamically
-# linked to redis, we will have to switch here as well
-ifeq ($(SAN),)
-export CC_STATIC_LIBSTDCXX=0
-else
+# Link statically to libstdc++ (required for supporting old OSs). Note that we should not build with this flag
+# when running against redis >= 8 (which is linked to libstdc++ dynamically).
 export CC_STATIC_LIBSTDCXX=1
-endif
 
 CC_COMMON_H=src/common.h
 
