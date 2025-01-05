@@ -623,3 +623,17 @@ def testNonZeroTimers(env):
     test_cluster_timer(env)
   else:
     test_shard_timers(env)
+
+def testPofileGILTime():
+  env = Env(moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+
+  # Populate db
+  for i in range(100):
+    res = conn.execute_command('hset', 'doc%d' % i,
+                                  'f', 'hello world')
+    env.assertEqual(1, res) 
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT')
+  res = conn.execute_command('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'SORTBY', '1', '@f')
+  expected = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', '0', 'Counter', 100]
+  env.assertContains(res, expected)
