@@ -2420,6 +2420,5 @@ def test_vector_index_ptr_valid(env):
     env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
     # Check FlushAll OK - before bug fix, the following command would cause a server crash due to the null pointer accsess
-    res = conn.execute_command('FLUSHALL')
-    env.assertEqual(res, True)
+    env.expect('FLUSHALL').noError()
     
