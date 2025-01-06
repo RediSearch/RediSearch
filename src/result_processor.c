@@ -380,7 +380,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  self->timedOut = false;
+  return ret;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
