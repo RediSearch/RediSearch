@@ -6,12 +6,16 @@
 
 #include "buffer.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include <sys/param.h>
 
 void Buffer_Grow(Buffer *buf, size_t extraLen) {
+  size_t originalCap = buf->cap;
   do {
     buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
   } while (buf->offset + extraLen > buf->cap);
+
+  RS_LOG_ASSERT_FMT(extraLen <= UINT32_MAX && buf->cap > originalCap, "Buffer_Grow: cap is not growing, extraLen: %zu, originalCap: %zu, buf->cap: %zu", extraLen, originalCap, buf->cap);
 
   buf->data = rm_realloc(buf->data, buf->cap);
 }

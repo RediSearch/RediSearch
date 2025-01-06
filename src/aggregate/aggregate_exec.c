@@ -268,11 +268,11 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     resultsLen = 2;
   } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
-    size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
-    size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+    size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
+    size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req);
 
-    size_t expected_res = reqLimit + reqOffset <= RSGlobalConfig.maxSearchResults ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
+    size_t expected_res = ((reqLimit + reqOffset) <= RSGlobalConfig.maxSearchResults) ? req->qiter.totalResults : MIN(RSGlobalConfig.maxSearchResults, req->qiter.totalResults);
     size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
     resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -339,7 +339,7 @@ done:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-  sendChunk(req, outctx, -1);
+  sendChunk(req, outctx, UINT64_MAX);
   if (IsProfile(req)) {
     Profile_Print(outctx, req);
   }

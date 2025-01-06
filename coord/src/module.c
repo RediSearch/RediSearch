@@ -521,6 +521,12 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     // Default: No SORTBY is given, or SORTBY is given by other field
     // When first sorting by different field, the topk vectors should be passed to the coordinator heap
     ctx->knn.shouldSort = true;
+    // after setting the special case which will free the node can now validate the request
+    if (k > MAX_KNN_K) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      return;
+    }
+
     // We need to get K results from the shards
     // For example the command request SORTBY text_field LIMIT 2 3
     // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK

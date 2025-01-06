@@ -123,6 +123,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                     &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
       }
+      if (vq->knn.k > MAX_KNN_K) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
+        return NULL;
+      }
       HybridIteratorParams hParams = {.index = vecsim,
                                       .dim = dim,
                                       .elementType = type,
