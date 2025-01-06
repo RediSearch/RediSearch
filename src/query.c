@@ -1403,13 +1403,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  if (n == 1) {
-    ret = iters[0];
-    rm_free(iters);
-    iters = NULL;
-    goto done;
-  }
-
   ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
