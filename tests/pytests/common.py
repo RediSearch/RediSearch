@@ -757,7 +757,7 @@ def downloadFiles(rdbs = None):
             return False
     return True
 
-def index_errors(env):
-    return to_dict(index_info(env)['Index Errors'])
-def field_errors(env,fld_index = 0):
-    return to_dict(to_dict(to_dict(index_info(env)['field statistics'][fld_index]))['Index Errors'])
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])

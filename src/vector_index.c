@@ -38,8 +38,9 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   // create new vector data structure
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  if(kdv->p){
+    dictAdd(spec->keysDict, keyName, kdv);  
+  }
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
 }
