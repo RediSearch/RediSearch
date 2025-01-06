@@ -793,13 +793,15 @@ TEST_F(IndexTest, testHybridVector) {
   IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index
+  VecSimLogCtx logCtx = { .index_field_name = "v" };
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
                       .algoParams = {.hnswParams = HNSWParams{.type = t,
                                                .dim = d,
                                                .metric = met,
                                                .initialCapacity = max_id,
                                                .M = 16,
-                                               .efConstruction = 100}}};
+                                               .efConstruction = 100}},
+                      .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= max_id; i++) {
     float f[d];
@@ -954,10 +956,12 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index with a single vector.
+  VecSimLogCtx logCtx = { .index_field_name = "v" };
   VecSimParams params{
       .algo = VecSimAlgo_HNSWLIB,
       .algoParams = {.hnswParams = HNSWParams{
-          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}}};
+          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}},
+      .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
 
   float vec[] = {(float)n, (float)n, (float)n, (float)n};
@@ -1005,13 +1009,15 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSimType t = VecSimType_FLOAT32;
 
   // Create vector index
+  VecSimLogCtx logCtx = { .index_field_name = "v" };
   VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
                       .algoParams = {.hnswParams = HNSWParams{.type = t,
                                                .dim = d,
                                                .metric = met,
                                                .initialCapacity = n,
                                                .M = 16,
-                                               .efConstruction = 100}}};
+                                               .efConstruction = 100}},
+                      .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= n; i++) {
     float f[d];
