@@ -210,7 +210,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
@@ -240,6 +240,7 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
         }
@@ -249,6 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
+      'Total GIL time': ANY,
       'Warning': 'None',
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
