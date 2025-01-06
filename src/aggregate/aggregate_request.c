@@ -1329,6 +1329,9 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
+  if(!IsProfile(req)){
+    req->qiter.isProfile = false;
+  }
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")

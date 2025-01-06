@@ -881,6 +881,7 @@ done:
 
 static void parseProfile(AREQ *r, int withProfile) {
   if (withProfile != NO_PROFILE) {
+    r->qiter.isProfile = true;
     r->reqflags |= QEXEC_F_PROFILE;
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
@@ -908,7 +909,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    r->initClock = clock();
+    clock_t initClock = clock();
+    r->initClock = initClock;
+    r->qiter.GILTime = 0;
   }
 
   // This function also builds the RedisSearchCtx.
@@ -933,8 +936,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
-
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    r->qiter.GILTime +=  IsProfile(r) ? (clock() - r->initClock) : 0;
+
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.

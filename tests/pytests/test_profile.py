@@ -634,6 +634,8 @@ def testPofileGILTime():
                                   'f', 'hello world')
     env.assertEqual(1, res) 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT')
-  res = conn.execute_command('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'SORTBY', '1', '@f')
-  expected = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', '0', 'Counter', 100]
-  env.assertContains(res, expected)
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'SORTBY', '1', '@f')
+  expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', '0', 'Counter', 100]
+  expected_total_GIL_time = ['Total GIL time', ANY]
+  env.assertContains(res, expected_result_processor_stats)
+  env.assertContains(res[1][1], expected_total_GIL_time)

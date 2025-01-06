@@ -129,6 +129,17 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
             (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+      //Print total GIL time
+        if (profile_verbose){
+          if (RunInThread()){
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+              (double)(req->qiter.GILTime) / CLOCKS_PER_MILLISEC);
+          } else {
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+              (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+          }
+        }
+
 
       // Print whether a warning was raised throughout command execution
       if (timedout) {

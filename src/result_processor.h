@@ -75,6 +75,9 @@ typedef struct {
   // Contains our spec
   RedisSearchCtx *sctx;
 
+  bool isProfile;
+  clock_t GILTime;
+
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
 
