@@ -650,10 +650,11 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
-  } else if (ctx.nits == 1) {
-    IndexIterator *ret = ctx.its[0];
-    rm_free(ctx.its);
-    return ret;
+  // TODO: This should be a single iterator.
+  // } else if (ctx.nits == 1) {
+  //   IndexIterator *ret = ctx.its[0];
+  //   rm_free(ctx.its);
+  //   return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
@@ -722,6 +723,11 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   if (!ctx.its || ctx.nits == 0) {
     rm_free(ctx.its);
     return NULL;
+  // TODO: This should be a single iterator.
+  // } else if (ctx.nits == 1) {
+  //   IndexIterator *ret = ctx.its[0];
+  //   rm_free(ctx.its);
+  //   return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
@@ -837,6 +843,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   } else if (ctx.nits == 1) {
     IndexIterator *ret = ctx.its[0];
     rm_free(ctx.its);
+    ctx.its = NULL;
     return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
@@ -1039,6 +1046,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   if (n == 1) {
     IndexIterator *ret = iters[0];
     rm_free(iters);
+    iters = NULL;
     return ret;
   }
 
@@ -1072,6 +1080,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   } else if (ctx.nits == 1) {
     IndexIterator *ret = ctx.its[0];
     rm_free(ctx.its);
+    ctx.its = NULL;
     return ret;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
@@ -1397,6 +1406,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (n == 1) {
     ret = iters[0];
     rm_free(iters);
+    iters = NULL;
     goto done;
   }
 
