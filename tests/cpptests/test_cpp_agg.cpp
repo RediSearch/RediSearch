@@ -173,7 +173,6 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     SearchResult_Clear(&res);
   }
   SearchResult_Destroy(&res);
@@ -226,7 +225,6 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
