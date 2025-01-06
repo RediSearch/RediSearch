@@ -410,7 +410,7 @@ typedef enum {
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
-void RSValue_Print(const RSValue *v);
+sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 

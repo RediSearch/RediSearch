@@ -39,6 +39,13 @@ struct TEvalCtx : ExprEval {
     lookup = NULL;
   }
 
+  std::string dump(bool obfuscate) {
+    char *s = ExprAST_Dump((RSExpr *)root, obfuscate);
+    std::string ret(s);
+    rm_free(s);
+    return ret;
+  }
+
   int bindLookupKeys() {
     assert(lookup);
     return ExprAST_GetLookupKeys((RSExpr *)root, (RLookup *)lookup, &status_s);
@@ -91,10 +98,12 @@ TEST_F(ExprTest, testExpr) {
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
   ASSERT_EQ(6, eval.result().numval);
+  ASSERT_EQ(eval.dump(false), std::string("(2 + 4)"));
+  ASSERT_EQ(eval.dump(true), std::string("(Number + Number)"));
 }
 
 TEST_F(ExprTest, testParser) {
-  const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
+  const char *e = "(((((2 + 2) * (3 / 4)) + (2 % 3)) - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
   if (!root) {
@@ -108,7 +117,7 @@ TEST_F(ExprTest, testParser) {
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
-  // RSValue_Print(&eval.result());
+  ASSERT_EQ(eval.dump(false), std::string(e));
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -137,7 +146,7 @@ TEST_F(ExprTest, testFunction) {
     FAIL() << "Could not parse " << e << " " << ctx.error();
   }
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+  // RSValue_DumpSds(&ctx.result());
 }
 
 struct EvalResult {
@@ -258,7 +267,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+  // RSValue_DumpSds(&ctx.result());
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }
