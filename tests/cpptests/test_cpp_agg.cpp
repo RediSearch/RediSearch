@@ -71,8 +71,9 @@ TEST_F(AggTest, testBasic) {
     //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
     //   if (vv != NULL) {
     //     std::cerr << "  " << kk->name << ": ";
-    //     RSValue_DumpSds(vv);
-    //     std::cerr << std::endl;
+    //     sds s = RSValue_DumpSds(vv);
+    //     std::cerr << s << std::endl;
+    //     sdsfree(s)
     //   }
     // }
     SearchResult_Clear(&res);

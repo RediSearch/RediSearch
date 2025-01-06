@@ -744,7 +744,10 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         const char *obfuscated = Obfuscate_Text(v->strval.str);
         return sdscatfmt(s, "\"%s\"", obfuscated);
       } else {
-        return sdscatfmt(s, "\"%.*s\"", v->strval.len, v->strval.str);
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, v->strval.str, v->strval.len);
+        s = sdscat(s, "\"");
+        return s;
       }
       break;
     case RSValue_RedisString:
@@ -756,7 +759,10 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       } else {
         size_t len;
         const char *str = RedisModule_StringPtrLen(v->rstrval, &len);
-        return sdscatfmt(s, "\"%.*s\"", len, str);
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, str, len);
+        s = sdscat(s, "\"");
+        return s;
       }
       break;
     case RSValue_Number: {

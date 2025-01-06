@@ -499,10 +499,14 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 
     int rc = RSValue_Cmp(v1, v2, qerr);
     // printf("asc? %d Compare: \n", ascending);
-    // RSValue_DumpSds(v1);
+    // sds s = RSValue_DumpSds(v1);
+    // print(s);
+    // sdsfree(s);
     // printf(" <=> ");
-    // RSValue_DumpSds(v2);
+    // s = RSValue_DumpSds(v2);
+    // print(s);
     // printf("\n");
+    // sdsfree(s);
 
     if (rc != 0) return ascending ? -rc : rc;
   }

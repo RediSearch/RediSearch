@@ -121,7 +121,7 @@ TEST_F(ExprTest, testParser) {
 }
 
 TEST_F(ExprTest, testGetFields) {
-  const char *e = "@foo + sqrt(@bar) / @baz + ' '";
+  const char *e = "((@foo + (sqrt(@bar) / @baz)) + \" \")";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetError(&status);
@@ -133,6 +133,11 @@ TEST_F(ExprTest, testGetFields) {
   auto *kbaz = RLookup_GetKey(&lk, "baz", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
   int rc = ExprAST_GetLookupKeys(root, &lk, &status);
   ASSERT_EQ(EXPR_EVAL_OK, rc);
+  char *value = ExprAST_Dump(root, false);
+  ASSERT_STREQ(value, e);
+  rm_free(value);
+  char *obfuscated = ExprAST_Dump(root, true);
+  ASSERT_STREQ(obfuscated, "((@Text + (sqrt(@Text) / @Text)) + \"Text\")");
   RLookup_Cleanup(&lk);
   ExprAST_Free(root);
 }
@@ -146,7 +151,7 @@ TEST_F(ExprTest, testFunction) {
     FAIL() << "Could not parse " << e << " " << ctx.error();
   }
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_DumpSds(&ctx.result());
+  // sds s = RSValue_DumpSds(&ctx.result());
 }
 
 struct EvalResult {
@@ -267,7 +272,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_DumpSds(&ctx.result());
+  // sds s = RSValue_DumpSds(&ctx.result());
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }
