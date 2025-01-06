@@ -911,7 +911,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     // We currently don't need to measure the time for internal and non-profile commands
     clock_t initClock = clock();
     r->initClock = initClock;
-    r->qiter.GILTime = 0;
+    clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx.

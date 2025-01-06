@@ -78,14 +78,14 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         RPEvaluator_Reply(reply, "Type", rp);
         break;
 
+      case RP_SAFE_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        printProfileGILTime(rp->totalGILTime);
+        break;
+        
       case RP_PROFILE:
       case RP_MAX:
         RS_LOG_ASSERT(0, "RPType error");
-        break;
-      case RP_SAFE_LOADER:
-        printProfileType(RPTypeToString(rp->type));
-        double rpGILTime = (double)RPProfile_GetGILTime(rp) / CLOCKS_PER_MILLISEC;
-        printProfileGILTime(rpGILTime);
         break;
     }
 
@@ -132,11 +132,12 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time",
-              (double)(req->qiter.GILTime) / CLOCKS_PER_MILLISEC);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", req->qiter.GILTime);
           } else {
+            struct timespec rpEndTime;
+            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-              (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+              (double)(rpEndTime.tv_nsec - req->qiter.initTime.tv_nsec)/1000000.0);
           }
         }
 
