@@ -1505,8 +1505,7 @@ typedef struct {
   MRReply *explainScores;
   MRReply *fields;
   MRReply *payload;
-  const char *sortKey;
-  size_t sortKeyLen;
+  HiddenString *sortKey;
   double sortKeyNum;
 } searchResult;
 
@@ -1552,10 +1551,11 @@ specialCaseCtx* SpecialCaseCtx_New() {
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if (!ctx) return;
-  if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
+  if (ctx->specialCaseType == SPECIAL_CASE_KNN) {
+    HiddenString_Free(ctx->knn.fieldName);
     QueryNode_Free(ctx->knn.queryNode);
   } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
-    rm_free((void*)ctx->sortby.sortKey);
+    HiddenString_Free(ctx->sortby.sortKey);
   }
   rm_free(ctx);
 }
@@ -1601,7 +1601,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
 }
 
 void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
-  if(!req->specialCases) {
+  if (!req->specialCases) {
     req->specialCases = array_new(specialCaseCtx*, 1);
   }
   array_append(req->specialCases, knn_ctx);
@@ -1613,10 +1613,10 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
   long long requestedResultsCount = req->requestedResultsCount;
   req->requestedResultsCount = MAX(knn_ctx->knn.k, requestedResultsCount);
-  if(array_len(req->specialCases) > 1) {
+  if (array_len(req->specialCases) > 1) {
     specialCaseCtx* optionalSortCtx = req->specialCases[0];
-    if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
-      if(strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
+    if (optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
+      if (HiddenString_Compare(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
         // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
         knn_ctx->knn.shouldSort = false;
         // The requested results should be at most K
@@ -1682,7 +1682,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     size_t k = queryVectorNode.vq->knn.k;
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
-    ctx->knn.fieldName = HiddenString_GetUnsafe(queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField, NULL);
+    ctx->knn.fieldName = HiddenString_Retain(queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField);
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
     ctx->specialCaseType = SPECIAL_CASE_KNN;
@@ -1704,7 +1704,7 @@ void prepareSortbyCase(searchRequestCtx *req, RedisModuleString **argv, int argc
   const char* sortkey = RedisModule_StringPtrLen(argv[sortByIndex + 1], NULL);
   specialCaseCtx *ctx = SpecialCaseCtx_New();
   ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-  ctx->sortby.sortKey = rm_strdup(sortkey);
+  ctx->sortby.sortKey = NewHiddenString(sortkey, strlen(sortkey), true);
   ctx->sortby.asc = true;
   req->sortAscending = true;
   if (req->withSortby && sortByIndex + 2 < argc) {
@@ -1868,7 +1868,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
       } else if (r1->sortKey && r2->sortKey) {
 
         // Sort by string sort keys
-        cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
+        cmp = HiddenString_Compare(r2->sortKey, r1->sortKey);
         // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
         //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
         //        cmp);
@@ -1952,15 +1952,14 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   // get payloads
   res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
-    res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
-  }
-  if (res->sortKey) {
-    if (res->sortKey[0] == '#') {
+    size_t sortKeyLen;
+    const char *sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &sortKeyLen);
+    if (sortKey[0] == '#') {
       char *endptr;
-      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+      res->sortKeyNum = strtod(sortKey + 1, &endptr);
+      RedisModule_Assert(endptr == sortKey + sortKeyLen);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+    res->sortKey = NewHiddenString(sortKey, sortKeyLen, false);
   }
   return res;
 }
@@ -2011,7 +2010,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
     if (reduceSpecialCaseCtxSortBy) {
       MRReply *require_fields = MRReply_MapElement(result_j, "required_fields");
       if (require_fields) {
-        sortkey = MRReply_MapElement(require_fields, reduceSpecialCaseCtxSortBy->sortby.sortKey);
+        sortkey = MRReply_MapElement(require_fields, HiddenString_GetUnsafe(reduceSpecialCaseCtxSortBy->sortby.sortKey, NULL));
       }
     }
     if (!sortkey) {
@@ -2024,12 +2023,14 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       return res;
     }
     if (sortkey) {
-      res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
-      if (res->sortKey) {
-        if (res->sortKey[0] == '#') {
+      size_t sortKeyLen;
+      const char *sortKey = MRReply_String(sortkey, &sortKeyLen);
+      res->sortKey = NewHiddenString(sortKey, sortKeyLen, false);
+      if (sortKey) {
+        if (sortKey[0] == '#') {
           char *endptr;
-          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+          res->sortKeyNum = strtod(sortKey + 1, &endptr);
+          RedisModule_Assert(endptr == sortKey + sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -2131,7 +2132,8 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
   return cmpStrings(s1->result->id, s1->result->idLen, s2->result->id, s2->result->idLen);
 }
 
-static double parseNumeric(const char *str, const char *sortKey) {
+static double parseNumeric(const char *str, const HiddenString *hiddenSortKey) {
+    const char *sortKey = HiddenString_GetUnsafe(hiddenSortKey, NULL);
     RedisModule_Assert(str[0] == '#');
     char *eptr;
     double d = strtod(str + 1, &eptr);
@@ -2220,7 +2222,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
         RedisModule_Log(ctx, "warning", "missing required_fields when parsing redisearch results");
         goto error;
       }
-      MRReply *score_value = MRReply_MapElement(require_fields, reduceSpecialCaseCtxKnn->knn.fieldName);
+      MRReply *score_value = MRReply_MapElement(require_fields, HiddenString_GetUnsafe(reduceSpecialCaseCtxKnn->knn.fieldName, NULL));
       if (!score_value) {
         RedisModule_Log(ctx, "warning", "missing knn required_field when parsing redisearch results");
         goto error;
@@ -2485,7 +2487,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         if (req->withSortingKeys && req->withSortby) {
           RedisModule_Reply_SimpleString(reply, "sortkey");
           if (res->sortKey) {
-            RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+            size_t sortKeyLen;
+            const char *sortKey = HiddenString_GetUnsafe(res->sortKey, &sortKeyLen);
+            RedisModule_Reply_StringBuffer(reply, sortKey, sortKeyLen);
           } else {
             RedisModule_Reply_Null(reply);
           }
@@ -2524,7 +2528,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
       }
       if (req->withSortingKeys && req->withSortby) {
         if (res->sortKey) {
-          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
+          size_t sortKeyLen;
+          const char *sortKey = HiddenString_GetUnsafe(res->sortKey, &sortKeyLen);
+          RedisModule_Reply_StringBuffer(reply, sortKey, sortKeyLen);
         } else {
           RedisModule_Reply_Null(reply);
         }
@@ -3091,15 +3097,15 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   size_t specialCasesLen = array_len(req->specialCases);
   size_t offset = 0;
-  for(size_t i=0; i < specialCasesLen; i++) {
+  for (size_t i=0; i < specialCasesLen; i++) {
     specialCaseCtx* ctx = req->specialCases[i];
     switch (ctx->specialCaseType) {
       // Handle sortby
       case SPECIAL_CASE_SORTBY: {
         // Sort by is always the first case.
         RedisModule_Assert(i==0);
-        if(req->requiredFields == NULL) {
-          req->requiredFields = array_new(const char*, 1);
+        if (req->requiredFields == NULL) {
+          req->requiredFields = array_new(HiddenString*, 1);
         }
         array_append(req->requiredFields, ctx->sortby.sortKey);
         // Sortkey is the first required key value to return
@@ -3109,14 +3115,14 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
       }
       case SPECIAL_CASE_KNN: {
         // Before requesting for a new field, see if it is not the sortkey.
-        if(!ctx->knn.shouldSort) {
+        if (!ctx->knn.shouldSort) {
             // We have already requested this field, we will not append it.
             ctx->knn.offset = 0;
             break;;
         }
         // Fall back into appending new required field.
-        if(req->requiredFields == NULL) {
-          req->requiredFields = array_new(const char*, 1);
+        if (req->requiredFields == NULL) {
+          req->requiredFields = array_new(HiddenString*, 1);
         }
         array_append(req->requiredFields, ctx->knn.fieldName);
         ctx->knn.offset = offset++;
@@ -3134,7 +3140,9 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
     int len = sprintf(snum, "%d", numberOfFields);
     MRCommand_Append(cmd, snum, len);
     for(size_t i = 0; i < numberOfFields; i++) {
-        MRCommand_Append(cmd, req->requiredFields[i], strlen(req->requiredFields[i]));
+        size_t length;
+        const char *field = HiddenString_GetUnsafe(req->requiredFields[i], &length);
+        MRCommand_Append(cmd, field, length);
     }
   }
 }

@@ -757,12 +757,12 @@ static void yy_destructor(
       break;
     case 30: /* attribute */
 {
- rm_free((char*)(yypminor->yy87).value); 
+ HiddenString_Free((yypminor->yy87).value); 
 }
       break;
     case 31: /* attribute_list */
 {
- array_free_ex((yypminor->yy1), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy1), HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 37: /* geo_filter */
@@ -1349,7 +1349,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 10: /* attribute ::= ATTRIBUTE COLON term */
 {
-    yylhsminor.yy87 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
+    yylhsminor.yy87 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = NewHiddenString(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len, true) };
 }
   yymsp[-2].minor.yy87 = yylhsminor.yy87;
         break;
@@ -1384,7 +1384,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy75 && yymsp[-1].minor.yy1) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy75, yymsp[-1].minor.yy1, array_len(yymsp[-1].minor.yy1), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy1, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy1, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy75 = yymsp[-4].minor.yy75;
 }
   yymsp[-4].minor.yy75 = yylhsminor.yy75;

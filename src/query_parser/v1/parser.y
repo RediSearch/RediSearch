@@ -129,10 +129,10 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { rm_free((char*)$$.value); }
+%destructor attribute { HiddenString_Free($$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); }
 
 %type affix { QueryNode * }
 %destructor affix { QueryNode_Free($$); }
@@ -310,7 +310,7 @@ expr(A) ::= LP expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = NewHiddenString(C.s, C.len, true) };
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -336,7 +336,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
     if (B && C) {
         QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 

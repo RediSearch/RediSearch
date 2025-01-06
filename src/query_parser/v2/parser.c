@@ -1110,12 +1110,12 @@ static void yy_destructor(
       break;
     case 42: /* attribute */
 {
- rm_free((char*)(yypminor->yy55).value); 
+ HiddenString_Free((yypminor->yy55).value); 
 }
       break;
     case 43: /* attribute_list */
 {
- array_free_ex((yypminor->yy63), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy63), HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 54: /* geo_filter */
@@ -1815,18 +1815,16 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 20: /* attribute ::= ATTRIBUTE COLON param_term */
 {
-  const char *value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-  size_t value_len = yymsp[0].minor.yy0.len;
+  HiddenString *value = NewHiddenString(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len, true);
   if (yymsp[0].minor.yy0.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, HiddenString_GetUnsafe(value, NULL), &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
-      value_len = found_value_len;
+      HiddenString_Free(value);
+      value = NewHiddenString(found_value, found_value_len, true);
     }
   }
-  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value, .vallen = value_len };
+  yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = value};
 }
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
         break;
@@ -1861,7 +1859,7 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-4].minor.yy47 && yymsp[-1].minor.yy63) {
     QueryNode_ApplyAttributes(yymsp[-4].minor.yy47, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy63, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(yymsp[-1].minor.yy63, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
   yylhsminor.yy47 = yymsp[-4].minor.yy47;
 }
   yymsp[-4].minor.yy47 = yylhsminor.yy47;
@@ -2340,8 +2338,13 @@ static YYACTIONTYPE yy_reduce(
   }
   yymsp[-2].minor.yy47->params = array_grow(yymsp[-2].minor.yy47->params, 1);
   memset(&array_tail(yymsp[-2].minor.yy47->params), 0, sizeof(*yymsp[-2].minor.yy47->params));
-  QueryNode_SetParam(ctx, &(array_tail(yymsp[-2].minor.yy47->params)), &(yymsp[-2].minor.yy47->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);
+  char* scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(yymsp[-2].minor.yy47->params)), &scoreField, NULL, &yymsp[0].minor.yy0);
   yymsp[-2].minor.yy47->vn.vq->params = yymsp[-1].minor.yy57;
+  if (scoreField) {
+    yymsp[-2].minor.yy47->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   yylhsminor.yy47 = yymsp[-2].minor.yy47;
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
@@ -2354,7 +2357,12 @@ static YYACTIONTYPE yy_reduce(
   }
   yymsp[-1].minor.yy47->params = array_grow(yymsp[-1].minor.yy47->params, 1);
   memset(&array_tail(yymsp[-1].minor.yy47->params), 0, sizeof(*yymsp[-1].minor.yy47->params));
-  QueryNode_SetParam(ctx, &(array_tail(yymsp[-1].minor.yy47->params)), &(yymsp[-1].minor.yy47->vn.vq->scoreField), NULL, &yymsp[0].minor.yy0);
+  char *scoreField = NULL;
+  QueryNode_SetParam(ctx, &(array_tail(yymsp[-1].minor.yy47->params)), &scoreField, NULL, &yymsp[0].minor.yy0);
+  if (scoreField) {
+    yymsp[-1].minor.yy47->vn.vq->scoreField = NewHiddenString(scoreField, strlen(scoreField), true);
+    rm_free(scoreField);
+  }
   yylhsminor.yy47 = yymsp[-1].minor.yy47;
 }
   yymsp[-1].minor.yy47 = yylhsminor.yy47;
@@ -2381,7 +2389,7 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-5].minor.yy47 && yymsp[-1].minor.yy63) {
     QueryNode_ApplyAttributes(yymsp[-5].minor.yy47, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy63, rm_free((char*)((QueryAttribute*)ptr)->value));
+  array_free_ex(yymsp[-1].minor.yy63, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr)->value));
 
   if (yymsp[-8].minor.yy47) {
     QueryNode_AddChild(yymsp[-5].minor.yy47, yymsp[-8].minor.yy47);
@@ -2396,7 +2404,7 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-5].minor.yy47 && yymsp[-1].minor.yy63) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy47, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy63, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(yymsp[-1].minor.yy63, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
   if (yymsp[-8].minor.yy47) {
     QueryNode_AddChild(yymsp[-5].minor.yy47, yymsp[-8].minor.yy47);
@@ -2414,7 +2422,7 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-5].minor.yy47 && yymsp[-1].minor.yy63) {
      QueryNode_ApplyAttributes(yymsp[-5].minor.yy47, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63), ctx->status);
   }
-  array_free_ex(yymsp[-1].minor.yy63, rm_free((char*)((QueryAttribute*)ptr )->value));
+  array_free_ex(yymsp[-1].minor.yy63, HiddenString_Free((HiddenString*)((QueryAttribute*)ptr )->value));
 
 }
 }
