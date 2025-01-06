@@ -354,6 +354,43 @@ def test_create():
         conn.execute_command('FT.DROP', 'idx2')
 
 @skip(cluster=True)
+def test_search_ints(env:Env):
+    dim = 4
+    idx = 'idx'
+    fld = 'v'
+    dataset = {
+        'a': [40]*dim,
+        'b': [30]*dim,
+        'c': [20]*dim,
+        'd': [10]*dim,
+    }
+    expected_scores = {k: str(int(spatial.distance.sqeuclidean(np.array(v), np.zeros(dim)))) for k, v in dataset.items()}
+
+    for data_type in ['INT8', 'UINT8']:
+        env.flush()
+
+        env.cmd('FT.CREATE', idx, 'SCHEMA', fld, 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+        for k, v in dataset.items():
+            env.cmd('HSET', k, fld, create_np_array_typed(v, data_type).tobytes())
+
+        query_vec = create_np_array_typed([0]*dim, data_type)
+
+        expected_res = [len(dataset)]
+        for k in dataset:
+            expected_res.extend([k, ['score', expected_scores[k]]])
+        res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2,
+                      'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+        env.assertEqual(res, expected_res, message=data_type)
+
+        for _ in env.reloadingIterator():
+            expected_res = [len(dataset)]
+            for k in sorted(dataset, key=lambda x: int(expected_scores[x])):
+                expected_res.extend([k, ['score', expected_scores[k]]])
+            res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2, 'SORTBY', 'score',
+                          'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+            env.assertEqual(res, expected_res, message=data_type)
+
+@skip(cluster=True)
 def test_create_multiple_vector_fields():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     dim = 2
