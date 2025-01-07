@@ -80,7 +80,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        printProfileGILTime(rp->totalGILTime);
+        printProfileGILTime(rp->GILTime);
         break;
         
       case RP_PROFILE:

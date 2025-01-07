@@ -162,7 +162,7 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
-  clock_t totalGILTime;
+  clock_t GILTime;
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there

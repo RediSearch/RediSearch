@@ -905,7 +905,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
   double GILDuration =  (rpEndTime.tv_nsec - rpStartTime.tv_nsec)/1000000.0;
   rp->parent->GILTime += GILDuration;
-  rp->totalGILTime += GILDuration;
+  rp->GILTime += GILDuration;
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;
