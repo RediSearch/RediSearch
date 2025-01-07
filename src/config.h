@@ -238,10 +238,13 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
-#define DEFAULT_MAX_AGGREGATE_RESULTS -1
+#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
-#define DEFAULT_MAX_SEARCH_RESULTS 1000000
+#define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
+#define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
+#define MAX_KNN_K (1ULL << 58)
 #define DEFAULT_MIN_TERM_PREFIX 2
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
@@ -280,9 +283,9 @@ void UpgradeDeprecatedMTConfigs();
     .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_RESULTS,                            \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_RESULTS,                      \
-    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                            \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                 \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                              \
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
