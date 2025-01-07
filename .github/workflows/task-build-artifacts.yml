@@ -121,7 +121,7 @@ jobs:
                 echo "Failed to fetch ref: '${{ github.ref }}'";
                 exit 1;
               }
-              git checkout FETCH_HEAD  # Check out the fetched ref
+              git checkout ${{ env.REF }}  # Check out the fetched ref
 
               # Update submodules
               git submodule update --init --recursive
