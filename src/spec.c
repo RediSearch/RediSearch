@@ -2657,11 +2657,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
-        if (!kdv) {
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
+        if(!vecsim)
           continue;
-        }
-        VecSimIndex *vecsim = kdv->p;
+        VecSimIndex_DeleteVector(vecsim, id);
         spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, id);
       }
     }

@@ -203,3 +203,31 @@ class TestDebugCommands(object):
         with TimeLimit(10):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
+
+def testVecsimInfo_badParams(env: Env):
+
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+    env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
+        .contains("Can't open vector index")
+
+def testHNSWdump_badParams(env: Env):
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
+    # Test dump HNSW with invalid index name
+    # If index error is "Can't open vector index" then function tries to accsses null pointer
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
+        .contains("Can't open vector index")
