@@ -2394,10 +2394,10 @@ def test_switch_write_mode_multiple_indexes(env):
 
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
-    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter 
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
     #            Insert partial doc - only numeric
     #            Update Doc
-    
+
     # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
@@ -2408,10 +2408,10 @@ def test_vector_index_ptr_valid(env):
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
-    # Before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # efore bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
-    
+
     # Sanity check - insert a vector, expect indexing faliure
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
     env.assertEqual(res, 1)
@@ -2419,6 +2419,7 @@ def test_vector_index_ptr_valid(env):
     index_errors_dict = index_errors(env, 'idx')
     env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
-    # Check FlushAll OK - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
-    
+    env.expect('PING').noError()
