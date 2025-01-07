@@ -490,6 +490,10 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     *type = VecSimType_FLOAT16;
   else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_BFLOAT16))
     *type = VecSimType_BFLOAT16;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_UINT8))
+    *type = VecSimType_UINT8;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT8))
+    *type = VecSimType_INT8;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
@@ -2994,11 +2998,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
-        if (!kdv) {
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        if(!vecsim)
           continue;
-        }
-        VecSimIndex *vecsim = kdv->p;
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }
