@@ -936,9 +936,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
-    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     r->qiter.GILTime +=  IsProfile(r) ? (clock() - r->initClock) : 0;
-
+    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
