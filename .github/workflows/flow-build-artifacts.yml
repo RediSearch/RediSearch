@@ -28,41 +28,26 @@ on:
           - aarch64
         description: 'Architecture to build on. Use "all" to build on all'
         default: all
-  workflow_call:
-    inputs:
-      platform:
+      tag:
         type: string
-        default: all
-      architecture:
-        type: string
-        default: all
+        description: 'RediSearch version to build'
+        required: true
 
 jobs:
-  setup:
-    # Sets SHA and Validates the reference Input (branch or tag)
+  validation:
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ steps.set-sha.outputs.sha }}
-      redis-ref: ${{ steps.get-redis.outputs.tag }}
+      sha: ${{ steps.set-outputs.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
-      - id: set-sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - id: get-redis
-        shell: bash -l -eo pipefail {0}
+        with:
+          fetch-depth: 0
+      - name: Validate Tag Input
         run: |
-          TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-      - name: Validate Reference
-        shell: python
-        run: |
-          from re import fullmatch
-          ref = '${{ github.ref_name }}'
-          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
-            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
-              print("::error title=Invalid Request::"
-                    "You can only build all configurations for master or a release branch")
-              exit(1)
+          [[ $(git tag --list ${{ inputs.tag }} | wc -l) -eq 1 ]] || exit 1
+      - name: Set Outputs
+        id: set-outputs
+        run: echo "sha=$(git rev-parse ${{ inputs.tag }})" >> $GITHUB_OUTPUT
 
   decide-linux:
     if: ${{ inputs.platform != 'macos' }}
@@ -92,7 +77,7 @@ jobs:
             print(f'platforms={platforms}', file=f)
 
   build-linux-x86:
-    needs: [decide-linux, setup]
+    needs: [decide-linux, validation]
     if: contains(fromJson('["x86_64", "all"]'), inputs.architecture)
     strategy:
       fail-fast: false
@@ -104,11 +89,10 @@ jobs:
     with:
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      ref: ${{ inputs.tag }}
 
   build-linux-arm:
-    needs: [decide-linux, setup]
+    needs: [decide-linux, validation]
     if: contains(fromJson('["aarch64", "all"]'), inputs.architecture)
     strategy:
       fail-fast: false
@@ -121,11 +105,10 @@ jobs:
       env: ${{ vars.RUNS_ON_ARM }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
-      sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      ref: ${{ inputs.tag }}
 
   build-macos:
-    needs: [decide-macos, setup]
+    needs: [decide-macos, validation]
     if: contains(fromJson('["macos", "all"]'), inputs.platform)
     strategy:
       fail-fast: false
@@ -135,5 +118,101 @@ jobs:
     secrets: inherit
     with:
       env: ${{ matrix.OS }}
-      sha: ${{ needs.setup.outputs.sha }}
-      redis-ref: ${{ needs.setup.outputs.redis-ref }}
+      ref: ${{ inputs.tag }}
+
+  deploy:
+    needs: [build-linux-x86, build-linux-arm, build-macos, validation]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Get boto3
+        run: pip install boto3
+      - name: Set Version Artifacts
+        shell: python
+        run: |
+          import boto3
+          import os
+          import json
+          from concurrent.futures import ThreadPoolExecutor
+          from zipfile import ZipFile
+
+          bucket = "redismodules"
+          oss_dir = "redisearch-oss"
+          ent_dir = "redisearch"
+
+          suffix = ".${{ inputs.tag }}.zip"
+          new_suffix = ".${{ inputs.tag }}.zip".replace("v", "")
+          expected_sha = "${{ needs.validation.outputs.sha }}"
+
+          client = boto3.client("s3")
+
+          ########################### Helper Functions ###########################
+
+          # List all file in `bucket`, with suffix `suffix` and the given prefix (path)
+          def list_files_by_branch(prefix):
+              paginator = client.get_paginator("list_objects_v2")
+              for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                  for obj in page.get("Contents", []):
+                      if obj["Key"].endswith(suffix):
+                          yield obj["Key"]
+
+          def list_snapshots_by_branch(dir):
+              return list_files_by_branch(f"{dir}/snapshots/{dir}")
+
+          # Return the git sha from the module.json file in the zip file (build sha)
+          def extract_sha(key):
+              zip_name = os.path.basename(key)
+              c = boto3.client("s3")
+              c.download_file(bucket, key, zip_name)
+              with ZipFile(zip_name, "r") as z:
+                  with z.open("module.json") as f:
+                      obj = json.load(f)
+                      sha = str(obj["git_sha"]) # handle bytes, str, and bytes string representation
+                      return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
+
+          # new location is outside snapshots/ directory and with the new suffix
+          # Only called on files we know end with `suffix` and have a `snapshot` directory in the path
+          def get_target_name(name):
+              return name.replace("snapshots/", "", 1)[:-len(suffix)] + new_suffix
+
+          def group_print(title, args):
+              print(f"::group::{title} ({len(args)})")
+              print(*args, sep="\n")
+              print("::endgroup::")
+
+          ############################### Main Script ###############################
+
+          files = []
+          for dir in [oss_dir, ent_dir]:
+              files.extend(list_snapshots_by_branch(dir))
+
+          group_print("${{ inputs.tag }} Branch candidates", files)
+
+          with ThreadPoolExecutor() as executor:
+              sha_list = executor.map(extract_sha, files)
+
+          exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
+          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
+          dest_files = [get_target_name(f) for f in include_list]
+
+          # Log files
+          group_print("Excluded files", exclude_list)
+          group_print("Included files", include_list)
+          group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
+
+          # Copy included files to new location
+          for src, dst in zip(include_list, dest_files):
+              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+
+          group_print("New Files", dest_files)
+
+          if len(exclude_list) > 0:
+              print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
+                    "expected git sha. These files will not be included in the release artifacts. Look for the "
+                    "`Excluded files` section above for more details.")
